@@ -1,0 +1,7 @@
+---
+# file: roles/clevis/tasks/main.yml
+
+- name: configure clevis/tang NBDE for automatic LUKS decryption
+  import_tasks: config_clevis.yml
+  tags:
+    - clevis

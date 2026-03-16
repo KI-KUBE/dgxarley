@@ -1,0 +1,310 @@
+---
+# config_clevis.yml
+# Configure automatic LUKS decryption via clevis/tang (NBDE)
+#
+# Requires:
+#   - wantsclevis: true on the host
+#   - hw_iface: <network-interface> on the host
+#   - clevis_luks_passphrase provided for initial bind (e.g., -e 'clevis_luks_passphrase=...')
+#
+# The LUKS partition is auto-detected from /etc/crypttab.
+# After initial bind, subsequent runs are idempotent without passphrase.
+#
+# Usage:
+#
+#   # Initial run (passphrase required for clevis luks bind):
+#   ansible-playbook common.yml  --tags clevis \
+#     -e 'clevis_luks_passphrase=DEIN_LUKS_PASSWORT'
+#
+#   # Subsequent runs (idempotent, no passphrase needed):
+#   ansible-playbook common.yml  --tags clevis
+#
+#   # Dry run:
+#   ansible-playbook common.yml  --tags clevis --check --diff
+#
+# What this does:
+#   1. Installs clevis packages (clevis, clevis-luks, clevis-initramfs, clevis-systemd)
+#   2. Auto-detects the LUKS partition from /etc/crypttab
+#   3. Checks for existing clevis bindings (skips bind if already present)
+#   4. Fetches tang advertisements and creates clevis/tang SSS binding (threshold 2)
+#   5. Configures initramfs networking (interface driver, DEVICE=, IP=:::::<device>:dhcp)
+#   6. Rebuilds initramfs (only when changes occurred)
+#   7. Deploys setup_clevis_tang.sh and tang_check_connection.sh to /root/
+#   8. Verifies clevis hooks and network driver in initramfs
+#
+# Defaults (roles/clevis/defaults/main.yml):
+#   clevis_tang_servers: (list of tang server URLs — real values in vault)
+#   clevis_sss_threshold: 2
+#
+# The existing LUKS passphrase remains valid as fallback.
+# If tang servers are unreachable at boot, the normal password prompt appears.
+
+# --- Install clevis packages ---
+
+- name: install clevis packages for NBDE
+  apt:
+    pkg:
+      - clevis
+      - clevis-luks
+      - clevis-systemd
+    state: present
+    update_cache: true
+
+- name: install clevis-initramfs package
+  apt:
+    pkg:
+      - clevis-initramfs
+    state: present
+  when: wantsclevis_initramfs | default(true)
+
+# --- Detect LUKS device from crypttab ---
+
+- name: detect LUKS partition from crypttab
+  shell: |
+    set -euo pipefail
+    awk '/luks/ {
+      if ($2 ~ /^UUID=/) {
+        sub(/^UUID=/, "", $2)
+        cmd="blkid -U " $2
+        cmd | getline dev; close(cmd)
+        print dev
+      } else {
+        print $2
+      }
+      exit
+    }' /etc/crypttab
+  args:
+    executable: /bin/bash
+  register: clevis_detected_device
+  changed_when: false
+  check_mode: false
+
+- name: set LUKS device fact
+  set_fact:
+    clevis_luks_device: "{{ clevis_luks_device_override | default(clevis_detected_device.stdout | trim) }}"
+
+- name: fail if no LUKS device detected
+  fail:
+    msg: "No LUKS device found in /etc/crypttab. Set clevis_luks_device_override if needed."
+  when: clevis_luks_device | length == 0
+
+- name: display detected LUKS device
+  debug:
+    msg: "LUKS device: {{ clevis_luks_device }}"
+
+# --- Check existing clevis bindings ---
+
+- name: check existing clevis bindings
+  command: clevis luks list -d {{ clevis_luks_device }}
+  register: clevis_existing_bindings
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: set bind-needed flag
+  set_fact:
+    clevis_needs_bind: "{{ clevis_existing_bindings.stdout | trim | length == 0 }}"
+
+- name: display binding status
+  debug:
+    msg: >-
+      {{ 'No clevis bindings found - bind needed'
+         if (clevis_needs_bind | bool)
+         else 'Existing bindings: ' + clevis_existing_bindings.stdout }}
+
+# --- Fail early if passphrase missing for bind ---
+
+- name: verify clevis_luks_passphrase is defined for binding
+  fail:
+    msg: >-
+      clevis_luks_passphrase must be provided for initial clevis bind
+      (e.g., -e 'clevis_luks_passphrase=YOUR_PASSPHRASE').
+  when:
+    - clevis_needs_bind | bool
+    - clevis_luks_passphrase is not defined
+    # - not ansible_check_mode
+
+# --- Verify tang server connectivity ---
+
+- name: verify tang server connectivity
+  uri:
+    url: "{{ item }}/adv"
+    return_content: false
+    timeout: 5
+  loop: "{{ clevis_tang_servers }}"
+  loop_control:
+    label: "{{ item }}"
+
+# --- Bind clevis/tang (SSS) to LUKS device ---
+
+- name: bind clevis/tang (SSS) to LUKS device
+  block:
+    - name: write LUKS passphrase to temporary keyfile
+      copy:
+        content: "{{ clevis_luks_passphrase }}"
+        dest: /tmp/.clevis_luks_key
+        mode: '0600'
+      no_log: true
+
+    - name: fetch tang advertisements and create clevis binding
+      shell: |
+        set -euo pipefail
+
+        # Build tang pin array with pre-fetched advertisements
+        TANG_PINS="["
+        FIRST=true
+        {% for server in clevis_tang_servers %}
+        ADV=$(curl -sfS "{{ server }}/adv")
+        if [ "$FIRST" = true ]; then FIRST=false; else TANG_PINS+=","; fi
+        TANG_PINS+=$(jq -n --argjson adv "$ADV" --arg url "{{ server }}" \
+          '{"url": $url, "adv": $adv}')
+        {% endfor %}
+        TANG_PINS+="]"
+
+        CONFIG=$(jq -n \
+          --argjson pins "$TANG_PINS" \
+          --argjson t {{ clevis_sss_threshold }} \
+          '{"t": $t, "pins": {"tang": $pins}}')
+
+        clevis luks bind -k /tmp/.clevis_luks_key -d {{ clevis_luks_device }} sss "$CONFIG"
+      args:
+        executable: /bin/bash
+      register: clevis_bind_result
+
+  always:
+    - name: remove temporary keyfile
+      file:
+        path: /tmp/.clevis_luks_key
+        state: absent
+  when:
+    - clevis_needs_bind | bool
+    - not ansible_check_mode
+
+# --- Verify binding ---
+
+- name: verify clevis binding
+  command: clevis luks list -d {{ clevis_luks_device }}
+  register: clevis_verify_binding
+  changed_when: false
+
+- name: display current bindings
+  debug:
+    msg: "Current clevis bindings: {{ clevis_verify_binding.stdout }}"
+
+# --- Configure initramfs networking ---
+
+- name: detect network interface driver
+  shell: basename $(readlink /sys/class/net/{{ hw_iface }}/device/driver) 2>/dev/null || echo ""
+  register: clevis_net_driver
+  changed_when: false
+  check_mode: false
+  when: wantsclevis_initramfs | default(true)
+
+- name: ensure network driver in initramfs modules
+  lineinfile:
+    path: /etc/initramfs-tools/modules
+    line: "{{ clevis_net_driver.stdout }}"
+    state: present
+  when:
+    - wantsclevis_initramfs | default(true)
+    - clevis_net_driver.stdout | default('') | length > 0
+  register: clevis_initramfs_modules_changed
+
+- name: set DEVICE in initramfs.conf
+  lineinfile:
+    path: /etc/initramfs-tools/initramfs.conf
+    regexp: '^DEVICE='
+    line: "DEVICE={{ hw_iface }}"
+  register: clevis_initramfs_device_changed
+  when: wantsclevis_initramfs | default(true)
+
+- name: set IP in initramfs.conf with device and dhcp
+  lineinfile:
+    path: /etc/initramfs-tools/initramfs.conf
+    regexp: '^IP='
+    line: "IP=:::::{{ hw_iface }}:dhcp"
+    insertafter: '^DEVICE='
+  register: clevis_initramfs_ip_changed
+  when: wantsclevis_initramfs | default(true)
+
+# --- Clean up stale initramfs netplan artifacts ---
+# The initramfs init script calls configure_networking() AFTER local-bottom,
+# so the cleanup must be in init-bottom (which runs after configure_networking).
+# configure_networking() writes /run/netplan/<iface>.yaml which persists into
+# userspace and causes netplan generate to re-enable DHCP on OVS bridge ports.
+
+- name: remove old local-bottom cleanup-netplan script (wrong location)
+  file:
+    path: /etc/initramfs-tools/scripts/local-bottom/cleanup-netplan
+    state: absent
+  register: clevis_cleanup_old_removed
+  when: wantsclevis_initramfs | default(true)
+
+- name: deploy initramfs init-bottom cleanup-netplan script
+  copy:
+    src: initramfs_local-bottom_cleanup-netplan
+    dest: /etc/initramfs-tools/scripts/init-bottom/cleanup-netplan
+    owner: root
+    group: root
+    mode: '0755'
+  register: clevis_cleanup_netplan_changed
+  when: wantsclevis_initramfs | default(true)
+
+# --- Rebuild initramfs ---
+
+- name: rebuild initramfs for all kernels
+  command: update-initramfs -u -k all
+  when:
+    - wantsclevis_initramfs | default(true)
+    - >-
+      (clevis_needs_bind | bool) or
+      (clevis_initramfs_modules_changed is changed) or
+      (clevis_initramfs_device_changed is changed) or
+      (clevis_initramfs_ip_changed is changed) or
+      (clevis_cleanup_netplan_changed is changed) or
+      (clevis_cleanup_old_removed is changed)
+
+# --- Deploy scripts ---
+
+- name: deploy setup_clevis_tang.sh
+  template:
+    src: setup_clevis_tang.sh.j2
+    dest: /root/setup_clevis_tang.sh
+    mode: '0755'
+    owner: root
+    group: root
+
+- name: deploy tang_check_connection.sh
+  copy:
+    src: tang_check_connection.sh
+    dest: /root/tang_check_connection.sh
+    mode: '0755'
+    owner: root
+    group: root
+
+# --- Final verification ---
+
+- name: verify clevis hooks in initramfs
+  shell: lsinitramfs /boot/initrd.img-$(uname -r) 2>/dev/null | grep -c clevis || echo "0"
+  register: clevis_initramfs_check
+  changed_when: false
+  when: wantsclevis_initramfs | default(true)
+
+- name: verify network driver in initramfs
+  shell: lsinitramfs /boot/initrd.img-$(uname -r) 2>/dev/null | grep -c {{ clevis_net_driver.stdout }} || echo "0"
+  register: clevis_driver_check
+  changed_when: false
+  when:
+    - wantsclevis_initramfs | default(true)
+    - clevis_net_driver.stdout | default('') | length > 0
+
+- name: display final verification
+  debug:
+    msg:
+      - "clevis hooks in initramfs: {{ clevis_initramfs_check.stdout }} files"
+      - "network driver ({{ clevis_net_driver.stdout | default('n/a') }}) in initramfs: {{ clevis_driver_check.stdout | default('n/a') }} files"
+      - "setup_clevis_tang.sh deployed to /root/"
+      - "tang_check_connection.sh deployed to /root/"
+      - "Check: /root/tang_check_connection.sh {{ clevis_luks_device }}"
+      - "Rebind: /root/setup_clevis_tang.sh [PASSPHRASE]"
+  when: wantsclevis_initramfs | default(true)

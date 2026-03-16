@@ -1,0 +1,8 @@
+---
+# file: roles/clevis/defaults/main.yml
+
+# Clevis/Tang NBDE configuration (for hosts with wantsclevis: true)
+clevis_tang_servers:
+  - "http://tang.example.com"
+  - "http://tang2.example.com:9090"
+clevis_sss_threshold: 2
