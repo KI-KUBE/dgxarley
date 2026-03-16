@@ -1,0 +1,6 @@
+---
+- name: Prepare DGX Spark nodes (QSFP, NVIDIA, ulimits)
+  hosts: dgxsparks
+  become: true
+  roles:
+    - dgx_prepare

@@ -1,0 +1,21 @@
+---
+- name: Apply common role to all DGX cluster nodes
+  hosts: all,!disabled,!switches
+  become: true
+  roles:
+    - common
+
+- name: clevis/tang NBDE automatic LUKS decryption
+  hosts: all,!disabled,!switches
+  become: true
+  gather_facts: true
+  roles:
+    - role: clevis
+      when: wantsclevis | default(false)
+
+- name: NUT UPS monitoring
+  hosts: all,!disabled,!switches
+  become: true
+  roles:
+    - role: nut
+      when: wantsnut | default(false)

@@ -1,0 +1,10 @@
+# git-crypt: encrypt vault files containing sensitive data
+group_vars/**/vault.yml filter=git-crypt diff=git-crypt
+host_vars/**/vault.yml filter=git-crypt diff=git-crypt
+
+# Encrypt test script with live TSIG key + server
+nsupdate_test.sh filter=git-crypt diff=git-crypt
+
+# failsafe for .local files...
+*.local.* filter=git-crypt diff=git-crypt
+*.local filter=git-crypt diff=git-crypt

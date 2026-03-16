@@ -1,0 +1,6 @@
+---
+- name: Configure MikroTik CRS310 switch
+  hosts: switches
+  gather_facts: false
+  roles:
+    - mikrotik

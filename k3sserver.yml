@@ -1,0 +1,6 @@
+---
+- name: Install and configure K3s cluster
+  hosts: k3sserver
+  become: true
+  roles:
+    - k3sserver

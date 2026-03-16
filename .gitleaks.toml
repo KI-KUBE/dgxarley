@@ -1,0 +1,14 @@
+[extend]
+  useDefault = true
+
+[allowlist]
+  paths = [
+    '''\.venv''',
+    '''\.local''',
+    '''vault\.yml''',
+    '''\.mypy_cache''',
+    '''\.idea''',
+    '''__pycache__''',
+    '''\..*local\..*''',
+    '''docker-config''',
+  ]
