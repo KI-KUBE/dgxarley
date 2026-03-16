@@ -1,0 +1,70 @@
+---
+- name: copy template /etc/rc.local
+  template:
+    src: "rc_local.j2"
+    dest: "/etc/rc.local"
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - skip_common_rclocal is not defined or not skip_common_rclocal
+
+- name: copy iptables.sh from templates
+  tags: iptables
+  template:
+    src: "iptables.sh.j2"
+    dest: "/root/iptables.sh"
+    owner: root
+    group: root
+    mode: '0755'
+  notify: execiptablessh
+  when:
+    - skip_common_iptables is not defined or not skip_common_iptables
+
+- name: copy script templates
+  template:
+    src: "{{ item }}.j2"
+    dest: "/root/{{ item }}"
+    owner: root
+    group: root
+    mode: '0755'
+  with_items:
+    - ipsetgeoblock.sh
+    - ipsetgeoallow.sh
+  notify: execrootscripts
+
+- name: copy script files
+  copy:
+    src: "{{ item }}"
+    dest: "/root/{{ item }}"
+    owner: root
+    group: root
+    mode: '0755'
+  with_items:
+    - .bashrc
+    - .vimrc
+    - .tmux.conf
+    - blacklist.sh
+    - blockbadhosts_ipset.sh
+    - savetablesandipsets.sh
+  notify: execrootscripts
+
+- name: copy dyndns_ipset_iptables.sh from templates
+  tags: iptables
+  template:
+    src: "dyndns_ipset_iptables.sh.j2"
+    dest: "/root/dyndns_ipset_iptables.sh"
+    owner: root
+    group: root
+    mode: '0755'
+  when: dyndns_hostname is defined
+
+- name: copy ip6tables_setup.sh from templates
+  tags: iptables
+  template:
+    src: "ip6tables_setup.sh.j2"
+    dest: "/root/ip6tables_setup.sh"
+    owner: root
+    group: root
+    mode: '0755'
+  notify: execip6tablessh

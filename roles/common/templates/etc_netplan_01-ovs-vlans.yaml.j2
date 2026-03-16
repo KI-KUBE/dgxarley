@@ -1,0 +1,117 @@
+{% if ovs_vlans | length > 0 %}
+network:
+  vlans:
+{% for vlan in ovs_vlans if vlan.id not in (skip_vlans | default([])) %}
+    {{ ovs_bridge_name }}.{{ vlan.id }}:
+      id: {{ vlan.tag | default(vlan.id) }}
+      link: {{ ovs_bridge_name }}
+{% if vlan.dhcp4 is defined %}
+      dhcp4: {{ vlan.dhcp4 | lower }}
+{% endif -%}
+{% if vlan.dhcp6 is defined %}
+      dhcp6: {{ vlan.dhcp6 | lower }}
+{% endif -%}
+{% if vlan.addresses is defined %}
+      addresses:
+{% for addr in vlan.addresses %}
+        - {{ addr }}
+{% endfor -%}
+{% endif -%}
+{% if vlan.nameservers is defined %}
+      nameservers:
+{% if vlan.nameservers.addresses is defined %}
+        addresses:
+{% for addr in vlan.nameservers.addresses %}
+          - {{ addr }}
+{% endfor -%}
+{% endif -%}
+{% if vlan.nameservers.search is defined %}
+        search:
+{% for domain in vlan.nameservers.search %}
+          - {{ domain }}
+{% endfor -%}
+{% endif -%}
+{% endif -%}
+{% set vlan_extra = (ovs_vlan_extra | default({}))[vlan.id] | default({}) %}
+{% if vlan.routes is defined or vlan_extra.extra_routes is defined %}
+      routes:
+{% if vlan.routes is defined %}
+{% for route in vlan.routes %}
+        - to: {{ route.to }}
+          via: {{ route.via }}
+{% if route.metric is defined %}
+          metric: {{ route.metric }}
+{% endif -%}
+{% if route.table is defined %}
+          table: {{ route.table }}
+{% endif -%}
+{% endfor -%}
+{% endif -%}
+{% if vlan_extra.extra_routes is defined %}
+{% for route in vlan_extra.extra_routes %}
+        - to: {{ route.to }}
+          via: {{ route.via }}
+{% if route.table is defined %}
+          table: {{ route.table }}
+{% endif -%}
+{% if route.metric is defined %}
+          metric: {{ route.metric }}
+{% endif -%}
+{% endfor -%}
+{% endif -%}
+{% endif -%}
+{% if vlan_extra.routing_policy is defined %}
+      routing-policy:
+{% for policy in vlan_extra.routing_policy %}
+        - from: {{ policy.from }}
+{% if policy.to is defined %}
+          to: {{ policy.to }}
+{% endif -%}
+          table: {{ policy.table }}
+{% if policy.priority is defined %}
+          priority: {{ policy.priority }}
+{% endif -%}
+{% endfor -%}
+{% endif -%}
+{% if vlan.ipv6_privacy is defined %}
+      ipv6-privacy: {{ vlan.ipv6_privacy | lower }}
+{% endif -%}
+{% if vlan.accept_ra is defined %}
+      accept-ra: {{ vlan.accept_ra | lower }}
+{% endif -%}
+{% if vlan.optional is defined %}
+      optional: {{ vlan.optional | lower }}
+{% endif -%}
+{% if vlan.link_local is defined %}
+      link-local: {{ vlan.link_local }}
+{% endif -%}
+{% if vlan.activation_mode is defined %}
+      activation-mode: {{ vlan.activation_mode }}
+{% endif -%}
+{% set _vlan_mac = vlan_extra.macaddress | default(none) %}
+{% if _vlan_mac is none and host_octet is defined %}
+{%   set _vlan_mac = '02:00:00:' ~ '%02x' | format(vlan.id) ~ ':00:' ~ '%02x' | format(host_octet) %}
+{% endif %}
+{% if _vlan_mac is not none %}
+      macaddress: "{{ _vlan_mac }}"
+      openvswitch:
+        other-config:
+          hwaddr: "{{ _vlan_mac }}"
+{% endif -%}
+{% if vlan.dhcp4_overrides is defined %}
+      dhcp4-overrides:
+{% for key, value in vlan.dhcp4_overrides.items() %}
+        {{ key | replace('_', '-') }}: {{ value | string | lower }}
+{% endfor -%}
+{% endif -%}
+{% if vlan.dhcp6_overrides is defined %}
+      dhcp6-overrides:
+{% for key, value in vlan.dhcp6_overrides.items() %}
+        {{ key | replace('_', '-') }}: {{ value | string | lower }}
+{% endfor -%}
+{% endif -%}
+{% endfor %}
+{% else %}
+# No VLANs configured
+network: {}
+{% endif %}

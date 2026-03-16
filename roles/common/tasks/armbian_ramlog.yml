@@ -1,0 +1,22 @@
+---
+# file: roles/common/tasks/armbian_ramlog.yml
+# Disable armbian-ramlog on NVMe/HDD-rooted hosts where zram log ramdisk
+# is unnecessary and silently truncates logs (e.g. /var/log capped at 50MB).
+
+- name: check if armbian-ramlog config exists
+  stat:
+    path: /etc/default/armbian-ramlog
+  register: armbian_ramlog_config
+
+- name: disable armbian-ramlog (unnecessary on NVMe/HDD root)
+  lineinfile:
+    path: /etc/default/armbian-ramlog
+    regexp: '^ENABLED='
+    line: 'ENABLED=false'
+  when: armbian_ramlog_config.stat.exists
+  register: armbian_ramlog_changed
+
+- name: print reboot notice if armbian-ramlog was disabled
+  debug:
+    msg: "armbian-ramlog was disabled. Reboot required for /var/log to move from zram to disk."
+  when: armbian_ramlog_changed is changed

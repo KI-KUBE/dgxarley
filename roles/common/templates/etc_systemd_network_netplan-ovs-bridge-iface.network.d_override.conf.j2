@@ -1,0 +1,8 @@
+# Managed by Ansible — drop-in for netplan-generated .network file.
+# Prevents DHCP leases inherited from initramfs (e.g. clevis/tang NBDE)
+# from persisting: systemd-networkd starts before openvswitch, so the
+# Bridge= assignment is ignored (NetDev not found). Without explicit
+# DHCP=no, networkd reactivates the initramfs lease on the bare interface.
+[Network]
+DHCP=no
+KeepConfiguration=no

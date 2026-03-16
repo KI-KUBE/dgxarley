@@ -1,0 +1,37 @@
+#!/bin/bash
+LOG () { echo ${*:- } ; } >&2
+LOG IFACE=$IFACE $OperationalState $AdministrativeState
+
+bn=$(basename $0)
+lp="/tmp/networkd_${bn}"
+rp=$(realpath -s "$0")
+checkfile=/tmp/"$IFACE".routable
+
+debugme() {
+    echo $(date) >> "${lp}"
+    echo "${rp}" >> "${lp}"
+    echo $@ >> "${lp}"
+    env >> "${lp}"
+    echo IFACE=$IFACE OperationalState=$OperationalState AdministrativeState=$AdministrativeState >> "${lp}"
+    echo -e "\n\n" >> "${lp}"
+}
+
+debugme
+
+case "$IFACE" in
+    {{ hw_iface }})
+        if [ -e "${checkfile}" ] ; then
+            LOG $checkfile exists... restarting k3s services
+{% if isk3smaster is defined and isk3smaster %}
+            systemctl restart k3s.service lldpd.service
+            echo "K3S AND lldpd restart triggered" | mail -s "${bn} $(hostname)" {{ fail2ban_recipient }}
+{% else %}
+            systemctl restart k3s-agent.service
+            echo "k3s-agent restart triggered" | mail -s "${bn} $(hostname)" {{ fail2ban_recipient }}
+{% endif %}
+        else
+            LOG $checkfile does NOT exist
+        fi
+        touch /tmp/"$IFACE".routable
+        ;;
+esac

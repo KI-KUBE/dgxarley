@@ -1,0 +1,22 @@
+---
+- name: Creates PATH entries for crontab
+  cron:
+    name: PATH
+    env: yes
+    job: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games"
+
+- name: cronjobs
+  cron:
+    name: "re-read {{ item.name }}"
+    minute: "{{ item.minute }}"
+    hour: "{{ item.hour }}"
+    job: "{{ item.name }}"
+    disabled: "{{ item.disabled }}"
+  with_items:
+    - { name: "/root/iptables.sh", minute: "0", hour: "4", disabled: "no" }
+    - { name: "/root/ipsetgeoblock.sh", minute: "0", hour: "6", disabled: "no" }
+    - { name: "/root/ipsetgeoallow.sh", minute: "10", hour: "6", disabled: "no" }
+    - { name: "/root/blacklist.sh", minute: "0", hour: "5", disabled: "no" }
+    - { name: "/root/blockbadhosts_ipset.sh", minute: "10", hour: "5", disabled: "no" }
+    - { name: "/root/savetablesandipsets.sh", minute: "0", hour: "12", disabled: "no" }
+    - { name: "/root/dyndns_ipset_iptables.sh", minute: "30", hour: "*", disabled: "yes" }

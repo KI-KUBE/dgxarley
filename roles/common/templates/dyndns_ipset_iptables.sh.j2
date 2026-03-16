@@ -1,0 +1,20 @@
+#!/bin/bash
+
+set_name=xosrc
+tmp_set_name="tmp_${RANDOM}"
+
+if ! ipset -q list ${set_name} >/dev/null ; then
+	ipset -N ${set_name} nethash
+fi
+
+xo=$(host -4t A {{ dyndns_hostname }}|grep -oE '[^ ]+$')
+
+ipset create ${tmp_set_name} nethash comment
+
+ipset add ${tmp_set_name} ${xo}
+
+# replace old set with the new, temp one - this guarantees an atomic update
+ipset swap ${tmp_set_name} ${set_name}
+
+# clear old set (now under temp name)
+ipset destroy ${tmp_set_name}

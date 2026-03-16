@@ -1,0 +1,64 @@
+---
+- import_tasks: set_network_facts.yml
+
+- name: Debug avahi config
+  debug:
+    msg:
+      - "Host: {{ inventory_hostname }}"
+      - "Ansible host: {{ ansible_host | default('not set') }}"
+      - "Groups: {{ group_names | join(', ') }}"
+      - "OS: {{ ansible_distribution | default('unknown') }} {{ ansible_distribution_version | default('') }}"
+      - "Default ipv4 interface for avahi: {{ ansible_default_ipv4.interface }}"
+  when:
+    - "'hetzner' not in group_names"
+    - "'hetznercloudnew' not in group_names"
+    - "'dnsserver' not in group_names"
+
+- name: Stop and disable avahi-daemon on cloud/dns servers
+  ansible.builtin.systemd_service:
+    name: avahi-daemon
+    enabled: false
+    state: stopped
+  ignore_errors: true
+  when:
+    - "'hetzner' in group_names or 'hetznercloudnew' in group_names or 'dnsserver' in group_names"
+
+- name: Validate that exactly one OVS VLAN has primary flag set
+  assert:
+    that:
+      - ovs_vlans | selectattr('primary', 'defined') | selectattr('primary') | list | length == 1
+    fail_msg: >-
+      ovs_vlans requires exactly one entry with 'primary: true' when wantsopenvswitch is set.
+      Found {{ ovs_vlans | default([]) | selectattr('primary', 'defined') | selectattr('primary') | list | length }} primary VLANs.
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+    - ovs_vlans is defined
+    - "'hetzner' not in group_names"
+    - "'hetznercloudnew' not in group_names"
+    - "'dnsserver' not in group_names"
+
+- name: config avahi-daemon
+  template:
+    src: avahi.conf.j2
+    dest: "/etc/avahi/avahi-daemon.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  register: avahi
+  when:
+    - "'hetzner' not in group_names"
+    - "'hetznercloudnew' not in group_names"
+    - "'dnsserver' not in group_names"
+
+- name: systemd avahi-daemon restart
+  systemd_service:
+    name: avahi-daemon
+    enabled: true
+    state: restarted
+  when:
+    - avahi.changed
+    - "'hetzner' not in group_names"
+    - "'hetznercloudnew' not in group_names"
+    - "'dnsserver' not in group_names"
+

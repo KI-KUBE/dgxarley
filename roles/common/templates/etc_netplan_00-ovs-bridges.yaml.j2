@@ -1,0 +1,27 @@
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    {{ ovs_bridge_iface }}:
+      dhcp4: false
+      dhcp6: false
+      link-local: []
+      # optional: true
+{% set untagged_vlans = ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list %}
+{% set native_vlans = ovs_vlans | selectattr('native', 'defined') | selectattr('native') | list %}
+{% if untagged_vlans | length > 0 %}
+      # Native (untagged) VLAN {{ untagged_vlans[0].id }} — not configurable via netplan.
+      # Applied by Ansible and auto-restored by networkd-dispatcher (configured.d/50-ovs-native-vlan):
+      # ovs-vsctl set port {{ ovs_bridge_iface }} vlan_mode=native-untagged tag={{ untagged_vlans[0].id }} trunks={{ (ovs_vlans | map(attribute='id') | list + ovs_extra_trunks | default([])) | unique | sort | join(',') }}
+{% elif native_vlans | length > 0 %}
+      # Native-tagged VLAN {{ native_vlans[0].id }} — not configurable via netplan.
+      # Applied by Ansible and auto-restored by networkd-dispatcher (configured.d/50-ovs-native-vlan):
+      # ovs-vsctl set port {{ ovs_bridge_iface }} vlan_mode=native-tagged tag={{ native_vlans[0].id }} trunks={{ (ovs_vlans | map(attribute='id') | list + ovs_extra_trunks | default([])) | unique | sort | join(',') }}
+{% endif %}
+  bridges:
+    {{ ovs_bridge_name }}:
+      openvswitch: {}
+      interfaces: [{{ ovs_bridge_iface }}]
+      dhcp4: false
+      link-local: []
+      # optional: true

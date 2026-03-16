@@ -1,0 +1,17 @@
+---
+- name: deploy smartd.conf
+  template:
+    src: smartd.conf.j2
+    dest: /etc/smartd.conf
+    owner: root
+    group: root
+    mode: '0644'
+  register: smartd_conf
+  when: smartd_devices | length > 0
+
+- name: enable and restart smartd
+  systemd_service:
+    name: smartd
+    enabled: true
+    state: restarted
+  when: smartd_conf.changed

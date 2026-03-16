@@ -1,0 +1,14 @@
+[DEFAULT]
+
+# Options: dbpurgeage
+# Notes.: Sets age at which bans should be purged from the database
+# Values: [ SECONDS ] Default: 86400 (24hours)
+dbpurgeage = 10d
+
+# Options: dbmaxmatches
+# Notes.: Number of matches stored in database per ticket (resolvable via
+#         tags <ipmatches>/<ipjailmatches> in actions)
+# Values: [ INT ] Default: 10
+dbmaxmatches = 10
+
+allowipv6 = no

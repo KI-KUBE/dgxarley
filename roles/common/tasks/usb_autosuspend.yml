@@ -1,0 +1,28 @@
+---
+# file: roles/common/tasks/usb_autosuspend.yml
+# Disable USB autosuspend globally (GRUB kernel parameter) and
+# per-device via udev rule for Realtek RTL8156B USB Ethernet adapters.
+# These are known to disconnect spontaneously when USB autosuspend is enabled.
+
+- name: check if GRUB is present
+  stat:
+    path: /etc/default/grub
+  register: grub_default
+
+- name: ensure usbcore.autosuspend=-1 in GRUB_CMDLINE_LINUX_DEFAULT
+  lineinfile:
+    dest: /etc/default/grub
+    regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
+    line: 'GRUB_CMDLINE_LINUX_DEFAULT="usbcore.autosuspend=-1"'
+    backrefs: false
+  notify: update grub
+  when: grub_default.stat.exists
+
+- name: deploy udev rule to disable autosuspend for Realtek RTL8156B USB Ethernet
+  copy:
+    content: 'ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0bda", ATTR{idProduct}=="8156", ATTR{power/autosuspend}="-1"'
+    dest: /etc/udev/rules.d/99-usb-ethernet-no-autosuspend.rules
+    owner: root
+    group: root
+    mode: '0644'
+  notify: reload udev rules

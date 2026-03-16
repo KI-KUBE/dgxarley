@@ -1,0 +1,3 @@
+[Service]
+ExecStart=
+ExecStart=/lib/systemd/systemd-networkd-wait-online --timeout=30 --any -i {{ default_route_iface }}{% if hw_iface is defined and hw_iface != default_route_iface %} -i {{ hw_iface }}{% endif %} {% if wifi_iface is defined %}-i {{ wifi_iface }}{% endif %}

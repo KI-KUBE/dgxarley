@@ -1,0 +1,117 @@
+---
+- name: deinstall snapd
+  apt:
+    pkg:
+      - snapd
+    state: absent
+  tags:
+    - installbasicpackages
+
+#- name: Check if apparmor is installed
+#  ansible.builtin.package_facts:
+#    manager: apt
+#  tags:
+#    - installbasicpackages
+
+- name: Check if apparmor is installed
+  ansible.builtin.command: dpkg-query -W -f='${Status}' apparmor
+  register: apparmor_check
+  changed_when: false
+  failed_when: false
+  tags:
+    - installbasicpackages
+
+- name: Run aa-teardown before removing apparmor
+  ansible.builtin.command: aa-teardown
+  when:
+    - apparmor_check.rc == 0
+    - "'install ok installed' in apparmor_check.stdout"
+    - deinstall_apparmor | default(false)
+  ignore_errors: true
+  tags:
+    - installbasicpackages
+
+- name: Deinstall apparmor on cloud/dns servers
+  ansible.builtin.apt:
+    pkg:
+      - apparmor
+      - apparmor-utils
+    state: absent
+    purge: true
+  when:
+    - apparmor_check.rc == 0
+    - "'install ok installed' in apparmor_check.stdout"
+    - deinstall_apparmor | default(false)
+  tags:
+    - installbasicpackages
+
+- name: install basic packages
+  apt:
+    pkg:
+      - rpl
+      - net-tools
+      - screen
+      - iozone3
+      - iperf3
+      - lvm2
+      - mdadm
+      - avahi-daemon
+      - avahi-utils
+      - rsyslog
+      - man-db
+      - iptables
+      - bash-completion
+      - vim
+      - ipset
+      - lshw
+      - apt-transport-https
+      - ca-certificates
+      - curl
+      - ethtool
+      - ebtables
+      - jq
+      - locales
+      - fail2ban
+      - mutt
+      - command-not-found
+      - mailutils
+      - postfix
+      - bind9-dnsutils
+      - multitail
+      - sysstat
+      - htop
+      - bmon
+      - rsync
+      - python3-certbot-dns-rfc2136
+      - smartmontools
+      - gsmartcontrol
+      - xauth
+      - whois
+      - lldpd
+      - lm-sensors
+      - dkms
+      - tmux
+      - nvme-cli
+    state: present
+    update_cache: true
+  tags:
+    - installbasicpackages
+
+
+
+- name: Install software-properties-common on Ubuntu
+  apt:
+    pkg:
+      - software-properties-common
+    state: present
+  when: ansible_distribution == 'Ubuntu'
+  tags:
+    - installbasicpackages
+
+- name: install nfs server packages
+  apt:
+    pkg:
+      - nfs-kernel-server
+  when:
+    - isnfsmaster is defined
+    - isnfsmaster == true

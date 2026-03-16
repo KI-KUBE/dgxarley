@@ -1,0 +1,5 @@
+#!/bin/sh
+
+if [ -x /usr/games/fortune ] ; then
+	echo ; LANG=C /usr/games/fortune -a ; echo
+fi

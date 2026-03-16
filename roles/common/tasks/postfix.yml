@@ -1,0 +1,18 @@
+---
+- name: copy postfix main config
+  template:
+    src: etc_postfix_main.cf.j2
+    dest: "/etc/postfix/main.cf"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart postfix
+
+- name: copy postfix main config
+  copy:
+    content: "{{ mailname }}"
+    dest: "/etc/mailname"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart postfix

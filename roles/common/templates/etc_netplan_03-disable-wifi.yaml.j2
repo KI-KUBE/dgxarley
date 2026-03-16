@@ -1,0 +1,9 @@
+# WiFi interface disabled — managed by Ansible
+network:
+  version: 2
+  ethernets:
+    {{ disable_wifi_iface }}:
+      dhcp4: false
+      dhcp6: false
+      optional: true
+      link-local: []

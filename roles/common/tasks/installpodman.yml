@@ -1,0 +1,38 @@
+---
+# file: roles/common/tasks/installpodman.yml
+
+- name: install podman
+  apt:
+    pkg:
+      - podman
+      - buildah
+    state: present
+    update_cache: true
+
+- name: enable and start podman socket (system-level)
+  systemd:
+    name: podman.socket
+    enabled: true
+    state: started
+    scope: system
+
+- name: enable linger for root
+  command: loginctl enable-linger root
+  changed_when: false
+
+- name: verify podman is working
+  command: podman info
+  changed_when: false
+  register: podman_info
+
+- name: show podman version
+  debug:
+    var: podman_info.stdout_lines
+
+- name: podman system prune cron job
+  cron:
+    name: "podman system prune"
+    minute: "30"
+    hour: "23"
+    job: "podman system prune -af --volumes"
+    disabled: "no"

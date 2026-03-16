@@ -1,0 +1,52 @@
+---
+- name: ensure sysstat is installed
+  apt:
+    pkg:
+      - sysstat
+    state: present
+
+- name: inserting sysstat enable to /etc/default/sysstat
+  lineinfile:
+    path: "/etc/default/sysstat"
+    line: 'ENABLED="true"'
+    state: present
+    create: yes
+  register: sysstatconftrue
+
+- name: checking sysstat not disabled in /etc/default/sysstat
+  lineinfile:
+    path: "/etc/default/sysstat"
+    search_string: 'ENABLED="false"'
+    state: absent
+  register: sysstatconffalse
+
+#- name: restart sysstat
+#  service:
+#    name: sysstat
+#    state: restarted
+
+
+- name: enable sysstat systemd-service
+  systemd_service:
+    daemon_reload: true
+    name: sysstat
+    enabled: true
+    state: restarted
+  when: sysstatconftrue.changed or sysstatconffalse.changed
+
+
+- name: enable sysstat-collect.timer
+  systemd_service:
+    daemon_reload: true
+    name: sysstat-collect.timer
+    enabled: true
+    state: started
+  when: sysstatconftrue.changed or sysstatconffalse.changed
+
+- name: enable sysstat-summary.timer
+  systemd_service:
+    daemon_reload: true
+    name: sysstat-summary.timer
+    enabled: true
+    state: started
+  when: sysstatconftrue.changed or sysstatconffalse.changed

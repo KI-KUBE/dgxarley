@@ -1,0 +1,50 @@
+---
+# file: roles/common/handlers/main.yml
+- name: localegen
+  command: update-locale LC_ALL=de_DE.UTF-8 LANG=de_DE.UTF-8
+
+- name: restart fail2ban
+  service:
+    name: fail2ban
+    state: restarted
+
+
+- name: restart sshd
+  service:
+    name: ssh
+    state: restarted
+
+
+- name: restart postfix
+  service:
+    name: postfix
+    state: restarted
+
+
+- name: execiptablessh
+  command: "/root/iptables.sh"
+
+- name: execip6tablessh
+  command: "/root/ip6tables_setup.sh"
+
+- name: execrootscripts
+  command: "/root/{{ item }}"
+  with_items:
+    - ipsetgeoallow.sh
+    - ipsetgeoblock.sh
+    - blacklist.sh
+    - blockbadhosts_ipset.sh
+    - savetablesandipsets.sh
+
+- name: sysctl reload
+  command: sysctl -p
+
+- name: update grub
+  command: update-grub
+
+- name: reload udev rules
+  command: udevadm control --reload-rules
+
+- name: update initramfs
+  command: update-initramfs -u
+

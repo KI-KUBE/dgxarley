@@ -1,0 +1,45 @@
+---
+# file: roles/common/tasks/usb_storage_quirks.yml
+# Disable UAS (USB Attached SCSI) for known-problematic USB-SATA bridge chips.
+# JMicron JMS579 (152d:0579) has flaky UAS causing I/O errors under load.
+# The 'u' flag forces fallback to usb-storage (BOT protocol).
+#
+# On x86 (usb-storage is a module): /etc/modprobe.d/ works.
+# On RPi/aarch64 (usb-storage is builtin): quirk must go in /boot/firmware/cmdline.txt.
+
+- name: Check if usb-storage is a kernel module (not builtin)
+  shell: grep -q usb_storage /proc/modules
+  register: usb_storage_is_module
+  changed_when: false
+  failed_when: false
+
+# --- x86 path: modprobe.d ---
+
+- name: Deploy UAS disable quirk via modprobe.d (usb-storage is module)
+  copy:
+    content: "options usb-storage quirks=152d:0579:u\n"
+    dest: /etc/modprobe.d/disable-uas-jmicron.conf
+    owner: root
+    group: root
+    mode: '0644'
+  when: usb_storage_is_module.rc == 0
+  notify: update initramfs
+
+# --- RPi/aarch64 path: cmdline.txt (usb-storage builtin) ---
+
+- name: Read current cmdline.txt
+  slurp:
+    src: /boot/firmware/cmdline.txt
+  register: cmdline_content
+  when: usb_storage_is_module.rc != 0
+
+- name: Append UAS disable quirk to cmdline.txt (usb-storage is builtin)
+  copy:
+    content: "{{ (cmdline_content.content | b64decode | trim) + ' usb-storage.quirks=152d:0579:u' }}\n"
+    dest: /boot/firmware/cmdline.txt
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - usb_storage_is_module.rc != 0
+    - "'usb-storage.quirks=152d:0579:u' not in (cmdline_content.content | b64decode)"

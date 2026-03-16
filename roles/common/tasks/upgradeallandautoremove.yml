@@ -1,0 +1,6 @@
+---
+- name: upgrade pkgs and autoremove
+  apt:
+    update_cache: true
+    upgrade: full
+    autoremove: yes

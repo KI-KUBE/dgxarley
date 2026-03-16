@@ -1,0 +1,13 @@
+---
+- name: Compute default_route_iface
+  set_fact:
+    default_route_iface: >-
+      {%- if default_route_iface is defined -%}
+        {{ default_route_iface }}
+      {%- elif wantsopenvswitch is defined and wantsopenvswitch -%}
+        {{ ovs_bridge_name }}.{{ ovs_vlans | selectattr('primary', 'defined') | selectattr('primary') | map(attribute='id') | first }}
+      {%- elif hw_iface is defined -%}
+        {{ hw_iface }}
+      {%- else -%}
+        {{ ansible_default_ipv4.interface }}
+      {%- endif -%}

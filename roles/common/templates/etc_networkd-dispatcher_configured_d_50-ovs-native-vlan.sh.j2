@@ -1,0 +1,57 @@
+#!/bin/bash
+# Deployed by Ansible — re-applies OVS native VLAN configuration
+# when the bridge port interface reaches "configured" state.
+#
+# netplan cannot express native-untagged/native-tagged mode. A manual
+# `netplan apply` recreates the OVS port from scratch and wipes
+# vlan_mode/tag/trunks. This script ensures all settings are
+# re-applied automatically.
+
+set -x
+
+SCRIPT_NAME=$0
+BRIDGE_NAME="{{ ovs_bridge_name }}"
+BRIDGE_PORT="{{ ovs_bridge_iface }}"
+{% set untagged_vlans = ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list %}
+{% set native_vlans = ovs_vlans | selectattr('native', 'defined') | selectattr('native') | list %}
+{% if untagged_vlans | length > 0 %}
+VLAN_MODE="native-untagged"
+TAG="{{ untagged_vlans[0].tag | default(untagged_vlans[0].id) }}"
+{% elif native_vlans | length > 0 %}
+VLAN_MODE="native-tagged"
+TAG="{{ native_vlans[0].tag | default(native_vlans[0].id) }}"
+{% endif %}
+{% set _effective_tags = [] %}{% for _v in ovs_vlans %}{% if _effective_tags.append(_v.tag | default(_v.id)) %}{% endif %}{% endfor %}{% for _t in ovs_extra_trunks | default([]) %}{% if _effective_tags.append(_t) %}{% endif %}{% endfor %}
+TRUNKS="{{ _effective_tags | unique | sort | join(',') }}"
+
+logger -t ovs-native-vlan "IFACE=${IFACE} DISPATCHER_STATE=${STATE} AdministrativeState=${AdministrativeState} OperationalState=${OperationalState}"
+
+# Only act when the bridge port or bridge interface triggers the event
+case "$IFACE" in
+    {{ ovs_bridge_iface }}|{{ ovs_bridge_name }}) ;;
+    *) exit 0 ;;
+esac
+
+# Skip if netplan is currently applying (drop-in clears tag, we must not reapply yet)
+if [ -f /run/netplan-ovs-native-vlan-applying ]; then
+    logger -t ovs-native-vlan "Skipping — netplan apply in progress (lockfile exists)"
+    exit 0
+fi
+
+# Wait for the port to be attached to the OVS bridge (may lag behind networkd)
+for i in $(seq 1 10); do
+    if ovs-vsctl port-to-br "$BRIDGE_PORT" >/dev/null 2>&1; then
+        # Apply native VLAN config on the physical bridge port
+        ovs-vsctl set port "$BRIDGE_PORT" \
+            vlan_mode="$VLAN_MODE" \
+            tag="$TAG" \
+            trunks="$TRUNKS"
+
+        logger -t ovs-native-vlan "Applied $VLAN_MODE config on $BRIDGE_PORT (tag=$TAG, trunks=$TRUNKS)"
+        exit 0
+    fi
+    sleep 1
+done
+
+logger -t ovs-native-vlan "Timed out waiting for $BRIDGE_PORT to join OVS bridge"
+exit 1

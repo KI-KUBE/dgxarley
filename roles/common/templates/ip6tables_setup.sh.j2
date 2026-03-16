@@ -1,0 +1,130 @@
+#!/bin/bash
+
+# set -x
+
+/sbin/ipset -N localnetsipv6 nethash comment family inet6
+
+{% for net in localnets_ipv6 | default([]) -%}
+/sbin/ipset add localnetsipv6 {{ net.cidr }} comment {{ net.comment | quote }}
+{% endfor %}
+{% if keepalived_vlans is defined %}
+{% for v in keepalived_vlans if v.ipv6_prefix is defined -%}
+/sbin/ipset add localnetsipv6 {{ v.ipv6_prefix }}:0::/64 comment "keepalived_vlans::vlan{{ v.vlan_id }} ipv6"
+{% endfor %}
+{% endif %}
+
+ip6tables -N HTSTUFFIN
+ip6tables -N HTSTUFFOUT
+
+ip6tables -F HTSTUFFIN
+ip6tables -F HTSTUFFOUT
+
+# Flush chains
+ip6tables -F INPUT
+ip6tables -F FORWARD
+ip6tables -F OUTPUT
+
+
+# Set up default policies
+ip6tables -P INPUT DROP
+ip6tables -P FORWARD DROP
+ip6tables -P OUTPUT DROP
+
+
+ip6tables -D INPUT -j HTSTUFFIN
+ip6tables -I INPUT 1 -j HTSTUFFIN
+
+ip6tables -D OUTPUT -j HTSTUFFOUT
+ip6tables -I OUTPUT 1 -j HTSTUFFOUT
+
+
+ip6tables -A INPUT -s ::1 -d ::1 -j ACCEPT
+
+ip6tables -A INPUT -s fe80::/64 -d ff02::0001 -j ACCEPT
+ip6tables -A INPUT -s fe80::/64 -d ff02::0002 -j ACCEPT
+ip6tables -A INPUT -s fe80::/64 -d ff02::0003 -j ACCEPT
+ip6tables -A INPUT -s fe80::/64 -d ff02::0001:0003 -j ACCEPT
+
+
+{% if pihole is defined %}
+ip6tables -A HTSTUFFIN -p udp -m state --state NEW -m multiport --dport 53,546 -m set --match-set localnetsipv6 src -j ACCEPT
+ip6tables -A HTSTUFFIN -p tcp -m state --state NEW -m multiport --dport 53,80,443 -m set --match-set localnetsipv6 src -j ACCEPT
+{% endif %}
+
+{% if keepalived_vlans is defined %}
+ip6tables -A HTSTUFFIN -p vrrp -m state --state NEW -m set --match-set localnetsipv6 src -j ACCEPT
+ip6tables -A HTSTUFFOUT -p vrrp -m state --state NEW -m set --match-set localnetsipv6 dst -j ACCEPT
+ip6tables -A HTSTUFFIN -p vrrp -m state --state ESTABLISHED,RELATED -m set --match-set localnetsipv6 src -j ACCEPT
+ip6tables -A HTSTUFFOUT -p vrrp -m state --state ESTABLISHED,RELATED -m set --match-set localnetsipv6 dst -j ACCEPT
+{% endif %}
+
+ip6tables -A HTSTUFFOUT -p tcp -m state --state NEW -m set --match-set localnetsipv6 dst -j ACCEPT
+ip6tables -A HTSTUFFOUT -p udp -m state --state NEW -m set --match-set localnetsipv6 src -j ACCEPT
+
+
+# Allow some ICMPv6 types in the INPUT chain
+# Using ICMPv6 type names to be clear.
+
+ip6tables -A INPUT -p icmpv6 --icmpv6-type destination-unreachable -j ACCEPT
+ip6tables -A INPUT -p icmpv6 --icmpv6-type packet-too-big -j ACCEPT
+ip6tables -A INPUT -p icmpv6 --icmpv6-type time-exceeded -j ACCEPT
+ip6tables -A INPUT -p icmpv6 --icmpv6-type parameter-problem -j ACCEPT
+
+
+# Allow some other types in the INPUT chain, but rate limit.
+ip6tables -A INPUT -p icmpv6 --icmpv6-type echo-request -m limit --limit 900/min -j ACCEPT
+ip6tables -A INPUT -p icmpv6 --icmpv6-type echo-reply -m limit --limit 900/min -j ACCEPT
+
+
+# Allow others ICMPv6 types but only if the hop limit field is 255.
+ip6tables -A INPUT -p icmpv6 --icmpv6-type router-solicitation -m hl --hl-eq 255 -j ACCEPT
+
+ip6tables -A INPUT -p icmpv6 --icmpv6-type router-advertisement -m hl --hl-eq 255 -j ACCEPT
+ip6tables -A INPUT -p icmpv6 --icmpv6-type neighbor-solicitation -m hl --hl-eq 255 -j ACCEPT
+ip6tables -A INPUT -p icmpv6 --icmpv6-type neighbor-advertisement -m hl --hl-gt 250 -j ACCEPT
+ip6tables -A INPUT -p icmpv6 --icmpv6-type redirect -m hl --hl-eq 255 -j ACCEPT
+
+
+# Allow ICMPv6 types that should be sent through the Internet.
+
+ip6tables -A OUTPUT -p icmpv6 --icmpv6-type destination-unreachable -j ACCEPT
+ip6tables -A OUTPUT -p icmpv6 --icmpv6-type packet-too-big -j ACCEPT
+ip6tables -A OUTPUT -p icmpv6 --icmpv6-type time-exceeded -j ACCEPT
+ip6tables -A OUTPUT -p icmpv6 --icmpv6-type parameter-problem -j ACCEPT
+
+
+# Limit most NDP messages to the local network.
+
+ip6tables -A OUTPUT -p icmpv6 --icmpv6-type neighbour-solicitation -m hl --hl-eq 255 -j ACCEPT
+ip6tables -A OUTPUT -p icmpv6 --icmpv6-type neighbour-advertisement -m hl --hl-eq 255 -j ACCEPT
+ip6tables -A OUTPUT -p icmpv6 --icmpv6-type router-solicitation -m hl --hl-eq 255 -j ACCEPT
+
+
+# Accept all other ICMPv6 types in the OUTPUT chain.
+
+ip6tables -A OUTPUT -p icmpv6 -j ACCEPT
+
+
+ip6tables -A OUTPUT -p tcp -j ACCEPT
+ip6tables -A OUTPUT -p udp -j ACCEPT
+
+# Stateful matching to allow requested traffic in.
+
+ip6tables -A INPUT -p tcp -m state --state ESTABLISHED,RELATED -j ACCEPT
+ip6tables -A INPUT -p udp -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+
+# Allow ICMPv6 Router Solicitations on cni0 (harmless pod-to-pod bridge multicast)
+ip6tables -A FORWARD -i cni0 -o cni0 -p icmpv6 --icmpv6-type router-solicitation -j ACCEPT
+
+# Drop ICMPv6 Router Solicitations on FORWARD (non-cni0), log max 1/min
+ip6tables -A FORWARD -p icmpv6 --icmpv6-type router-solicitation -m limit --limit 1/min -j LOG --log-prefix "IP6TABLES_DROP_FWD_RS " --log-level 4
+ip6tables -A FORWARD -p icmpv6 --icmpv6-type router-solicitation -j DROP
+
+ip6tables -A FORWARD -m limit --limit 10/min -j LOG --log-prefix "IP6TABLES_DROP_FORWARD " --log-level 4
+# DHCPv6 replies (router→client, port 547→546) — not needed, rate-limit log and drop
+ip6tables -A INPUT -p udp --sport 547 --dport 546 -s fe80::/10 -m limit --limit 1/min -j LOG --log-prefix "IP6TABLES_DROP_DHCPV6 " --log-level 4
+ip6tables -A INPUT -p udp --sport 547 --dport 546 -s fe80::/10 -j DROP
+
+ip6tables -A INPUT -m limit --limit 10/min -j LOG --log-prefix "IP6TABLES_DROP_INPUT " --log-level 4
+ip6tables -A OUTPUT -m limit --limit 10/min -j LOG --log-prefix "IP6TABLES_DROP_OUTPUT " --log-level 4

@@ -1,0 +1,312 @@
+---
+# file: roles/common/tasks/main.yml
+- name: install basic/helpfull packages, upgrade-full and autoremove
+  import_tasks: installbasicpackages.yml
+  tags:
+    - installbasicpackages
+
+- name: configure avahi appropriately
+  import_tasks: config_avahi.yml
+  tags:
+    - avahi
+
+- name: enable debug-shell
+  systemd_service:
+    daemon_reload: true
+    name: debug-shell
+    enabled: false
+
+- name: set networkdwait var and installnetplan
+  import_tasks: installnetplan.yml
+  tags:
+    - netplan
+  when:
+    - wantsnetplan is defined
+    - wantsnetplan == true
+
+- name: include fortune for motd.d
+  tags:
+    - fortune
+  import_tasks: installfortunemotd.yml
+
+- name: ssh config stuff
+  tags:
+    - sshconfig
+  import_tasks: sshd_config.yml
+  when:
+    - inventory_hostname != "krennstor101"
+
+- name: postfix
+  tags: postfix
+  import_tasks: postfix.yml
+  when:
+    - skip_common_postfix is not defined or not skip_common_postfix
+
+- name: fail2ban
+  tags:
+    - fail2ban
+  import_tasks: fail2ban.yml
+  when:
+    - skip_common_fail2ban is not defined or not skip_common_fail2ban
+
+- name: copy necessary basic files
+  tags:
+    - iptables
+  import_tasks: copyfiles.yml
+  when:
+    - inventory_hostname != "krennstor101"
+
+- name: crontab
+  tags:
+    - crontab
+  import_tasks: crontab.yml
+
+- name: ensure sysstat is installed and configured
+  tags: sysstat
+  import_tasks: sysstat.yml
+
+- name: deploy smartd monitoring config
+  import_tasks: smartd.yml
+  tags:
+    - smartd
+
+- name: ensure locale DE is there
+  tags:
+    - locale
+  import_tasks: localestuff.yml
+
+- name: ensure net.ipv4.ip_nonlocal_bind=1 in /etc/sysctl.conf
+  lineinfile:
+    dest: /etc/sysctl.conf
+    line: "net.ipv4.ip_nonlocal_bind=1"
+    regexp: '^#?\s*net\.ipv4\.ip_nonlocal_bind.*$'
+    create: yes
+  notify: sysctl reload
+  tags:
+    - sysctl
+  when:
+    - "'k3sserver' in group_names"
+
+- name: enable IPv4 forwarding (gateway hosts)
+  sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_set: true
+    reload: true
+  tags:
+    - sysctl
+    - ip_forward
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+
+- name: ensure rp_filter=2 (loose) for policy-routed hosts
+  sysctl:
+    name: "{{ item }}"
+    value: "2"
+    sysctl_set: true
+    reload: true
+  loop:
+    - net.ipv4.conf.all.rp_filter
+    - net.ipv4.conf.default.rp_filter
+  tags:
+    - sysctl
+    - netplan
+  when: >-
+    (fwmark_routing | default([]) | length > 0) or
+    (ovs_vlan_extra is defined and (
+      ovs_vlan_extra.values() | selectattr('routing_policy', 'defined') | list | length > 0 or
+      ovs_vlan_extra.values() | selectattr('fwmark_routing', 'defined') | list | length > 0
+    ))
+
+- name: ensure rp_filter=2 (loose) for hosts without policy-routing (loose seems to be default for everything debian-based we have)
+  sysctl:
+    name: "{{ item }}"
+    value: "2"
+    sysctl_set: true
+    reload: true
+  loop:
+    - net.ipv4.conf.all.rp_filter
+    - net.ipv4.conf.default.rp_filter
+  tags:
+    - sysctl
+    - netplan
+  when: >-
+    (fwmark_routing | default([]) | length == 0) and
+    (ovs_vlan_extra is not defined or (
+      ovs_vlan_extra.values() | selectattr('routing_policy', 'defined') | list | length == 0 and
+      ovs_vlan_extra.values() | selectattr('fwmark_routing', 'defined') | list | length == 0
+    ))
+
+- name: disable USB autosuspend (GRUB + udev)
+  tags:
+    - usb_autosuspend
+  import_tasks: usb_autosuspend.yml
+
+- name: disable UAS for problematic USB-SATA bridges
+  tags:
+    - usb_storage_quirks
+  import_tasks: usb_storage_quirks.yml
+
+- name: install and configure podman
+  import_tasks: installpodman.yml
+  tags:
+    - podman
+  when:
+    - wantspodman is defined
+    - wantspodman == true
+
+- name: blacklist simpledrm kernel module
+  tags:
+    - blacklist_simpledrm
+  import_tasks: blacklist_simpledrm.yml
+
+- name: prepare host for Rook/Ceph (kernel modules, lvm2)
+  tags:
+    - rookceph_host
+  import_tasks: rookceph_host_prep.yml
+  when:
+    - wantsrookceph | default(false)
+
+- name: disable armbian-ramlog on NVMe/HDD-rooted hosts
+  tags:
+    - armbian_ramlog
+  import_tasks: armbian_ramlog.yml
+
+- name: upgrade pkgs and autoremove
+  tags:
+    - upgradestuff
+  import_tasks: upgradeallandautoremove.yml
+
+
+
+# - name: Run a script with arguments (free form)
+#  ansible.builtin.script: /some/local/script.sh --some-argument 1234
+#
+#- name: Run a script with arguments (using 'cmd' parameter)
+#  ansible.builtin.script:
+#    cmd: /some/local/script.sh --some-argument 1234
+#
+#- name: Run a script only if file.txt does not exist on the remote node
+#  ansible.builtin.script: /some/local/create_file.sh --some-argument 1234
+#  args:
+#    creates: /the/created/file.txt
+#
+#- name: Run a script only if file.txt exists on the remote node
+#  ansible.builtin.script: /some/local/remove_file.sh --some-argument 1234
+#  args:
+#    removes: /the/removed/file.txt
+#
+#- name: Run a script using an executable in a non-system path
+#  ansible.builtin.script: /some/local/script
+#  args:
+#    executable: /some/remote/executable
+#
+#- name: Run a script using an executable in a system path
+#  ansible.builtin.script: /some/local/script.py
+#  args:
+#    executable: python3
+#
+#- name: Run a Powershell script on a windows host
+#  script: subdirectories/under/path/with/your/playbook/script.ps1
+
+
+
+# - name: Copy file with owner and permissions
+#  ansible.builtin.copy:
+#    src: /srv/myfiles/foo.conf
+#    dest: /etc/foo.conf
+#    owner: foo
+#    group: foo
+#    mode: '0644'
+
+# - name: Template a file to /etc/file.conf
+#  ansible.builtin.template:
+#    src: /mytemplates/foo.j2
+#    dest: /etc/file.conf
+#    owner: bin
+#    group: wheel
+#    mode: '0644'
+#
+#- name: Template a file, using symbolic modes (equivalent to 0644)
+#  ansible.builtin.template:
+#    src: /mytemplates/foo.j2
+#    dest: /etc/file.conf
+#    owner: bin
+#    group: wheel
+#    mode: u=rw,g=r,o=r
+#
+#- name: Copy a version of named.conf that is dependent on the OS. setype obtained by doing ls -Z /etc/named.conf on original file
+#  ansible.builtin.template:
+#    src: named.conf_{{ ansible_os_family }}.j2
+#    dest: /etc/named.conf
+#    group: named
+#    setype: named_conf_t
+#    mode: 0640
+#
+#- name: Create a DOS-style text file from a template
+#  ansible.builtin.template:
+#    src: config.ini.j2
+#    dest: /share/windows/config.ini
+#    newline_sequence: '\r\n'
+#
+#- name: Copy a new sudoers file into place, after passing validation with visudo
+#  ansible.builtin.template:
+#    src: /mine/sudoers
+#    dest: /etc/sudoers
+#    validate: /usr/sbin/visudo -cf %s
+#
+#- name: Update sshd configuration safely, avoid locking yourself out
+#  ansible.builtin.template:
+#    src: etc/ssh/sshd_config.j2
+#    dest: /etc/ssh/sshd_config
+#    owner: root
+#    group: root
+#    mode: '0600'
+#    validate: /usr/sbin/sshd -t -f %s
+#    backup: yes
+
+
+
+#- name: be sure ntp is installed
+#  yum:
+#    name: ntp
+#    state: present
+#  tags: ntp
+#
+#- name: be sure ntp is configured
+#  template:
+#    src: ntp.conf.j2
+#    dest: /etc/ntp.conf
+#  notify:
+#    - restart ntpd
+#  tags: ntp
+#
+#- name: be sure ntpd is running and enabled
+#  service:
+#    name: ntpd
+#    state: started
+#    enabled: yes
+#  tags: ntp
+
+
+# # roles/example/tasks/main.yml
+#- name: Install the correct web server for RHEL
+#  import_tasks: redhat.yml
+#  when: ansible_facts['os_family']|lower == 'redhat'
+#
+#- name: Install the correct web server for Debian
+#  import_tasks: debian.yml
+#  when: ansible_facts['os_family']|lower == 'debian'
+#
+## roles/example/tasks/redhat.yml
+#- name: Install web server
+#  ansible.builtin.yum:
+#    name: "httpd"
+#    state: present
+#
+## roles/example/tasks/debian.yml
+#- name: Install web server
+#  ansible.builtin.apt:
+#    name: "apache2"
+#    state: present

@@ -1,0 +1,10 @@
+---
+- name: blacklist simpledrm so Intel iGPU gets card0
+  copy:
+    content: "blacklist simpledrm\n"
+    dest: /etc/modprobe.d/blacklist-simpledrm.conf
+    owner: root
+    group: root
+    mode: '0644'
+  when: blacklist_simpledrm | default(false)
+  notify: update initramfs

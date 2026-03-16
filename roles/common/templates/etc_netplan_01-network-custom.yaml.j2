@@ -1,0 +1,34 @@
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    {% if hw_iface is defined -%}{{ hw_iface }}{%- else -%}{{ ansible_default_ipv4.interface }}{%- endif -%}:
+{% if static_ip is defined %}
+      dhcp4: false
+      dhcp6: false
+      link-local: [ ]
+      addresses:
+        - {{ static_ip }}
+      routes:
+        - to: default
+          via: {{ static_gateway }}
+      nameservers:
+        addresses:
+{% for dns in static_dns %}
+          - {{ dns }}
+{% endfor %}
+{% else %}
+      dhcp4: true
+      dhcp6: true
+      link-local: [ ipv6 ]
+      {% if wifi_iface is defined -%}optional: true{% endif +%}
+{% endif %}
+    {% if hw_iface2 is defined -%}
+    {{ hw_iface2 }}:
+      dhcp4: false
+      dhcp6: false
+      link-local: [ ]
+      optional: true
+      addresses:
+        - {{ hw_iface2_address }}
+    {% endif +%}

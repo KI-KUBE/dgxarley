@@ -1,0 +1,23 @@
+{% set untagged_vlans = ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list %}
+{% set native_vlans = ovs_vlans | selectattr('native', 'defined') | selectattr('native') | list %}
+{% if untagged_vlans | length > 0 %}
+{% set vlan_mode = 'native-untagged' %}
+{% set vlan_tag = untagged_vlans[0].tag | default(untagged_vlans[0].id) %}
+{% elif native_vlans | length > 0 %}
+{% set vlan_mode = 'native-tagged' %}
+{% set vlan_tag = native_vlans[0].tag | default(native_vlans[0].id) %}
+{% endif %}
+# Managed by Ansible — clears native VLAN tag/vlan_mode/trunks from the
+# physical bridge port before netplan recreates the OVS bridge. Without this,
+# the tag causes OVS to associate the port with the fake bridge, making
+# "add-port <bridge> <iface>" fail on subsequent netplan apply runs.
+# A lockfile prevents the networkd-dispatcher from reapplying the config
+# during the service start. ExecStartPost reapplies after netplan finishes.
+[Service]
+ExecStartPre=/bin/touch /run/netplan-ovs-native-vlan-applying
+ExecStartPre=-/usr/bin/ovs-vsctl clear port {{ ovs_bridge_iface }} tag
+ExecStartPre=-/usr/bin/ovs-vsctl clear port {{ ovs_bridge_iface }} vlan_mode
+ExecStartPre=-/usr/bin/ovs-vsctl clear port {{ ovs_bridge_iface }} trunks
+{% set _effective_tags = [] %}{% for _v in ovs_vlans %}{% if _effective_tags.append(_v.tag | default(_v.id)) %}{% endif %}{% endfor %}{% for _t in ovs_extra_trunks | default([]) %}{% if _effective_tags.append(_t) %}{% endif %}{% endfor %}
+ExecStartPost=-/bin/sh -c 'rm -f /run/netplan-ovs-native-vlan-applying; /usr/bin/ovs-vsctl set port {{ ovs_bridge_iface }} vlan_mode={{ vlan_mode }} tag={{ vlan_tag }} trunks={{ _effective_tags | unique | sort | join(",") }}'
+ExecStopPost=-/bin/rm -f /run/netplan-ovs-native-vlan-applying

@@ -1,0 +1,24 @@
+---
+# roles/common/defaults/main.yml
+
+# Postfix relayhost - set to empty string for direct delivery
+postfix_relayhost: "[mail.example.com]"
+
+# AppArmor removal - set to true for cloud/dns servers
+deinstall_apparmor: false
+
+# smartd monitoring
+smartd_mail_recipients: "root,admin@example.com"
+smartd_devices: []  # Override per host in hosts.yml
+
+# iptables (overridden by vault)
+iptables_xosrc_ips: []
+iptables_lifeline_ips: []
+iptables_k3s_external_ips: []
+iptables_static_dns_ips: []
+
+# DynDNS hostname for ipset updates (overridden by vault)
+dyndns_hostname: "dyn.example.com"
+
+# WiFi access points for netplan (overridden by vault)
+wifi_access_points: []

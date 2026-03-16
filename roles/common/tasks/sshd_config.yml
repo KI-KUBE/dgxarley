@@ -1,0 +1,156 @@
+---
+# https://docs.ansible.com/ansible/2.5/modules/authorized_key_module.html
+
+- name: Check if local SSH RSA pubkey exists
+  ansible.builtin.stat:
+    path: "{{ lookup('env', 'HOME') }}/.ssh/id_rsa.pub"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: local_rsa_pubkey
+
+- name: Check if local SSH Ed25519 pubkey exists
+  ansible.builtin.stat:
+    path: "{{ lookup('env', 'HOME') }}/.ssh/id_ed25519.pub"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: local_ed25519_pubkey
+
+- name: Ensure RSA authorized key is present for root
+  ansible.builtin.authorized_key:
+    user: root
+    state: present
+    exclusive: false
+    key: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/id_rsa.pub') }}"
+  when: local_rsa_pubkey.stat.exists
+
+- name: Ensure Ed25519 authorized key is present for root
+  ansible.builtin.authorized_key:
+    user: root
+    state: present
+    exclusive: false
+    key: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/id_ed25519.pub') }}"
+  when: local_ed25519_pubkey.stat.exists
+
+- name: copy sshd_config
+  copy:
+    src: "sshd_config"
+    dest: "/etc/ssh/sshd_config"
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+  notify: restart sshd
+
+
+
+#- hosts: all
+#  tasks:
+#  - name: sshd configuration file update
+#    blockinfile:
+#      path: /etc/ssh/sshd_config
+#      insertbefore: BOF # Beginning of the file
+#      marker: "# {mark} ANSIBLE MANAGED BLOCK BY LINUX-ADMIN"
+#      block: |
+#        PermitRootLogin no
+#        PubkeyAuthentication yes
+#        AuthorizedKeysFile .ssh/authorized_keys
+#        PasswordAuthentication no
+#      backup: yes
+#      validate: /usr/sbin/sshd -T -f %s
+#
+#  - name: Restart SSHD
+#    service:
+#      name: sshd
+#      state: restarted
+
+
+# https://blog.weltraumschaf.de/blog/Hardening-Your-SSHd-with-Ansible/
+#- name: Install fail2ban
+#  apt:
+#    name: fail2ban
+#    state: latest
+#
+## Here you need your confguration. In my case I just copied the default
+## from /etc/fail2ban/jail.conf and enabled sshd as described above
+#- name: Copy fail2ban configuration
+#  copy:
+#    src: jail.conf
+#    dest: /etc/fail2ban/jail.local
+#
+#- name: Restart fail2ban
+#  service:
+#    name: fail2ban
+#    state: restarted
+#
+#- name: Set SSH KexAlgorithms
+#  lineinfile:
+#    path: /etc/ssh/sshd_config
+#    state: present
+#    line: 'KexAlgorithms curve25519-sha256@libssh.org,ecdh-sha2-nistp521,ecdh-sha2-nistp384,ecdh-sha2-nistp256,diffie-hellman-group-exchange-sha256'
+#
+#- name: Set SSH Ciphers
+#  lineinfile:
+#    path: /etc/ssh/sshd_config
+#    state: present
+#    line: 'Ciphers chacha20-poly1305@openssh.com,aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes192-ctr,aes128-ctr'
+#
+#- name: Set SSH MACs
+#  lineinfile:
+#    path: /etc/ssh/sshd_config
+#    state: present
+#    line: 'MACs hmac-sha2-512-etm@openssh.com,hmac-sha2-256-etm@openssh.com,umac-128-etm@openssh.com,hmac-sha2-512,hmac-sha2-256,umac-128@openssh.com'
+#
+#- name: Set SSH loglevel to verbose
+#  lineinfile:
+#    path: /etc/ssh/sshd_config
+#    regexp: '^#LogLevel INFO'
+#    line: 'LogLevel VERBOSE'
+#
+#- name: Set log sftp level file access
+#  lineinfile:
+#    path: /etc/ssh/sshd_config
+#    regexp: '^Subsystem\s+sftp\s+/usr/lib/openssh/sftp-server'
+#    line: 'Subsystem sftp /usr/lib/openssh/sftp-server -f AUTHPRIV -l INFO'
+#
+#- name: Disable SSH root login
+#  lineinfile:
+#    path: /etc/ssh/sshd_config
+#    regexp: '^#PermitRootLogin'
+#    line: 'PermitRootLogin no'
+#
+#- name: Disable SSH password authentication
+#  lineinfile:
+#    path: /etc/ssh/sshd_config
+#    regexp: '^#PasswordAuthentication yes'
+#    line: 'PasswordAuthentication no'
+#
+#- name: Set SSH UsePrivilegeSeparation
+#  lineinfile:
+#    path: /etc/ssh/sshd_config
+#    state: present
+#    line: 'UsePrivilegeSeparation sandbox'
+#
+#- name: Set SSH AuthenticationMethods
+#  lineinfile:
+#    path: /etc/ssh/sshd_config
+#    state: present
+#    line: 'AuthenticationMethods publickey'
+#
+## Here you should use your custom port!
+#- name: Setup alternate SSHd port
+#  lineinfile:
+#    dest: /etc/ssh/sshd_config
+#    regexp: '^#Port'
+#    line: 'Port 4242'
+#
+#- name: Disable SSH short modulis for DH
+#  shell: |-
+#    awk '$5 >= 3071' /etc/ssh/moduli > /tmp/moduli &&
+#    mv /tmp/moduli /etc/ssh/moduli
+#
+#- name: Restart SSHd
+#  service:
+#    name: sshd
+#    state: restarted

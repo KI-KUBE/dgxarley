@@ -1,0 +1,60 @@
+[DEFAULT]
+
+# email address to receive notifications.
+destemail = {{ fail2ban_recipient }}
+# the email address from which to send emails.
+sender = {{ fail2ban_sendermail }}
+#sender = root@<fq-hostname>
+# name on the notification emails.
+sendername = Fail2Ban
+# email transfer agent to use.
+mta = sendmail
+
+action = %(action_mwl)s
+
+ignoreip = 127.0.0.1/8 {% for ign in fail2ban_ignoreips %}{{ ign }} {% endfor %}
+
+bantime  = 600
+findtime  = 600
+maxretry = 3
+
+# good doc: https://wiki.archlinux.org/title/Fail2ban
+
+banaction = iptables-multiport
+banaction_allports = iptables-allports
+# backend = systemd
+# fail2ban-client -d | grep ssh
+
+
+#[roundcube-auth]
+#enabled = true
+#port     = http,https
+#logpath  = %(roundcube_errors_log)s
+# Use following line in your jail.local if roundcube logs to journal.
+#backend = %(syslog_backend)s
+
+
+# [postfix]
+# enabled = true
+# mode = extra
+# maxretry = 1
+# bantime  = 7200
+# port = 25,587,465
+# logpath = /var/log/mail.log
+# backend = auto
+
+# [dovecot]
+# enabled = true
+# logpath = /var/log/dovecot.log
+# backend = auto
+
+[sshd]
+enabled = true
+
+[recidive]
+enabled = true
+# 7 days
+bantime = 604800
+logpath = /var/log/fail2ban.log
+backend = auto
+

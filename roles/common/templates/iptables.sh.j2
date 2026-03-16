@@ -1,0 +1,353 @@
+#!/bin/bash
+
+# set -x
+
+# iptables -I HTSTUFFIN 1 -i virbr0 -j ACCEPT
+
+# iptables -F HTSTUFFIN
+
+iptables -N HTSTUFFIN
+iptables -N HTSTUFFOUT
+
+iptables -D INPUT -j HTSTUFFIN
+iptables -I INPUT 1 -j HTSTUFFIN
+
+/sbin/ipset -N xosrc nethash comment
+/sbin/ipset -N geoblocklist nethash
+/sbin/ipset -N geoallowlist nethash
+/sbin/ipset -N localnets nethash comment
+/sbin/ipset -N k3snodes nethash comment
+/sbin/ipset -N k3spods nethash comment
+
+{% for host in groups.get('k3sserver', []) %}
+K3S_IP=$(getent ahostsv4 {{ host }} | head -1 | awk '{print $1}')
+[ -n "$K3S_IP" ] && /sbin/ipset add k3snodes ${K3S_IP}/32 comment {{ host | quote }}
+{% if hostvars[host].ansible_host is defined and hostvars[host].ansible_host != host %}
+K3S_IP2=$(getent ahostsv4 {{ hostvars[host].ansible_host }} | head -1 | awk '{print $1}')
+[ -n "$K3S_IP2" ] && [ "$K3S_IP2" != "$K3S_IP" ] && /sbin/ipset add k3snodes ${K3S_IP2}/32 comment {{ (host ~ ' (' ~ hostvars[host].ansible_host ~ ')') | quote }}
+{% endif %}
+{% endfor %}
+
+# /sbin/ipset add xosrc 162.55.21.144/29 comment "hetzner3 subnet"
+{% for entry in iptables_xosrc_ips | default([]) %}
+/sbin/ipset add xosrc {{ entry.cidr }} comment {{ entry.comment | quote }}
+{% endfor %}
+
+{% for localneth in localnets -%}
+/sbin/ipset add localnets {{ localneth.cidr }} comment {{ localneth.comment | quote }}
+{% endfor +%}
+{#/sbin/ipset add localnets {{ localneth.cidr }} comment {{ localneth.comment | quote }}#}
+
+{% if localnets_k3sserver is defined %}
+{% for localneth in localnets_k3sserver -%}
+/sbin/ipset add localnets {{ localneth.cidr }} comment {{ localneth.comment | quote }}
+{% endfor %}
+{% for localneth in localnets_k3sserver -%}
+/sbin/ipset add k3spods {{ localneth.cidr }} comment {{ localneth.comment | quote }}
+{% endfor %}
+{% endif %}
+{#/sbin/ipset add localnets {{ localneth.cidr }} comment {{ localneth.comment | quote }}#}
+
+iptables -F HTSTUFFIN
+
+iptables -A HTSTUFFIN -p icmp -j RETURN
+
+# does not only handle connection on loopback-interface,
+# but also connections looping back to itself (.e.g 192.168.123.3 -> 192.168.123.3)
+iptables -A HTSTUFFIN -i lo -j RETURN
+
+# just to have it in as "pretty"
+iptables -A HTSTUFFIN -s 127.0.0.1/32 -j RETURN
+
+
+{% if qsfp_network is defined %}
+# QSFP point-to-point interconnect — accept all traffic (NCCL, iperf, etc.)
+iptables -A HTSTUFFIN -s {{ qsfp_network }} -j RETURN
+{% endif %}
+
+# dhcp
+iptables -A HTSTUFFIN -p udp -m state --state NEW -m multiport --dport 67,68 -m set --match-set localnets src -j RETURN
+
+{% if providespxeboot is defined and providespxeboot %}
+# pxeboot: TFTP for iPXE chainload, HTTP for boot menu + images
+iptables -A HTSTUFFIN -m state --state NEW -p udp --dport 69 -m set --match-set localnets src -j RETURN
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 18080 -m set --match-set localnets src -j RETURN
+{% endif %}
+
+{% if pihole is defined %}
+# pihole DNS (hostNetwork)
+iptables -A HTSTUFFIN -m state --state NEW -p udp --dport 53 -m set --match-set localnets src -j RETURN
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 53 -m set --match-set localnets src -j RETURN
+# pihole web UI (hostNetwork, accessed by Traefik via K8s Service)
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 8080 -m set --match-set k3spods src -j RETURN
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 8080 -m set --match-set k3snodes src -j RETURN
+{% endif %}
+
+{% if 'roep12b' in group_names %}
+# zigbee2mqtt frontend + tang NBDE
+iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 8080,9090 -m set --match-set localnets src -j RETURN
+{% endif %}
+
+{% if keepalived_vlans is defined %}
+# VRRP (protocol 112) for keepalived unicast advertisements between peers
+iptables -A HTSTUFFIN -p 112 -m set --match-set localnets src -j RETURN
+{% endif %}
+
+{% if providescoturn is defined and providescoturn %}
+# coturn STUN (hostNetwork, open to all — STUN is stateless, low-risk)
+iptables -A HTSTUFFIN -m state --state NEW -p udp --dport 3478 -j RETURN
+
+# prometheus scraping.
+# coturn prometheus metrics (only from k3s nodes, not all localnets)
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 9641 -m set --match-set k3snodes src -j RETURN
+{% endif %}
+
+{% if providesgo2rtc is defined and providesgo2rtc %}
+# go2rtc (hostNetwork)
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 1984 -m set --match-set localnets src -j RETURN
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 8554 -m set --match-set localnets src -j RETURN
+{% endif %}
+
+{% if wantsrookceph | default(false) %}
+# Rook/Ceph: MON (v1+v2), OSD range, MGR prometheus metrics
+iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dports 6789,3300 -m set --match-set k3snodes src -j RETURN
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 6800:7568 -m set --match-set k3snodes src -j RETURN
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 9283 -m set --match-set k3snodes src -j RETURN
+{% endif %}
+
+{% if iswireguardhost is defined and iswireguardhost %}
+# wireguard-host
+iptables -A HTSTUFFIN -p udp --dport 55660 -j RETURN
+iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 80,443 -j RETURN
+{% endif %}
+
+# iptables -A HTSTUFFIN -i docker0 -j RETURN
+
+# LIFELINE:
+{% for entry in iptables_lifeline_ips | default([]) %}
+iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 22 -s {{ entry.cidr }} -j RETURN
+{% endfor %}
+
+# self connect -> not really necessary, but to make sure ?!
+# iptables -A HTSTUFFIN -m state --state NEW -p tcp -s {{ ansible_facts.default_ipv4.address }}/32 -j RETURN
+
+{% if 'dnsserver' in group_names %}
+# Create staticsrc ipset with atomic swap (ensures correct type with comment support)
+/sbin/ipset -N staticsrc_new nethash comment
+/sbin/ipset add staticsrc_new 10.0.0.0/8 comment "private range class A"
+{% for entry in iptables_static_dns_ips | default([]) %}
+/sbin/ipset add staticsrc_new {{ entry.cidr }} comment {{ entry.comment | quote }}
+{% endfor %}
+# Swap if old set exists, otherwise rename
+/sbin/ipset swap staticsrc staticsrc_new 2>/dev/null && /sbin/ipset destroy staticsrc_new || /sbin/ipset rename staticsrc_new staticsrc
+
+iptables -A INPUT -m set --match-set staticsrc src -p tcp -j ACCEPT
+iptables -A INPUT -m set --match-set staticsrc src -p udp -j ACCEPT
+
+# server in group "dnsserver"
+iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 10000 -m set --match-set xosrc src -j RETURN
+
+# blocke port 53 wenn das von geoblocklist kommt
+iptables -A HTSTUFFIN -m state --state NEW -p udp --dport 53 -m limit --limit 10/min -m set --match-set geoblocklist src -j LOG --log-prefix "REJECT_HTSTUFFIN_GEOBLOCK_53 " --log-level 4
+iptables -A HTSTUFFIN -m state --state NEW -p udp --dport 53 -m set --match-set geoblocklist src -j DROP
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 53 -m limit --limit 10/min -m set --match-set geoblocklist src -j LOG --log-prefix "REJECT_HTSTUFFIN_GEOBLOCK_53 " --log-level 4
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 53 -m set --match-set geoblocklist src -j DROP
+
+# "akzeptiere" port 53 input, wenn das NICHT von geoblocklist kommt (ABER: auch nicht von geoallow!)
+iptables -A HTSTUFFIN -m state --state NEW -p udp --dport 53 -j RETURN
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 53 -j RETURN
+{% endif %}
+
+
+{% if isnfsmaster is defined and isnfsmaster %}
+# nfs3 for libreelec on
+# iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 111 -s <nfs-client-ip>/32 -j RETURN
+# iptables -A HTSTUFFIN -m state --state NEW -p udp -m multiport --dport 111 -s <nfs-client-ip>/32 -j RETURN
+{% endif %}
+
+{% set ports = '22' %}
+
+# {% if isnfsmaster is defined and isnfsmaster %}{% set ports = ports + ",2049,111" %}{% endif %}
+{% if isnfsmaster is defined and isnfsmaster %}{% set ports = ports + ",2049,443,9000,43521" %}{% endif %}
+{% if isk3smaster is defined and isk3smaster %}{% set ports = ports + ",6720,6443" %}{% endif %}
+
+
+iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport {{ ports }} -m set --match-set localnets src -j RETURN
+iptables -A HTSTUFFIN -m state --state NEW -p udp -m multiport --dport {{ ports }} -m set --match-set localnets src -j RETURN
+iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 22 -m set --match-set xosrc src -j RETURN
+iptables -A HTSTUFFIN -m state --state NEW -p udp -m multiport --dport 22 -m set --match-set xosrc src -j RETURN
+
+{% if 'k3sserver' in group_names %}
+
+{% for ip in iptables_k3s_external_ips | default([]) %}
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 443 -s {{ ip }} -j RETURN
+{% endfor %}
+
+# k3s-rules
+iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 25,80,443,6443,8472,51820,51821,10250,2379,1880,10250 -m set --match-set localnets src -j RETURN
+iptables -A HTSTUFFIN -m state --state NEW -p udp -m multiport --dport 25,80,443,6443,8472,51820,51821,10250,2379,1880,10250 -m set --match-set localnets src -j RETURN
+
+iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 2380,32500,3100,3101,8086,222,20000,10250,3493 -m set --match-set localnets src -j RETURN
+iptables -A HTSTUFFIN -m state --state NEW -p udp -m multiport --dport 2380,32500,3100,3101,8086,222,20000,10250,3493 -m set --match-set localnets src -j RETURN
+
+# other traefik / haproxy inbounds
+# alternative http/https-ports behind proxy/proxy_protocol
+iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 8181,4430 -s {{ ansible_facts.default_ipv4.address }} -j RETURN
+
+# mosqitto-ports HAPROXY/public
+{% if providesmqttexternal is defined and providesmqttexternal %}
+# MQTTS externally accessible (TLS + auth protected)
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 8883 -j RETURN
+{% endif %}
+iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 8883,1883 -m set --match-set localnets src -j RETURN
+{% if providesimap is defined and providesimap %}
+# imap-backup (dovecot) via HAProxy — local only
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 143 -m set --match-set localnets src -j RETURN
+{% endif %}
+{# {% if providessubmission is defined and providessubmission %}                #}
+{# # smtp-submission (dovecot-backup postfix sidecar) via HAProxy              #}
+{# iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 587 -j RETURN    #}
+{# {% endif %}                                                                  #}
+# mosqitto-ports TRAEFIK/local
+iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 1882,8882 -s {{ ansible_facts.default_ipv4.address }} -j RETURN
+
+# emqx - disable HT20260126
+# iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 1884,8884,1885,8885 -m set --match-set localnets src -j RETURN
+
+# rsyslog connecting from within the pods
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 514 -s 10.0.0.0/8 -j RETURN
+iptables -A HTSTUFFIN -m state --state NEW -p udp --dport 514 -s 10.0.0.0/8 -j RETURN
+
+{% endif %}
+
+# mdns + others ## 224.0.0.251
+iptables -A HTSTUFFIN -p igmp -d 224.0.0.0/24 -m set --match-set localnets src -j RETURN
+iptables -A HTSTUFFIN -p udp -d 224.0.0.0/24 -m set --match-set localnets src -j RETURN
+iptables -A HTSTUFFIN -m pkttype --pkt-type multicast -m set --match-set localnets src -j RETURN
+iptables -A HTSTUFFIN -m pkttype --pkt-type broadcast -m set --match-set localnets src -j RETURN
+iptables -A HTSTUFFIN -d 255.255.255.255 -p udp -j RETURN
+
+# tracepath/traceroute UDP probes
+iptables -A HTSTUFFIN -p udp --dport 33434:44500 -m set --match-set localnets src -j RETURN
+
+iptables -A HTSTUFFIN -p tcp -m state --state ESTABLISHED,RELATED -j RETURN
+iptables -A HTSTUFFIN -p udp -m state --state ESTABLISHED,RELATED -j RETURN
+
+# allow orphaned k3s node traffic (ACK without SYN — conntrack lost or tcp_loose=1 reclassifies as NEW)
+iptables -A HTSTUFFIN -p tcp --tcp-flags SYN SYN -m state --state NEW -m set --match-set k3snodes src -j LOG --log-prefix "HTSTUFFIN_K3SNODES_NEW_SYN " --log-level 4
+iptables -A HTSTUFFIN -p tcp ! --syn -m set --match-set k3snodes src -j RETURN
+
+# allow INVALID localnets traffic (orphaned packets after conntrack entry expiry)
+iptables -A HTSTUFFIN -m limit --limit 10/min -m state --state INVALID -m set --match-set k3snodes src -j LOG --log-prefix "HTSTUFFIN_INVALID_K3SNODES_GRACEFUL_OK " --log-level 4
+iptables -A HTSTUFFIN -m state --state INVALID -m set --match-set k3snodes src -j RETURN
+
+#iptables -A HTSTUFFIN -m limit --limit 10/min -m set --match-set localnets src -j LOG --log-prefix "IPTABLES_REJECT_HTSTUFFIN " --log-level 4
+#iptables -A HTSTUFFIN -m state --state NEW,INVALID -m set --match-set localnets src -j REJECT
+
+# iptables -A HTSTUFFIN -m set --match-set geoallowlist src -j RETURN
+# iptables -A HTSTUFFIN -m set --match-set geoblocklist src -j DROP
+
+{% if 'dgxcluster' in group_names %}
+# NetBIOS name service — harmless Windows/Samba discovery noise across VLANs
+iptables -A HTSTUFFIN -p udp --dport 137 -m set --match-set localnets src -j DROP
+{% endif %}
+
+iptables -A HTSTUFFIN -m limit --limit 10/min -m set --match-set geoblocklist src -j LOG --log-prefix "REJECT_HTSTUFFIN_GEOBLOCK " --log-level 4
+iptables -A HTSTUFFIN -m set --match-set geoblocklist src -j DROP
+iptables -A HTSTUFFIN -m limit --limit 10/min -m set \! --match-set geoallowlist src -j LOG --log-prefix "REJECT_HTSTUFFIN_NOT_GEOALLOW " --log-level 4
+iptables -A HTSTUFFIN -m set \! --match-set geoallowlist src -j DROP
+
+iptables -A HTSTUFFIN -m limit --limit 10/min  -j LOG --log-prefix "IPTABLES_REJECT_HTSTUFFIN " --log-level 4
+iptables -A HTSTUFFIN -j DROP
+
+
+
+#modprobe nf_conntrack_ftp
+#iptables -A HTSTUFFIN -s 192.168.101.0/24  -p tcp -m tcp --dport 21 -m conntrack --ctstate ESTABLISHED,NEW -j ACCEPT -m comment --comment "Allow ftp connections on port 21"
+#iptables -A HTSTUFFIN -s 192.168.101.0/24  -p tcp -m tcp --dport 20 -m conntrack --ctstate ESTABLISHED -j ACCEPT -m comment --comment "Allow ftp connections on port 20"
+
+#iptables -A HTSTUFFIN -s 192.168.1.0/24 -d 192.168.1.0/24 -p tcp -m tcp --dport 21 -m conntrack --ctstate NEW,ESTABLISHED -j ACCEPT
+#iptables -A HTSTUFFIN -s 192.168.1.0/24 -d 192.168.1.0/24 -p tcp -m tcp --dport 20 -m conntrack --ctstate ESTABLISHED -j ACCEPT
+#iptables -A HTSTUFFIN -s 192.168.1.0/24 -d 192.168.1.0/24 -p tcp -m tcp --sport 1024: --dport 1024: -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+#iptables -A OUTPUT -s 192.168.1.0/24 -d 192.168.1.0/24 -p tcp -m tcp --sport 21 -m conntrack --ctstate ESTABLISHED -j ACCEPT
+#iptables -A OUTPUT -s 192.168.1.0/24 -d 192.168.1.0/24 -p tcp -m tcp --sport 20 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+#iptables -A OUTPUT -s 192.168.1.0/24 -d 192.168.1.0/24 -p tcp -m tcp --sport 1024:65535 --dport 1024:65535 -m conntrack --ctstate ESTABLISHED -j ACCEPT
+
+
+#iptables -A HTSTUFFIN -m state --state NEW,INVALID -m set \! --match-set geoblocklist src -m limit --limit 10/min -j LOG --log-prefix "IPTABLES_DROP_HTSTUFFIN_ALLOW " --log-level 4
+#iptables -A HTSTUFFIN -m state --state NEW,INVALID -m set \! --match-set geoblocklist src -j DROP
+
+#iptables -A HTSTUFFIN -m limit --limit 10/min -j LOG --log-prefix "IPTABLES_DROP_HTSTUFFIN " --log-level 4
+#iptables -A HTSTUFFIN -m state --state NEW,INVALID -j DROP
+
+
+#iptables -A OUTPUT -p tcp -j ACCEPT
+
+iptables -F HTSTUFFOUT
+
+iptables -D OUTPUT -j HTSTUFFOUT
+iptables -I OUTPUT 1 -j HTSTUFFOUT
+
+iptables -A HTSTUFFOUT -p icmp -j RETURN
+iptables -A HTSTUFFOUT -p tcp -j RETURN
+iptables -A HTSTUFFOUT -p udp -j RETURN
+iptables -A HTSTUFFOUT -p igmp -j RETURN
+{% if keepalived_vlans is defined %}
+iptables -A HTSTUFFOUT -p 112 -j RETURN
+{% endif %}
+iptables -A HTSTUFFOUT -m limit --limit 10/min -j LOG --log-prefix "IPTABLES_REJECT_HTSTUFFOUT " --log-level 4
+iptables -A HTSTUFFOUT -j DROP
+
+
+# iptables -A FORWARD -j blocklists
+# iptables -A FORWARD -m set --match-set geoblocklist src -j DROP
+
+
+#https://gist.github.com/juliojsb/00e3bb086fd4e0472dbe
+#iptables -A HTSTUFFIN   -m pkttype --pkt-type multicast -j ACCEPT
+#iptables -A FORWARD -m pkttype --pkt-type multicast -j ACCEPT
+#iptables -A OUTPUT  -m pkttype --pkt-type multicast -j ACCEPT
+
+#iptables -A HTSTUFFIN   -s 224.0.0.0/4 -j ACCEPT
+#iptables -A FORWARD -s 224.0.0.0/4 -d 224.0.0.0/4 -j ACCEPT
+#iptables -A OUTPUT  -d 224.0.0.0/4 -j ACCEPT
+
+{% set fwmark_rules = [] %}
+{% for vlan_id, vlan_cfg in (ovs_vlan_extra | default({})).items() %}
+{% for rule in vlan_cfg.fwmark_routing | default([]) %}
+{% set _ = fwmark_rules.append(rule | combine({'iface': ovs_bridge_name ~ '.' ~ vlan_id})) %}
+{% endfor %}
+{% endfor %}
+{% for rule in fwmark_routing | default([]) %}
+{% set _ = fwmark_rules.append(rule) %}
+{% endfor %}
+{% if fwmark_rules | length > 0 %}
+
+# --- mangle table: conntrack-based return-path routing ---
+# PREROUTING: mark NEW inbound connections arriving on the routed VLAN interface
+iptables -t mangle -N HTFWMARK_PRE 2>/dev/null || true
+iptables -t mangle -F HTFWMARK_PRE
+iptables -t mangle -D PREROUTING -j HTFWMARK_PRE 2>/dev/null || true
+iptables -t mangle -I PREROUTING 1 -j HTFWMARK_PRE
+
+{% for rule in fwmark_rules %}
+iptables -t mangle -A HTFWMARK_PRE -i {{ rule.iface }} -s {{ rule.inbound_src }} -d {{ rule.inbound_dst }} -m conntrack --ctstate NEW -j CONNMARK --set-mark {{ rule.mark }}
+{% endfor %}
+
+# OUTPUT: restore connection marks → packet marks (reply packets get the fwmark)
+iptables -t mangle -N HTFWMARK_OUT 2>/dev/null || true
+iptables -t mangle -F HTFWMARK_OUT
+iptables -t mangle -D OUTPUT -j HTFWMARK_OUT 2>/dev/null || true
+iptables -t mangle -I OUTPUT 1 -j HTFWMARK_OUT
+
+iptables -t mangle -A HTFWMARK_OUT -j CONNMARK --restore-mark
+
+# ip rule: fwmark → routing table
+{% for rule in fwmark_rules %}
+ip rule del fwmark {{ rule.mark }} table {{ rule.table }} 2>/dev/null || true
+ip rule add fwmark {{ rule.mark }} table {{ rule.table }}
+{% endfor %}
+{% endif %}
+
+exit 0
+

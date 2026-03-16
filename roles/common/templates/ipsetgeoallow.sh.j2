@@ -1,0 +1,140 @@
+#!/bin/bash
+# log= where to log ; wdir=working directory , where to save the downloaded zones ;
+# list= where to download the ip zones from
+log=/var/log/ipset-allow.log
+wdir=/root/ipset-allow
+list='http://www.ipdeny.com/ipblocks/data/countries'
+
+#http://www.ipdeny.com/ipblocks/data/countries/all-zones.tar.gz
+#http://www.ipdeny.com/ipv6/ipaddresses/blocks/ipv6-all-zones.tar.gz
+
+geoallow=()
+{% for country in geoallow %}
+geoallow+=({{ country }})
+{% endfor %}
+
+
+if ! [ -d $wdir ] ; then
+	mkdir $wdir
+fi
+
+#ipset -N geoallowlist nethash
+/sbin/ipset -L -n geoallowlist
+if [ $? -ne 0 ] ; then
+	echo "creating new ipset \"geoallowlist\""
+	/sbin/ipset -N geoallowlist nethash
+	if [ $? -ne 0 ] ; then
+		echo "creation of geoallowlist ipset failed... ipset not available?!"
+		exit 1
+	fi
+fi
+#ipset -L
+
+# Flush iptables INPUT Chain
+#iptables -F INPUT
+
+# local ftp bruteforce block ( you may wanna remove this rule )
+#iptables -A INPUT -s 127.0.0.0/8 -d 0/0 -p tcp --dport 21 -j DROP
+
+# iptables match-set for geoallowlist (block multiple ports rule - ftp,apache,mysql,cpanel ports)
+#iptables -I INPUT -p tcp -m multiport --dports 22,21,80,443,3306,8081,2082,2083,2086,2087 -m set --match-set geoallowlist src -j DROP
+
+# log $1
+function log_this() {
+        printf '%s: %s\n' "$(date --rfc-3339=seconds)" "$1" >> $log
+}
+
+
+cd $wdir || exit 1
+
+# if the ipset is missing, it's useless to download anything
+/sbin/ipset -L geoallowlist > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+        log_this 'error in ipset -L geoallowlist'
+        exit 1
+fi
+
+curl_flags='--silent --show-error --remote-name --remote-time --max-time 150
+        --write-out %{http_code}'
+
+if [ "$1" = "-v" ]; then
+        curl_flags="--verbose $curl_flags"
+        curl_keep_stderr=true
+fi
+
+new_files=""
+old_files=""
+# download file, name must not be null, and must have no spaces (urlencode).
+# existing files are downloaded only if newer.
+# new_ and old_ files are updated according to the result.
+# stderr displays normally when -v (verbose) is given on the command line
+function run_curl() {
+        local name=$1 existing="" time_cond="" rtc=""
+        if [ -f $name ]; then
+                time_cond="--time-cond $name"
+                existing=$name
+        fi
+        if [ -n "$curl_keep_stderr" ]; then
+                rtc=$(curl $curl_flags $time_cond $list/$name)
+        else
+                rtc=$(curl $curl_flags $time_cond $list/$name 2>&1)
+        fi
+        if [ $? -eq 0 ]; then
+                if [ "$rtc" = "200" -a -f $name ]; then
+                        new_files+="${new_files:+ }$name"
+                        existing=''
+                elif [ "$rtc" != "304" ]; then
+                        log_this "http $rtc for $name"
+                fi
+        else
+                log_this "${rtc:-curl: $?} for $list/$name"
+        fi
+        test -n "$existing" && old_files+="${old_files:+ }$existing"
+}
+
+# define what files to process
+do_ipset=""
+if [ -f no-download ]; then
+        do_ipset=$(<no-download)
+        log_this "no-download${do_ipset:+: $do_ipset}"
+else
+# download China,Korea,Taiwan,Hong-Kong zones (edit the following per your needs):
+	for i in ${geoallow[*]} ; do
+		echo run_curl ${i}.zone
+		run_curl ${i}.zone
+	done
+
+        log_this "download: ${new_files:-none}${old_files:+, existing: $old_files}"
+        do_ipset=${new_files:+$new_files $old_files}  # do both if any is new
+fi
+
+# process blocks, if any
+if [ -n "$do_ipset" ]; then
+        /sbin/ipset -X temp  > /dev/null 2>&1
+        /sbin/ipset -N temp nethash
+
+        perl -e 'while(<>){s/;.*//; s/\s//g; print $_, "\n" unless /^$/;}' \
+                $do_ipset |
+                (
+                        blockcount=0;
+                        errcount=0
+                        while read block; do
+                                err=$(/sbin/ipset -A temp $block 2>&1)
+                                if [ $? -ne 0 ]; then
+                                        (( ++errcount < 6 )) && log_this "$block $err"
+                                else
+                                        (( ++blockcount ))
+                                fi
+                        done
+                        test $errcount -gt 6 &&
+                                log_this "$errcount errors in $do_ipset"
+                        log_this "$blockcount blocks set from $do_ipset"
+                )
+
+        #service iptables save
+        /sbin/ipset -W temp geoallowlist
+        /sbin/ipset -X temp
+        /sbin/ipset save > /dev/null 2>&1
+
+fi
+

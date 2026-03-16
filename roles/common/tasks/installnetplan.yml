@@ -1,0 +1,591 @@
+---
+- name: install netplan.io if needed
+  apt:
+    pkg:
+      - netplan.io
+      - networkd-dispatcher
+      - openvswitch-switch
+    state: present
+  register: netplaninstalled
+
+- name: Check if /etc/netplan/50-cloud-init.yaml
+  stat:
+    path: /etc/netplan/50-cloud-init.yaml
+  register: cloud_init_stat_result
+
+- name: Check if /etc/cloud/cloud.cfg.d exists
+  stat:
+    path: /etc/cloud/cloud.cfg.d
+  register: cloud_cfg_dir
+
+- name: Disable cloud-init network configuration
+  copy:
+    dest: /etc/cloud/cloud.cfg.d/99-disable-network-config.cfg
+    content: "network: {config: disabled}\n"
+    owner: root
+    group: root
+    mode: '0644'
+  when: cloud_cfg_dir.stat.exists
+
+- name: Remove installer network config that netplan reads directly
+  file:
+    path: /etc/cloud/cloud.cfg.d/90-installer-network.cfg
+    state: absent
+  register: installer_network_removed
+  when: cloud_cfg_dir.stat.exists
+
+- name: Find stale cloud-init netplan files in /run/netplan/
+  find:
+    paths: /run/netplan
+    patterns: '*.yaml'
+  register: run_netplan_files
+
+- name: Remove stale cloud-init netplan files from /run/netplan/
+  file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ run_netplan_files.files }}"
+  register: run_netplan_cleaned
+
+- name: Regenerate netplan after removing stale configs
+  command: netplan generate
+  when: installer_network_removed.changed or (run_netplan_cleaned.results | default([]) | selectattr('changed') | list | length > 0)
+
+- import_tasks: set_network_facts.yml
+
+- name: Validate OVS VLAN configuration
+  assert:
+    that:
+      - ovs_vlans | selectattr('primary', 'defined') | selectattr('primary') | list | length == 1
+      - ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list | length <= 1
+      - ovs_vlans | selectattr('native', 'defined') | selectattr('native') | list | length <= 1
+      - (ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list | length == 0) or (ovs_vlans | selectattr('native', 'defined') | selectattr('native') | list | length == 0)
+    fail_msg: "Exactly one VLAN must have primary: true, at most one may have untagged: true or native: true (but not both)"
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+
+- name: Find all netplan config files
+  find:
+    paths: /etc/netplan
+    patterns: '*.yaml,*.yml'
+  register: netplan_files_found
+
+- name: Build list of managed netplan filenames
+  set_fact:
+    netplan_managed_files: >-
+      {{
+        (['00-ovs-bridges.yaml', '01-ovs-vlans.yaml']
+          if (wantsopenvswitch is defined and wantsopenvswitch) else [])
+        + (['01-network-custom.yaml']
+          if (wantsopenvswitch is not defined or not wantsopenvswitch
+              or (hw_iface is defined and hw_iface != ovs_bridge_iface)) else [])
+        + (['10-qsfp.yaml']
+          if (qsfp_interfaces is defined) else [])
+        + (['02-network-custom-wifi.yaml']
+          if (wifi_iface is defined) else [])
+        + (['03-disable-wifi.yaml']
+          if (disable_wifi_iface is defined) else [])
+      }}
+
+- name: Identify unmanaged netplan config files
+  set_fact:
+    netplan_unmanaged_files: >-
+      {{ netplan_files_found.files
+         | map(attribute='path')
+         | map('basename')
+         | reject('in', netplan_managed_files)
+         | list }}
+
+- name: ALERT - unmanaged netplan config files detected
+  fail:
+    msg: >-
+      Unmanaged netplan files found in /etc/netplan/: {{ netplan_unmanaged_files | join(', ') }}.
+      These may conflict with managed configs (wantsopenvswitch={{ wantsopenvswitch | default(false) }}).
+      Remove them manually or set netplan_ignore_unmanaged=true to suppress this check.
+  when:
+    - netplan_unmanaged_files | length > 0
+    - not (netplan_ignore_unmanaged | default(false))
+
+- name: config netplan one file custom /etc/netplan/01-network-custom.yaml
+  template:
+    src: etc_netplan_01-network-custom.yaml.j2
+    dest: "/etc/netplan/01-network-custom.yaml"
+    owner: root
+    group: root
+    mode: '0600'
+  register: netplan_config
+  when:
+    - not cloud_init_stat_result.stat.exists
+    - wantsopenvswitch is not defined or not wantsopenvswitch or (hw_iface is defined and hw_iface != ovs_bridge_iface)
+
+- name: config netplan OVS bridges
+  template:
+    src: etc_netplan_00-ovs-bridges.yaml.j2
+    dest: "/etc/netplan/00-ovs-bridges.yaml"
+    owner: root
+    group: root
+    mode: '0600'
+  register: netplan_ovs_bridges
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+
+- name: config netplan OVS VLANs
+  template:
+    src: etc_netplan_01-ovs-vlans.yaml.j2
+    dest: "/etc/netplan/01-ovs-vlans.yaml"
+    owner: root
+    group: root
+    mode: '0600'
+  register: netplan_ovs_vlans
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+
+- name: Ensure networkd-dispatcher configured.d directory exists
+  file:
+    path: "/etc/networkd-dispatcher/configured.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+    - (ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list | length > 0) or (ovs_vlans | selectattr('native', 'defined') | selectattr('native') | list | length > 0)
+
+- name: Deploy networkd-dispatcher script for OVS native VLAN
+  template:
+    src: etc_networkd-dispatcher_configured_d_50-ovs-native-vlan.sh.j2
+    dest: "/etc/networkd-dispatcher/configured.d/50-ovs-native-vlan"
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+    - (ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list | length > 0) or (ovs_vlans | selectattr('native', 'defined') | selectattr('native') | list | length > 0)
+
+- name: Ensure networkd-dispatcher routable.d directory exists
+  file:
+    path: "/etc/networkd-dispatcher/routable.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - hw_iface is defined
+    - hw_iface is match('^enx')
+
+- name: Deploy networkd-dispatcher script to restart k3s on USB NIC recovery
+  template:
+    src: etc_networkd-dispatcher_routable_d_50-restart-k3s.sh.j2
+    dest: "/etc/networkd-dispatcher/routable.d/50-restart-k3s"
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - wants_enx_networkd_restart_script | default(false)
+    - hw_iface is defined
+    - hw_iface is match('^enx')
+
+- name: Remove k3s NIC recovery script when not wanted
+  file:
+    path: "/etc/networkd-dispatcher/routable.d/50-restart-k3s"
+    state: absent
+  when:
+    - not (wants_enx_networkd_restart_script | default(false)) or hw_iface is not defined or not (hw_iface is match('^enx'))
+
+- name: Ensure drop-in directory for netplan-ovs bridge service
+  file:
+    path: "/etc/systemd/system/netplan-ovs-{{ ovs_bridge_name }}.service.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+    - (ovs_vlans | selectattr('native', 'defined') | selectattr('native') | list | length > 0) or (ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list | length > 0)
+
+- name: Deploy ExecStartPre drop-in to clear native VLAN tag before netplan apply
+  template:
+    src: etc_systemd_system_netplan-ovs-bridge.service.d_native-vlan-pre.conf.j2
+    dest: "/etc/systemd/system/netplan-ovs-{{ ovs_bridge_name }}.service.d/native-vlan-pre.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  register: native_vlan_dropin
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+    - (ovs_vlans | selectattr('native', 'defined') | selectattr('native') | list | length > 0) or (ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list | length > 0)
+
+- name: Remove native VLAN drop-in when not needed
+  file:
+    path: "/etc/systemd/system/netplan-ovs-{{ ovs_bridge_name }}.service.d/native-vlan-pre.conf"
+    state: absent
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+    - ovs_vlans | selectattr('native', 'defined') | selectattr('native') | list | length == 0
+    - ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list | length == 0
+
+- name: Reload systemd after drop-in changes
+  systemd:
+    daemon_reload: true
+  when:
+    - native_vlan_dropin is defined
+    - native_vlan_dropin is changed
+
+- name: Ensure drop-in directory for netplan OVS bridge interface .network file
+  file:
+    path: "/etc/systemd/network/10-netplan-{{ ovs_bridge_iface }}.network.d"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+
+- name: Deploy KeepConfiguration=no drop-in for OVS bridge interface
+  template:
+    src: etc_systemd_network_netplan-ovs-bridge-iface.network.d_override.conf.j2
+    dest: "/etc/systemd/network/10-netplan-{{ ovs_bridge_iface }}.network.d/override.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+
+- name: Remove 01-network-custom.yaml on OVS hosts
+  file:
+    path: "/etc/netplan/01-network-custom.yaml"
+    state: absent
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+    - hw_iface is not defined or hw_iface == ovs_bridge_iface
+
+- name: Remove OVS netplan files on non-OVS hosts
+  file:
+    path: "/etc/netplan/{{ item }}"
+    state: absent
+  loop:
+    - 00-ovs-bridges.yaml
+    - 01-ovs-vlans.yaml
+  when:
+    - wantsopenvswitch is not defined or not wantsopenvswitch
+
+- name: Remove /etc/networkd-dispatcher/configured.d/50-ovs-native-vlan  OVS native VLAN script when not needed
+  file:
+    path: "/etc/networkd-dispatcher/configured.d/50-ovs-native-vlan"
+    state: absent
+  when: >-
+    (wantsopenvswitch is not defined or not wantsopenvswitch)
+    or ((ovs_vlans | default([]) | selectattr('untagged', 'defined') | selectattr('untagged') | list | length == 0)
+    and (ovs_vlans | default([]) | selectattr('native', 'defined') | selectattr('native') | list | length == 0))
+
+- name: config netplan wifis
+  template:
+    src: etc_netplan_02-network-custom-wifi.yaml.j2
+    dest: "/etc/netplan/02-network-custom-wifi.yaml"
+    owner: root
+    group: root
+    mode: '0600'
+  register: netplan_wifi
+  when:
+    - wifi_iface is defined
+
+- name: config netplan disable wifi
+  template:
+    src: etc_netplan_03-disable-wifi.yaml.j2
+    dest: "/etc/netplan/03-disable-wifi.yaml"
+    owner: root
+    group: root
+    mode: '0600'
+  register: netplan_disable_wifi
+  when:
+    - disable_wifi_iface is defined
+
+- name: install systemd-resolved if needed
+  apt:
+    pkg:
+      - systemd-resolved
+    state: present
+  register: systemdresolvedinstalled
+  when:
+    - ansible_distribution == 'Debian'
+    - ansible_lsb.major_release|int >= 12
+    #- ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
+
+- name: check if /etc/systemd/resolved.conf contains stublistener=no
+  lineinfile:
+    path: /etc/systemd/resolved.conf
+    line: "DNSStubListener=no"
+  check_mode: true
+  register: dnsstubok
+  # failed_when: dnsstubok.changed
+
+- name: config systemd-resolved
+  template:
+    src: etc_systemd_resolved.conf.j2
+    dest: "/etc/systemd/resolved.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  when: dnsstubok.changed
+
+- name: systemd reload daemon and systemd-resolved restart
+  systemd_service:
+    daemon_reload: true
+    name: systemd-resolved
+    enabled: true
+    state: restarted
+  when:
+    - netplaninstalled.changed or systemdresolvedinstalled.changed or dnsstubok.changed
+    - ansible_distribution == 'Debian' or ansible_distribution == 'Ubuntu'
+    - ansible_lsb.major_release|int >= 12
+
+
+# systemctl disable dhcpcd.service --now ; netplan generate ; netplan apply
+
+- name: Set netplan_changed fact
+  set_fact:
+    netplan_changed: >-
+      {{ netplaninstalled.changed
+         or (run_netplan_cleaned.results | default([]) | selectattr('changed') | list | length > 0)
+         or (netplan_config is defined and netplan_config.changed)
+         or (netplan_ovs_bridges is defined and netplan_ovs_bridges.changed)
+         or (netplan_ovs_vlans is defined and netplan_ovs_vlans.changed)
+         or (netplan_wifi is defined and netplan_wifi.changed)
+         or (netplan_disable_wifi is defined and netplan_disable_wifi.changed) }}
+
+- name: validate netplan config
+  shell: "netplan generate"
+  register: netplan_generate
+  failed_when: netplan_generate.rc != 0
+  when: netplan_changed
+
+- name: Disable dhcpcd and wpa_supplicant if enabled -- also makes netplan generate ; netplan apply;
+  shell: "if systemctl is-enabled --quiet {{ item }}; then systemctl disable {{ item }} --now && echo disable_ok ; netplan generate; netplan apply; fi"
+  register: dhcpcd_wpasupplicant
+  changed_when: "'disable_ok' in dhcpcd_wpasupplicant.stdout"
+  loop:
+    - dhcpcd
+    - wpa_supplicant
+  when:
+    - ansible_distribution == 'Debian'
+
+- name: Check if untagged VLAN exists as OVS internal port (legacy migration)
+  shell:
+    cmd: |
+      if ovs-vsctl port-to-br {{ ovs_bridge_name }}.{{ item.id }} >/dev/null 2>&1; then
+        if ovs-vsctl br-to-parent {{ ovs_bridge_name }}.{{ item.id }} >/dev/null 2>&1; then
+          echo "fake_bridge"
+        else
+          echo "internal_port"
+        fi
+      else
+        echo "not_found"
+      fi
+  register: ovs_untagged_port_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  loop: "{{ ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list }}"
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+
+- name: Migrate untagged VLAN from OVS internal port to fake bridge
+  shell:
+    cmd: |
+      ovs-vsctl clear port {{ ovs_bridge_iface }} tag 2>/dev/null || true
+      ovs-vsctl clear port {{ ovs_bridge_iface }} vlan_mode 2>/dev/null || true
+      ovs-vsctl clear port {{ ovs_bridge_iface }} trunks 2>/dev/null || true
+      ovs-vsctl --if-exists del-port {{ ovs_bridge_name }} {{ ovs_bridge_name }}.{{ item.item.id }}
+  loop: "{{ ovs_untagged_port_check.results | default([]) }}"
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+    - item.stdout is defined
+    - item.stdout == "internal_port"
+    - not ansible_check_mode
+  ignore_unreachable: true
+  register: ovs_internal_port_migrated
+
+- name: Remove stale systemd-networkd config after internal port migration
+  file:
+    path: "/etc/systemd/network/10-{{ ovs_bridge_name }}.{{ item.item.id }}.network"
+    state: absent
+  loop: "{{ ovs_untagged_port_check.results | default([]) }}"
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+    - item.stdout is defined
+    - item.stdout == "internal_port"
+
+- name: Wait for connection after internal port migration
+  wait_for_connection:
+    delay: 5
+    timeout: 120
+  when:
+    - ovs_internal_port_migrated is defined
+    - ovs_internal_port_migrated is changed
+
+- name: Check for stale OVS internal ports from previously-untagged VLANs
+  shell:
+    cmd: |
+      if ovs-vsctl port-to-br {{ ovs_bridge_name }}.{{ item.id }} >/dev/null 2>&1; then
+        if ovs-vsctl br-to-parent {{ ovs_bridge_name }}.{{ item.id }} >/dev/null 2>&1; then
+          echo "fake_bridge"
+        else
+          echo "stale_internal_port"
+        fi
+      else
+        echo "not_found"
+      fi
+  register: tagged_vlan_port_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  loop: "{{ ovs_vlans }}"
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+    - not (item.untagged is defined and item.untagged)
+
+- name: Remove stale OVS internal port for VLAN transitioning to tagged
+  command: ovs-vsctl --if-exists del-port {{ ovs_bridge_name }} {{ ovs_bridge_name }}.{{ item.item.id }}
+  loop: "{{ tagged_vlan_port_check.results | default([]) }}"
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+    - item.stdout is defined
+    - item.stdout == "stale_internal_port"
+    - not ansible_check_mode
+  ignore_unreachable: true
+  register: stale_internal_port_removed
+
+- name: Clear native VLAN settings on OVS bridge port after untagged-to-tagged transition
+  shell:
+    cmd: |
+      ovs-vsctl clear port {{ ovs_bridge_iface }} vlan_mode 2>/dev/null || true
+      ovs-vsctl clear port {{ ovs_bridge_iface }} tag 2>/dev/null || true
+      ovs-vsctl clear port {{ ovs_bridge_iface }} trunks 2>/dev/null || true
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+    - ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list | length == 0
+    - ovs_vlans | selectattr('native', 'defined') | selectattr('native') | list | length == 0
+    - stale_internal_port_removed is defined
+    - stale_internal_port_removed is changed
+    - not ansible_check_mode
+  ignore_unreachable: true
+
+- name: Wait for connection after untagged-to-tagged cleanup
+  wait_for_connection:
+    delay: 5
+    timeout: 120
+  when:
+    - stale_internal_port_removed is defined
+    - stale_internal_port_removed is changed
+
+- name: apply netplan
+  shell: "netplan apply"
+  failed_when: false
+  when:
+    - netplan_changed or (stale_internal_port_removed is defined and stale_internal_port_removed is changed) or (ovs_internal_port_migrated is defined and ovs_internal_port_migrated is changed)
+    - netplan_generate.rc == 0
+
+- name: Check if OVS bridge port exists for native VLAN setup
+  command: ovs-vsctl port-to-br {{ ovs_bridge_iface }}
+  register: ovs_port_bridge_check
+  changed_when: false
+  failed_when: false
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+    - (ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list | length > 0) or (ovs_vlans | selectattr('native', 'defined') | selectattr('native') | list | length > 0)
+
+- name: Configure native (untagged) VLAN on OVS bridge port
+  vars:
+    _native_vlan: "{{ (ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list + ovs_vlans | selectattr('native', 'defined') | selectattr('native') | list) | first }}"
+    _effective_tags: "{% set _tags = [] %}{% for v in ovs_vlans %}{{ '' if _tags.append(v.tag | default(v.id)) }}{% endfor %}{% for t in ovs_extra_trunks | default([]) %}{{ '' if _tags.append(t) }}{% endfor %}{{ _tags | unique | sort | join(',') }}"
+  command: >-
+    ovs-vsctl set port {{ ovs_bridge_iface }}
+    vlan_mode={{ 'native-untagged' if (ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list | length > 0) else 'native-tagged' }}
+    tag={{ _native_vlan.tag | default(_native_vlan.id) }}
+    trunks={{ _effective_tags }}
+  when:
+    - wantsopenvswitch is defined
+    - wantsopenvswitch
+    - (ovs_vlans | selectattr('untagged', 'defined') | selectattr('untagged') | list | length > 0) or (ovs_vlans | selectattr('native', 'defined') | selectattr('native') | list | length > 0)
+    - ovs_port_bridge_check.rc is defined
+    - ovs_port_bridge_check.rc == 0
+
+- name: deinstall network-manager
+  apt:
+    pkg:
+      - network-manager
+    state: absent
+
+#- name: dhcpcd stopped and disabled
+#  systemd_service:
+#    enabled: false
+#    state: stopped
+#    name: dhcpcd
+#  when:
+#    - ansible_distribution == 'Debian'
+
+#- name: generate netplan and apply
+#  shell: "netplan generate ; netplan apply"
+#  when: dhcpcd_wpasupplicant is defined and dhcpcd_wpasupplicant.changed
+
+
+- name: check if networkd-wait-override exists
+  stat:
+    path: "/etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf"
+  register: networkdoverride
+
+- name: slurp network-wait-service
+  slurp:
+    src: "/etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf"
+  register: nws
+  when: networkdoverride.stat.exists == True
+
+- name: ensures /etc/systemd/system/systemd-networkd-wait-online.service.d exists
+  file:
+    path: "/etc/systemd/system/systemd-networkd-wait-online.service.d"
+    state: directory
+
+#- name: update network-wait-service
+#  copy:
+#    dest: "/etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf"
+#    owner: root
+#    group: root
+#    mode: '0644'
+#    content: "{{ networkdwait }}"
+#  register: updatenetworkwait
+#  when: (networkdoverride.stat.exists == False) or (networkdwait != nws.content|b64decode)
+
+- name: update network-wait-service
+  template:
+    src: "etc_systemd_system_systemd-networkd-wait-online_service_d_override.conf.j2"
+    dest: "/etc/systemd/system/systemd-networkd-wait-online.service.d/override.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  register: updatenetworkwait
+  # when: networkdoverride.stat.exists == False
+
+
+- name: systemd reload daemon
+  systemd_service:
+    daemon_reload: true
+  when:
+    - updatenetworkwait.changed

@@ -1,0 +1,21 @@
+---
+- name: Load Ceph kernel modules
+  community.general.modprobe:
+    name: "{{ item }}"
+    state: present
+  loop:
+    - rbd
+    - ceph
+
+- name: Ensure Ceph kernel modules load on boot
+  copy:
+    content: |
+      rbd
+      ceph
+    dest: /etc/modules-load.d/ceph.conf
+    mode: "0644"
+
+- name: Install lvm2 for Ceph OSD management
+  apt:
+    name: lvm2
+    state: present

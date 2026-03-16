@@ -1,0 +1,23 @@
+network:
+  version: 2
+  renderer: networkd
+  wifis:
+    {{ wifi_iface }}:
+      optional: true
+      dhcp4: true
+      dhcp6: true
+      link-local: [ ipv6 ]
+      access-points:
+        {% for ap in wifi_access_points | default([]) -%}
+        "{{ ap.ssid }}":
+          password: "{{ ap.password }}"
+        {% endfor %}
+      #addresses:
+      #  - <ip>/24
+      #routes:
+      #  - to: default
+      #    via: <gateway>
+      #nameservers:
+      #  addresses:
+      #    - <dns>
+      #    - 8.8.8.8

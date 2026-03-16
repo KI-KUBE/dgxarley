@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+{% for dev in smartd_devices %}
+{% set short_hour = ((host_octet | default(1)) % 24 + loop.index0) % 24 %}
+{% set long_hour = (short_hour + 1) % 24 %}
+{{ dev.device }}{{ ' -d ' + dev.driver if dev.driver is defined else '' }} -M test -m {{ smartd_mail_recipients }} -a -s (S/../.././{{ '%02d' | format(short_hour) }}|L/../{{ '%02d' | format(loop.index) }}/./{{ '%02d' | format(long_hour) }})
+{% endfor %}

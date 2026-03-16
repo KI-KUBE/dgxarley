@@ -1,0 +1,22 @@
+---
+- name: ensure locales installed
+  apt:
+    pkg:
+      - locales
+    state: present
+
+- name: Locale DE
+  community.general.locale_gen:
+    name: de_DE.UTF-8
+    state: present
+  notify: localegen
+
+# timedatectl list-timezones
+# timedatectl set-timezone Europe/Berlin
+# ORIG: Etc/UTC
+
+- name: ensure timezone is Europe/Berlin
+  file:
+    path: /etc/localtime
+    src: /usr/share/zoneinfo/Europe/Berlin
+    state: link
