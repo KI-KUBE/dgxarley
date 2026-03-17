@@ -84,9 +84,17 @@ def main():
 
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     print(f"[rank {node_rank}] Saving sharded state to {output_dir}...", flush=True)
+    # Workaround for SGLang 0.5.9 API mismatch: the RPC dispatcher unpacks
+    # parameters as **kwargs, but the mixin expects a single positional `params`
+    # dict. Wrapping in params={...} makes both sides agree.
+    # If upgraded past 0.5.9 where mixin uses **kwargs directly, revert to:
+    #   llm.save_sharded_model(path=output_dir, max_size=5 * 1024**3)
     llm.save_sharded_model(
-        path=output_dir,
-        max_size=5 * 1024**3,  # 5 GB per shard file
+        params={
+            "path": output_dir,
+            "pattern": None,
+            "max_size": 5 * 1024**3,  # 5 GB per shard file
+        }
     )
 
     # Copy metadata files (only rank 0 needs to, but doing it on both is idempotent)
