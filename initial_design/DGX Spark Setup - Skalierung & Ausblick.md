@@ -1,6 +1,6 @@
 # DGX Spark — Skalierung, Modell-Alternativen & Ausblick
 
-_Ausgelagert aus [[DGX Spark/DGX Spark Setup]] — enthält Zukunftsplanung, Modell-Alternativen, Switch-Kalkulation und Quellenverzeichnis._
+_Ausgelagert aus [DGX Spark Setup](DGX%20Spark%20Setup.md) — enthält Zukunftsplanung, Modell-Alternativen, Switch-Kalkulation und Quellenverzeichnis._
 
 ---
 

@@ -1,6 +1,6 @@
 # DGX Spark — Scaling, Model Alternatives & Outlook
 
-_Extracted from [[DGX Spark/DGX Spark Setup]] — contains future planning, model alternatives, switch cost calculations, and references._
+_Extracted from [DGX Spark Setup EN](DGX%20Spark%20Setup%20EN.md) — contains future planning, model alternatives, switch cost calculations, and references._
 
 ---
 

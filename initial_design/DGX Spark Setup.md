@@ -3,7 +3,7 @@
 _Stand: 16. März 2026 — aktualisiert mit Erkenntnissen aus der produktiven K3s/Ansible-Implementierung (Repo: dgxarley)_
 
 > [!tip] Open WebUI Detailinfo
-> Für alle Open-WebUI-spezifischen Details (RBAC, SSO, API-Nutzung, Pipelines, RAG, Function Calling, SearXNG-Integration, Self-Reflection-Pipeline, Embedding-Anbindung) siehe das separate Dokument: **[[DGX Spark/DGX Spark Setup - openwebui detailinfo]]**
+> Für alle Open-WebUI-spezifischen Details (RBAC, SSO, API-Nutzung, Pipelines, RAG, Function Calling, SearXNG-Integration, Self-Reflection-Pipeline, Embedding-Anbindung) siehe das separate Dokument: **[DGX Spark Setup - openwebui detailinfo](DGX%20Spark%20Setup%20-%20openwebui%20detailinfo.md)**
 
 > [!info] ASUS Ascent GX10 = DGX Spark
 > Dieses Dokument verwendet "DGX Spark" als Bezeichnung für die Plattform. Die **ASUS Ascent GX10** (z.B. GX10-GG0026BN) ist eine OEM-Implementierung derselben Hardware — identischer GB10 Grace Blackwell Superchip, identischer integrierter ConnectX-7, identisches DGX OS. Alle Anleitungen und Konfigurationen gelten 1:1 für beide Varianten.
@@ -676,7 +676,7 @@ Oder in den **Admin Settings → Documents**:
 - Embedding Model: `bge-m3`
 - Ollama URL: `http://<IP-SPARK-1>:11434`
 
-> Für weitere Open-WebUI-Embedding-Details siehe: **[[DGX Spark/DGX Spark Setup - openwebui detailinfo#12. Embedding-Anbindung an Open WebUI]]**
+> Für weitere Open-WebUI-Embedding-Details siehe: **[openwebui detailinfo § Embedding-Anbindung](DGX%20Spark%20Setup%20-%20openwebui%20detailinfo.md#12-embedding-anbindung-an-open-webui)**
 
 ### Document Extraction: docling-serve (implementiert auf elite800, CPU)
 
@@ -906,7 +906,7 @@ server:
 
 ### Schritt 2–4: Open WebUI Konfiguration
 
-Die Open-WebUI-seitige Konfiguration (Environment Variables, Chat-Aktivierung, Native Function Calling) ist im Detail beschrieben unter: **[[DGX Spark/DGX Spark Setup - openwebui detailinfo#10. SearXNG-Integration in Open WebUI]]**
+Die Open-WebUI-seitige Konfiguration (Environment Variables, Chat-Aktivierung, Native Function Calling) ist im Detail beschrieben unter: **[openwebui detailinfo § SearXNG-Integration](DGX%20Spark%20Setup%20-%20openwebui%20detailinfo.md#10-searxng-web-search-integration-in-open-webui)**
 
 ---
 
@@ -952,7 +952,7 @@ Eine Open WebUI Filter-Pipeline, die den Output automatisch zur Selbstkritik zur
 
 Generiere N Antworten mit unterschiedlicher Temperature, lasse das Modell die beste synthetisieren. Vervierfacht die Inferenz-Zeit — nur für die wichtigsten Anfragen sinnvoll.
 
-> Der vollständige Python-Code für die Self-Reflection-Pipeline (Ansatz B) und das Best-of-N-Konzept (Ansatz C) findet sich unter: **[[DGX Spark/DGX Spark Setup - openwebui detailinfo#11. Self-Reflection Pipeline (Filter)]]**
+> Der vollständige Python-Code für die Self-Reflection-Pipeline (Ansatz B) und das Best-of-N-Konzept (Ansatz C) findet sich unter: **[openwebui detailinfo § Self-Reflection Pipeline](DGX%20Spark%20Setup%20-%20openwebui%20detailinfo.md#11-self-reflection-pipeline-filter)**
 
 ### Empfehlung
 
@@ -2186,4 +2186,4 @@ Alle persistenten Daten liegen unter `/var/lib/k8s-data/` auf elite800 (hostPath
 ## Skalierung, Modell-Alternativen & Ausblick
 
 > [!tip] Ausgelagert
-> Offene Punkte, Zukunftsplanung, Multi-Pod-Ausblick, GLM-5 Modell-Analyse, Switch-Kalkulation (MikroTik CRS812), Preise und alle Quellen & Referenzen: **[[DGX Spark/DGX Spark Setup - Skalierung & Ausblick]]**
+> Offene Punkte, Zukunftsplanung, Multi-Pod-Ausblick, GLM-5 Modell-Analyse, Switch-Kalkulation (MikroTik CRS812), Preise und alle Quellen & Referenzen: **[DGX Spark Setup - Skalierung & Ausblick](DGX%20Spark%20Setup%20-%20Skalierung%20%26%20Ausblick.md)**

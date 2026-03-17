@@ -347,7 +347,7 @@ The model responds with a structured tool call instead of text. The calling scri
 
 ## 10. SearXNG Web Search Integration in Open WebUI
 
-Prerequisite: A local SearXNG instance is available and configured for JSON output (see [[DGX Spark/DGX Spark Setup#5. SearXNG Web Search Integration|main document, section 5]]).
+Prerequisite: A local SearXNG instance is available and configured for JSON output (see [main document, section 5](DGX%20Spark%20Setup%20EN.md#5-searxng-web-search-integration)).
 
 ### 10.1 Open WebUI Environment Variables
 
@@ -529,7 +529,7 @@ In Open WebUI Admin Settings → Documents:
 
 Open WebUI has a built-in embedding engine. In Admin Settings → Documents, you can select "Default (SentenceTransformers)". This loads bge-m3 directly in the Open WebUI container on CPU. No separate service required.
 
-> For the various embedding options and their pros/cons see [[DGX Spark/DGX Spark Setup#4. Embedding-Modell: Ollama auf DGX Spark (GPU-beschleunigt)|main document, section 4]].
+> For the various embedding options and their pros/cons see [main document, section 4](DGX%20Spark%20Setup%20EN.md#4-embedding-model-ollama-on-dgx-spark-gpu-accelerated).
 
 ---
 

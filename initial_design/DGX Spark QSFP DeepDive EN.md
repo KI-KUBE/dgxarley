@@ -2,7 +2,7 @@
 
 > A deep dive into the unusual PCIe topology of the NVIDIA GB10 ConnectX-7 and its practical implications for stacking, NCCL, and network planning.
 >
-> **Related:** For the general setup and configuration of the DGX Spark, see [[DGX Spark/DGX Spark Setup|DGX Spark Setup]].
+> **Related:** For the general setup and configuration of the DGX Spark, see [DGX Spark Setup EN](DGX%20Spark%20Setup%20EN.md).
 
 ## TL;DR
 
