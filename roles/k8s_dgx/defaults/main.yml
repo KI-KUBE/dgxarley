@@ -51,10 +51,36 @@ sglang_model_profiles:
     context_length_max: 262144
     context_length: 65536
     kv_cache_dtype: "fp8_e5m2"
-    mem_fraction_static: "0.90"
+    mem_fraction_static: "0.80"
     reasoning_parser: "qwen3"
     tool_call_parser: "qwen3_coder"
     # non-thinking only — no <think> blocks
+    recommended_sampling:
+      temperature: 0.7
+      top_p: 0.8
+      top_k: 20
+  "nvidia/Qwen3-235B-A22B-Instruct-2507-NVFP4":
+    info_url: "https://huggingface.co/nvidia/Qwen3-235B-A22B-Instruct-2507-NVFP4"
+    context_length_max: 262144
+    context_length: 65536
+    kv_cache_dtype: "fp8_e5m2"
+    mem_fraction_static: "0.80"
+    quantization: "modelopt_fp4"
+    reasoning_parser: "qwen3"
+    tool_call_parser: "qwen3_coder"
+    # non-thinking only — no <think> blocks
+    recommended_sampling:
+      temperature: 0.7
+      top_p: 0.8
+      top_k: 20
+  "Qwen/Qwen3-Next-80B-A3B-Instruct":
+    info_url: "https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct"
+    context_length_max: 262144
+    context_length: 262144
+    kv_cache_dtype: "fp8_e5m2"
+    mem_fraction_static: "0.50"
+    attention_backend: "triton"
+    # non-thinking only — no <think> blocks, 80B/3B MoE hybrid (DeltaNet + Attention)
     recommended_sampling:
       temperature: 0.7
       top_p: 0.8
@@ -105,6 +131,7 @@ sglang_model_profiles:
     context_length: 262144
     kv_cache_dtype: "fp8_e5m2"
     mem_fraction_static: "0.50"
+    attention_backend: "triton"  # trtllm_mha
     reasoning_parser: "qwen3"
     tool_call_parser: "qwen3_coder"
     # supports thinking (default) and non-thinking modes
@@ -144,25 +171,41 @@ sglang_speculative_num_draft_tokens: 4
 #sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct"
 #sglang_model: "Qwen/Qwen2.5-Coder-7B-Instruct"
 #sglang_model: "Qwen/Qwen3.5-35B-A3B"
-sglang_model: "Qwen/Qwen3-235B-A22B-Instruct-2507-FP8"
+#sglang_model: "Qwen/Qwen3-235B-A22B-Instruct-2507-FP8"
+#sglang_model: "nvidia/Qwen3-235B-A22B-Instruct-2507-NVFP4"
+sglang_model: "Qwen/Qwen3-Next-80B-A3B-Instruct"
+
 sglang_context_length: "{{ sglang_model_profiles[sglang_model].context_length }}"
 sglang_kv_cache_dtype: "{{ sglang_model_profiles[sglang_model].kv_cache_dtype }}"
 sglang_mem_fraction_static: "{{ sglang_model_profiles[sglang_model].mem_fraction_static }}"
 sglang_reasoning_parser: "{{ sglang_model_profiles[sglang_model].reasoning_parser | default('') }}"
 sglang_tool_call_parser: "{{ sglang_model_profiles[sglang_model].tool_call_parser | default('') }}"
+sglang_quantization: "{{ sglang_model_profiles[sglang_model].quantization | default('') }}"
 sglang_tp: 2
 sglang_nnodes: 2
 sglang_port: 8000
 sglang_internal_port: 30080
 sglang_dist_timeout: 1800
 
+# Max concurrent requests. Limits how many requests SGLang processes in parallel.
+# Set to 0 for unlimited (only bounded by KV-cache pool size).
+sglang_max_running_requests: 1024
+
+# Schedule policy: "lpm" (longest prefix match) or "fcfs" (first come first served).
+# lpm reuses cached prefixes across requests (better for shared system prompts / RAG).
+# fcfs processes requests strictly in arrival order (fairer under heavy load).
+sglang_schedule_policy: "lpm"
+
 # Attention backend: per-model in sglang_model_profiles, defaults to "flashinfer".
 # Set to "triton" for hybrid GDN models (MoE+Mamba) on Blackwell GPUs.
 sglang_attention_backend: "{{ sglang_model_profiles[sglang_model].attention_backend | default('flashinfer') }}"
 
+ollama_replicas: 1
+ollama_embed_replicas: 1
+
 ollama_preload_models:
   - "qwen2.5-coder:latest"
-  - "qwen3-coder:latest"
+  # - "qwen3-coder:latest"
 
 ollama_embed_preload_models:
   - "bge-m3"
@@ -217,6 +260,8 @@ hf_cache_path: "/var/lib/hf-cache"
 hf_token: "hf_CHANGEME"
 # HuggingFace model pre-download Job
 hf_preload_models:
+  - "Qwen/Qwen3-Next-80B-A3B-Instruct"
+  - "nvidia/Qwen3-235B-A22B-Instruct-2507-NVFP4"
   - "Qwen/Qwen3.5-35B-A3B"
   - "Qwen/Qwen3-Coder-30B-A3B-Instruct"
   - "Qwen/Qwen2.5-Coder-7B-Instruct"

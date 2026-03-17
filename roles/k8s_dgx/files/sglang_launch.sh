@@ -34,6 +34,9 @@ args=(
 if [ -n "$SGLANG_HOST" ]; then
   args+=(--host "$SGLANG_HOST")
 fi
+if [ -n "$SGLANG_QUANTIZATION" ]; then
+  args+=(--quantization "$SGLANG_QUANTIZATION")
+fi
 if [ -n "$SGLANG_REASONING_PARSER" ]; then
   args+=(--reasoning-parser "$SGLANG_REASONING_PARSER")
 fi
@@ -45,6 +48,12 @@ if [ "$SGLANG_SPECULATIVE_ENABLED" = "true" ]; then
   args+=(--speculative-num-steps "$SGLANG_SPECULATIVE_NUM_STEPS")
   args+=(--speculative-eagle-topk "$SGLANG_SPECULATIVE_EAGLE_TOPK")
   args+=(--speculative-num-draft-tokens "$SGLANG_SPECULATIVE_NUM_DRAFT_TOKENS")
+fi
+if [ -n "$SGLANG_MAX_RUNNING_REQUESTS" ] && [ "$SGLANG_MAX_RUNNING_REQUESTS" != "0" ]; then
+  args+=(--max-running-requests "$SGLANG_MAX_RUNNING_REQUESTS")
+fi
+if [ -n "$SGLANG_SCHEDULE_POLICY" ]; then
+  args+=(--schedule-policy "$SGLANG_SCHEDULE_POLICY")
 fi
 if [ -n "$SGLANG_DIST_TIMEOUT" ]; then
   args+=(--dist-timeout "$SGLANG_DIST_TIMEOUT")

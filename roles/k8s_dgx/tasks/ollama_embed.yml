@@ -113,7 +113,7 @@
           keel.sh/pollSchedule: "@every 24h"
           keel.sh/trigger: poll
       spec:
-        replicas: 1
+        replicas: "{{ ollama_embed_replicas | default(1) | int }}"
         strategy:
           type: Recreate
         selector:
