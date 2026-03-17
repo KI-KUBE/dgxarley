@@ -11,6 +11,14 @@
 # - Ollama pods should be scaled to 0 (the Job needs full GPU memory)
 # - After completion, set load_format: "sharded_state" in the model profile
 
+- name: Skip shard job — load_format is not sharded_state
+  ansible.builtin.debug:
+    msg: >-
+      Shard job skipped: sglang_load_format={{ sglang_load_format }}.
+      Set load_format: "sharded_state" in the model profile for
+      {{ sglang_model }} to enable sharding.
+  when: sglang_load_format != "sharded_state"
+
 - name: Create SGLang shard script ConfigMap
   when: sglang_load_format == "sharded_state"
   kubernetes.core.k8s:

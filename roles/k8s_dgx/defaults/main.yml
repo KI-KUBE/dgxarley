@@ -171,7 +171,7 @@ sglang_speculative_num_draft_tokens: 4
 sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
 
 # works
-# sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"  #flashinfer(<- war falsch, ging aber) und 32768k context und 0.90 mem
+# sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
 # sglang_model: "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"
 
 sglang_context_length: "{{ sglang_model_profiles[sglang_model].context_length }}"

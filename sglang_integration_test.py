@@ -182,6 +182,9 @@ def _detect_repetition(text: str, min_output: int = 800, max_ratio: float = 0.20
     return ratio < max_ratio
 
 
+ENABLE_REPETTITION_DETECTION: bool = False
+
+
 async def stream_request(
     session: aiohttp.ClientSession,
     url: str,
@@ -228,7 +231,7 @@ async def stream_request(
                         stats.ttft = time.monotonic() - stats._start
                     stats.output += content
                     # Abort on degenerate repetition loops
-                    if _detect_repetition(stats.output):
+                    if ENABLE_REPETTITION_DETECTION and _detect_repetition(stats.output):
                         stats.status = "error"
                         stats.error = "aborted: degenerate repetition detected"
                         return
