@@ -235,6 +235,10 @@ Two-node tensor-parallel setup across both DGX Sparks:
 - **Startup timing**: head startup takes ~7-8 min (NCCL init, weight loading, CUDA graph capture, warmup). The `startupProbe` allows 1230s (~20 min) via `failureThreshold: 120 × periodSeconds: 10`. If the probe kills the head prematurely, the worker's NCCL connection breaks but the worker stays running (stale) — on head restart it deadlocks at `Init torch distributed` waiting for the stale worker
 - **Worker livenessProbe**: the worker has no startup/readiness probes (must appear Ready immediately for the head's `wait-for-worker` initContainer), but has a `livenessProbe` (`curl localhost:8000/health`, `initialDelaySeconds: 300`) that detects a broken NCCL connection and triggers a restart, breaking the deadlock cycle
 
+**Heureka! — Qwen3-235B-A22B MoE (AWQ 4-bit) running distributed inference across both DGX Sparks:**
+
+![235B AWQ Heureka](media/Bildschirmfoto_2026-03-17_21-53-58_blurred.png)
+
 **Open WebUI — Daily Briefing via SGLang (streaming, web search enabled):**
 
 ![Open WebUI Daily Briefing (1/2)](media/Bildschirmfoto_2026-03-16_11-58-44_blurred.png)
