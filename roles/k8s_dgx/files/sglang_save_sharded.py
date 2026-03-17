@@ -1,0 +1,112 @@
+"""Pre-shard an SGLang model for fast multi-node TP loading.
+
+Runs as a multi-node job (one process per TP rank). Each rank's Engine
+loads only its portion of the model, then saves its shard locally.
+After completion each node has its rank's files under the sharded path.
+
+Environment variables (set via ConfigMap):
+    SGLANG_MODEL          Model ID (e.g. QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ)
+    SGLANG_QUANTIZATION   Quantization method (e.g. awq, gptq, or empty)
+    TP                    Tensor parallel size (default: 2)
+    NNODES                Number of nodes (default: 2)
+    NODE_RANK             This node's rank (0 = head, 1 = worker)
+    QSFP_IP_SPARK1        NCCL init address (head IP)
+    NCCL_PORT             NCCL bootstrap port
+    HF_TOKEN              HuggingFace token (optional)
+    SHARD_OUTPUT_DIR      Override output directory (optional)
+
+After sharding, start SGLang with:
+    --model-path <sharded-dir> --load-format sharded_state
+"""
+
+import os
+import shutil
+import sys
+from pathlib import Path
+
+
+def main():
+    model_id = os.environ.get("SGLANG_MODEL", "")
+    quantization = os.environ.get("SGLANG_QUANTIZATION", "") or None
+    tp = int(os.environ.get("TP", "2"))
+    nnodes = int(os.environ.get("NNODES", "2"))
+    node_rank = int(os.environ.get("NODE_RANK", "0"))
+    nccl_init_addr = f"{os.environ.get('QSFP_IP_SPARK1', '10.10.10.1')}:{os.environ.get('NCCL_PORT', '50000')}"
+
+    if not model_id:
+        print("ERROR: SGLANG_MODEL not set", flush=True)
+        sys.exit(1)
+
+    model_slug = model_id.replace("/", "--")
+    default_output = f"/root/.cache/huggingface/sharded/{model_slug}-TP{tp}"
+    output_dir = os.environ.get("SHARD_OUTPUT_DIR", default_output)
+
+    print(f"[rank {node_rank}] Model:        {model_id}", flush=True)
+    print(f"[rank {node_rank}] Quantization: {quantization or '(none)'}", flush=True)
+    print(f"[rank {node_rank}] TP size:      {tp}, nnodes: {nnodes}, rank: {node_rank}", flush=True)
+    print(f"[rank {node_rank}] NCCL init:    {nccl_init_addr}", flush=True)
+    print(f"[rank {node_rank}] Output:       {output_dir}", flush=True)
+
+    # Check if already sharded
+    marker = Path(output_dir) / ".shard_complete"
+    if marker.exists():
+        print(f"[rank {node_rank}] Sharded checkpoint already exists, skipping.", flush=True)
+        sys.exit(0)
+
+    # Ensure the model is downloaded locally
+    from huggingface_hub import snapshot_download
+
+    print(f"[rank {node_rank}] Ensuring model is downloaded...", flush=True)
+    local_path = snapshot_download(
+        repo_id=model_id,
+        cache_dir="/root/.cache/huggingface/hub",
+    )
+    print(f"[rank {node_rank}] Model cached at: {local_path}", flush=True)
+
+    # Create Engine with multi-node TP params
+    from sglang import Engine
+
+    engine_kwargs = {
+        "model_path": local_path,
+        "tp_size": tp,
+        "nnodes": nnodes,
+        "node_rank": node_rank,
+        "dist_init_addr": nccl_init_addr,
+    }
+    if quantization:
+        engine_kwargs["quantization"] = quantization
+
+    if os.environ.get("SGLANG_ENABLE_JIT_DEEPGEMM", "").lower() == "false":
+        print(f"[rank {node_rank}] DeepGemm JIT disabled", flush=True)
+
+    print(f"[rank {node_rank}] Initializing Engine...", flush=True)
+    llm = Engine(**engine_kwargs)
+
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    print(f"[rank {node_rank}] Saving sharded state to {output_dir}...", flush=True)
+    llm.save_sharded_model(
+        path=output_dir,
+        max_size=5 * 1024**3,  # 5 GB per shard file
+    )
+
+    # Copy metadata files (only rank 0 needs to, but doing it on both is idempotent)
+    for file in os.listdir(local_path):
+        src = os.path.join(local_path, file)
+        dst = os.path.join(output_dir, file)
+        if os.path.exists(dst):
+            continue
+        ext = os.path.splitext(file)[1]
+        if ext in (".bin", ".pt", ".safetensors"):
+            continue
+        if os.path.isdir(src):
+            shutil.copytree(src, dst)
+        else:
+            shutil.copy(src, dst)
+
+    # Write completion marker
+    marker.write_text(f"model={model_id}\ntp={tp}\nnode_rank={node_rank}\nquantization={quantization}\n")
+    print(f"[rank {node_rank}] Sharding complete.", flush=True)
+
+
+if __name__ == "__main__":
+    main()

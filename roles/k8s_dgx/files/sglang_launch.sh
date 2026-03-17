@@ -18,10 +18,25 @@ until ping -c10 -W1 "$peer" ; do
 done
 echo "QSFP peer ${peer} reachable."
 
+# When load_format is sharded_state, wait for the shard marker then use sharded path
+model_path="$SGLANG_MODEL"
+if [ "$SGLANG_LOAD_FORMAT" = "sharded_state" ]; then
+  model_slug=$(echo "$SGLANG_MODEL" | tr '/' '--')
+  sharded_path="/root/.cache/huggingface/sharded/${model_slug}-TP${TP}"
+  marker="${sharded_path}/.shard_complete"
+  echo "Waiting for sharded checkpoint at ${marker} ..."
+  while [ ! -f "$marker" ]; do
+    echo "  $(date '+%H:%M:%S') shard not ready yet, waiting 30s ..."
+    sleep 30
+  done
+  model_path="$sharded_path"
+  echo "Using pre-sharded model at ${model_path}"
+fi
+
 args=(
   tini -s --
   python3 -m sglang.launch_server
-  --model-path "$SGLANG_MODEL"
+  --model-path "$model_path"
   --context-length "$SGLANG_CONTEXT_LENGTH"
   --kv-cache-dtype "$SGLANG_KV_CACHE_DTYPE"
   --mem-fraction-static "$SGLANG_MEM_FRACTION"
@@ -33,6 +48,9 @@ args=(
 )
 if [ -n "$SGLANG_HOST" ]; then
   args+=(--host "$SGLANG_HOST")
+fi
+if [ -n "$SGLANG_LOAD_FORMAT" ] && [ "$SGLANG_LOAD_FORMAT" != "auto" ]; then
+  args+=(--load-format "$SGLANG_LOAD_FORMAT")
 fi
 if [ -n "$SGLANG_QUANTIZATION" ]; then
   args+=(--quantization "$SGLANG_QUANTIZATION")

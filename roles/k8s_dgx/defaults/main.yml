@@ -20,14 +20,37 @@ sglang_model_profiles:
       top_p: 0.8
       top_k: 20
       repetition_penalty: 1.05
-  "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ":
-    info_url: "https://huggingface.co/QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
-    # 235B/22B MoE, AWQ 4-bit (~124 GB / ~62 GB per GPU with TP=2)
+  "unsloth/Qwen3-235B-A22B-Instruct-2507-FP8":
+    info_url: "https://huggingface.co/unsloth/Qwen3-235B-A22B-Instruct-2507-FP8"
+    # load_format: "sharded_state"  # default: auto
     context_length_max: 262144
     context_length: 65536
     kv_cache_dtype: "fp8_e5m2"
     mem_fraction_static: "0.85"
-    quantization: "awq"
+    disable_deep_gemm: true
+    fp8_gemm_runner_backend: "cutlass"
+    attention_backend: "triton"
+    tool_call_parser: "qwen3_coder"
+    # non-thinking only — no <think> blocks, no reasoning_parser needed
+    recommended_sampling:
+      temperature: 0.7
+      top_p: 0.8
+      top_k: 20
+  "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ":
+    info_url: "https://huggingface.co/QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
+    # 235B/22B MoE, AWQ 4-bit (~124 GB / ~62 GB per GPU with TP=2)
+    #load_format: "sharded_state"  # default: auto
+    context_length_max: 262144
+    context_length: 65536
+    kv_cache_dtype: "fp8_e5m2"
+    mem_fraction_static: "0.80"
+    # quantization: "moe_wna16" avoids the Marlin repack that causes OOM on
+    # memory-constrained GPUs. Auto-detect (no flag) creates AWQMarlinConfig which
+    # works correctly but needs ~109 GB peak during repack (old+new tensors coexist).
+    # moe_wna16 uses Triton INT4 kernels directly — no repack, peak = final ~62 GB.
+    # --quantization awq is WRONG for MoE: AWQConfig.get_quant_method() returns None
+    # for FusedMoE → falls through to unquantized FP16 → OOM.
+    quantization: "moe_wna16"
     tool_call_parser: "qwen3_coder"
     # non-thinking only — no <think> blocks, no reasoning_parser needed
     recommended_sampling:
@@ -134,8 +157,8 @@ sglang_speculative_num_draft_tokens: 4
 #sglang_model: "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
 #sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
 #sglang_model: "Qwen/Qwen3.5-35B-A3B-FP8"
-#sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
-sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
+#sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
 
 
 sglang_context_length: "{{ sglang_model_profiles[sglang_model].context_length }}"
@@ -144,6 +167,9 @@ sglang_mem_fraction_static: "{{ sglang_model_profiles[sglang_model].mem_fraction
 sglang_reasoning_parser: "{{ sglang_model_profiles[sglang_model].reasoning_parser | default('') }}"
 sglang_tool_call_parser: "{{ sglang_model_profiles[sglang_model].tool_call_parser | default('') }}"
 sglang_quantization: "{{ sglang_model_profiles[sglang_model].quantization | default('') }}"
+# Load format: "auto" (default) or "sharded_state" (for pre-sharded models).
+# Use "sharded_state" after running sglang_shard Job to reduce peak GPU memory.
+sglang_load_format: "{{ sglang_model_profiles[sglang_model].load_format | default('auto') }}"
 # Disable DeepGemm JIT (sets SGLANG_ENABLE_JIT_DEEPGEMM=false) — needed for
 # FP8 models on GB10/SM121 where DeepGemm lacks recipes for certain kernel
 # configs (crashes with "Unknown recipe" during CUDA graph capture).

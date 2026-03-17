@@ -43,6 +43,10 @@
   ansible.builtin.import_tasks: hf_preload.yml
   tags: hf_preload
 
+- name: Pre-shard SGLang model for fast TP loading
+  ansible.builtin.import_tasks: sglang_shard.yml
+  tags: sglang_shard
+
 - name: Register DNS A records for ingress services
   ansible.builtin.import_tasks: dns.yml
   tags: dns
