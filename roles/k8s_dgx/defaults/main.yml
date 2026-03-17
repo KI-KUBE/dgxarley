@@ -286,6 +286,9 @@ pipelines_enabled: true
 pipelines_filters:
   - "pipelines_self_reflection_filter.py"
 
+# pipeline will be deployed, but this valve will disable it
+openwebui_self_reflection_enabled: false
+
 # OpenAI-compatible connections for OpenWebUI
 # Pipelines URL is appended automatically when pipelines_enabled is true.
 openwebui_connections_openai:
