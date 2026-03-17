@@ -25,6 +25,8 @@
         SGLANG_SPECULATIVE_NUM_DRAFT_TOKENS: "{{ sglang_speculative_num_draft_tokens | string }}"
         SGLANG_DIST_TIMEOUT: "{{ sglang_dist_timeout | string }}"
         SGLANG_ATTENTION_BACKEND: "{{ sglang_attention_backend }}"
+        SGLANG_FP8_GEMM_RUNNER_BACKEND: "{{ sglang_fp8_gemm_runner_backend }}"
+        SGLANG_ENABLE_JIT_DEEPGEMM: "{{ 'false' if sglang_disable_deep_gemm | bool else 'true' }}"
         SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK: "0"
         NCCL_SOCKET_IFNAME: "{{ nccl_socket_ifname }}"
         NCCL_IB_DISABLE: "1"

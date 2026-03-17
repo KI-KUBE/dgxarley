@@ -93,25 +93,52 @@ _MODEL_PROFILES: dict = _dgx_defaults.get("sglang_model_profiles", {})
 
 
 def load_sampling_presets(model_id: str) -> dict[str, dict]:
-    """Build sampling presets from a model's recommended_sampling in the Ansible defaults."""
+    """Build sampling presets from a model's recommended_sampling in the Ansible defaults.
+
+    Merges two layers:
+      1. recommended_sampling  — values from the model creator (model card)
+      2. sampling_overrides    — local tuning on top (e.g. anti-repetition)
+    Overrides win on key conflicts.  Flat overrides are applied to every
+    sub-preset; per-preset overrides (keyed by preset name) are applied only
+    to the matching sub-preset.
+    """
     profile = _MODEL_PROFILES.get(model_id, {})
     raw = profile.get("recommended_sampling", {})
     if not raw:
         return {}
 
+    overrides = profile.get("sampling_overrides", {})
+
     # Flat preset (no sub-modes like thinking/non_thinking) — wrap it
-    if any(k in raw for k in ("temperature", "top_p", "top_k")):
+    is_flat = any(k in raw for k in ("temperature", "top_p", "top_k"))
+    if is_flat:
         raw = {"default": raw}
+
+    # Split overrides into flat (apply to all) and per-preset (keyed by name)
+    # OpenAI-compatible top-level keys
+    _OPENAI_KEYS = {"temperature", "top_p", "presence_penalty",
+                    "frequency_penalty", "repetition_penalty"}
+    # SGLang-native keys (sent via extra_body)
+    _EXTRA_KEYS = {"top_k", "min_p", "top_min_p", "min_tokens"}
+    _ALL_SAMPLING_KEYS = _OPENAI_KEYS | _EXTRA_KEYS
+
+    flat_overrides = {k: v for k, v in overrides.items() if k in _ALL_SAMPLING_KEYS}
+    preset_overrides = {k: v for k, v in overrides.items()
+                        if k not in _ALL_SAMPLING_KEYS and isinstance(v, dict)}
 
     presets: dict[str, dict] = {}
     for name, params in raw.items():
+        # Merge: recommended → flat overrides → per-preset overrides
+        merged = {**params, **flat_overrides, **preset_overrides.get(name, {})}
+
         preset: dict = {}
-        for k in ("temperature", "top_p", "presence_penalty", "frequency_penalty", "repetition_penalty"):
-            if k in params:
-                preset[k] = params[k]
+        for k in _OPENAI_KEYS:
+            if k in merged:
+                preset[k] = merged[k]
         extra: dict = {}
-        if "top_k" in params:
-            extra["top_k"] = params["top_k"]
+        for k in _EXTRA_KEYS:
+            if k in merged:
+                extra[k] = merged[k]
         if name.startswith("non_thinking"):
             extra["chat_template_kwargs"] = {"enable_thinking": False}
         if extra:

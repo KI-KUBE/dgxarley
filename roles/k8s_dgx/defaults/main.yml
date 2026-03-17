@@ -8,79 +8,28 @@ dgx_namespace: "dgx-ai"
 sglang_image: "scitrera/dgx-spark-sglang:0.5.9-t5"
 # Model profiles: context_length, kv_cache_dtype, mem_fraction_static
 sglang_model_profiles:
-  "Qwen/Qwen2.5-7B-Instruct":
-    info_url: "https://huggingface.co/Qwen/Qwen2.5-7B-Instruct"
-    context_length: 32768
-    kv_cache_dtype: "fp8_e5m2"
-    mem_fraction_static: "0.85"
-    recommended_sampling:
-      temperature: 0.7
-      top_p: 0.8
-      top_k: 20
-      repetition_penalty: 1.05
-  "Qwen/Qwen2.5-14B-Instruct":
-    info_url: "https://huggingface.co/Qwen/Qwen2.5-14B-Instruct"
+  "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ":
+    info_url: "https://huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"
+    # 32B dense, AWQ 4-bit (~19 GB / ~9.7 GB per GPU with TP=2)
     context_length: 32768
     kv_cache_dtype: "fp8_e5m2"
     mem_fraction_static: "0.80"
+    quantization: "awq"
     recommended_sampling:
       temperature: 0.7
       top_p: 0.8
       top_k: 20
       repetition_penalty: 1.05
-  "Qwen/Qwen2.5-32B-Instruct":
-    info_url: "https://huggingface.co/Qwen/Qwen2.5-32B-Instruct"
-    context_length: 32768
-    kv_cache_dtype: "fp8_e5m2"
-    mem_fraction_static: "0.50"
-    recommended_sampling:
-      temperature: 0.7
-      top_p: 0.8
-      top_k: 20
-      repetition_penalty: 1.05
-  "meta-llama/Llama-3.1-8B-Instruct":
-    info_url: "https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct"
-    context_length: 131072
-    kv_cache_dtype: "fp8_e5m2"
-    mem_fraction_static: "0.85"
-    recommended_sampling:
-      temperature: 0.6
-      top_p: 0.9
-  "Qwen/Qwen3-235B-A22B-Instruct-2507-FP8":
-    info_url: "https://huggingface.co/Qwen/Qwen3-235B-A22B-Instruct-2507-FP8"
+  "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ":
+    info_url: "https://huggingface.co/QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
+    # 235B/22B MoE, AWQ 4-bit (~124 GB / ~62 GB per GPU with TP=2)
     context_length_max: 262144
     context_length: 65536
     kv_cache_dtype: "fp8_e5m2"
-    mem_fraction_static: "0.80"
-    reasoning_parser: "qwen3"
+    mem_fraction_static: "0.85"
+    quantization: "awq"
     tool_call_parser: "qwen3_coder"
-    # non-thinking only — no <think> blocks
-    recommended_sampling:
-      temperature: 0.7
-      top_p: 0.8
-      top_k: 20
-  "nvidia/Qwen3-235B-A22B-Instruct-2507-NVFP4":
-    info_url: "https://huggingface.co/nvidia/Qwen3-235B-A22B-Instruct-2507-NVFP4"
-    context_length_max: 262144
-    context_length: 65536
-    kv_cache_dtype: "fp8_e5m2"
-    mem_fraction_static: "0.80"
-    quantization: "modelopt_fp4"
-    reasoning_parser: "qwen3"
-    tool_call_parser: "qwen3_coder"
-    # non-thinking only — no <think> blocks
-    recommended_sampling:
-      temperature: 0.7
-      top_p: 0.8
-      top_k: 20
-  "Qwen/Qwen3-Next-80B-A3B-Instruct":
-    info_url: "https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct"
-    context_length_max: 262144
-    context_length: 262144
-    kv_cache_dtype: "fp8_e5m2"
-    mem_fraction_static: "0.90"
-    attention_backend: "triton"
-    # non-thinking only — no <think> blocks, 80B/3B MoE hybrid (DeltaNet + Attention)
+    # non-thinking only — no <think> blocks, no reasoning_parser needed
     recommended_sampling:
       temperature: 0.7
       top_p: 0.8
@@ -90,43 +39,35 @@ sglang_model_profiles:
     context_length_max: 262144
     context_length: 262144
     kv_cache_dtype: "fp8_e5m2"
-    mem_fraction_static: "0.90"
+    mem_fraction_static: "0.50"
     attention_backend: "triton"
+    disable_deep_gemm: true
+    fp8_gemm_runner_backend: "cutlass"
     # FP8 quantized, non-thinking only — 80B/3B MoE hybrid (DeltaNet + Attention)
     recommended_sampling:
       temperature: 0.7
       top_p: 0.8
       top_k: 20
-  "Qwen/Qwen2.5-Coder-7B-Instruct":
-    info_url: "https://huggingface.co/Qwen/Qwen2.5-Coder-7B-Instruct"
-    context_length: 32768
-    kv_cache_dtype: "fp8_e5m2"
-    mem_fraction_static: "0.5"
-    recommended_sampling:
-      temperature: 0.7
-      top_p: 0.8
-      top_k: 20
-      repetition_penalty: 1.1
-  "Qwen/Qwen2.5-Coder-14B-Instruct":
-    info_url: "https://huggingface.co/Qwen/Qwen2.5-Coder-14B-Instruct"
-    context_length: 32768
+  "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8":
+    info_url: "https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+    context_length: 262144
     kv_cache_dtype: "fp8_e5m2"
     mem_fraction_static: "0.50"
+    disable_deep_gemm: true
+    fp8_gemm_runner_backend: "cutlass"
+    # non-thinking only — no <think> blocks
     recommended_sampling:
       temperature: 0.7
       top_p: 0.8
       top_k: 20
       repetition_penalty: 1.05
-  "Qwen/Qwen2.5-Coder-32B-Instruct":
-    info_url: "https://huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct"
-    context_length: 32768
-    kv_cache_dtype: "fp8_e5m2"
-    mem_fraction_static: "0.50"
-    recommended_sampling:
-      temperature: 0.7
-      top_p: 0.8
-      top_k: 20
-      repetition_penalty: 1.05
+    # local overrides (anti-repetition tuning, not from model card)
+    sampling_overrides:
+      top_k: -1
+      min_p: 0.15
+      presence_penalty: 1.5
+      frequency_penalty: 0.8
+      repetition_penalty: 1.55
   "Qwen/Qwen3-Coder-30B-A3B-Instruct":
     info_url: "https://huggingface.co/Qwen/Qwen3-Coder-30B-A3B-Instruct"
     context_length: 262144
@@ -138,12 +79,21 @@ sglang_model_profiles:
       top_p: 0.8
       top_k: 20
       repetition_penalty: 1.05
-  "Qwen/Qwen3.5-35B-A3B":
-    info_url: "https://huggingface.co/Qwen/Qwen3.5-35B-A3B"
+    # local overrides (anti-repetition tuning, not from model card)
+    sampling_overrides:
+      top_k: -1
+      min_p: 0.15
+      presence_penalty: 1.5
+      frequency_penalty: 0.8
+      repetition_penalty: 1.55
+  "Qwen/Qwen3.5-35B-A3B-FP8":
+    info_url: "https://huggingface.co/Qwen/Qwen3.5-35B-A3B-FP8"
     context_length: 262144
     kv_cache_dtype: "fp8_e5m2"
     mem_fraction_static: "0.50"
     attention_backend: "triton"  # trtllm_mha
+    disable_deep_gemm: true
+    fp8_gemm_runner_backend: "cutlass"
     reasoning_parser: "qwen3"
     tool_call_parser: "qwen3_coder"
     # supports thinking (default) and non-thinking modes
@@ -180,13 +130,12 @@ sglang_speculative_eagle_topk: 1
 sglang_speculative_num_draft_tokens: 4
 
 # Select the active model — parameters are pulled from sglang_model_profiles
-#sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct"
-#sglang_model: "Qwen/Qwen2.5-Coder-7B-Instruct"
-#sglang_model: "Qwen/Qwen3.5-35B-A3B"
-#sglang_model: "Qwen/Qwen3-235B-A22B-Instruct-2507-FP8"
-#sglang_model: "nvidia/Qwen3-235B-A22B-Instruct-2507-NVFP4"
-#sglang_model: "Qwen/Qwen3-Next-80B-A3B-Instruct"
-sglang_model: "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
+#sglang_model: "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"
+#sglang_model: "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
+#sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+#sglang_model: "Qwen/Qwen3.5-35B-A3B-FP8"
+#sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
+sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
 
 
 sglang_context_length: "{{ sglang_model_profiles[sglang_model].context_length }}"
@@ -195,6 +144,14 @@ sglang_mem_fraction_static: "{{ sglang_model_profiles[sglang_model].mem_fraction
 sglang_reasoning_parser: "{{ sglang_model_profiles[sglang_model].reasoning_parser | default('') }}"
 sglang_tool_call_parser: "{{ sglang_model_profiles[sglang_model].tool_call_parser | default('') }}"
 sglang_quantization: "{{ sglang_model_profiles[sglang_model].quantization | default('') }}"
+# Disable DeepGemm JIT (sets SGLANG_ENABLE_JIT_DEEPGEMM=false) — needed for
+# FP8 models on GB10/SM121 where DeepGemm lacks recipes for certain kernel
+# configs (crashes with "Unknown recipe" during CUDA graph capture).
+sglang_disable_deep_gemm: "{{ sglang_model_profiles[sglang_model].disable_deep_gemm | default(false) }}"
+# FP8 GEMM runner backend: "auto" (default), "cutlass", "deep_gemm", "flashinfer".
+# On GB10/SM121, "auto" selects flashinfer which uses trtllm backend — unsupported
+# on SM121. FP8 models must use "cutlass" explicitly.
+sglang_fp8_gemm_runner_backend: "{{ sglang_model_profiles[sglang_model].fp8_gemm_runner_backend | default('auto') }}"
 sglang_tp: 2
 sglang_nnodes: 2
 sglang_port: 8000
@@ -318,13 +275,12 @@ hf_cache_path: "/var/lib/hf-cache"
 hf_token: "hf_CHANGEME"
 # HuggingFace model pre-download Job
 hf_preload_models:
-  - "Qwen/Qwen3-Next-80B-A3B-Instruct"
+  - "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+  - "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
+  - "Qwen/Qwen3.5-35B-A3B-FP8"
+  - "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"
   - "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
-  - "nvidia/Qwen3-235B-A22B-Instruct-2507-NVFP4"
-  - "Qwen/Qwen3.5-35B-A3B"
   - "Qwen/Qwen3-Coder-30B-A3B-Instruct"
-  - "Qwen/Qwen2.5-Coder-7B-Instruct"
-  - "Qwen/Qwen3-235B-A22B-Instruct-2507-FP8"
 
 hf_preload_ttl: 3600
 # NVIDIA GPU time-slicing: advertise each physical GPU as N logical replicas

@@ -161,6 +161,57 @@ Das gesamte Setup ist als Ansible-Playbook-Suite automatisiert:
 
 ---
 
+## 1c. Modellformate: safetensors, GGUF und was SGLang laden kann
+
+Bevor es um die konkrete Modellwahl geht, ein Überblick über die gängigen Formate auf HuggingFace — und welche davon auf den DGX Sparks mit SGLang nutzbar sind.
+
+### safetensors — das Standardformat für GPU-Inferenz
+
+- Binäres Format von Hugging Face, Nachfolger des unsicheren `.bin` (pickle-basiert)
+- Sicher (kein Code-Execution-Risiko), schnell ladbar (memory-mapped)
+- Weights liegen in ihrem **Originaltyp** vor: FP16, BF16, FP32 oder FP8
+- **Keine implizite Quantisierung** — was drin ist, wird geladen
+- Erkennbar auf HuggingFace: Repos mit `model.safetensors` oder `model-00001-of-00005.safetensors`
+- Wird von **SGLang, vLLM, TensorRT-LLM** und allen PyTorch-basierten Engines nativ geladen
+
+### GGUF — das Format für llama.cpp / Ollama
+
+- Format aus dem **GGML/llama.cpp-Ökosystem**
+- Primär für **CPU-Inferenz und aggressive Quantisierung** (Q4_K_M, Q5_K_S, Q8_0, etc.)
+- Einzelne `.gguf`-Datei, enthält Weights + Tokenizer + Metadaten
+- Wird von **Ollama, llama.cpp, LM Studio, kobold.cpp** genutzt
+- **SGLang kann kein GGUF laden** — komplett anderes Runtime-Ökosystem
+- Repos auf HuggingFace mit `-GGUF` Suffix (z.B. von `bartowski/`, `unsloth/`) → **nicht für SGLang geeignet**
+
+### Von SGLang unterstützte Formate und Quantisierungen
+
+| Format | Quantisierung | VRAM vs. FP16 | Bemerkung |
+|--------|--------------|----------------|-----------|
+| safetensors (FP16/BF16) | keine | 100% (Baseline) | Standard, höchster VRAM-Bedarf |
+| safetensors (FP8) | FP8 (W8A8) | ~50% | Quasi kein Qualitätsverlust, native Blackwell-HW-Unterstützung |
+| AWQ | INT4 weights | ~25% | Gute Qualität, ältere aber bewährte Methode |
+| GPTQ | INT4/INT8 weights | ~25-50% | Ähnlich AWQ, weitverbreitet |
+| Marlin | INT4 optimiert | ~25% | Schnellere Kernel für GPTQ/AWQ auf Ampere+ GPUs |
+| BitsAndBytes | INT4/INT8 | ~25-50% | On-the-fly-Quantisierung, langsamer als Pre-Quant |
+
+### Kapazität der DGX Sparks (128 GB unified GPU Memory pro Node)
+
+- **FP16/BF16**: Modelle bis ~60–65B Parameter pro Spark (1 Param ≈ 2 Bytes + KV-Cache-Overhead)
+- **FP8**: Modelle bis ~120B pro Spark, oder ~240B über beide Sparks via TP=2 über QSFP/NCCL
+- **INT4 (AWQ/GPTQ)**: theoretisch noch größer, aber auf Blackwell ist FP8 meist vorzuziehen (native HW-Unterstützung, kein Qualitätsverlust)
+
+### Praktische Suchstrategie auf HuggingFace
+
+1. **Offizielle Repos suchen** (z.B. `Qwen/Qwen3-235B-A22B-Instruct-2507`) — diese haben safetensors
+2. **FP8-Varianten**: Repos mit `-FP8` im Namen (z.B. von `neuralmagic/`, `nvidia/`, oder offiziell vom Modell-Anbieter)
+3. **GGUF-Repos ignorieren** (`-GGUF` Suffix, typische Uploader: `bartowski/`, `unsloth/`, `TheBloke/`) — für Ollama/llama.cpp, nicht für SGLang
+4. **AWQ-Repos** (`-AWQ` Suffix) funktionieren mit SGLang, aber FP8 ist auf Blackwell generell vorzuziehen
+
+> [!tip] Faustregel
+> Für SGLang auf den DGX Sparks: **safetensors in FP8** ist der Sweet Spot — native Blackwell-Unterstützung, halber Speicherbedarf, quasi kein Qualitätsverlust gegenüber FP16.
+
+---
+
 ## 2. Modellempfehlung: Qwen3-235B-A22B-Instruct-2507-FP8
 
 ### Warum Qwen3-235B-A22B?

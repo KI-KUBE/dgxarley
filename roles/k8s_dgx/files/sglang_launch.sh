@@ -61,4 +61,7 @@ fi
 if [ -n "$SGLANG_ATTENTION_BACKEND" ]; then
   args+=(--attention-backend "$SGLANG_ATTENTION_BACKEND")
 fi
+if [ -n "$SGLANG_FP8_GEMM_RUNNER_BACKEND" ] && [ "$SGLANG_FP8_GEMM_RUNNER_BACKEND" != "auto" ]; then
+  args+=(--fp8-gemm-backend "$SGLANG_FP8_GEMM_RUNNER_BACKEND")
+fi
 exec "${args[@]}"
