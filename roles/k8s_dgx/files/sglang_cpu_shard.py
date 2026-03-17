@@ -296,6 +296,7 @@ def process_moe_experts(
         ref = get_tensor(first_gate, weight_map, open_files)
         in_packed = ref.shape[0]
         gate_out = ref.shape[1]
+        dtype = ref.dtype
         del ref
 
         ref_up = get_tensor(
@@ -312,26 +313,11 @@ def process_moe_experts(
         del ref_down
 
         w13 = torch.empty(
-            num_experts, in_packed, gate_out + up_out, dtype=torch.int32
+            num_experts, in_packed, gate_out + up_out, dtype=dtype
         )
         w2 = torch.empty(
-            num_experts, down_in_packed, down_out, dtype=torch.int32
+            num_experts, down_in_packed, down_out, dtype=dtype
         )
-
-        # scales are float16, not int32
-        if suffix == "scales":
-            ref_s = get_tensor(first_gate, weight_map, open_files)
-            w13 = torch.empty(
-                num_experts, ref_s.shape[0], gate_out + up_out, dtype=ref_s.dtype
-            )
-            w2_ref = get_tensor(
-                f"{prefix}.mlp.experts.0.down_proj.{suffix}",
-                weight_map, open_files,
-            )
-            w2 = torch.empty(
-                num_experts, w2_ref.shape[0], down_out, dtype=w2_ref.dtype
-            )
-            del ref_s, w2_ref
 
         for i in range(num_experts):
             gate = get_tensor(

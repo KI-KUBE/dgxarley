@@ -47,6 +47,10 @@
   ansible.builtin.import_tasks: sglang_shard.yml
   tags: sglang_shard
 
+- name: CPU-only pre-shard SGLang model (no GPU required)
+  ansible.builtin.import_tasks: sglang_cpu_shard.yml
+  tags: sglang_cpu_shard
+
 - name: Register DNS A records for ingress services
   ansible.builtin.import_tasks: dns.yml
   tags: dns

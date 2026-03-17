@@ -11,10 +11,12 @@ sglang_model_profiles:
   "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ":
     info_url: "https://huggingface.co/Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"
     # 32B dense, AWQ 4-bit (~19 GB / ~9.7 GB per GPU with TP=2)
+    load_format: "sharded_state"  # default: auto
     context_length: 32768
     kv_cache_dtype: "fp8_e5m2"
-    mem_fraction_static: "0.80"
-    quantization: "awq"
+    mem_fraction_static: "0.50"
+    # quantization: "awq"  # loading this fails -> loads more than 109GB into ram even for this model!
+    # quantization: "moe_wna16"  # this is not a moe model -> no need fo moe_wna16 # TODO: check!
     recommended_sampling:
       temperature: 0.7
       top_p: 0.8
@@ -153,11 +155,11 @@ sglang_speculative_eagle_topk: 1
 sglang_speculative_num_draft_tokens: 4
 
 # Select the active model — parameters are pulled from sglang_model_profiles
-#sglang_model: "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"
 #sglang_model: "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
 #sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
 #sglang_model: "Qwen/Qwen3.5-35B-A3B-FP8"
-sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
+sglang_model: "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"
+#sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
 #sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
 
 

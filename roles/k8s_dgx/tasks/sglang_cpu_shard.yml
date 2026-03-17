@@ -1,0 +1,118 @@
+---
+# CPU-only pre-shard the active SGLang model for fast multi-node TP loading.
+# Runs as two independent K8s Jobs (one per node) — no GPU, no NCCL, no
+# multi-node coordination.  Each node processes safetensors files on CPU
+# via memory mapping, applies SGLang-internal tensor fusions and TP splits,
+# and writes rank-specific shard files locally.
+#
+# Usage:
+#   ansible-playbook k8s_dgx.yml --tags sglang_cpu_shard
+#
+# Prerequisites:
+# - Model must be downloaded (run hf_preload first, or let the initContainer do it)
+# - After completion, set load_format: "sharded_state" in the model profile
+
+- name: Create CPU shard script ConfigMap
+  when: sglang_load_format == "sharded_state"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: sglang-cpu-shard-script
+        namespace: "{{ dgx_namespace }}"
+      data:
+        cpu_shard.py: "{{ lookup('file', role_path ~ '/files/sglang_cpu_shard.py') }}"
+        launch.sh: "{{ lookup('file', role_path ~ '/files/sglang_cpu_shard_launch.sh') }}"
+
+- name: Delete existing CPU shard Jobs
+  when: sglang_load_format == "sharded_state"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: batch/v1
+    kind: Job
+    name: "{{ item }}"
+    namespace: "{{ dgx_namespace }}"
+  loop:
+    - sglang-cpu-shard-spark1
+    - sglang-cpu-shard-spark2
+
+- name: Deploy CPU shard Jobs (both nodes simultaneously)
+  when: sglang_load_format == "sharded_state"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: batch/v1
+      kind: Job
+      metadata:
+        name: "sglang-cpu-shard-spark{{ item.spark_id }}"
+        namespace: "{{ dgx_namespace }}"
+        labels:
+          app: sglang-cpu-shard
+          node: "spark{{ item.spark_id }}"
+      spec:
+        ttlSecondsAfterFinished: 3600
+        backoffLimit: 0
+        template:
+          metadata:
+            labels:
+              app: sglang-cpu-shard
+              node: "spark{{ item.spark_id }}"
+          spec:
+            serviceAccountName: sglang-head
+            enableServiceLinks: false
+            nodeSelector:
+              spark-id: "{{ item.spark_id }}"
+            restartPolicy: Never
+            initContainers:
+              - name: model-download
+                image: "{{ sglang_image }}"
+                command: ["python3", "/scripts/download_models.py"]
+                env:
+                  - name: HF_PRELOAD_MODELS
+                    value: "{{ sglang_model }}"
+                  - name: HF_TOKEN
+                    value: "{{ hf_token }}"
+                  - name: HF_HUB_DISABLE_PROGRESS_BARS
+                    value: "0"
+                volumeMounts:
+                  - name: hf-cache
+                    mountPath: /root/.cache/huggingface
+                  - name: preload-script
+                    mountPath: /scripts
+                    readOnly: true
+            containers:
+              - name: cpu-shard
+                image: "{{ sglang_image }}"
+                command: ["/bin/bash", "/scripts/launch.sh"]
+                env:
+                  - name: NODE_RANK
+                    value: "{{ item.rank }}"
+                  - name: TP
+                    value: "{{ sglang_tp | string }}"
+                  - name: SGLANG_MODEL
+                    value: "{{ sglang_model }}"
+                  - name: HF_TOKEN
+                    value: "{{ hf_token }}"
+                volumeMounts:
+                  - name: hf-cache
+                    mountPath: /root/.cache/huggingface
+                  - name: cpu-shard-script
+                    mountPath: /scripts
+                    readOnly: true
+            volumes:
+              - name: hf-cache
+                hostPath:
+                  path: "{{ hf_cache_path }}"
+                  type: DirectoryOrCreate
+              - name: preload-script
+                configMap:
+                  name: sglang-model-download-script
+              - name: cpu-shard-script
+                configMap:
+                  name: sglang-cpu-shard-script
+                  defaultMode: 0755
+  loop:
+    - { spark_id: "1", rank: "0" }
+    - { spark_id: "2", rank: "1" }
