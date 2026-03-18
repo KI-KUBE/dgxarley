@@ -117,8 +117,10 @@ def stream_and_display(url: str, payload: dict, raw_json: bool = False) -> None:
     console = Console()
     thinking_text = ""
     content_text = ""
-    raw_chunks: deque[str] = deque(maxlen=30)  # keep last N chunks for display
-    chunk_rows: deque[dict] = deque(maxlen=50)  # structured rows for table mode
+    # Lower panel gets 2/5 of height; subtract 4 for overhead
+    lower_max_rows = max(5, (console.height * 2 // 5) - 4)
+    raw_chunks: deque[str] = deque(maxlen=lower_max_rows)
+    chunk_rows: deque[dict] = deque(maxlen=lower_max_rows)
     t_start = time.monotonic()
     t_first_token: float | None = None
     thinking_tokens_est = 0
@@ -147,12 +149,24 @@ def stream_and_display(url: str, payload: dict, raw_json: bool = False) -> None:
         avail_lines = max(5, (console.height * 3 // 5) - 2)
         panel_width = console.width - 4  # border + padding
 
+        def _visual_line_count(line: str) -> int:
+            """Count how many terminal lines a single logical line occupies after word wrap."""
+            if not line:
+                return 1
+            return max(1, (len(line) + panel_width - 1) // panel_width)
+
         def _tail_lines(text: str, max_lines: int) -> tuple[str, bool]:
-            """Return last max_lines worth of text, and whether it was truncated."""
+            """Return last N visual lines worth of text, accounting for word wrap."""
             lines = text.split("\n")
-            if len(lines) <= max_lines:
-                return text, False
-            return "\n".join(lines[-max_lines:]), True
+            result: list[str] = []
+            used = 0
+            for line in reversed(lines):
+                cost = _visual_line_count(line)
+                if used + cost > max_lines and result:
+                    return "\n".join(reversed(result)), True
+                result.append(line)
+                used += cost
+            return "\n".join(reversed(result)), False
 
         interpreted = Text()
         if thinking_text and not content_text:
@@ -217,12 +231,17 @@ def stream_and_display(url: str, payload: dict, raw_json: bool = False) -> None:
             else:
                 style = "dim"
             tbl.add_row(n, typ, content, fin, tokens, style=style)
+        # Pad with empty rows so the table always fills the panel
+        for _ in range(lower_max_rows - len(chunk_rows)):
+            tbl.add_row("", "", "", "", "")
         return tbl
 
     def make_display() -> Layout:
         layout = Layout()
         if raw_json:
-            raw_display = "\n".join(raw_chunks)
+            # Pad with empty lines so the panel is always full height
+            padded = list(raw_chunks) + [""] * (lower_max_rows - len(raw_chunks))
+            raw_display = "\n".join(padded)
             lower = Panel(
                 Syntax(raw_display, "json", theme="monokai", word_wrap=True),
                 title="[bold]Raw SSE chunks[/]",
