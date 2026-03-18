@@ -308,6 +308,7 @@ class RequestStats:
     total_time: float = 0.0
     output_tokens: int = 0
     prompt_tokens: int = 0
+    finish_reason: str = ""
     error: str = ""
     _start: float = field(default=0.0, repr=False)
     _first_token: bool = field(default=False, repr=False)
@@ -391,6 +392,8 @@ async def stream_request(
                     stats.output_tokens = u.get("completion_tokens", 0)
                     stats.prompt_tokens = u.get("prompt_tokens", 0)
                 choice = (chunk.get("choices") or [None])[0]
+                if choice and choice.get("finish_reason"):
+                    stats.finish_reason = choice["finish_reason"]
                 delta = (choice or {}).get("delta", {})
                 reasoning = delta.get("reasoning_content", "")
                 if reasoning:
@@ -526,10 +529,16 @@ def print_final_summary(all_stats: list[RequestStats], wall_time: float, verbose
     table.add_column("Prompt tok", justify="right")
     table.add_column("Output tok", justify="right")
     table.add_column("tok/s", justify="right")
+    table.add_column("Finish", justify="center")
     table.add_column("Prompt", max_width=40)
 
     for s in all_stats:
         status = "[green]OK[/]" if s.status == "done" else f"[red]{s.status}[/]"
+        finish = s.finish_reason or "-"
+        if s.thinking and not s.output:
+            finish = f"[yellow]{finish} (thinking only!)[/]"
+        elif s.finish_reason == "length":
+            finish = f"[yellow]{finish}[/]"
         table.add_row(
             str(s.request_id),
             status,
@@ -538,6 +547,7 @@ def print_final_summary(all_stats: list[RequestStats], wall_time: float, verbose
             str(s.prompt_tokens),
             str(s.output_tokens),
             f"{s.tokens_per_sec:.1f}" if s.tokens_per_sec > 0 else "-",
+            finish,
             s.prompt[:40] + ("..." if len(s.prompt) > 40 else ""),
         )
 
@@ -601,6 +611,7 @@ async def run_parallel_test(
     prompts: list[str],
     max_tokens: int|None,
     verbose: bool = False,
+    thinking_budget: int|None = None,
 ) -> None:
     """Run n parallel streaming requests with live display."""
     # Build payload template
@@ -622,9 +633,12 @@ async def run_parallel_test(
             "model": model_id,
             "messages": messages,
             "stream": True,
+            "stream_options": {"include_usage": True},
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
+        if thinking_budget is not None:
+            payload.setdefault("chat_template_kwargs", {})["thinking_budget"] = thinking_budget
         # Apply preset sampling params
         if preset and preset in presets:
             p = presets[preset]
@@ -641,7 +655,8 @@ async def run_parallel_test(
     url = f"{sglang_url.rstrip('/')}/v1/chat/completions"
     console = Console()
     console.print(f"[bold]Starting {n} parallel requests to {url}[/]")
-    console.print(f"[dim]Model: {model_id} | Preset: {preset} | Max tokens: {max_tokens}[/]\n")
+    tb_info = f" | Thinking budget: {thinking_budget}" if thinking_budget is not None else ""
+    console.print(f"[dim]Model: {model_id} | Preset: {preset} | Max tokens: {max_tokens}{tb_info}[/]\n")
 
     wall_start = time.monotonic()
 
@@ -665,7 +680,7 @@ async def run_parallel_test(
                 live.update(build_live_display(all_stats, verbose))
 
             # Final update
-            live.update(build_live_display(all_stats))
+            live.update(build_live_display(all_stats, verbose))
 
     wall_time = time.monotonic() - wall_start
     print_final_summary(all_stats, wall_time, verbose)
@@ -716,7 +731,13 @@ def main() -> None:
         "--max-tokens",
         type=lambda v: None if v.lower() == "none" else int(v),
         default=8192,
-        help="Max output tokens per request for parallel test (default: 1024, 'none' for model default)",
+        help="Max output tokens per request for parallel test (default: 8192, 'none' for model default)",
+    )
+    parser.add_argument(
+        "--thinking-budget",
+        type=int,
+        default=None,
+        help="Max thinking tokens (caps reasoning length so content tokens aren't exhausted)",
     )
     args = parser.parse_args()
 
@@ -743,6 +764,7 @@ def main() -> None:
             prompts=prompts,
             max_tokens=args.max_tokens,
             verbose=verbose,
+            thinking_budget=args.thinking_budget,
         ))
 
     # Sequential tests
