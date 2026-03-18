@@ -14,10 +14,17 @@ Usage::
     SGLANG_URL=https://sglang.dgx.example.com python sglang_integration_test.py all
 
     # Specific tests
-    python sglang_integration_test.py thinking non_thinking coding presets
+    python sglang_integration_test.py thinking coding presets
+
+    # Without reasoning (any test)
+    python sglang_integration_test.py --no-think thinking
+    python sglang_integration_test.py --no-think parallel
 
     # Parallel load test (4 concurrent requests)
     python sglang_integration_test.py parallel -n 4
+
+    # Parallel with thinking budget cap
+    python sglang_integration_test.py -v --thinking-budget 2048 -n 4 parallel
 
     # Parallel with custom prompt and 8 requests
     python sglang_integration_test.py parallel -n 8 --prompt "Erkläre Quantencomputing"
@@ -57,6 +64,39 @@ from openwebui_integration_test import (
 
 # Default model from Ansible defaults (the model currently deployed to SGLang)
 _CONFIGURED_MODEL: str = _dgx_defaults.get("sglang_model", "")
+
+def _serialize_logit_processor(module: str, cls_name: str) -> str:
+    """Build SGLang custom_logit_processor JSON from module path + class name.
+
+    SGLang expects a dill-serialized class reference, but for importable classes
+    this is just a standard pickle of the module+qualname (no code, no state).
+    We construct the pickle bytes directly — no dill/sglang dependency needed.
+    """
+    import io
+    import struct
+    buf = io.BytesIO()
+    buf.write(b'\x80\x04\x95')                                     # PROTO 4 + FRAME
+    mod, cls = module.encode(), cls_name.encode()
+    frame = (b'\x8c' + bytes([len(mod)]) + mod +                    # SHORT_BINUNICODE module
+             b'\x94\x8c' + bytes([len(cls)]) + cls +                # MEMOIZE + SHORT_BINUNICODE class
+             b'\x94\x93\x94\x2e')                                   # MEMOIZE + STACK_GLOBAL + MEMOIZE + STOP
+    buf.write(struct.pack('<Q', len(frame)))
+    buf.write(frame)
+    return json.dumps({"callable": buf.getvalue().hex()})
+
+
+# Thinking budget logit processors — keyed by model family.
+# The processor forces </think> after N thinking tokens by manipulating logits.
+_THINKING_BUDGET_PROCESSORS: dict[str, str] = {
+    "qwen3": _serialize_logit_processor(
+        "sglang.srt.sampling.custom_logit_processor",
+        "Qwen3ThinkingBudgetLogitProcessor",
+    ),
+    "deepseek-r1": _serialize_logit_processor(
+        "sglang.srt.sampling.custom_logit_processor",
+        "DeepSeekR1ThinkingBudgetLogitProcessor",
+    ),
+}
 
 # Default prompts for parallel load testing — varied to avoid prefix cache hits.
 # Each prompt includes a role definition and a multi-part question to increase
@@ -426,6 +466,20 @@ async def stream_request(
         stats.output_tokens = (len(stats.output) + len(stats.thinking)) // 4  # rough estimate
 
 
+def _tok_detail(s: RequestStats) -> str:
+    """Format thinking/content token breakdown for panel headers."""
+    t_est = len(s.thinking) // 4 if s.thinking else 0
+    c_est = len(s.output) // 4 if s.output else 0
+    if not t_est and not c_est:
+        return ""
+    parts = []
+    if t_est:
+        parts.append(f"T~{t_est}")
+    if c_est:
+        parts.append(f"C~{c_est}")
+    return f" ({'/'.join(parts)})"
+
+
 def build_live_display(all_stats: list[RequestStats], verbose: bool = False) -> Table:
     """Build a rich Table showing all parallel request states."""
     # Summary stats at the top
@@ -478,7 +532,8 @@ def build_live_display(all_stats: list[RequestStats], verbose: bool = False) -> 
             elapsed = time.monotonic() - s._start
             style = "yellow"
             tps = f" {s.tokens_per_sec:.1f} t/s" if s._first_token else ""
-            header = f"[yellow]#{s.request_id} streaming {elapsed:.1f}s{tps}[/]"
+            tok_detail = _tok_detail(s)
+            header = f"[yellow]#{s.request_id} streaming {elapsed:.1f}s{tps}{tok_detail}[/]"
             if verbose and s.thinking:
                 display = f"[thinking]\n{s.thinking[-max_chars // 2:]}\n[/thinking]\n{s.output_tail(max_chars // 2)}"
             else:
@@ -486,10 +541,11 @@ def build_live_display(all_stats: list[RequestStats], verbose: bool = False) -> 
             body = Text(display, style="white")
         elif s.status == "done":
             style = "green"
+            tok_detail = _tok_detail(s)
             header = (
                 f"[green]#{s.request_id} done[/] "
                 f"TTFT={s.ttft:.2f}s | {s.total_time:.1f}s | "
-                f"{s.output_tokens} tok | {s.tokens_per_sec:.1f} t/s"
+                f"{s.output_tokens} tok{tok_detail} | {s.tokens_per_sec:.1f} t/s"
             )
             if verbose and s.thinking:
                 display = f"[thinking]\n{s.thinking[-max_chars // 2:]}\n[/thinking]\n{s.output_tail(max_chars // 2)}"
@@ -612,11 +668,15 @@ async def run_parallel_test(
     max_tokens: int|None,
     verbose: bool = False,
     thinking_budget: int|None = None,
+    no_think: bool = False,
 ) -> None:
     """Run n parallel streaming requests with live display."""
     # Build payload template
     presets = load_sampling_presets(model_id)
     default_preset = pick_default_preset(presets)
+    # Resolve the thinking budget logit processor for this model's reasoning_parser
+    _reasoning_parser = _dgx_defaults.get("sglang_model_profiles", {}).get(model_id, {}).get("reasoning_parser", "")
+    _thinking_processor = _THINKING_BUDGET_PROCESSORS.get(_reasoning_parser)
     if preset is None:
         preset = default_preset
 
@@ -637,8 +697,13 @@ async def run_parallel_test(
         }
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
-        if thinking_budget is not None:
-            payload.setdefault("chat_template_kwargs", {})["thinking_budget"] = thinking_budget
+        if no_think:
+            payload.setdefault("chat_template_kwargs", {})["enable_thinking"] = False
+        if thinking_budget is not None and _thinking_processor:
+            # thinking_budget uses SGLang's custom logit processor, NOT chat_template_kwargs.
+            # The processor forces </think> after N thinking tokens by manipulating logits.
+            payload["custom_logit_processor"] = _thinking_processor
+            payload["custom_params"] = {"thinking_budget": thinking_budget}
         # Apply preset sampling params
         if preset and preset in presets:
             p = presets[preset]
@@ -647,16 +712,13 @@ async def run_parallel_test(
                     payload[k] = p[k]
             extra = p.get("extra_body", {})
             payload.update(extra)
-            # Non-thinking prefix
-            if preset.startswith("non_thinking"):
-                messages[0]["content"] = f"/no_think\n{messages[0]['content']}"
         payloads.append(payload)
 
     url = f"{sglang_url.rstrip('/')}/v1/chat/completions"
     console = Console()
     console.print(f"[bold]Starting {n} parallel requests to {url}[/]")
-    tb_info = f" | Thinking budget: {thinking_budget}" if thinking_budget is not None else ""
-    console.print(f"[dim]Model: {model_id} | Preset: {preset} | Max tokens: {max_tokens}{tb_info}[/]\n")
+    think_info = " | Thinking: OFF" if no_think else (f" | Thinking budget: {thinking_budget}" if thinking_budget is not None else "")
+    console.print(f"[dim]Model: {model_id} | Preset: {preset} | Max tokens: {max_tokens}{think_info}[/]\n")
 
     wall_start = time.monotonic()
 
@@ -699,10 +761,10 @@ def main() -> None:
     parser.add_argument(
         "tests",
         nargs="*",
-        default=["thinking", "non_thinking"],
-        help="Tests to run: xkcd, xkcd_non_thinking, briefing, briefing_non_thinking, "
-             "thinking, non_thinking, coding, sampling, presets, parallel, all "
-             "(default: thinking non_thinking)",
+        default=["thinking"],
+        help="Tests to run: xkcd, briefing, thinking, coding, sampling, presets, "
+             "parallel, all (default: thinking). Combine with --no-think to "
+             "disable reasoning on any test.",
     )
     parser.add_argument(
         "-v", "--verbose",
@@ -739,13 +801,18 @@ def main() -> None:
         default=None,
         help="Max thinking tokens (caps reasoning length so content tokens aren't exhausted)",
     )
+    parser.add_argument(
+        "--no-think",
+        action="store_true",
+        help="Disable thinking/reasoning (sets enable_thinking=false via chat_template_kwargs)",
+    )
     args = parser.parse_args()
 
     verbose = args.verbose
+    no_think = args.no_think
     tests = set(args.tests)
     if "all" in tests:
-        tests = {"xkcd", "xkcd_non_thinking", "briefing", "briefing_non_thinking",
-                 "thinking", "non_thinking", "coding", "sampling", "presets"}
+        tests = {"xkcd", "briefing", "thinking", "coding", "sampling", "presets"}
 
     # Handle parallel test separately (async)
     if "parallel" in tests:
@@ -765,41 +832,35 @@ def main() -> None:
             max_tokens=args.max_tokens,
             verbose=verbose,
             thinking_budget=args.thinking_budget,
+            no_think=no_think,
         ))
 
     # Sequential tests
     if tests:
         client = create_sglang_client(verbose=verbose)
+        # --no-think: select the non_thinking preset variant if available,
+        # otherwise fall back to default preset (chat_template_kwargs is
+        # already set by load_sampling_presets for non_thinking* presets).
+        think_preset = "non_thinking" if no_think else None  # None = use client default
 
         if "xkcd" in tests:
             image = get_random_xkcd_image(get_random_xkcd_image_url())
             print_ascii_representation_of_image(image)
-            client.explain_image(image, print_thinking=verbose)
-
-        if "xkcd_non_thinking" in tests:
-            image = get_random_xkcd_image(get_random_xkcd_image_url())
-            print_ascii_representation_of_image(image)
-            client.explain_image(image, print_thinking=verbose, preset="non_thinking")
+            client.explain_image(image, print_thinking=verbose and not no_think, preset=think_preset)
 
         if "briefing" in tests:
             print(f"\n{'*' * 80}")
             t0 = time.monotonic()
-            client.get_daily_briefing(print_thinking=verbose, preset="thinking")
+            client.get_daily_briefing(print_thinking=verbose and not no_think, preset=think_preset or "thinking")
             elapsed = time.monotonic() - t0
-            print(f"\n--- Daily Briefing completed in {elapsed:.1f}s ---")
-
-        if "briefing_non_thinking" in tests:
-            print(f"\n{'*' * 80}")
-            t0 = time.monotonic()
-            client.get_daily_briefing(print_thinking=verbose, preset="non_thinking")
-            elapsed = time.monotonic() - t0
-            print(f"\n--- Daily Briefing (non-thinking) completed in {elapsed:.1f}s ---")
+            label = "non-thinking" if no_think else "thinking"
+            print(f"\n--- Daily Briefing ({label}) completed in {elapsed:.1f}s ---")
 
         if "thinking" in tests:
-            test_thinking_mode(client, print_thinking=verbose)
-
-        if "non_thinking" in tests:
-            test_non_thinking_mode(client)
+            if no_think:
+                test_non_thinking_mode(client)
+            else:
+                test_thinking_mode(client, print_thinking=verbose)
 
         if "coding" in tests:
             test_thinking_coding(client)

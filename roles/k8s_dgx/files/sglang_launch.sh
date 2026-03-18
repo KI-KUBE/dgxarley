@@ -139,4 +139,16 @@ fi
 if [ -n "$SGLANG_SERVED_MODEL_NAME" ]; then
   args+=(--served-model-name "$SGLANG_SERVED_MODEL_NAME")
 fi
+# Chat template kwargs (enable_thinking, etc.)
+# These control Jinja2 chat template rendering — NOT sampling parameters.
+# Sampling defaults (temperature, top_p, ...) are set via generation_config.json
+# overlay above, because SGLang has no CLI flags for individual sampling params.
+# NOTE: thinking_budget does NOT go here — it uses SGLang's custom logit processor
+# system (--enable-custom-logit-processor), not the chat template.
+if [ -n "$SGLANG_CHAT_TEMPLATE_KWARGS" ] && [ "$SGLANG_CHAT_TEMPLATE_KWARGS" != "{}" ]; then
+  args+=(--chat-template-kwargs "$SGLANG_CHAT_TEMPLATE_KWARGS")
+fi
+# Enable custom logit processors (required for per-request thinking_budget via
+# Qwen3ThinkingBudgetLogitProcessor). Safe to always enable — no-op if unused.
+args+=(--enable-custom-logit-processor)
 exec "${args[@]}"

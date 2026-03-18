@@ -268,6 +268,22 @@ sglang_schedule_policy: "lpm"
 # Set to "triton" for hybrid GDN models (MoE+Mamba) on Blackwell GPUs.
 sglang_attention_backend: "{{ sglang_model_profiles[sglang_model].attention_backend | default('flashinfer') }}"
 
+# --- Server-side defaults: two separate mechanisms ---
+#
+# 1. SAMPLING DEFAULTS (temperature, top_p, top_k, presence_penalty, ...)
+#    SGLang reads these from generation_config.json (with --sampling-defaults model,
+#    the default). There are NO CLI flags to override individual sampling params.
+#    → We mount a ConfigMap with merged overrides and patch the file in launch.sh
+#      before SGLang starts. Hacky but the only server-side mechanism available.
+#
+# 2. CHAT TEMPLATE KWARGS (thinking_budget, enable_thinking, ...)
+#    These control Jinja2 chat template rendering (how messages become a prompt),
+#    NOT the sampling engine. SGLang accepts --chat-template-kwargs as CLI JSON.
+#    → Clean: passed as env var → launch.sh → --chat-template-kwargs flag.
+#
+# These CANNOT be combined: chat_template_kwargs output text (the prompt),
+# sampling params configure token generation. Different stages of the pipeline.
+
 # Sampling override: merge recommended_sampling with sampling_overrides
 # and write to generation_config.json via ConfigMap mount.
 # Only works with flat recommended_sampling dicts (not nested mode-specific ones).
@@ -276,6 +292,12 @@ sglang_sampling_override: >-
   {{ _sglang_base_sampling | combine(sglang_model_profiles[sglang_model].sampling_overrides | default({}))
      if (_sglang_base_sampling | dict2items | selectattr('value', 'number') | list | length == _sglang_base_sampling | length)
      else {} }}
+
+# Chat template kwargs: passed as --chat-template-kwargs JSON to SGLang CLI.
+# Used for enable_thinking etc. — NOT for sampling params.
+# NOTE: thinking_budget does NOT go here — it uses SGLang's custom logit processor
+# system (Qwen3ThinkingBudgetLogitProcessor), set per request via custom_params.
+sglang_chat_template_kwargs: "{{ sglang_model_profiles[sglang_model].chat_template_kwargs | default({}) }}"
 
 ollama_replicas: 1
 ollama_embed_replicas: 1
