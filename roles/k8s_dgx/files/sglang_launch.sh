@@ -41,6 +41,47 @@ if grep -q 'for path in filepaths:' "$LOADER" 2>/dev/null; then
   echo "Patched ShardedStateLoader for per-file progress logging"
 fi
 
+# Apply sampling overrides to generation_config.json (if ConfigMap provides any).
+# Flow:
+#   1. Find the model's generation_config.json in HF cache
+#   2. Save pristine copy as .orig (once, on first-ever run)
+#   3. ALWAYS read from .orig (never from the live file, which may be dirty)
+#   4. Merge overrides on top (or write back original if overrides are empty)
+#   5. Write result to the live file
+# This ensures .orig is never contaminated and overrides can be cleanly
+# added, changed, or removed across re-deploys.
+override_file="/config/sampling_override.json"
+if [ -f "$override_file" ]; then
+  model_slug=$(echo "$SGLANG_MODEL" | sed 's|/|--|g')
+  gen_config=$(find /root/.cache/huggingface/hub/models--${model_slug}/snapshots/ \
+    -name generation_config.json -print -quit 2>/dev/null || true)
+  if [ -n "$gen_config" ]; then
+    # Resolve symlink (HF cache uses symlinks to blobs)
+    gen_config_real=$(readlink -f "$gen_config")
+    # Save pristine original on first encounter (never overwritten later)
+    if [ ! -f "${gen_config_real}.orig" ]; then
+      cp "$gen_config_real" "${gen_config_real}.orig"
+      echo "Saved original generation_config.json as .orig"
+    fi
+    # Always start from .orig → merge overrides → write to live file.
+    # If overrides are empty ({}), this effectively restores the original.
+    python3 -c "
+import json
+with open('${gen_config_real}.orig') as f:    # source of truth
+    cfg = json.load(f)
+with open('${override_file}') as f:
+    ovr = json.load(f)
+if ovr:
+    cfg.update(ovr)
+    print(f'Sampling overrides applied to generation_config.json: {ovr}')
+else:
+    print('No sampling overrides — restored upstream generation_config.json')
+with open('${gen_config_real}', 'w') as f:    # overwrite live file
+    json.dump(cfg, f, indent=4)
+"
+  fi
+fi
+
 args=(
   tini -s --
   python3 -m sglang.launch_server

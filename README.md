@@ -462,10 +462,10 @@ the MikroTik simply forwards these frames between ether1 and ether3 without CPU 
 
 Initial design notes and deep-dives covering architecture decisions, scaling considerations, and service configuration:
 
-- [DGX Spark Setup](initial_design/DGX%20Spark%20Setup%20EN.md) — cluster architecture, K3s deployment, SGLang distributed inference, networking, and storage design
-- [DGX Spark QSFP DeepDive](initial_design/DGX%20Spark%20QSFP%20DeepDive%20EN.md) — ConnectX-7 QSFP configuration, MTU tuning, NCCL transport, and Multus CNI integration
-- [Scaling & Outlook](initial_design/DGX%20Spark%20Setup%20-%20Scaling%20%26%20Outlook%20EN.md) — scaling strategies, future hardware options, model sizing, and performance projections
-- [OpenWebUI Details](initial_design/DGX%20Spark%20Setup%20-%20OpenWebUI%20Details%20EN.md) — Open WebUI configuration, pipelines, RAG setup, and model integration
+- [DGX Spark Setup](docs/DGX%20Spark%20Setup%20EN.md) — cluster architecture, K3s deployment, SGLang distributed inference, networking, and storage design
+- [DGX Spark QSFP DeepDive](docs/DGX%20Spark%20QSFP%20DeepDive%20EN.md) — ConnectX-7 QSFP configuration, MTU tuning, NCCL transport, and Multus CNI integration
+- [Scaling & Outlook](docs/DGX%20Spark%20Setup%20-%20Scaling%20%26%20Outlook%20EN.md) — scaling strategies, future hardware options, model sizing, and performance projections
+- [OpenWebUI Details](docs/DGX%20Spark%20Setup%20-%20OpenWebUI%20Details%20EN.md) — Open WebUI configuration, pipelines, RAG setup, and model integration
 
 ## Origin
 

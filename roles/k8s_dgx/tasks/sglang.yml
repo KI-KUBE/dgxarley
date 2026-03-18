@@ -73,6 +73,18 @@
       data:
         haproxy.cfg: "{{ lookup('template', 'sglang_haproxy.cfg.j2') }}"
 
+- name: Create SGLang sampling override ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: sglang-sampling-config
+        namespace: "{{ dgx_namespace }}"
+      data:
+        sampling_override.json: "{{ sglang_sampling_override | to_nice_json }}"
+
 - name: Create SGLang ServiceAccount
   kubernetes.core.k8s:
     state: present
@@ -154,7 +166,7 @@
               k8s.v1.cni.cncf.io/networks: qsfp-direct-worker
               kubectl.kubernetes.io/default-container: sglang
               checksum/launch-script: "{{ lookup('file', role_path ~ '/files/sglang_launch.sh') | hash('sha256') }}"
-              checksum/config: "{{ (sglang_model ~ sglang_context_length ~ sglang_kv_cache_dtype ~ sglang_mem_fraction_static ~ sglang_quantization ~ sglang_load_format ~ sglang_attention_backend) | hash('sha256') }}"
+              checksum/config: "{{ (sglang_model ~ sglang_context_length ~ sglang_kv_cache_dtype ~ sglang_mem_fraction_static ~ sglang_quantization ~ sglang_load_format ~ sglang_attention_backend ~ (sglang_sampling_override | to_json)) | hash('sha256') }}"
           spec:
             enableServiceLinks: false         # prevent K8s SGLANG_PORT=tcp://... injection
             hostIPC: true                    # Shared Memory für NCCL
@@ -223,6 +235,9 @@
                   - name: launch-script
                     mountPath: /scripts
                     readOnly: true
+                  - name: sampling-config
+                    mountPath: /config
+                    readOnly: true
             volumes:
               - name: hf-cache
                 hostPath:
@@ -235,6 +250,9 @@
                 configMap:
                   name: sglang-launch-script
                   defaultMode: 0755
+              - name: sampling-config
+                configMap:
+                  name: sglang-sampling-config
 
 - name: Deploy SGLang head Deployment
   kubernetes.core.k8s:
@@ -265,7 +283,7 @@
               k8s.v1.cni.cncf.io/networks: qsfp-direct
               kubectl.kubernetes.io/default-container: sglang
               checksum/launch-script: "{{ lookup('file', role_path ~ '/files/sglang_launch.sh') | hash('sha256') }}"
-              checksum/config: "{{ (sglang_model ~ sglang_context_length ~ sglang_kv_cache_dtype ~ sglang_mem_fraction_static ~ sglang_quantization ~ sglang_load_format ~ sglang_attention_backend) | hash('sha256') }}"
+              checksum/config: "{{ (sglang_model ~ sglang_context_length ~ sglang_kv_cache_dtype ~ sglang_mem_fraction_static ~ sglang_quantization ~ sglang_load_format ~ sglang_attention_backend ~ (sglang_sampling_override | to_json)) | hash('sha256') }}"
           spec:
             serviceAccountName: sglang-head
             enableServiceLinks: false         # prevent K8s SGLANG_PORT=tcp://... injection
@@ -354,6 +372,9 @@
                   - name: launch-script
                     mountPath: /scripts
                     readOnly: true
+                  - name: sampling-config
+                    mountPath: /config
+                    readOnly: true
               - name: proxy
                 image: haproxy:lts-alpine
                 args: []
@@ -379,6 +400,9 @@
               - name: haproxy-config
                 configMap:
                   name: sglang-haproxy-config
+              - name: sampling-config
+                configMap:
+                  name: sglang-sampling-config
 
 - name: Create SGLang Service
   kubernetes.core.k8s:
