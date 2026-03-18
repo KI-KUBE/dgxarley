@@ -33,6 +33,14 @@ if [ "$SGLANG_LOAD_FORMAT" = "sharded_state" ]; then
   echo "Using pre-sharded model at ${model_path}"
 fi
 
+# Patch ShardedStateLoader to log progress per shard file (no progress bar by default)
+LOADER="/usr/local/lib/python3.12/dist-packages/sglang/srt/model_loader/loader.py"
+if grep -q 'for path in filepaths:' "$LOADER" 2>/dev/null; then
+  sed -i 's/for path in filepaths:/for _shard_i, path in enumerate(filepaths, 1):/' "$LOADER"
+  sed -i '/_shard_i, path in enumerate(filepaths/a\                logger.info(f"Loading shard {_shard_i}\/{len(filepaths)}: {os.path.basename(path)}")' "$LOADER"
+  echo "Patched ShardedStateLoader for per-file progress logging"
+fi
+
 args=(
   tini -s --
   python3 -m sglang.launch_server
@@ -86,5 +94,8 @@ if [ "$SGLANG_CUDA_GRAPH_MAX_BS" = "0" ]; then
   args+=(--disable-cuda-graph)
 elif [ -n "$SGLANG_CUDA_GRAPH_MAX_BS" ] && [ "$SGLANG_CUDA_GRAPH_MAX_BS" != "256" ]; then
   args+=(--cuda-graph-max-bs "$SGLANG_CUDA_GRAPH_MAX_BS")
+fi
+if [ -n "$SGLANG_SERVED_MODEL_NAME" ]; then
+  args+=(--served-model-name "$SGLANG_SERVED_MODEL_NAME")
 fi
 exec "${args[@]}"

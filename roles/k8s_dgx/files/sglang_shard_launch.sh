@@ -57,7 +57,7 @@ if [ "$NODE_RANK" != "0" ] && [ $rc -ne 0 ]; then
         base=$(basename "$f")
         case "$base" in *.bin|*.pt|*.safetensors) continue ;; esac
         [ -e "$shard_dir/$base" ] && continue
-        cp -r "$f" "$shard_dir/$base"
+        cp -rL "$f" "$shard_dir/$base"
       done
     fi
     echo "[rank $NODE_RANK] Sharding complete."

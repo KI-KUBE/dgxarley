@@ -299,6 +299,32 @@ Formula: `2 (K+V) × 94 layers × 4 KV heads × 128 dim × bytes/element`
 |Comparing multiple documents|30K–60K|✅|
 |An entire book (300+ pages)|150K+|❌ (→ use RAG)|
 
+#### SGLang KV Cache vs. Ollama: Dynamic Token Pool
+
+> [!important] KV cache misconception from Ollama
+> In Ollama, setting `num_ctx` (context length) **pre-allocates** the full KV cache for that many tokens per slot. A context length of 262K means Ollama reserves 262K tokens worth of memory *per concurrent request* — even if the actual conversation only uses 3K tokens. This makes large context lengths prohibitively expensive in Ollama.
+>
+> **SGLang works fundamentally differently.** The `--context-length` parameter only sets the *maximum sequence length* a single request may use. The KV cache is a **shared dynamic token pool** — tokens are allocated on demand as requests arrive and freed immediately when requests complete. The pool size is determined by `--mem-fraction-static` (fraction of total GPU memory reserved for KV cache), not by context length.
+>
+> **Practical example** (Qwen3-235B-AWQ, `moe_wna16`, TP=2, FP8 KV cache):
+>
+> | Parameter | Value |
+> |---|---|
+> | Model weights (per GPU) | ~59 GB |
+> | `mem_fraction_static` | 0.70 |
+> | KV cache pool size | ~20 GB (K: 9.9 GB + V: 9.9 GB) |
+> | **Total token capacity** | **~441K tokens** |
+> | `context_length` (max per request) | 262,144 |
+>
+> With 441K tokens in the pool and a typical chat request using ~3K tokens:
+> - **~150 concurrent requests** fit in the KV cache simultaneously
+> - A single request can use up to 262K tokens (the full context window)
+> - Multiple long-context requests (e.g. 3× 100K) also work, dynamically sharing the pool
+>
+> The `lpm` (longest prefix match) scheduling policy adds another optimization: completed requests leave their prefix tokens in a **radix cache**. If the next request shares the same system prompt, those tokens are reused (`#cached-token > 0` in the logs) — skipping the prefill entirely.
+>
+> **Bottom line**: Don't fear large `context_length` values in SGLang. The KV cache pool adapts dynamically. The real constraints are decode throughput (NCCL bandwidth between nodes) and total pool size (controlled by `mem_fraction_static`), not the configured context length.
+
 ### FP8 vs. Q4_K_XL: Which Quantization Format?
 
 | |**FP8 + SGLang (NCCL)** ⭐ Recommended|**Q4_K_XL + llama.cpp (RPC)**|

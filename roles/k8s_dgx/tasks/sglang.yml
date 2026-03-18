@@ -28,6 +28,7 @@
         SGLANG_ATTENTION_BACKEND: "{{ sglang_attention_backend }}"
         SGLANG_FP8_GEMM_RUNNER_BACKEND: "{{ sglang_fp8_gemm_runner_backend }}"
         SGLANG_CUDA_GRAPH_MAX_BS: "{{ sglang_cuda_graph_max_bs | string }}"
+        SGLANG_SERVED_MODEL_NAME: "{{ sglang_served_model_name }}"
         SGLANG_ENABLE_JIT_DEEPGEMM: "{{ 'false' if sglang_disable_deep_gemm | bool else 'true' }}"
         # Fix CUDA allocator fragmentation during AWQ Marlin repack (SGLang #11471)
         PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
