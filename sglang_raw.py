@@ -146,7 +146,7 @@ def stream_and_display(url: str, payload: dict, raw_json: bool = False) -> None:
     def _interpreted_panel() -> Panel:
         # Calculate available lines: upper panel gets 3/5 of terminal height,
         # minus 2 for panel border/title
-        avail_lines = max(5, (console.height * 3 // 5) - 2)
+        avail_lines = max(5, (console.height * 3 // 5) - 3)
         panel_width = console.width - 4  # border + padding
 
         def _visual_line_count(line: str) -> int:
