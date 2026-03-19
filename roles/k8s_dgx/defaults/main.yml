@@ -49,7 +49,7 @@ sglang_model_profiles:
     # 235B/22B MoE, AWQ 4-bit (~124 GB / ~62 GB per GPU with TP=2)
     load_format: "sharded_state"  # default: auto
     context_length_max: 262144
-    context_length: 262144
+    context_length: 131072
     #context_length: 131072
     #context_length: 65536
     #context_length: 32768
@@ -88,6 +88,7 @@ sglang_model_profiles:
     #
     #  Die vollständige Liste steht in sglang/srt/layers/quantization/__init__.py.
     quantization: "moe_wna16"
+    #quantization: "awq_marlin"
     attention_backend: "triton"
     disable_deep_gemm: true
     tool_call_parser: "qwen3_coder"
@@ -101,7 +102,7 @@ sglang_model_profiles:
     # with Qwen3MoE — model lacks 'routed_experts_weights_of_layer' attribute.
     # EP=2 still works with static expert assignment (0-63 → GPU0, 64-127 → GPU1).
     enable_eplb: false
-    enable_expert_distribution_metrics: false  # could enable withouth enablind eplb itself -> we would still see the balancing in the logs... but
+    enable_expert_distribution_metrics: false  # could enable withouth enabling eplb itself -> we would still see the balancing in the logs... but
     # Standard MoE (128 experts, 8 active) — triton attention backend required
     # on SM121 (flashinfer has edge cases with large MoE models).
     # Weight loading (~170s for 25 shards) can be halved with pre-sharding:
@@ -111,7 +112,7 @@ sglang_model_profiles:
     # thinking_budget: caps reasoning tokens via Qwen3ThinkingBudgetLogitProcessor.
     # This is NOT a sampling param — it uses SGLang's custom logit processor.
     # Set per-profile here, override per-request via --thinking-budget CLI arg.
-    thinking_budget: 1024
+    thinking_budget: 2048
     recommended_sampling:
       temperature: 0.6
       top_p: 0.95
