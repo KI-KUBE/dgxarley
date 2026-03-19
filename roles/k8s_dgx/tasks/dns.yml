@@ -15,6 +15,7 @@
     - ollama
     - ollama-embed
     - sglang
+    - vllm
     - openwebui
     - searxng
     - docling

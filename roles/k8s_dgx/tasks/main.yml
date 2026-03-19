@@ -43,6 +43,10 @@
   ansible.builtin.import_tasks: litellm.yml
   tags: litellm
 
+- name: Deploy vLLM distributed inference
+  ansible.builtin.import_tasks: vllm.yml
+  tags: vllm
+
 - name: Pre-download HuggingFace models
   ansible.builtin.import_tasks: hf_preload.yml
   tags: hf_preload
@@ -50,6 +54,10 @@
 - name: Pre-shard SGLang model for fast TP loading
   ansible.builtin.import_tasks: sglang_shard.yml
   tags: sglang_shard
+
+- name: Pre-shard vLLM model for fast TP loading
+  ansible.builtin.import_tasks: vllm_shard.yml
+  tags: vllm_shard
 
 - name: CPU-only pre-shard SGLang model (no GPU required)
   ansible.builtin.import_tasks: sglang_cpu_shard.yml

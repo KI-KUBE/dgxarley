@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-# Install tools (not included in sglang image).
+# Install tools (not included in vllm image).
 # Head (rank 0) needs rsync + ssh for syncing metadata to the worker node.
 apt-get update -qq && apt-get install -y -qq tini iproute2 iputils-ping net-tools rsync openssh-client
 
@@ -17,16 +17,16 @@ until ping -c10 -W1 "$peer" ; do
 done
 echo "QSFP peer ${peer} reachable."
 
-# Patch moe_wna16 weight loader for EP-aware qzeros handling (SGLang 0.5.9 bug).
+# Patch moe_wna16 weight loader for EP-aware qzeros handling (vLLM 0.17.0 bug).
 # Two bugs in the w13_qzeros/w2_qzeros branches:
 #   1. Uses raw global expert_id (0-127) instead of local EP index (0-63)
 #   2. Uses global tp_rank for TP-slice, but moe_tp_size=tp/ep — need tp_rank % moe_tp_size
 # Safe no-op when ep_size=1 (identity mapping, tp_rank unchanged).
-MOE_WNA16="/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/quantization/moe_wna16.py"
+MOE_WNA16="/usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/quantization/moe_wna16.py"
 if grep -q 'param\.data\[expert_id' "$MOE_WNA16" 2>/dev/null; then
   python3 << 'PATCH_QZEROS_EOF'
 import sys
-f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/quantization/moe_wna16.py"
+f = "/usr/local/lib/python3.12/dist-packages/vllm/model_executor/layers/quantization/moe_wna16.py"
 with open(f) as fh:
     code = fh.read()
 old_w13 = '''            if "w13_qzeros" in weight_name:
@@ -77,13 +77,13 @@ fi
 
 # Clean stale shard files from previous failed runs so we only detect
 # freshly written shards in the post-save check below.
-model_slug=$(echo "$SGLANG_MODEL" | sed 's|/|--|g')
-shard_suffix="sglang-TP${TP}"
+model_slug=$(echo "$VLLM_MODEL" | sed 's|/|--|g')
+shard_suffix="vllm-TP${TP}"
 if [ -n "$EP" ] && [ "$EP" != "1" ]; then
   shard_suffix="${shard_suffix}-EP${EP}"
 fi
-if [ -n "$SGLANG_QUANTIZATION" ]; then
-  shard_suffix="${shard_suffix}-${SGLANG_QUANTIZATION}"
+if [ -n "$VLLM_QUANTIZATION" ]; then
+  shard_suffix="${shard_suffix}-${VLLM_QUANTIZATION}"
 fi
 shard_dir="/root/.cache/huggingface/sharded/${model_slug}-${shard_suffix}"
 if [ ! -f "$shard_dir/model.safetensors.index.json" ]; then
@@ -96,9 +96,9 @@ fi
 mkdir -p "$shard_dir"
 touch "$shard_dir/.shard_run_start"
 
-# Run the shard script. On the worker (rank != 0), Engine() blocks and
+# Run the shard script. On the worker (rank != 0), LLM() blocks and
 # exits via SIGQUIT when the head disconnects — expected behavior.
-# The worker's scheduler writes its shard files before the disconnect.
+# The worker's model executor writes its shard files before the disconnect.
 # Disable set -e: worker exits non-zero (SIGQUIT) and we need to handle it.
 set +e
 tini -s -- python3 /scripts/save_sharded.py
@@ -116,7 +116,7 @@ if [ "$NODE_RANK" != "0" ] && [ $rc -ne 0 ]; then
   if [ "$shard_count" -gt 0 ]; then
     echo "[rank $NODE_RANK] Save complete: ${shard_count} shard files present."
     # Copy metadata from HF cache (config.json, tokenizer, etc.)
-    hub_path=$(python3 -c "from huggingface_hub import snapshot_download; print(snapshot_download('$SGLANG_MODEL', cache_dir='/root/.cache/huggingface/hub', local_files_only=True))" 2>/dev/null || true)
+    hub_path=$(python3 -c "from huggingface_hub import snapshot_download; print(snapshot_download('$VLLM_MODEL', cache_dir='/root/.cache/huggingface/hub', local_files_only=True))" 2>/dev/null || true)
     if [ -n "$hub_path" ] && [ -d "$hub_path" ]; then
       for f in "$hub_path"/*; do
         base=$(basename "$f")
@@ -128,7 +128,7 @@ if [ "$NODE_RANK" != "0" ] && [ $rc -ne 0 ]; then
     echo "[rank $NODE_RANK] Sharding complete."
     exit 0
   else
-    echo "[rank $NODE_RANK] ERROR: No shard files found after Engine exit."
+    echo "[rank $NODE_RANK] ERROR: No shard files found after LLM exit."
     exit 1
   fi
 fi

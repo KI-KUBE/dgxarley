@@ -22,7 +22,7 @@ echo "QSFP peer ${peer} reachable."
 model_path="$SGLANG_MODEL"
 if [ "$SGLANG_LOAD_FORMAT" = "sharded_state" ]; then
   model_slug=$(echo "$SGLANG_MODEL" | sed 's|/|--|g')
-  shard_suffix="TP${TP}"
+  shard_suffix="sglang-TP${TP}"
   if [ -n "$EP" ] && [ "$EP" != "1" ]; then
     shard_suffix="${shard_suffix}-EP${EP}"
   fi

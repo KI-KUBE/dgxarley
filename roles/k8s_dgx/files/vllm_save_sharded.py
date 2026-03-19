@@ -1,22 +1,22 @@
-"""Pre-shard an SGLang model for fast multi-node TP loading.
+"""Pre-shard a vLLM model for fast multi-node TP loading.
 
-Runs as a multi-node job (one process per TP rank). Each rank's Engine
+Runs as a multi-node job (one process per TP rank). Each rank's LLM
 loads only its portion of the model, then saves its shard locally.
 After completion each node has its rank's files under the sharded path.
 
 Architecture:
-    Engine() on rank 1 (worker) BLOCKS — it runs the scheduler event loop
-    in-process and never returns. The worker's scheduler receives the
-    save_sharded_model RPC via broadcast from the head's scheduler.
-    Therefore, only rank 0's script calls save_sharded_model(); rank 1
-    just needs to start Engine() and stay alive.
+    LLM() on rank 1 (worker) BLOCKS — it runs the engine event loop
+    in-process and never returns. The worker receives the
+    save_sharded_state call via the model executor from the head.
+    Therefore, only rank 0's script calls save_sharded_state(); rank 1
+    just needs to start LLM() and stay alive.
 
 Environment variables (set via ConfigMap):
-    SGLANG_MODEL          Model ID (e.g. QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ)
-    SGLANG_QUANTIZATION   Quantization method (e.g. awq, gptq, or empty)
+    VLLM_MODEL            Model ID (e.g. QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ)
+    VLLM_QUANTIZATION     Quantization method (e.g. moe_wna16, gptq, or empty)
     TP                    Tensor parallel size (default: 2)
-    EP                    Expert parallel size (default: 1). Partitions TP group
-                          for MoE layers. With EP=TP, MoE uses all-to-all.
+    EP                    Expert parallel size (default: 1). If > 1, enables
+                          expert parallelism (boolean flag in vLLM).
     NNODES                Number of nodes (default: 2)
     NODE_RANK             This node's rank (0 = head, 1 = worker)
     QSFP_IP_SPARK1        NCCL init address (head IP)
@@ -24,8 +24,8 @@ Environment variables (set via ConfigMap):
     HF_TOKEN              HuggingFace token (optional)
     SHARD_OUTPUT_DIR      Override output directory (optional)
 
-After sharding, start SGLang with:
-    --model-path <sharded-dir> --load-format sharded_state
+After sharding, start vLLM with:
+    --model <sharded-dir> --load-format sharded_state
 """
 
 import os
@@ -35,20 +35,21 @@ from pathlib import Path
 
 
 def main():
-    model_id = os.environ.get("SGLANG_MODEL", "")
-    quantization = os.environ.get("SGLANG_QUANTIZATION", "") or None
+    model_id = os.environ.get("VLLM_MODEL", "")
+    quantization = os.environ.get("VLLM_QUANTIZATION", "") or None
     tp = int(os.environ.get("TP", "2"))
     ep = int(os.environ.get("EP", "1"))
     nnodes = int(os.environ.get("NNODES", "2"))
     node_rank = int(os.environ.get("NODE_RANK", "0"))
-    nccl_init_addr = f"{os.environ.get('QSFP_IP_SPARK1', '10.10.10.1')}:{os.environ.get('NCCL_PORT', '50000')}"
+    master_addr = os.environ.get("QSFP_IP_SPARK1", "10.10.10.1")
+    nccl_port = os.environ.get("NCCL_PORT", "50000")
 
     if not model_id:
-        print("ERROR: SGLANG_MODEL not set", flush=True)
+        print("ERROR: VLLM_MODEL not set", flush=True)
         sys.exit(1)
 
     model_slug = model_id.replace("/", "--")
-    shard_suffix = f"sglang-TP{tp}"
+    shard_suffix = f"vllm-TP{tp}"
     if ep > 1:
         shard_suffix += f"-EP{ep}"
     if quantization:
@@ -59,10 +60,9 @@ def main():
     print(f"[rank {node_rank}] Model:        {model_id}", flush=True)
     print(f"[rank {node_rank}] Quantization: {quantization or '(none)'}", flush=True)
     print(f"[rank {node_rank}] TP size:      {tp}, EP size: {ep}, nnodes: {nnodes}, rank: {node_rank}", flush=True)
-    print(f"[rank {node_rank}] NCCL init:    {nccl_init_addr}", flush=True)
+    print(f"[rank {node_rank}] NCCL init:    {master_addr}:{nccl_port}", flush=True)
     print(f"[rank {node_rank}] Output:       {output_dir}", flush=True)
 
-    # Check if already sharded
     # Check if already sharded (index.json is written last by ShardedStateLoader)
     if (Path(output_dir) / "model.safetensors.index.json").exists():
         print(f"[rank {node_rank}] Sharded checkpoint already exists (index.json found), skipping.", flush=True)
@@ -78,59 +78,58 @@ def main():
     )
     print(f"[rank {node_rank}] Model cached at: {local_path}", flush=True)
 
-    # Create Engine with multi-node TP params
-    from sglang import Engine
+    # Set MASTER_ADDR / MASTER_PORT for torch.distributed (vLLM uses these)
+    os.environ["MASTER_ADDR"] = master_addr
+    os.environ["MASTER_PORT"] = nccl_port
 
-    engine_kwargs = {
-        "model_path": local_path,
-        "tp_size": tp,
-        "nnodes": nnodes,
-        "node_rank": node_rank,
-        "dist_init_addr": nccl_init_addr,
+    # Create LLM with multi-node TP params
+    from vllm import LLM
+
+    llm_kwargs = {
+        "model": local_path,
+        "tensor_parallel_size": tp,
+        # Multi-node without Ray requires "mp" executor backend
+        "distributed_executor_backend": "mp",
         # Shard job only needs to load weights and save — no inference.
-        # Minimize KV cache and skip CUDA graph capture to avoid OOM.
-        "mem_fraction_static": 0.60,
-        "context_length": 128,
-        "disable_cuda_graph": True,
+        # Use minimal context and disable CUDA graph to reduce memory pressure.
+        "gpu_memory_utilization": 0.60,
+        "max_model_len": 128,
+        "enforce_eager": True,
     }
     if ep > 1:
-        engine_kwargs["ep_size"] = ep
+        llm_kwargs["enable_expert_parallel"] = True
     if quantization:
-        engine_kwargs["quantization"] = quantization
+        llm_kwargs["quantization"] = quantization
 
     if os.environ.get("SGLANG_ENABLE_JIT_DEEPGEMM", "").lower() == "false":
-        print(f"[rank {node_rank}] DeepGemm JIT disabled", flush=True)
+        print(f"[rank {node_rank}] DeepGemm JIT disabled (env passthrough)", flush=True)
 
-    # Ensure output dir exists before Engine (scheduler saves to this path)
+    # Ensure output dir exists before LLM init
     Path(output_dir).mkdir(parents=True, exist_ok=True)
 
-    print(f"[rank {node_rank}] Initializing Engine...", flush=True)
+    print(f"[rank {node_rank}] Initializing LLM...", flush=True)
 
     if node_rank != 0:
-        # Worker: Engine() BLOCKS on rank != 0 — it runs the scheduler event
-        # loop in-process and never returns. The scheduler receives the
-        # save_sharded_model RPC via broadcast from the head and writes the
+        # Worker: LLM() BLOCKS on rank != 0 — it runs the engine event loop
+        # in-process and never returns. The model executor receives the
+        # save_sharded_state call via broadcast from the head and writes the
         # rank-1 shard files to output_dir. When the head exits and NCCL
-        # disconnects, SGLang sends SIGQUIT killing this process. The launch
+        # disconnects, vLLM sends SIGQUIT killing this process. The launch
         # shell script handles post-save cleanup (metadata copy + marker).
-        llm = Engine(**engine_kwargs)
-        # If Engine() ever returns on worker, just exit cleanly.
+        llm = LLM(**llm_kwargs)
+        # If LLM() ever returns on worker, just exit cleanly.
         sys.exit(0)
     else:
-        # Head: Engine() returns on rank 0, allowing us to call RPCs.
-        llm = Engine(**engine_kwargs)
+        # Head: LLM() returns on rank 0, allowing us to call save.
+        llm = LLM(**llm_kwargs)
 
         print(f"[rank {node_rank}] Saving sharded state to {output_dir}...", flush=True)
-        # Workaround for SGLang 0.5.9: the RPC dispatcher unpacks parameters
-        # as **kwargs, but the mixin expects a single positional `params` dict.
-        llm.save_sharded_model(
-            params={
-                "path": output_dir,
-                "pattern": None,
-                "max_size": 5 * 1024**3,  # 5 GB per shard file
-            }
+        llm.llm_engine.model_executor.save_sharded_state(
+            path=output_dir,
+            pattern=None,
+            max_size=5 * 1024**3,  # 5 GB per shard file
         )
-        print(f"[rank {node_rank}] save_sharded_model returned.", flush=True)
+        print(f"[rank {node_rank}] save_sharded_state returned.", flush=True)
 
     # Copy metadata files (config.json, tokenizer, etc.)
     for file in os.listdir(local_path):
@@ -146,7 +145,7 @@ def main():
         else:
             shutil.copy(src, dst)
 
-    # model.safetensors.index.json is written by ShardedStateLoader.save_model
+    # model.safetensors.index.json is written by ShardedStateLoader.save_sharded_state
     # as the last step — serves as the completion marker.
     print(f"[rank {node_rank}] Sharding complete.", flush=True)
 
