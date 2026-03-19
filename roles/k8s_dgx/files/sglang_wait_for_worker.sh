@@ -18,9 +18,10 @@ elapsed=0
 echo "Waiting for pod (label: ${LABEL}) in namespace ${NS} ..."
 
 while [ $elapsed -lt $TIMEOUT ]; do
-  phase=$(kubectl get pod -n "$NS" -l "$LABEL" \
+  # --field-selector filters out stale Completed/Failed pods from previous Jobs
+  phase=$(kubectl get pod -n "$NS" -l "$LABEL" --field-selector=status.phase=Running \
     -o jsonpath='{.items[0].status.phase}' 2>/dev/null)
-  ready=$(kubectl get pod -n "$NS" -l "$LABEL" \
+  ready=$(kubectl get pod -n "$NS" -l "$LABEL" --field-selector=status.phase=Running \
     -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)
   echo "$(date '+%H:%M:%S') worker: phase=${phase:-not-found} ready=${ready:-unknown} (${elapsed}s/${TIMEOUT}s)"
   if [ "$ready" = "True" ]; then
