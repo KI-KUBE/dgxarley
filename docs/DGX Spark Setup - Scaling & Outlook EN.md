@@ -87,7 +87,8 @@ GLM-5 (Zhipu AI / Z.ai, released February 2026) is significantly larger than Qwe
 
 | Quantization | Weight Size | Sparks needed | KV-Cache Headroom | Engine |
 |---|---|---|---|---|
-| FP8 ([zai-org/GLM-5-FP8](https://huggingface.co/zai-org/GLM-5-FP8)) | ~800 GB | 7 ❌ | ~96 GB | SGLang (TP=7) |
+| FP8 ([zai-org/GLM-5-FP8](https://huggingface.co/zai-org/GLM-5-FP8)) | ~800 GB | 8 | ~224 GB | SGLang (TP=8) — requires 2× CRS812 or SN3700 |
+| **AWQ** ([QuantTrio/GLM-5-AWQ](https://huggingface.co/QuantTrio/GLM-5-AWQ)) | **~392 GB** | **4–5** ✅ | **~120–248 GB** | **SGLang (TP=4/5, NCCL)** |
 | Q8_0 (GGUF) | ~801 GB | 7 ❌ | ~95 GB | llama.cpp |
 | Q5_K_M (GGUF) | ~535 GB | 5 | ~105 GB | llama.cpp |
 | **UD-Q4_K_XL** ([unsloth/GLM-5-GGUF](https://huggingface.co/unsloth/GLM-5-GGUF)) | **~431 GB** | **4** ✅ | **~81 GB** | llama.cpp (RPC) |
@@ -95,9 +96,13 @@ GLM-5 (Zhipu AI / Z.ai, released February 2026) is significantly larger than Qwe
 | NVFP4 (Blackwell-native) | ~400 GB (estimated) | 4 | ~112 GB | SGLang — **does not exist yet** |
 | UD-Q2_K_XL (GGUF) | ~281 GB | 3 | ~103 GB | llama.cpp — quality questionable |
 
-**FP8 is not realistic on DGX Spark** — 7 Sparks + enterprise switch would be required. FP8 is designed for 8× H200/B200 datacenter setups.
+**FP8 with 8× Spark is technically feasible** — SGLang supports multi-node natively via NCCL, and the 200 Gbit/s interconnect is sufficient for the all-to-all communication of the 40B active MoE parameters. However: 8 Sparks require 2× MikroTik CRS812 or an enterprise switch (Mellanox SN3700), plus ~27,600 € for 6 additional Sparks. The HF-recommended TP=8 setup maps 1:1.
 
-**4-bit (UD-Q4_K_XL) on 4× Spark is the realistic path:**
+**AWQ on 4–5× Spark is the sweet spot for SGLang:**
+
+The AWQ variant ([QuantTrio/GLM-5-AWQ](https://huggingface.co/QuantTrio/GLM-5-AWQ)) with ~392 GB weights runs natively in SGLang via NCCL — no llama.cpp RPC needed. With 5 Sparks (640 GB), ~248 GB remain for KV-Cache, enough for long contexts. The MoE advantage (only 40B active parameters per token) keeps cross-node traffic over 200 Gbit/s manageable. Expert Parallelism (`--enable-expert-parallel`) distributes experts optimally across nodes. Quality loss AWQ vs. FP8 is typically marginal for 744B models.
+
+**4-bit GGUF (UD-Q4_K_XL) on 4× Spark as llama.cpp alternative:**
 
 Concrete setup: 4× ASUS Ascent GX10, MikroTik CRS812 Switch (see scaling below), 4× QSFP56 DAC. Inference via llama.cpp RPC (not SGLang/NCCL, since GGUF):
 
@@ -114,21 +119,21 @@ llama-server \
   --port 8000
 ```
 
-> [!warning] Trade-off: GLM-5@Q4 vs. Qwen3-235B@FP8
+> [!warning] Trade-off: GLM-5 vs. Qwen3-235B@FP8
 >
-> | | **Qwen3-235B-FP8** (current) | **GLM-5-Q4_K_XL** |
-> |---|---|---|
-> | **Sparks** | 2 | 4 |
-> | **Hardware cost** | ~6,000 € + DAC | ~12,000 € + Switch + DACs |
-> | **Decode speed** | ~25 t/s (SGLang+NCCL/RDMA) | ~10–15 t/s (llama.cpp RPC/TCP) |
-> | **Quantization quality** | FP8 ≈ 99% of BF16 | Q4 ≈ 92–95% of BF16 |
-> | **Active parameters** | 22B (MoE) | 40B (MoE) |
-> | **Max. context** | ~65K | ~32K (with 81 GB KV-Cache headroom) |
-> | **Network transport** | NCCL/RDMA (~200 Gbps) | llama.cpp RPC/TCP (~100 Gbps) |
+> | | **Qwen3-235B-FP8** (current) | **GLM-5-AWQ** | **GLM-5-Q4_K_XL** |
+> |---|---|---|---|
+> | **Sparks** | 2 | 4–5 | 4 |
+> | **Hardware cost** | ~6,000 € + DAC | ~12,000–15,450 € + Switch + DACs | ~12,000 € + Switch + DACs |
+> | **Decode speed** | ~25 t/s (SGLang+NCCL/RDMA) | ~15–20 t/s (SGLang+NCCL/RDMA) | ~10–15 t/s (llama.cpp RPC/TCP) |
+> | **Quantization quality** | FP8 ≈ 99% of BF16 | AWQ ≈ 95–97% of BF16 | Q4 ≈ 92–95% of BF16 |
+> | **Active parameters** | 22B (MoE) | 40B (MoE) | 40B (MoE) |
+> | **Max. context** | ~65K | ~64K (4 Sparks) / ~128K+ (5 Sparks) | ~32K (with 81 GB KV-Cache headroom) |
+> | **Engine** | SGLang (NCCL) | SGLang (NCCL) | llama.cpp (RPC/TCP) |
 >
-> GLM-5 has more active parameters (40B vs. 22B), but 4-bit quantization eats into part of this advantage. Whether GLM-5@Q4 is actually better than Qwen3-235B@FP8 depends heavily on the use case — for coding, GLM-5 leads; for general reasoning it's close.
+> The AWQ variant is the most pragmatic GLM-5 upgrade path: SGLang-native (NCCL instead of TCP), significantly better quantization quality than Q4 GGUF, and with 5 Sparks enough KV-Cache for long contexts. GLM-5 has more active parameters (40B vs. 22B) — it leads in coding and agentic tasks; for general reasoning it's close.
 >
-> **Recommendation**: Stay with Qwen3-235B-FP8 on 2 Sparks. Wait for **GLM-5-NVFP4** — when that appears and works with SGLang, the upgrade path to 4 Sparks is clear (natively Blackwell-accelerated, SGLang+NCCL instead of llama.cpp RPC, ~20% faster than AWQ). GLM-4.7-NVFP4 [already exists](https://forums.developer.nvidia.com/t/running-glm-4-7-fp8-355b-moe-on-4x-dgx-spark-with-sglang-eagle-speculative-decoding/359256), GLM-5-NVFP4 will follow.
+> **Recommendation**: Stay with Qwen3-235B-FP8 on 2 Sparks. For the GLM-5 upgrade path to 4–5 Sparks, there are now two concrete options: **GLM-5-AWQ** (available now, SGLang-native) or wait for **GLM-5-NVFP4** (Blackwell-native, ~20% faster than AWQ). GLM-4.7-NVFP4 [already exists](https://forums.developer.nvidia.com/t/running-glm-4-7-fp8-355b-moe-on-4x-dgx-spark-with-sglang-eagle-speculative-decoding/359256), GLM-5-NVFP4 will follow.
 
 ---
 
@@ -216,7 +221,7 @@ MikroTik CRS812 DDQ
 | **Context length (FP8 KV)** | ~140K | **Full 262K** (and more headroom) |
 | **Decode speed (MoE)** | ~25 t/s | ~30–50 t/s (better parallelization) |
 | **Prefill throughput** | ~23K t/s | **Significantly higher** (linear scaling) |
-| **Alternative models** | Qwen3-235B max. | GLM-4.7-FP8 (355B MoE) possible |
+| **Alternative models** | Qwen3-235B max. | GLM-4.7-FP8 (355B MoE), GLM-5-AWQ (744B MoE) possible |
 | **SGLang launch command** | `--tp 2 --nnodes 2` | `--tp 4 --nnodes 4` |
 
 **Most important advantage**: With 4× Spark and FP8 weights you would have enough memory for the **full 262K context window** — without compromises on model quality. Alternatively, you could run even larger models like GLM-4.7-FP8 (355B).
@@ -313,6 +318,8 @@ For a home/office setup with ≤6 Sparks, the CRS812 DDQ is the clear choice. Yo
 - **podman-compose**: [github.com/containers/podman-compose](https://github.com/containers/podman-compose)
 
 - **GLM-5-FP8** (744B MoE, official): [huggingface.co/zai-org/GLM-5-FP8](https://huggingface.co/zai-org/GLM-5-FP8)
+
+- **GLM-5-AWQ** (744B MoE, 4-bit AWQ): [huggingface.co/QuantTrio/GLM-5-AWQ](https://huggingface.co/QuantTrio/GLM-5-AWQ)
 
 - **GLM-5-GGUF** (Unsloth quantizations incl. Q4_K_XL): [huggingface.co/unsloth/GLM-5-GGUF](https://huggingface.co/unsloth/GLM-5-GGUF)
 
