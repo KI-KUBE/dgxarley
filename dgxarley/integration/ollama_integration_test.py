@@ -1,4 +1,4 @@
-"""Integration tests for standalone Ollama instance.
+"""Integration tests for the standalone Ollama instance.
 
 Tests the Ollama API directly (not via OpenWebUI) — covers health, model
 availability, chat completions (streaming + non-streaming), and embeddings.
@@ -12,8 +12,11 @@ from pathlib import Path
 
 import requests
 
-# Load .env from script directory (does not override existing env vars)
-_env_files: list[Path] = [Path(__file__).resolve().parent / ".env", Path(__file__).resolve().parent / ".env.local"]
+# Repo root is 2 levels above __file__ (integration/ -> dgxarley/ -> repo-root)
+_REPO_ROOT: Path = Path(__file__).resolve().parents[2]
+
+# Load .env from repo root (does not override existing env vars)
+_env_files: list[Path] = [_REPO_ROOT / ".env", _REPO_ROOT / ".env.local"]
 for _env_file in _env_files:
     if _env_file.is_file():
         for line in _env_file.read_text().splitlines():
@@ -25,23 +28,45 @@ for _env_file in _env_files:
             value = value.strip().strip("\"'")
             os.environ.setdefault(key, value)
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "https://ollama.example.com")
-TIMEOUT = (10, 120)
+OLLAMA_URL: str = os.environ.get("OLLAMA_URL", "https://ollama.example.com")
+TIMEOUT: tuple[int, int] = (10, 120)
 
 # Models expected to be loaded (from ollama_preload_models in defaults)
-EXPECTED_MODELS = ["bge-m3", "qwen3-coder", "qwen2.5-coder"]
-EMBEDDING_MODEL = "bge-m3"
-CHAT_MODEL = "qwen2.5-coder:latest"
+EXPECTED_MODELS: list[str] = ["bge-m3", "qwen3-coder", "qwen2.5-coder"]
+EMBEDDING_MODEL: str = "bge-m3"
+CHAT_MODEL: str = "qwen2.5-coder:latest"
 
 
 class TestResult:
-    def __init__(self, name: str, passed: bool, duration: float, detail: str = ""):
-        self.name = name
-        self.passed = passed
-        self.duration = duration
-        self.detail = detail
+    """Result of a single integration test.
+
+    Attributes:
+        name: Short identifier for the test.
+        passed: Whether the test succeeded.
+        duration: Wall-clock time the test took, in seconds.
+        detail: Optional human-readable detail string (error message or summary).
+    """
+
+    def __init__(self, name: str, passed: bool, duration: float, detail: str = "") -> None:
+        """Initialise a TestResult.
+
+        Args:
+            name: Short identifier for the test.
+            passed: Whether the test succeeded.
+            duration: Wall-clock time the test took, in seconds.
+            detail: Optional human-readable detail string.
+        """
+        self.name: str = name
+        self.passed: bool = passed
+        self.duration: float = duration
+        self.detail: str = detail
 
     def __str__(self) -> str:
+        """Return a colour-coded, human-readable summary line.
+
+        Returns:
+            A single line string suitable for printing to a terminal.
+        """
         status = "\033[32mPASS\033[0m" if self.passed else "\033[31mFAIL\033[0m"
         line = f"  [{status}] {self.name} ({self.duration:.2f}s)"
         if self.detail:
@@ -50,7 +75,13 @@ class TestResult:
 
 
 def test_health() -> TestResult:
-    """GET / should return 200 'Ollama is running'."""
+    """Verify that the Ollama server is reachable and reports itself as running.
+
+    Sends GET / and checks for HTTP 200 with the expected response body text.
+
+    Returns:
+        A TestResult indicating whether the health check passed.
+    """
     t0 = time.monotonic()
     try:
         resp = requests.get(OLLAMA_URL, timeout=TIMEOUT)
@@ -61,7 +92,14 @@ def test_health() -> TestResult:
 
 
 def test_list_models() -> TestResult:
-    """GET /api/tags should list models; verify expected ones are present."""
+    """Verify that all expected models appear in the Ollama model list.
+
+    Sends GET /api/tags and checks that every entry in EXPECTED_MODELS
+    matches at least one returned model name (substring match).
+
+    Returns:
+        A TestResult indicating whether all expected models were found.
+    """
     t0 = time.monotonic()
     try:
         resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=TIMEOUT)
@@ -76,7 +114,15 @@ def test_list_models() -> TestResult:
 
 
 def test_model_info() -> TestResult:
-    """POST /api/show, verify model metadata is returned."""
+    """Verify that model metadata can be retrieved for the chat model.
+
+    Sends POST /api/show for CHAT_MODEL and checks that at least one of
+    the expected metadata fields (modelfile, parameters, template) is present
+    in the response.
+
+    Returns:
+        A TestResult indicating whether model metadata was returned successfully.
+    """
     t0 = time.monotonic()
     try:
         resp = requests.post(
@@ -95,7 +141,14 @@ def test_model_info() -> TestResult:
 
 
 def test_embeddings() -> TestResult:
-    """POST /api/embed with two inputs, verify dimensions match."""
+    """Verify that the embedding endpoint returns well-formed vectors.
+
+    Sends POST /api/embed with two input strings and checks that exactly two
+    non-empty float vectors are returned with matching dimensions.
+
+    Returns:
+        A TestResult indicating whether the embeddings response was valid.
+    """
     t0 = time.monotonic()
     try:
         resp = requests.post(
@@ -122,7 +175,14 @@ def test_embeddings() -> TestResult:
 
 
 def test_chat_non_streaming() -> TestResult:
-    """POST /api/chat with stream=False, verify complete response."""
+    """Verify that a non-streaming chat completion returns a complete response.
+
+    Sends POST /api/chat with stream=False and checks that the response
+    contains non-empty content and the done flag is set.
+
+    Returns:
+        A TestResult indicating whether the non-streaming chat response was valid.
+    """
     t0 = time.monotonic()
     try:
         resp = requests.post(
@@ -146,7 +206,15 @@ def test_chat_non_streaming() -> TestResult:
 
 
 def test_chat_streaming() -> TestResult:
-    """POST /api/chat with stream=True, collect tokens, verify non-empty."""
+    """Verify that a streaming chat completion delivers tokens incrementally.
+
+    Sends POST /api/chat with stream=True and collects all tokens until the
+    done flag is received. Checks that at least one non-empty chunk was
+    delivered and that the assembled response is non-empty.
+
+    Returns:
+        A TestResult indicating whether the streaming chat response was valid.
+    """
     t0 = time.monotonic()
     try:
         resp = requests.post(
@@ -181,6 +249,12 @@ def test_chat_streaming() -> TestResult:
 
 
 def main() -> None:
+    """Run all Ollama integration tests and exit with an appropriate status code.
+
+    Executes each test function in sequence, prints a colour-coded result for
+    each, then prints a summary of passed/total tests and total elapsed time.
+    Exits with code 0 if all tests passed, or 1 if any test failed.
+    """
     print(f"Ollama integration tests — {OLLAMA_URL}\n")
 
     tests = [

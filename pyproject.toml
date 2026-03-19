@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "dgxarley"
+dynamic = ["version"]
+requires-python = ">=3.14"
+dependencies = [
+    "requests",
+    "rich",
+    "aiohttp",
+    "PyYAML",
+    "ascii-magic",
+    "Pillow",
+]
+
+[tool.hatch.version]
+path = "dgxarley/__init__.py"
+
+[project.scripts]
+sglang-raw = "dgxarley.integration.sglang_raw:main"
+sglang-test = "dgxarley.integration.sglang_integration_test:main"
+openwebui-test = "dgxarley.integration.openwebui_integration_test:main"
+ollama-test = "dgxarley.integration.ollama_integration_test:main"

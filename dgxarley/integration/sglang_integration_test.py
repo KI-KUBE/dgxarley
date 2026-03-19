@@ -27,7 +27,7 @@ Usage::
     python sglang_integration_test.py -v --thinking-budget 2048 -n 4 parallel
 
     # Parallel with custom prompt and 8 requests
-    python sglang_integration_test.py parallel -n 8 --prompt "Erkläre Quantencomputing"
+    python sglang_integration_test.py parallel -n 8 --prompt "Explain quantum computing"
 """
 
 import asyncio
@@ -47,7 +47,7 @@ from rich.text import Text
 
 import requests as httplib
 
-from openwebui_integration_test import (
+from .openwebui_integration_test import (
     SGLangClient,
     _dgx_defaults,
     get_random_xkcd_image,
@@ -65,12 +65,23 @@ from openwebui_integration_test import (
 # Default model from Ansible defaults (the model currently deployed to SGLang)
 _CONFIGURED_MODEL: str = _dgx_defaults.get("sglang_model", "")
 
+
 def _serialize_logit_processor(module: str, cls_name: str) -> str:
-    """Build SGLang custom_logit_processor JSON from module path + class name.
+    """Build an SGLang custom_logit_processor JSON string from a module path and class name.
 
     SGLang expects a dill-serialized class reference, but for importable classes
     this is just a standard pickle of the module+qualname (no code, no state).
-    We construct the pickle bytes directly — no dill/sglang dependency needed.
+    The pickle bytes are constructed directly so that neither dill nor sglang
+    need to be installed as a dependency.
+
+    Args:
+        module: The fully qualified module path containing the processor class.
+        cls_name: The class name of the logit processor within the module.
+
+    Returns:
+        A JSON string with a single ``"callable"`` key whose value is the
+        hex-encoded pickle of the class reference, suitable for passing as
+        ``custom_logit_processor`` in an SGLang API request payload.
     """
     import io
     import struct
@@ -101,7 +112,7 @@ _THINKING_BUDGET_PROCESSORS: dict[str, str] = {
 # Default prompts for parallel load testing — varied to avoid prefix cache hits.
 # Each prompt includes a role definition and a multi-part question to increase
 # complexity and input token count.
-PARALLEL_PROMPTS = [
+PARALLEL_PROMPTS: list[str] = [
     (
         "You are a senior network engineer with 15 years of experience designing "
         "enterprise-grade infrastructure. You have deep expertise in protocol design, "
@@ -287,7 +298,19 @@ PARALLEL_PROMPTS = [
 
 
 def validate_model(sglang_url: str, model_id: str) -> None:
-    """Query /v1/models and warn if the running model doesn't match MODEL_ID."""
+    """Query /v1/models and warn if the running model does not match model_id.
+
+    Exits the process with code 1 if the server is reachable but serves a
+    different model than requested. Prints a warning and returns normally if
+    the endpoint cannot be reached.
+
+    Args:
+        sglang_url: Base URL of the SGLang server (e.g. ``https://sglang.example.com``).
+        model_id: The model identifier that is expected to be served.
+
+    Raises:
+        SystemExit: If the server responds but does not serve ``model_id``.
+    """
     try:
         resp = httplib.get(f"{sglang_url.rstrip('/')}/v1/models", timeout=5)
         resp.raise_for_status()
@@ -310,7 +333,18 @@ def validate_model(sglang_url: str, model_id: str) -> None:
 
 
 def resolve_model_id() -> str:
-    """Resolve MODEL_ID: env var > Ansible defaults > error."""
+    """Resolve the model ID from environment or Ansible defaults.
+
+    Resolution order: ``MODEL_ID`` environment variable, then the
+    ``sglang_model`` key from the Ansible defaults loaded at import time.
+
+    Returns:
+        The resolved model identifier string.
+
+    Raises:
+        ValueError: If neither the environment variable nor the Ansible
+            defaults contain a model ID.
+    """
     model_id = os.environ.get("MODEL_ID", "")
     if model_id:
         return model_id
@@ -320,7 +354,24 @@ def resolve_model_id() -> str:
 
 
 def create_sglang_client(verbose: bool = False) -> SGLangClient:
-    """Create a SGLang client from environment variables."""
+    """Create an SGLangClient from environment variables.
+
+    Reads ``SGLANG_URL`` and ``MODEL_ID`` (or falls back to the Ansible
+    default), validates the model against the live server, and returns a
+    configured client.
+
+    Args:
+        verbose: If ``True``, the client will print request payloads and
+            reasoning tokens during test runs.
+
+    Returns:
+        A configured :class:`SGLangClient` ready for use.
+
+    Raises:
+        ValueError: If ``SGLANG_URL`` is not set or the model ID cannot be
+            resolved.
+        SystemExit: If the server serves a different model than requested.
+    """
     model_id = resolve_model_id()
     sglang_url = os.environ.get("SGLANG_URL", "")
     if not sglang_url:
@@ -338,7 +389,28 @@ def create_sglang_client(verbose: bool = False) -> SGLangClient:
 
 @dataclass
 class RequestStats:
-    """Tracks stats for a single parallel request."""
+    """Tracks timing and output statistics for a single parallel streaming request.
+
+    Attributes:
+        request_id: 1-based index identifying this request within a parallel batch.
+        prompt: The user prompt sent to the model.
+        status: Current lifecycle state: ``"pending"``, ``"streaming"``,
+            ``"done"``, or ``"error"``.
+        output: Accumulated assistant content tokens received so far.
+        thinking: Accumulated reasoning/thinking tokens received so far.
+        ttft: Time-to-first-token in seconds (0.0 until the first token arrives).
+        total_time: Total wall-clock duration in seconds from request start to
+            completion or error.
+        output_tokens: Number of output tokens as reported by the usage field;
+            estimated from character count if the server omits usage.
+        prompt_tokens: Number of prompt tokens as reported by the usage field.
+        finish_reason: The ``finish_reason`` value from the final SSE chunk
+            (e.g. ``"stop"``, ``"length"``).
+        error: Human-readable error description if ``status == "error"``.
+        _start: Monotonic timestamp recorded when streaming begins (internal).
+        _first_token: Flag indicating whether the first token has been received (internal).
+    """
+
     request_id: int
     prompt: str
     status: str = "pending"  # pending, streaming, done, error
@@ -355,6 +427,15 @@ class RequestStats:
 
     @property
     def tokens_per_sec(self) -> float:
+        """Compute the current token throughput in tokens per second.
+
+        Uses ``output_tokens`` if available, otherwise estimates from the
+        accumulated character lengths divided by 4.
+
+        Returns:
+            Tokens per second, or ``0.0`` if elapsed time or token count
+            is zero.
+        """
         if self.status == "done" or self.status == "error":
             t = self.total_time
         else:
@@ -365,22 +446,45 @@ class RequestStats:
         return 0.0
 
     def output_tail(self, max_chars: int = 1200) -> str:
-        """Last N chars of output for display."""
+        """Return the last ``max_chars`` characters of the accumulated output.
+
+        Args:
+            max_chars: Maximum number of characters to return from the end
+                of ``self.output``.
+
+        Returns:
+            The tail of the output string, prefixed with ``"..."`` if truncated.
+        """
         if len(self.output) <= max_chars:
             return self.output
         return "..." + self.output[-max_chars:]
 
 
 def _detect_repetition(text: str, min_output: int = 800, max_ratio: float = 0.20) -> bool:
-    """Detect degenerate repetition via compression ratio.
+    """Detect degenerate token-loop repetition using a compression ratio heuristic.
 
-    Repetitive text compresses extremely well.  Normal prose/code compresses
-    to ~30-50% of its original size (zlib); degenerate loops compress to <20%.
-    This catches all repetition patterns regardless of exact/near-match and
-    block alignment — subword loops, sentence repetition, paragraph repetition.
+    Repetitive text compresses extremely well. Normal prose/code compresses
+    to roughly 30-50 % of its original byte size with zlib; degenerate loops
+    compress to below 20 %. This approach catches all repetition patterns
+    regardless of exact/near-match and block alignment — subword loops,
+    sentence repetition, and paragraph repetition.
 
-    Only checks the tail (last 1500 chars) to detect when the model *starts*
-    looping, not penalise early legitimate structure.
+    Only the tail (last 1500 characters) is examined so that early legitimate
+    structure does not trigger a false positive; the check is intended to
+    detect the point at which the model *starts* looping.
+
+    The ``zlib`` module is imported inside the function so that this module
+    has no hard dependency on it at import time.
+
+    Args:
+        text: The accumulated output text to inspect.
+        min_output: Minimum character length before the check is applied.
+            Shorter strings are always considered non-repetitive.
+        max_ratio: Compressed-to-raw byte ratio below which the text is
+            classified as degenerate. Defaults to ``0.20`` (20 %).
+
+    Returns:
+        ``True`` if degenerate repetition is detected, ``False`` otherwise.
     """
     import zlib
     if len(text) < min_output:
@@ -391,16 +495,38 @@ def _detect_repetition(text: str, min_output: int = 800, max_ratio: float = 0.20
     return ratio < max_ratio
 
 
+# Controls whether degenerate repetition detection aborts streaming requests.
+# Disabled by default because the compression heuristic can produce false
+# positives on legitimate structured output (e.g. large code blocks).
 ENABLE_REPETTITION_DETECTION: bool = False
 
 
 async def stream_request(
     session: aiohttp.ClientSession,
     url: str,
-    payload: dict,
+    payload: dict[str, object],
     stats: RequestStats,
 ) -> None:
-    """Stream a single chat completion and update stats in-place."""
+    """Stream a single chat completion and update a RequestStats object in-place.
+
+    Opens a POST request to ``url`` with ``payload`` as JSON, reads the
+    server-sent event stream, and accumulates content/reasoning tokens into
+    ``stats``. Token counts, timing fields, and the finish reason are updated
+    as chunks arrive.
+
+    If ``ENABLE_REPETTITION_DETECTION`` is ``True`` and degenerate repetition
+    is detected, the stream is aborted and ``stats.status`` is set to
+    ``"error"``.
+
+    Args:
+        session: An active :class:`aiohttp.ClientSession` to use for the request.
+        url: The fully qualified endpoint URL (e.g.
+            ``https://sglang.example.com/v1/chat/completions``).
+        payload: The JSON-serialisable request body. Keys and value types
+            vary by request; heterogeneous values are typed as ``object``.
+        stats: The :class:`RequestStats` instance to update throughout
+            streaming. Modified in place.
+    """
     stats.status = "streaming"
     stats._start = time.monotonic()
     try:
@@ -467,7 +593,19 @@ async def stream_request(
 
 
 def _tok_detail(s: RequestStats) -> str:
-    """Format thinking/content token breakdown for panel headers."""
+    """Format a thinking/content token breakdown string for panel headers.
+
+    Estimates thinking token count (``T~N``) and content token count
+    (``C~N``) from character lengths divided by 4, and returns a parenthesised
+    slash-separated string. Returns an empty string if both counts are zero.
+
+    Args:
+        s: The :class:`RequestStats` instance whose token counts to format.
+
+    Returns:
+        A string of the form ``" (T~N/C~M)"``, ``" (T~N)"``, ``" (C~M)"``,
+        or ``""`` if there are no tokens to report.
+    """
     t_est = len(s.thinking) // 4 if s.thinking else 0
     c_est = len(s.output) // 4 if s.output else 0
     if not t_est and not c_est:
@@ -481,7 +619,22 @@ def _tok_detail(s: RequestStats) -> str:
 
 
 def build_live_display(all_stats: list[RequestStats], verbose: bool = False) -> Table:
-    """Build a rich Table showing all parallel request states."""
+    """Build a Rich Table showing the live state of all parallel requests.
+
+    Renders a two-column grid of :class:`rich.panel.Panel` objects — one per
+    request — plus a summary row at the top. Panel height is computed from
+    the terminal height so that all rows fit on screen simultaneously.
+
+    Args:
+        all_stats: List of :class:`RequestStats` objects, one per in-flight
+            or completed request.
+        verbose: If ``True``, the thinking/reasoning tokens are included in
+            the panel body alongside content tokens.
+
+    Returns:
+        A :class:`rich.table.Table` suitable for passing to
+        :class:`rich.live.Live`.
+    """
     # Summary stats at the top
     done = [s for s in all_stats if s.status == "done"]
     streaming = [s for s in all_stats if s.status == "streaming"]
@@ -573,7 +726,21 @@ def build_live_display(all_stats: list[RequestStats], verbose: bool = False) -> 
 
 
 def print_final_summary(all_stats: list[RequestStats], wall_time: float, verbose: bool = False) -> None:
-    """Print a final results table after all requests complete."""
+    """Print a final results table to the console after all requests complete.
+
+    Renders a per-request table with timing, token, and finish-reason
+    columns, followed by an aggregate statistics table. If ``verbose`` is
+    ``True``, also prints the full thinking and output content for each
+    request in individual panels.
+
+    Args:
+        all_stats: List of :class:`RequestStats` objects for all completed
+            or failed requests.
+        wall_time: Total elapsed wall-clock time in seconds from the start
+            of the parallel run to completion.
+        verbose: If ``True``, print the full thinking and output text for
+            each request after the summary tables.
+    """
     console = Console()
     console.print()
 
@@ -665,12 +832,38 @@ async def run_parallel_test(
     model_id: str,
     preset: str | None,
     prompts: list[str],
-    max_tokens: int|None,
+    max_tokens: int | None,
     verbose: bool = False,
-    thinking_budget: int|None = None,
+    thinking_budget: int | None = None,
     no_think: bool = False,
 ) -> None:
-    """Run n parallel streaming requests with live display."""
+    """Run ``n`` parallel streaming requests with a live Rich display.
+
+    Constructs one payload per request by combining the resolved sampling
+    preset, optional thinking-budget logit processor, and any per-request
+    overrides. All requests are fired concurrently via asyncio and
+    :mod:`aiohttp`. A :class:`rich.live.Live` display is refreshed four times
+    per second until all requests finish. A final summary is printed when
+    complete.
+
+    Args:
+        n: Number of parallel requests to issue.
+        sglang_url: Base URL of the SGLang server.
+        model_id: The model identifier to pass in each request payload.
+        preset: Name of the sampling preset to apply, or ``None`` to use the
+            model's default preset.
+        prompts: Pool of prompt strings to draw from. Requests are assigned
+            prompts round-robin (``prompts[i % len(prompts)]``).
+        max_tokens: Maximum output tokens per request, or ``None`` to let the
+            server apply its default.
+        verbose: If ``True``, display thinking tokens in live panels and print
+            full output after completion.
+        thinking_budget: Maximum number of thinking tokens allowed, enforced
+            via an SGLang custom logit processor. ``None`` means no cap
+            beyond the model profile default.
+        no_think: If ``True``, set ``enable_thinking=False`` in
+            ``chat_template_kwargs`` to disable reasoning for all requests.
+    """
     # Build payload template
     presets = load_sampling_presets(model_id)
     default_preset = pick_default_preset(presets)
@@ -686,10 +879,10 @@ async def run_parallel_test(
         all_stats.append(RequestStats(request_id=i + 1, prompt=prompt))
 
     # Build payloads
-    payloads = []
+    payloads: list[dict[str, object]] = []
     for s in all_stats:
-        messages = [{"role": "user", "content": s.prompt}]
-        payload: dict = {
+        messages: list[dict[str, str]] = [{"role": "user", "content": s.prompt}]
+        payload: dict[str, object] = {
             "model": model_id,
             "messages": messages,
             "stream": True,
@@ -698,7 +891,7 @@ async def run_parallel_test(
         if max_tokens is not None:
             payload["max_tokens"] = max_tokens
         if no_think:
-            payload.setdefault("chat_template_kwargs", {})["enable_thinking"] = False
+            payload.setdefault("chat_template_kwargs", {})["enable_thinking"] = False  # type: ignore[index]
         # thinking_budget: CLI arg overrides profile default
         _profile = _dgx_defaults.get("sglang_model_profiles", {}).get(model_id, {})
         _effective_budget = thinking_budget if thinking_budget is not None else _profile.get("thinking_budget")
@@ -756,6 +949,19 @@ async def run_parallel_test(
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    """Parse command-line arguments and run the selected integration tests.
+
+    Supports both sequential tests (xkcd, briefing, thinking, coding,
+    sampling, presets) and the async parallel load test. The ``"all"``
+    shorthand expands to all sequential tests. The ``"parallel"`` test is
+    handled separately and launched via :func:`asyncio.run`.
+
+    Raises:
+        ValueError: If ``SGLANG_URL`` is not set or the model ID cannot be
+            resolved when running the parallel test.
+        SystemExit: If argument parsing fails or the model validation check
+            fails.
+    """
     import argparse
 
     parser = argparse.ArgumentParser(description="Direct SGLang integration tests")
@@ -811,9 +1017,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    verbose = args.verbose
-    no_think = args.no_think
-    tests = set(args.tests)
+    verbose: bool = args.verbose
+    no_think: bool = args.no_think
+    tests: set[str] = set(args.tests)
     if "all" in tests:
         tests = {"xkcd", "briefing", "thinking", "coding", "sampling", "presets"}
 
@@ -825,7 +1031,7 @@ def main() -> None:
         if not sglang_url:
             raise ValueError("Set SGLANG_URL environment variable")
         validate_model(sglang_url, model_id)
-        prompts = [args.prompt] * args.num_requests if args.prompt else random.sample(PARALLEL_PROMPTS, len(PARALLEL_PROMPTS))
+        prompts: list[str] = [args.prompt] * args.num_requests if args.prompt else random.sample(PARALLEL_PROMPTS, len(PARALLEL_PROMPTS))
         asyncio.run(run_parallel_test(
             n=args.num_requests,
             sglang_url=sglang_url,
@@ -844,7 +1050,7 @@ def main() -> None:
         # --no-think: select the non_thinking preset variant if available,
         # otherwise fall back to default preset (chat_template_kwargs is
         # already set by load_sampling_presets for non_thinking* presets).
-        think_preset = "non_thinking" if no_think else None  # None = use client default
+        think_preset: str | None = "non_thinking" if no_think else None  # None = use client default
 
         if "xkcd" in tests:
             image = get_random_xkcd_image(get_random_xkcd_image_url())

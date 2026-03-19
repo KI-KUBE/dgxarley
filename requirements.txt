@@ -10,3 +10,4 @@ pygithub
 huggingface-hub
 pydantic
 aiohttp
+hatchling
