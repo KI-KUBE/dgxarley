@@ -47,6 +47,8 @@ from rich.text import Text
 
 import requests as httplib
 
+from .streaming_repetition_guard import RepetitionGuard, GuardConfig, FeedResult, StopReason
+
 from .openwebui_integration_test import (
     SGLangClient,
     _dgx_defaults,
@@ -422,6 +424,9 @@ class RequestStats:
     prompt_tokens: int = 0
     finish_reason: str = ""
     error: str = ""
+    repetition_stopped: bool = False
+    repetition_reason: str = ""
+    clean_output: str = ""
     _start: float = field(default=0.0, repr=False)
     _first_token: bool = field(default=False, repr=False)
 
@@ -460,47 +465,6 @@ class RequestStats:
         return "..." + self.output[-max_chars:]
 
 
-def _detect_repetition(text: str, min_output: int = 800, max_ratio: float = 0.20) -> bool:
-    """Detect degenerate token-loop repetition using a compression ratio heuristic.
-
-    Repetitive text compresses extremely well. Normal prose/code compresses
-    to roughly 30-50 % of its original byte size with zlib; degenerate loops
-    compress to below 20 %. This approach catches all repetition patterns
-    regardless of exact/near-match and block alignment — subword loops,
-    sentence repetition, and paragraph repetition.
-
-    Only the tail (last 1500 characters) is examined so that early legitimate
-    structure does not trigger a false positive; the check is intended to
-    detect the point at which the model *starts* looping.
-
-    The ``zlib`` module is imported inside the function so that this module
-    has no hard dependency on it at import time.
-
-    Args:
-        text: The accumulated output text to inspect.
-        min_output: Minimum character length before the check is applied.
-            Shorter strings are always considered non-repetitive.
-        max_ratio: Compressed-to-raw byte ratio below which the text is
-            classified as degenerate. Defaults to ``0.20`` (20 %).
-
-    Returns:
-        ``True`` if degenerate repetition is detected, ``False`` otherwise.
-    """
-    import zlib
-    if len(text) < min_output:
-        return False
-    tail = text[-1500:] if len(text) > 1500 else text
-    compressed = zlib.compress(tail.encode())
-    ratio = len(compressed) / len(tail.encode())
-    return ratio < max_ratio
-
-
-# Controls whether degenerate repetition detection aborts streaming requests.
-# Disabled by default because the compression heuristic can produce false
-# positives on legitimate structured output (e.g. large code blocks).
-ENABLE_REPETTITION_DETECTION: bool = False
-
-
 async def stream_request(
     session: aiohttp.ClientSession,
     url: str,
@@ -514,9 +478,9 @@ async def stream_request(
     ``stats``. Token counts, timing fields, and the finish reason are updated
     as chunks arrive.
 
-    If ``ENABLE_REPETTITION_DETECTION`` is ``True`` and degenerate repetition
-    is detected, the stream is aborted and ``stats.status`` is set to
-    ``"error"``.
+    A :class:`RepetitionGuard` monitors both content and reasoning streams;
+    if repetition is detected the stream is aborted and ``stats`` is marked
+    with ``repetition_stopped=True``.
 
     Args:
         session: An active :class:`aiohttp.ClientSession` to use for the request.
@@ -527,6 +491,9 @@ async def stream_request(
         stats: The :class:`RequestStats` instance to update throughout
             streaming. Modified in place.
     """
+    content_guard = RepetitionGuard()
+    reasoning_guard = RepetitionGuard()
+
     stats.status = "streaming"
     stats._start = time.monotonic()
     try:
@@ -567,16 +534,27 @@ async def stream_request(
                         stats._first_token = True
                         stats.ttft = time.monotonic() - stats._start
                     stats.thinking += reasoning
+                    result = reasoning_guard.feed(reasoning)
+                    if result.should_stop:
+                        stats.status = "error"
+                        stats.repetition_stopped = True
+                        stats.repetition_reason = result.detail
+                        stats.error = f"repetition: {result.reason.name} — {result.detail}"
+                        stats.clean_output = reasoning_guard.get_clean_text()
+                        return
                 content = delta.get("content", "")
                 if content:
                     if not stats._first_token:
                         stats._first_token = True
                         stats.ttft = time.monotonic() - stats._start
                     stats.output += content
-                    # Abort on degenerate repetition loops
-                    if ENABLE_REPETTITION_DETECTION and _detect_repetition(stats.output):
+                    result = content_guard.feed(content)
+                    if result.should_stop:
                         stats.status = "error"
-                        stats.error = "aborted: degenerate repetition detected"
+                        stats.repetition_stopped = True
+                        stats.repetition_reason = result.detail
+                        stats.error = f"repetition: {result.reason.name} — {result.detail}"
+                        stats.clean_output = content_guard.get_clean_text()
                         return
 
     except Exception as e:
@@ -705,6 +683,11 @@ def build_live_display(all_stats: list[RequestStats], verbose: bool = False) -> 
             else:
                 display = s.output_tail(max_chars)
             body = Text(display, style="white")
+        elif s.repetition_stopped:
+            style = "yellow"
+            header = f"[yellow]#{s.request_id} REPETITION — {s.repetition_reason[:60]}[/]"
+            display = s.clean_output[-max_chars:] if s.clean_output else s.output_tail(max_chars)
+            body = Text(display, style="white")
         else:
             style = "red"
             header = f"[red]#{s.request_id} ERROR[/]"
@@ -756,9 +739,16 @@ def print_final_summary(all_stats: list[RequestStats], wall_time: float, verbose
     table.add_column("Prompt", max_width=40)
 
     for s in all_stats:
-        status = "[green]OK[/]" if s.status == "done" else f"[red]{s.status}[/]"
+        if s.repetition_stopped:
+            status = "[yellow]REP[/]"
+        elif s.status == "done":
+            status = "[green]OK[/]"
+        else:
+            status = f"[red]{s.status}[/]"
         finish = s.finish_reason or "-"
-        if s.thinking and not s.output:
+        if s.repetition_stopped:
+            finish = f"[yellow]repetition: {s.repetition_reason[:40]}[/]"
+        elif s.thinking and not s.output:
             finish = f"[yellow]{finish} (thinking only!)[/]"
         elif s.finish_reason == "length":
             finish = f"[yellow]{finish}[/]"
@@ -810,7 +800,14 @@ def print_final_summary(all_stats: list[RequestStats], wall_time: float, verbose
                 border_style="cyan",
                 expand=True,
             ))
-        if s.output:
+        if s.repetition_stopped and s.clean_output:
+            console.print(Panel(
+                Text(s.clean_output + "\n\n[truncated — repetition detected]"),
+                title=f"[bold]#{s.request_id} clean output[/] (repetition stopped)",
+                border_style="yellow",
+                expand=True,
+            ))
+        elif s.output:
             console.print(Panel(
                 Text(s.output),
                 title=f"[bold]#{s.request_id} full output[/] ({s.status})",
