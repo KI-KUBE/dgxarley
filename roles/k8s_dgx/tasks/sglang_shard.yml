@@ -33,6 +33,19 @@
         save_sharded.py: "{{ lookup('file', role_path ~ '/files/sglang_save_sharded.py') }}"
         launch.sh: "{{ lookup('file', role_path ~ '/files/sglang_shard_launch.sh') }}"
 
+- name: Create SGLang wait-for-worker script ConfigMap
+  when: sglang_load_format == "sharded_state"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: sglang-wait-script
+        namespace: "{{ dgx_namespace }}"
+      data:
+        wait_for_worker.sh: "{{ lookup('file', role_path ~ '/files/sglang_wait_for_worker.sh') }}"
+
 - name: Delete existing SGLang shard Jobs
   when: sglang_load_format == "sharded_state"
   kubernetes.core.k8s:
@@ -103,6 +116,8 @@
                     value: "1"
                   - name: TP
                     value: "{{ sglang_tp | string }}"
+                  - name: EP
+                    value: "{{ sglang_ep | string }}"
                   - name: NNODES
                     value: "{{ sglang_nnodes | string }}"
                   - name: SGLANG_MODEL
@@ -200,16 +215,16 @@
                     readOnly: true
               - name: wait-for-worker
                 image: bitnami/kubectl:latest
-                command:
-                  - kubectl
-                  - wait
-                  - --for=condition=Ready
-                  - pod
-                  - -l
-                  - app=sglang-shard,role=worker
-                  - -n
-                  - "{{ dgx_namespace }}"
-                  - --timeout=600s
+                command: ["/bin/sh", "/scripts/wait_for_worker.sh"]
+                env:
+                  - name: WAIT_NAMESPACE
+                    value: "{{ dgx_namespace }}"
+                  - name: WAIT_LABEL
+                    value: "app=sglang-shard,role=worker"
+                volumeMounts:
+                  - name: wait-script
+                    mountPath: /scripts
+                    readOnly: true
             containers:
               - name: shard
                 image: "{{ sglang_image }}"
@@ -219,6 +234,8 @@
                     value: "0"
                   - name: TP
                     value: "{{ sglang_tp | string }}"
+                  - name: EP
+                    value: "{{ sglang_ep | string }}"
                   - name: NNODES
                     value: "{{ sglang_nnodes | string }}"
                   - name: SGLANG_MODEL
@@ -272,6 +289,10 @@
               - name: shard-script
                 configMap:
                   name: sglang-shard-script
+                  defaultMode: 0755
+              - name: wait-script
+                configMap:
+                  name: sglang-wait-script
                   defaultMode: 0755
               - name: ssh-keys
                 hostPath:

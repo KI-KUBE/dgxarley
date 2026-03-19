@@ -17,10 +17,75 @@ until ping -c10 -W1 "$peer" ; do
 done
 echo "QSFP peer ${peer} reachable."
 
+# Patch moe_wna16 weight loader for EP-aware qzeros handling (SGLang 0.5.9 bug).
+# Two bugs in the w13_qzeros/w2_qzeros branches:
+#   1. Uses raw global expert_id (0-127) instead of local EP index (0-63)
+#   2. Uses global tp_rank for TP-slice, but moe_tp_size=tp/ep — need tp_rank % moe_tp_size
+# Safe no-op when ep_size=1 (identity mapping, tp_rank unchanged).
+MOE_WNA16="/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/quantization/moe_wna16.py"
+if grep -q 'param\.data\[expert_id' "$MOE_WNA16" 2>/dev/null; then
+  python3 << 'PATCH_QZEROS_EOF'
+import sys
+f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/quantization/moe_wna16.py"
+with open(f) as fh:
+    code = fh.read()
+old_w13 = '''            if "w13_qzeros" in weight_name:
+                tensor = loaded_weight.view(
+                    layer.moe_tp_size, -1, loaded_weight.size(1)
+                )[tp_rank]
+                if shard_id == "w1":
+                    param.data[expert_id, : shard_size // 2] = tensor
+                else:
+                    param.data[expert_id, shard_size // 2 :] = tensor'''
+new_w13 = '''            if "w13_qzeros" in weight_name:
+                _local_id = layer._map_global_expert_id_to_local_expert_id(expert_id)
+                if _local_id == -1:
+                    return
+                _moe_tp_rank = tp_rank % layer.moe_tp_size
+                tensor = loaded_weight.view(
+                    layer.moe_tp_size, -1, loaded_weight.size(1)
+                )[_moe_tp_rank]
+                if shard_id == "w1":
+                    param.data[_local_id, : shard_size // 2] = tensor
+                else:
+                    param.data[_local_id, shard_size // 2 :] = tensor'''
+old_w2 = '''            elif "w2_qzeros" in weight_name:
+                param.data[expert_id] = loaded_weight.view(
+                    loaded_weight.size(0), layer.moe_tp_size, -1
+                )[:, tp_rank]'''
+new_w2 = '''            elif "w2_qzeros" in weight_name:
+                _local_id = layer._map_global_expert_id_to_local_expert_id(expert_id)
+                if _local_id == -1:
+                    return
+                _moe_tp_rank = tp_rank % layer.moe_tp_size
+                param.data[_local_id] = loaded_weight.view(
+                    loaded_weight.size(0), layer.moe_tp_size, -1
+                )[:, _moe_tp_rank]'''
+if old_w13 not in code:
+    print("w13_qzeros: already patched or source changed, skipping")
+    sys.exit(0)
+if old_w2 not in code:
+    print("w2_qzeros: already patched or source changed, skipping")
+    sys.exit(0)
+code = code.replace(old_w13, new_w13, 1)
+code = code.replace(old_w2, new_w2, 1)
+with open(f, 'w') as fh:
+    fh.write(code)
+print("Patched moe_wna16.py: EP-aware expert_id + tp_rank remapping for qzeros")
+PATCH_QZEROS_EOF
+fi
+
 # Clean stale shard files from previous failed runs so we only detect
 # freshly written shards in the post-save check below.
 model_slug=$(echo "$SGLANG_MODEL" | sed 's|/|--|g')
-shard_dir="/root/.cache/huggingface/sharded/${model_slug}-TP${TP}"
+shard_suffix="TP${TP}"
+if [ -n "$EP" ] && [ "$EP" != "1" ]; then
+  shard_suffix="${shard_suffix}-EP${EP}"
+fi
+if [ -n "$SGLANG_QUANTIZATION" ]; then
+  shard_suffix="${shard_suffix}-${SGLANG_QUANTIZATION}"
+fi
+shard_dir="/root/.cache/huggingface/sharded/${model_slug}-${shard_suffix}"
 if [ ! -f "$shard_dir/model.safetensors.index.json" ]; then
   rm -f "$shard_dir"/model-rank-*-part-*.safetensors 2>/dev/null || true
   rm -f "$shard_dir"/model.safetensors.index.json 2>/dev/null || true
@@ -73,7 +138,7 @@ fi
 # ShardedStateLoader only writes model.safetensors.index.json on rank 0.
 if [ "$NODE_RANK" = "0" ] && [ -n "$RSYNC_TARGET" ]; then
   ssh_opts="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-  dst="root@${RSYNC_TARGET}:${HF_CACHE_HOST_PATH}/sharded/${model_slug}-TP${TP}/"
+  dst="root@${RSYNC_TARGET}:${HF_CACHE_HOST_PATH}/sharded/${model_slug}-${shard_suffix}/"
   echo "[rank $NODE_RANK] Syncing index + metadata to ${RSYNC_TARGET} ..."
   rsync -ah \
     -e "ssh $ssh_opts" \

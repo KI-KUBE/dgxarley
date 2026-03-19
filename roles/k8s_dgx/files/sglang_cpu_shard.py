@@ -11,6 +11,9 @@ Supported architectures: qwen2 (dense), qwen2_moe (MoE)
 Environment variables:
     SGLANG_MODEL          Model ID (e.g. QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ)
     TP                    Tensor parallel size (default: 2)
+    EP                    Expert parallel size (default: 1). Partitions TP group
+                          for MoE layers. With EP=TP, each rank gets whole experts
+                          instead of TP-split expert weight matrices.
     NODE_RANK             This node's rank (0 or 1)
     HF_TOKEN              HuggingFace token (optional)
     SHARD_OUTPUT_DIR      Override output directory (optional)
@@ -43,10 +46,17 @@ def load_configs(model_path: Path):
         config = json.load(f)
 
     quant_config_path = model_path / "quantize_config.json"
-    if not quant_config_path.exists():
-        raise FileNotFoundError(f"quantize_config.json not found in {model_path}")
-    with open(quant_config_path) as f:
-        quant_config = json.load(f)
+    if quant_config_path.exists():
+        with open(quant_config_path) as f:
+            quant_config = json.load(f)
+    elif "quantization_config" in config:
+        # Newer HF format: AWQ config embedded in config.json
+        quant_config = config["quantization_config"]
+    else:
+        raise FileNotFoundError(
+            f"No quantization config found: neither quantize_config.json "
+            f"nor quantization_config in config.json in {model_path}"
+        )
 
     index_path = model_path / "model.safetensors.index.json"
     if index_path.exists():
@@ -83,20 +93,20 @@ def get_architecture_params(config: dict):
         ),
     }
 
-    if model_type == "qwen2_moe":
+    if model_type in ("qwen2_moe", "qwen3_moe"):
         params["num_experts"] = config["num_experts"]
         params["moe_intermediate_size"] = config["moe_intermediate_size"]
         params["intermediate_size"] = config.get(
             "shared_expert_intermediate_size", config["intermediate_size"]
         )
         params["is_moe"] = True
-    elif model_type == "qwen2":
+    elif model_type in ("qwen2", "qwen3"):
         params["intermediate_size"] = config["intermediate_size"]
         params["is_moe"] = False
     else:
         raise ValueError(
             f"Unsupported model_type: {model_type!r}. "
-            "Supported: qwen2, qwen2_moe"
+            "Supported: qwen2, qwen2_moe, qwen3, qwen3_moe"
         )
 
     return params
@@ -280,15 +290,34 @@ def process_dense_mlp(
 # ---------------------------------------------------------------------------
 
 def process_moe_experts(
-    prefix: str, params: dict, tp: int, rank: int,
+    prefix: str, params: dict, tp: int, ep: int, rank: int,
     weight_map: dict, open_files: dict,
 ) -> dict:
-    """Fuse per-expert gate+up → w13, stack down → w2, TP-split."""
+    """Fuse per-expert gate+up → w13, stack down → w2, with EP/TP distribution.
+
+    EP distributes whole experts across ranks. Within each EP group,
+    remaining TP splits expert weights by dimension.
+    With EP=TP (e.g. both 2), each rank gets half the experts unsplit.
+    """
     output = {}
     num_experts = params["num_experts"]
 
+    # EP: assign experts to ranks. TP within EP group handles dimension splits.
+    if ep > 1:
+        experts_per_rank = num_experts // ep
+        expert_start = rank * experts_per_rank
+        expert_end = expert_start + experts_per_rank
+        moe_tp = tp // ep  # TP within EP group (1 when ep=tp)
+        moe_tp_rank = 0    # With ep=tp, single rank per EP group
+    else:
+        experts_per_rank = num_experts
+        expert_start = 0
+        expert_end = num_experts
+        moe_tp = tp
+        moe_tp_rank = rank
+
     for suffix in AWQ_SUFFIXES:
-        first_gate = f"{prefix}.mlp.experts.0.gate_proj.{suffix}"
+        first_gate = f"{prefix}.mlp.experts.{expert_start}.gate_proj.{suffix}"
         if first_gate not in weight_map:
             continue
 
@@ -300,50 +329,59 @@ def process_moe_experts(
         del ref
 
         ref_up = get_tensor(
-            f"{prefix}.mlp.experts.0.up_proj.{suffix}", weight_map, open_files
+            f"{prefix}.mlp.experts.{expert_start}.up_proj.{suffix}",
+            weight_map, open_files,
         )
         up_out = ref_up.shape[1]
         del ref_up
 
         ref_down = get_tensor(
-            f"{prefix}.mlp.experts.0.down_proj.{suffix}", weight_map, open_files
+            f"{prefix}.mlp.experts.{expert_start}.down_proj.{suffix}",
+            weight_map, open_files,
         )
         down_in_packed = ref_down.shape[0]
         down_out = ref_down.shape[1]
         del ref_down
 
         w13 = torch.empty(
-            num_experts, in_packed, gate_out + up_out, dtype=dtype
+            experts_per_rank, in_packed, gate_out + up_out, dtype=dtype
         )
         w2 = torch.empty(
-            num_experts, down_in_packed, down_out, dtype=dtype
+            experts_per_rank, down_in_packed, down_out, dtype=dtype
         )
 
-        for i in range(num_experts):
+        for local_idx, global_idx in enumerate(range(expert_start, expert_end)):
             gate = get_tensor(
-                f"{prefix}.mlp.experts.{i}.gate_proj.{suffix}",
+                f"{prefix}.mlp.experts.{global_idx}.gate_proj.{suffix}",
                 weight_map, open_files,
             )
             up = get_tensor(
-                f"{prefix}.mlp.experts.{i}.up_proj.{suffix}",
+                f"{prefix}.mlp.experts.{global_idx}.up_proj.{suffix}",
                 weight_map, open_files,
             )
-            w13[i, :, :gate_out] = gate
-            w13[i, :, gate_out:] = up
+            w13[local_idx, :, :gate_out] = gate
+            w13[local_idx, :, gate_out:] = up
             del gate, up
 
             down = get_tensor(
-                f"{prefix}.mlp.experts.{i}.down_proj.{suffix}",
+                f"{prefix}.mlp.experts.{global_idx}.down_proj.{suffix}",
                 weight_map, open_files,
             )
-            w2[i] = down
+            w2[local_idx] = down
             del down
 
-        # w13 column-parallel, w2 row-parallel
-        output[f"{prefix}.mlp.experts.w13_{suffix}"] = split_column(
-            w13, tp, rank
-        )
-        output[f"{prefix}.mlp.experts.w2_{suffix}"] = split_row(w2, tp, rank)
+        # w13 column-parallel, w2 row-parallel (within EP group)
+        if moe_tp > 1:
+            output[f"{prefix}.mlp.experts.w13_{suffix}"] = split_column(
+                w13, moe_tp, moe_tp_rank
+            )
+            output[f"{prefix}.mlp.experts.w2_{suffix}"] = split_row(
+                w2, moe_tp, moe_tp_rank
+            )
+        else:
+            # EP=TP: whole experts, no dimension split
+            output[f"{prefix}.mlp.experts.w13_{suffix}"] = w13
+            output[f"{prefix}.mlp.experts.w2_{suffix}"] = w2
         del w13, w2
 
     return output
@@ -386,13 +424,13 @@ def process_shared_expert(
 
 def process_layer(
     layer_idx: int, layer_tensors: list, params: dict,
-    tp: int, rank: int, weight_map: dict, open_files: dict,
+    tp: int, ep: int, rank: int, weight_map: dict, open_files: dict,
 ) -> dict:
     """Process all tensors in a single transformer layer."""
     output = {}
     prefix = f"model.layers.{layer_idx}"
 
-    # Attention: QKV fusion + O proj split
+    # Attention: QKV fusion + O proj split (always TP, unaffected by EP)
     output.update(process_qkv(prefix, params, tp, rank, weight_map, open_files))
     output.update(process_o_proj(prefix, tp, rank, weight_map, open_files))
 
@@ -401,7 +439,7 @@ def process_layer(
 
     if has_experts:
         output.update(
-            process_moe_experts(prefix, params, tp, rank, weight_map, open_files)
+            process_moe_experts(prefix, params, tp, ep, rank, weight_map, open_files)
         )
         output.update(
             process_shared_expert(prefix, tp, rank, weight_map, open_files)
@@ -488,6 +526,7 @@ class ShardWriter:
 def main():
     model_id = os.environ.get("SGLANG_MODEL", "")
     tp = int(os.environ.get("TP", "2"))
+    ep = int(os.environ.get("EP", "1"))
     rank = int(os.environ.get("NODE_RANK", "0"))
     dry_run = os.environ.get("DRY_RUN", "0") == "1"
 
@@ -496,12 +535,15 @@ def main():
         sys.exit(1)
 
     model_slug = model_id.replace("/", "--")
-    default_output = f"/root/.cache/huggingface/sharded/{model_slug}-TP{tp}"
+    shard_suffix = f"TP{tp}"
+    if ep > 1:
+        shard_suffix += f"-EP{ep}"
+    default_output = f"/root/.cache/huggingface/sharded/{model_slug}-{shard_suffix}"
     output_dir = Path(os.environ.get("SHARD_OUTPUT_DIR", default_output))
 
     print(f"[rank {rank}] CPU-only AWQ sharding", flush=True)
     print(f"[rank {rank}] Model:   {model_id}", flush=True)
-    print(f"[rank {rank}] TP:      {tp}, rank: {rank}", flush=True)
+    print(f"[rank {rank}] TP:      {tp}, EP: {ep}, rank: {rank}", flush=True)
     print(f"[rank {rank}] Output:  {output_dir}", flush=True)
     if dry_run:
         print(f"[rank {rank}] *** DRY RUN — no files will be written ***", flush=True)
@@ -545,8 +587,10 @@ def main():
         flush=True,
     )
     if params["is_moe"]:
+        experts_local = params["num_experts"] // ep if ep > 1 else params["num_experts"]
         print(
-            f"[rank {rank}] MoE: {params['num_experts']} experts, "
+            f"[rank {rank}] MoE: {params['num_experts']} experts "
+            f"({experts_local} local with EP={ep}), "
             f"moe_intermediate={params['moe_intermediate_size']}",
             flush=True,
         )
@@ -562,7 +606,7 @@ def main():
         for layer_idx in sorted(k for k in groups if k != "global"):
             result = process_layer(
                 layer_idx, groups[layer_idx], params,
-                tp, rank, weight_map, open_files,
+                tp, ep, rank, weight_map, open_files,
             )
             all_names.extend(sorted(result.keys()))
         if "global" in groups:
@@ -587,7 +631,7 @@ def main():
         )
         result = process_layer(
             layer_idx, groups[layer_idx], params,
-            tp, rank, weight_map, open_files,
+            tp, ep, rank, weight_map, open_files,
         )
         total_tensors += len(result)
         writer.add(result)
@@ -627,7 +671,7 @@ def main():
             with safe_open(str(filepath), framework="pt") as f:
                 for key in f.keys():
                     weight_map_out[key] = filename
-    index_data = {"metadata": {"model": model_id, "tp": tp, "rank": rank, "method": "cpu_shard"}, "weight_map": weight_map_out}
+    index_data = {"metadata": {"model": model_id, "tp": tp, "ep": ep, "rank": rank, "method": "cpu_shard"}, "weight_map": weight_map_out}
     (output_dir / "model.safetensors.index.json").write_text(json.dumps(index_data, indent=2))
     print(f"[rank {rank}] CPU sharding complete.", flush=True)
 

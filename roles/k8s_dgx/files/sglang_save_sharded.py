@@ -15,6 +15,8 @@ Environment variables (set via ConfigMap):
     SGLANG_MODEL          Model ID (e.g. QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ)
     SGLANG_QUANTIZATION   Quantization method (e.g. awq, gptq, or empty)
     TP                    Tensor parallel size (default: 2)
+    EP                    Expert parallel size (default: 1). Partitions TP group
+                          for MoE layers. With EP=TP, MoE uses all-to-all.
     NNODES                Number of nodes (default: 2)
     NODE_RANK             This node's rank (0 = head, 1 = worker)
     QSFP_IP_SPARK1        NCCL init address (head IP)
@@ -36,6 +38,7 @@ def main():
     model_id = os.environ.get("SGLANG_MODEL", "")
     quantization = os.environ.get("SGLANG_QUANTIZATION", "") or None
     tp = int(os.environ.get("TP", "2"))
+    ep = int(os.environ.get("EP", "1"))
     nnodes = int(os.environ.get("NNODES", "2"))
     node_rank = int(os.environ.get("NODE_RANK", "0"))
     nccl_init_addr = f"{os.environ.get('QSFP_IP_SPARK1', '10.10.10.1')}:{os.environ.get('NCCL_PORT', '50000')}"
@@ -45,12 +48,17 @@ def main():
         sys.exit(1)
 
     model_slug = model_id.replace("/", "--")
-    default_output = f"/root/.cache/huggingface/sharded/{model_slug}-TP{tp}"
+    shard_suffix = f"TP{tp}"
+    if ep > 1:
+        shard_suffix += f"-EP{ep}"
+    if quantization:
+        shard_suffix += f"-{quantization}"
+    default_output = f"/root/.cache/huggingface/sharded/{model_slug}-{shard_suffix}"
     output_dir = os.environ.get("SHARD_OUTPUT_DIR", default_output)
 
     print(f"[rank {node_rank}] Model:        {model_id}", flush=True)
     print(f"[rank {node_rank}] Quantization: {quantization or '(none)'}", flush=True)
-    print(f"[rank {node_rank}] TP size:      {tp}, nnodes: {nnodes}, rank: {node_rank}", flush=True)
+    print(f"[rank {node_rank}] TP size:      {tp}, EP size: {ep}, nnodes: {nnodes}, rank: {node_rank}", flush=True)
     print(f"[rank {node_rank}] NCCL init:    {nccl_init_addr}", flush=True)
     print(f"[rank {node_rank}] Output:       {output_dir}", flush=True)
 
@@ -85,6 +93,8 @@ def main():
         "context_length": 128,
         "disable_cuda_graph": True,
     }
+    if ep > 1:
+        engine_kwargs["ep_size"] = ep
     if quantization:
         engine_kwargs["quantization"] = quantization
 

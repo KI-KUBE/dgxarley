@@ -91,6 +91,8 @@
                     value: "{{ item.rank }}"
                   - name: TP
                     value: "{{ sglang_tp | string }}"
+                  - name: EP
+                    value: "{{ sglang_ep | string }}"
                   - name: SGLANG_MODEL
                     value: "{{ sglang_model }}"
                   - name: HF_TOKEN

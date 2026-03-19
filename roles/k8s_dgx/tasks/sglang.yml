@@ -30,6 +30,9 @@
         SGLANG_CUDA_GRAPH_MAX_BS: "{{ sglang_cuda_graph_max_bs | string }}"
         SGLANG_SERVED_MODEL_NAME: "{{ sglang_served_model_name }}"
         SGLANG_CHAT_TEMPLATE_KWARGS: "{{ sglang_chat_template_kwargs | to_json }}"
+        SGLANG_EP: "{{ sglang_ep | string }}"
+        SGLANG_ENABLE_EPLB: "{{ sglang_enable_eplb | string | lower }}"
+        SGLANG_ENABLE_EXPERT_DISTRIBUTION_METRICS: "{{ sglang_enable_expert_distribution_metrics | string | lower }}"
         SGLANG_ENABLE_JIT_DEEPGEMM: "{{ 'false' if sglang_disable_deep_gemm | bool else 'true' }}"
         # Fix CUDA allocator fragmentation during AWQ Marlin repack (SGLang #11471)
         PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
@@ -49,6 +52,18 @@
         namespace: "{{ dgx_namespace }}"
       data:
         launch.sh: "{{ lookup('file', role_path ~ '/files/sglang_launch.sh') }}"
+
+- name: Create SGLang wait-for-worker script ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: sglang-wait-script
+        namespace: "{{ dgx_namespace }}"
+      data:
+        wait_for_worker.sh: "{{ lookup('file', role_path ~ '/files/sglang_wait_for_worker.sh') }}"
 
 - name: Create SGLang model-download script ConfigMap
   kubernetes.core.k8s:
@@ -167,7 +182,7 @@
               k8s.v1.cni.cncf.io/networks: qsfp-direct-worker
               kubectl.kubernetes.io/default-container: sglang
               checksum/launch-script: "{{ lookup('file', role_path ~ '/files/sglang_launch.sh') | hash('sha256') }}"
-              checksum/config: "{{ (sglang_model ~ sglang_context_length ~ sglang_kv_cache_dtype ~ sglang_mem_fraction_static ~ sglang_quantization ~ sglang_load_format ~ sglang_attention_backend ~ (sglang_sampling_override | to_json)) | hash('sha256') }}"
+              checksum/config: "{{ (sglang_model ~ sglang_context_length ~ sglang_kv_cache_dtype ~ sglang_mem_fraction_static ~ sglang_quantization ~ sglang_load_format ~ sglang_attention_backend ~ sglang_ep ~ (sglang_sampling_override | to_json)) | hash('sha256') }}"
           spec:
             enableServiceLinks: false         # prevent K8s SGLANG_PORT=tcp://... injection
             hostIPC: true                    # Shared Memory für NCCL
@@ -206,6 +221,8 @@
                         fieldPath: status.podIP
                   - name: TP
                     value: "{{ sglang_tp | string }}"
+                  - name: EP
+                    value: "{{ sglang_ep | string }}"
                   - name: NNODES
                     value: "{{ sglang_nnodes | string }}"
                   - name: QSFP_IP_SPARK1
@@ -284,7 +301,7 @@
               k8s.v1.cni.cncf.io/networks: qsfp-direct
               kubectl.kubernetes.io/default-container: sglang
               checksum/launch-script: "{{ lookup('file', role_path ~ '/files/sglang_launch.sh') | hash('sha256') }}"
-              checksum/config: "{{ (sglang_model ~ sglang_context_length ~ sglang_kv_cache_dtype ~ sglang_mem_fraction_static ~ sglang_quantization ~ sglang_load_format ~ sglang_attention_backend ~ (sglang_sampling_override | to_json)) | hash('sha256') }}"
+              checksum/config: "{{ (sglang_model ~ sglang_context_length ~ sglang_kv_cache_dtype ~ sglang_mem_fraction_static ~ sglang_quantization ~ sglang_load_format ~ sglang_attention_backend ~ sglang_ep ~ (sglang_sampling_override | to_json)) | hash('sha256') }}"
           spec:
             serviceAccountName: sglang-head
             enableServiceLinks: false         # prevent K8s SGLANG_PORT=tcp://... injection
@@ -310,16 +327,16 @@
                     readOnly: true
               - name: wait-for-worker
                 image: bitnami/kubectl:latest
-                command:
-                  - kubectl
-                  - wait
-                  - --for=condition=Ready
-                  - pod
-                  - -l
-                  - app=sglang,role=worker
-                  - -n
-                  - "{{ dgx_namespace }}"
-                  - --timeout=600s
+                command: ["/bin/sh", "/scripts/wait_for_worker.sh"]
+                env:
+                  - name: WAIT_NAMESPACE
+                    value: "{{ dgx_namespace }}"
+                  - name: WAIT_LABEL
+                    value: "app=sglang,role=worker"
+                volumeMounts:
+                  - name: wait-script
+                    mountPath: /scripts
+                    readOnly: true
             containers:
               - name: sglang
                 image: "{{ sglang_image }}"
@@ -332,6 +349,8 @@
                     value: "0"
                   - name: TP
                     value: "{{ sglang_tp | string }}"
+                  - name: EP
+                    value: "{{ sglang_ep | string }}"
                   - name: NNODES
                     value: "{{ sglang_nnodes | string }}"
                   - name: QSFP_IP_SPARK1
@@ -404,6 +423,10 @@
               - name: sampling-config
                 configMap:
                   name: sglang-sampling-config
+              - name: wait-script
+                configMap:
+                  name: sglang-wait-script
+                  defaultMode: 0755
 
 - name: Create SGLang Service
   kubernetes.core.k8s:

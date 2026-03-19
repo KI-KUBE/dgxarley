@@ -22,7 +22,14 @@ echo "QSFP peer ${peer} reachable."
 model_path="$SGLANG_MODEL"
 if [ "$SGLANG_LOAD_FORMAT" = "sharded_state" ]; then
   model_slug=$(echo "$SGLANG_MODEL" | sed 's|/|--|g')
-  sharded_path="/root/.cache/huggingface/sharded/${model_slug}-TP${TP}"
+  shard_suffix="TP${TP}"
+  if [ -n "$EP" ] && [ "$EP" != "1" ]; then
+    shard_suffix="${shard_suffix}-EP${EP}"
+  fi
+  if [ -n "$SGLANG_QUANTIZATION" ]; then
+    shard_suffix="${shard_suffix}-${SGLANG_QUANTIZATION}"
+  fi
+  sharded_path="/root/.cache/huggingface/sharded/${model_slug}-${shard_suffix}"
   marker="${sharded_path}/model.safetensors.index.json"
   echo "Waiting for sharded checkpoint at ${marker} ..."
   while [ ! -f "$marker" ]; do
@@ -39,6 +46,64 @@ if grep -q 'for path in filepaths:' "$LOADER" 2>/dev/null; then
   sed -i 's/for path in filepaths:/for _shard_i, path in enumerate(filepaths, 1):/' "$LOADER"
   sed -i '/_shard_i, path in enumerate(filepaths/a\                logger.info(f"Loading shard {_shard_i}\/{len(filepaths)}: {os.path.basename(path)}")' "$LOADER"
   echo "Patched ShardedStateLoader for per-file progress logging"
+fi
+
+# Patch moe_wna16 weight loader for EP-aware qzeros handling (SGLang 0.5.9 bug).
+# Two bugs in the w13_qzeros/w2_qzeros branches:
+#   1. Uses raw global expert_id (0-127) instead of local EP index (0-63)
+#   2. Uses global tp_rank for TP-slice, but moe_tp_size=tp/ep — need tp_rank % moe_tp_size
+# Safe no-op when ep_size=1 (identity mapping, tp_rank unchanged).
+MOE_WNA16="/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/quantization/moe_wna16.py"
+if grep -q 'param\.data\[expert_id' "$MOE_WNA16" 2>/dev/null; then
+  python3 << 'PATCH_QZEROS_EOF'
+import sys
+f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/quantization/moe_wna16.py"
+with open(f) as fh:
+    code = fh.read()
+old_w13 = '''            if "w13_qzeros" in weight_name:
+                tensor = loaded_weight.view(
+                    layer.moe_tp_size, -1, loaded_weight.size(1)
+                )[tp_rank]
+                if shard_id == "w1":
+                    param.data[expert_id, : shard_size // 2] = tensor
+                else:
+                    param.data[expert_id, shard_size // 2 :] = tensor'''
+new_w13 = '''            if "w13_qzeros" in weight_name:
+                _local_id = layer._map_global_expert_id_to_local_expert_id(expert_id)
+                if _local_id == -1:
+                    return
+                _moe_tp_rank = tp_rank % layer.moe_tp_size
+                tensor = loaded_weight.view(
+                    layer.moe_tp_size, -1, loaded_weight.size(1)
+                )[_moe_tp_rank]
+                if shard_id == "w1":
+                    param.data[_local_id, : shard_size // 2] = tensor
+                else:
+                    param.data[_local_id, shard_size // 2 :] = tensor'''
+old_w2 = '''            elif "w2_qzeros" in weight_name:
+                param.data[expert_id] = loaded_weight.view(
+                    loaded_weight.size(0), layer.moe_tp_size, -1
+                )[:, tp_rank]'''
+new_w2 = '''            elif "w2_qzeros" in weight_name:
+                _local_id = layer._map_global_expert_id_to_local_expert_id(expert_id)
+                if _local_id == -1:
+                    return
+                _moe_tp_rank = tp_rank % layer.moe_tp_size
+                param.data[_local_id] = loaded_weight.view(
+                    loaded_weight.size(0), layer.moe_tp_size, -1
+                )[:, _moe_tp_rank]'''
+if old_w13 not in code:
+    print("w13_qzeros: already patched or source changed, skipping")
+    sys.exit(0)
+if old_w2 not in code:
+    print("w2_qzeros: already patched or source changed, skipping")
+    sys.exit(0)
+code = code.replace(old_w13, new_w13, 1)
+code = code.replace(old_w2, new_w2, 1)
+with open(f, 'w') as fh:
+    fh.write(code)
+print("Patched moe_wna16.py: EP-aware expert_id + tp_rank remapping for qzeros")
+PATCH_QZEROS_EOF
 fi
 
 # Apply sampling overrides to generation_config.json (if ConfigMap provides any).
@@ -95,6 +160,17 @@ args=(
   --nccl-init-addr "${QSFP_IP_SPARK1}:${NCCL_PORT}"
   --port "$SGLANG_PORT"
 )
+# Expert parallelism: partitions the TP group for MoE layers.
+# EP=TP → MoE uses all-to-all, attention stays tensor-parallel.
+if [ -n "$EP" ] && [ "$EP" != "1" ]; then
+  args+=(--expert-parallel-size "$EP")
+fi
+if [ "$SGLANG_ENABLE_EPLB" = "true" ]; then
+  args+=(--enable-eplb)
+fi
+if [ "$SGLANG_ENABLE_EXPERT_DISTRIBUTION_METRICS" = "true" ]; then
+  args+=(--enable-expert-distribution-metrics)
+fi
 if [ -n "$SGLANG_HOST" ]; then
   args+=(--host "$SGLANG_HOST")
 fi

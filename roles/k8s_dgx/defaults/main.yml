@@ -63,10 +63,45 @@ sglang_model_profiles:
     # moe_wna16 uses Triton INT4 kernels directly — no repack, peak = final ~62 GB.
     # --quantization awq is WRONG for MoE: AWQConfig.get_quant_method() returns None
     # for FusedMoE → falls through to unquantized FP16 → OOM.
+    #
+    #
+    #● Für AWQ MoE-Modelle (wie eure Qwen3-235B) die relevanten Optionen in SGLang 0.5.9:
+    #
+    #  ┌────────────────┬─────────────────────┬────────────────┬────────────────────┬──────────────────────────────────────┐
+    #  │ --quantization │       Intern        │ MoE-kompatibel │       Repack       │              Anmerkung               │
+    #  ├────────────────┼─────────────────────┼────────────────┼────────────────────┼──────────────────────────────────────┤
+    #  │ (nicht         │ Auto-detect →       │                │ Ja (~109 GB peak   │ Standard-Pfad, EP-aware via          │
+    #  │ gesetzt)       │ AWQMarlinConfig     │ Ja             │ bei TP=2, ~55 GB   │ FusedMoE.weight_loader               │
+    #  │                │                     │                │ bei EP=2)          │                                      │
+    #  ├────────────────┼─────────────────────┼────────────────┼────────────────────┼──────────────────────────────────────┤
+    #  │ moe_wna16      │ MoeWNA16Config →    │ Ja             │ Nein (peak =       │ Kein Repack, aber qzeros EP-Bug      │
+    #  │                │ Triton INT4         │                │ final)             │ (unser Patch)                        │
+    #  ├────────────────┼─────────────────────┼────────────────┼────────────────────┼──────────────────────────────────────┤
+    #  │ awq            │ AWQConfig           │ Nein           │ —                  │ get_quant_method() returns None für  │
+    #  │                │                     │                │                    │ FusedMoE → FP16 fallback → OOM       │
+    #  ├────────────────┼─────────────────────┼────────────────┼────────────────────┼──────────────────────────────────────┤
+    #  │ awq_marlin     │ AWQMarlinConfig     │ Ja             │ Ja                 │ Explizit dasselbe wie auto-detect    │
+    #  └────────────────┴─────────────────────┴────────────────┴────────────────────┴──────────────────────────────────────┘
+    #
+    #  Allgemein unterstützt SGLang (via vLLM) noch: gptq, gptq_marlin, marlin, fp8, compressed_tensors, bitsandbytes,
+    #  experts_int8, gguf, squeezellm — aber die sind für euren AWQ-Anwendungsfall nicht relevant.
+    #
+    #  Die vollständige Liste steht in sglang/srt/layers/quantization/__init__.py.
     quantization: "moe_wna16"
     attention_backend: "triton"
     disable_deep_gemm: true
     tool_call_parser: "qwen3_coder"
+    # Expert parallelism: 128 experts split across 2 GPUs (64 each).
+    # MoE layers use all-to-all instead of all-reduce — attention stays TP=2.
+    # Re-run sglang_shard/sglang_cpu_shard after enabling (old shards incompatible).
+    # SGLang 0.5.9 qzeros EP bug is monkey-patched at runtime in sglang_launch.sh
+    # and sglang_shard_launch.sh (w13_qzeros/w2_qzeros expert_id remapping).
+    ep_size: 2
+    # EPLB disabled: SGLang 0.5.9 EPLBManager crashes on rebalance (after 1000 iter)
+    # with Qwen3MoE — model lacks 'routed_experts_weights_of_layer' attribute.
+    # EP=2 still works with static expert assignment (0-63 → GPU0, 64-127 → GPU1).
+    enable_eplb: false
+    enable_expert_distribution_metrics: false  # could enable withouth enablind eplb itself -> we would still see the balancing in the logs... but
     # Standard MoE (128 experts, 8 active) — triton attention backend required
     # on SM121 (flashinfer has edge cases with large MoE models).
     # Weight loading (~170s for 25 shards) can be halved with pre-sharding:
@@ -111,6 +146,11 @@ sglang_model_profiles:
     attention_backend: "triton"
     disable_deep_gemm: true
     tool_call_parser: "qwen3_coder"
+    # Expert parallelism: monkey-patched at runtime (see Thinking profile comment).
+    ep_size: 2
+    # EPLB disabled: see Thinking profile comment (Qwen3MoE missing attribute).
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
     # Standard MoE (128 experts, 8 active) — triton attention backend required
     # on SM121 (flashinfer has edge cases with large MoE models).
     # Weight loading (~170s for 25 shards) can be halved with pre-sharding:
@@ -261,6 +301,18 @@ sglang_cuda_graph_max_bs: 128
 sglang_served_model_name: "{{ sglang_model }}"
 
 sglang_tp: 2
+# Expert parallelism: partitions the TP group for MoE layers.
+# EP must divide TP (ep_size <= tp_size). With EP=TP, MoE layers use
+# all-to-all instead of all-reduce — more efficient for MoE over Ethernet.
+# Attention layers remain tensor-parallel regardless of EP.
+# Set per model profile; defaults to 1 (no expert parallelism).
+sglang_ep: "{{ sglang_model_profiles[sglang_model].ep_size | default(1) }}"
+# EP load balancer: dynamically rebalances expert assignment across ranks.
+# Only effective when ep_size > 1.
+sglang_enable_eplb: "{{ sglang_model_profiles[sglang_model].enable_eplb | default(false) }}"
+# Expert distribution metrics: logs per-expert load statistics via Prometheus.
+# Useful for monitoring EP balance. Only effective when ep_size > 1.
+sglang_enable_expert_distribution_metrics: "{{ sglang_model_profiles[sglang_model].enable_expert_distribution_metrics | default(false) }}"
 sglang_nnodes: 2
 sglang_port: 8000
 sglang_internal_port: 30080
