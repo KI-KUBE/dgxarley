@@ -125,12 +125,18 @@ GPUs. `Qwen3MoeForCausalLM` does not implement this — likely only `DeepseekV3F
 (or similar) was tested with EPLB.
 
 **Impact**: The crash kills the scheduler, which triggers SIGQUIT → full restart of both nodes.
-This happens reliably after ~1000 inference passes.
+This happens reliably after ~1000 inference passes. Also affects `Qwen3_5MoeForConditionalGeneration`
+(Qwen3.5-122B-A10B).
 
 **Workaround**: Disable EPLB (`--enable-eplb` removed). EP=2 still works with static expert
 assignment (experts 0–63 → GPU 0, experts 64–127 → GPU 1). The static assignment is suboptimal
 if expert activation is highly skewed, but in practice Qwen3-235B shows ~0.82 balancedness
 which is acceptable.
+
+**Fix**: [PR #19767](https://github.com/sgl-project/sglang/pull/19767) — *"Fix qwen3.5 mtp eplb
+related issues"* — merged 2026-03-09. Adds the missing `routed_experts_weights_of_layer` property
+to `Qwen3_5MoeForConditionalGeneration`. Available in `scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5`
+(2026-03-12), not yet in a stable `0.5.x` release.
 
 ## Related Issues (none address these bugs)
 

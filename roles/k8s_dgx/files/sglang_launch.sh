@@ -150,6 +150,17 @@ if [ "$SGLANG_SPECULATIVE_ENABLED" = "true" ]; then
   args+=(--speculative-num-steps "$SGLANG_SPECULATIVE_NUM_STEPS")
   args+=(--speculative-eagle-topk "$SGLANG_SPECULATIVE_EAGLE_TOPK")
   args+=(--speculative-num-draft-tokens "$SGLANG_SPECULATIVE_NUM_DRAFT_TOKENS")
+  # WORKAROUND (SGLang 0.5.9): sharded_state + speculative decoding crash.
+  # The draft model's ModelRunner inherits load_format=sharded_state from
+  # server_args. ShardedStateLoader then fails with KeyError because the
+  # per-rank shard files don't contain the draft/MTP model weight keys.
+  # Fix: force auto load format for the draft model and point it to the
+  # original HF model ID (resolved from HF cache) instead of the shard dir.
+  # See SGLANG_SHARDED_SPECULATIVE_UPSTREAM_BUG.md for details.
+  if [ "$SGLANG_LOAD_FORMAT" = "sharded_state" ]; then
+    args+=(--speculative-draft-load-format auto)
+    args+=(--speculative-draft-model-path "$SGLANG_MODEL")
+  fi
 fi
 if [ -n "$SGLANG_MAX_RUNNING_REQUESTS" ] && [ "$SGLANG_MAX_RUNNING_REQUESTS" != "0" ]; then
   args+=(--max-running-requests "$SGLANG_MAX_RUNNING_REQUESTS")

@@ -268,8 +268,8 @@ sglang_model_profiles:
     # Expert parallelism: monkey-patched at runtime (see Thinking profile comment).
     ep_size: 2
     # EPLB disabled: see Thinking profile comment (Qwen3MoE missing attribute).
-    enable_eplb: true
-    enable_expert_distribution_metrics: true
+    enable_eplb: false  # does not work on this model
+    enable_expert_distribution_metrics: false # could enable for information purposes...
     # Qwen3.5: all models think by default (no separate -Thinking variant).
     # Control via enable_thinking=false in API or chat_template_kwargs.
     # Server-side defaults use "thinking" mode sampling (the default mode).
@@ -287,7 +287,10 @@ sglang_model_profiles:
 # verifies in one step. Increases throughput (up to ~60%) at the cost of
 # higher VRAM usage. Speedup diminishes at high concurrency.
 # Requires models with trained speculative modules (not all models have these).
-sglang_speculative_enabled: false
+sglang_speculative_enabled: false  # HT 2026-03-20  -> no real speedup detected...
+# Caveat: Qwen3.5 MoE + speculative forces radix cache OFF (no prefix caching)
+# and disables the overlap scheduler. Multi-turn / shared-prefix workloads may
+# regress. Benchmark before enabling in production.
 # Algorithm:
 #   "NEXTN" — Multi-Token Prediction. Uses the model's own MTP heads to predict
 #             N tokens ahead. Requires trained MTP modules (Qwen3.5, DeepSeek-V3).
