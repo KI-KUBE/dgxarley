@@ -1044,20 +1044,15 @@ def main() -> None:
     # Sequential tests
     if tests:
         client = create_sglang_client(verbose=verbose)
-        # --no-think: select the non_thinking preset variant if available,
-        # otherwise fall back to default preset (chat_template_kwargs is
-        # already set by load_sampling_presets for non_thinking* presets).
-        think_preset: str | None = "non_thinking" if no_think else None  # None = use client default
-
         if "xkcd" in tests:
             image = get_random_xkcd_image(get_random_xkcd_image_url())
             print_ascii_representation_of_image(image)
-            client.explain_image(image, print_thinking=verbose and not no_think, preset=think_preset)
+            client.explain_image(image, print_thinking=verbose and not no_think)
 
         if "briefing" in tests:
             print(f"\n{'*' * 80}")
             t0 = time.monotonic()
-            client.get_daily_briefing(print_thinking=verbose and not no_think, preset=think_preset or "thinking")
+            client.get_daily_briefing(print_thinking=verbose and not no_think)
             elapsed = time.monotonic() - t0
             label = "non-thinking" if no_think else "thinking"
             print(f"\n--- Daily Briefing ({label}) completed in {elapsed:.1f}s ---")

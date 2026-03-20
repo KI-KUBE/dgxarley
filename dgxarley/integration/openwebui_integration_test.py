@@ -14,30 +14,13 @@ Sampling Presets:
     This script reads them from the Ansible defaults so every test call
     automatically uses the model author's recommended values.
 
-    Flat profiles (most models, e.g. Qwen2.5-*):
-        The ``recommended_sampling`` dict contains keys like ``temperature``,
-        ``top_p``, ``top_k`` directly.  These are wrapped into a single
-        preset called ``"default"``.
+    The ``recommended_sampling`` dict is always flat (keys like
+    ``temperature``, ``top_p``, ``top_k`` directly). It is wrapped into
+    a single preset called ``"default"``.
 
-    Multi-mode profiles (e.g. Qwen3.5-35B-A3B):
-        The ``recommended_sampling`` dict contains sub-dicts keyed by mode:
-
-        ========================  ==========================================  ====================
-        Preset                    When to use                                 Thinking?
-        ========================  ==========================================  ====================
-        thinking                  General-purpose (default for Qwen3/3.5)     yes
-        thinking_coding           Precise code generation (lower temperature)  yes
-        non_thinking              Fast factual answers, no reasoning overhead  no (enable_thinking=False)
-        non_thinking_reasoning    Complex reasoning without think blocks       no (enable_thinking=False)
-        ========================  ==========================================  ====================
-
-        Thinking vs. non-thinking is toggled per request:
-        - API: ``extra_body={"chat_template_kwargs": {"enable_thinking": false}}``
-        - Prompt shortcut: start message with ``/no_think`` or ``/think``
-
-        The "general vs. coding vs. reasoning" distinction is purely about
-        which temperature/top_p/top_k values to use — there is no API flag
-        for it.  Pick the preset that matches your task type.
+    Thinking vs. non-thinking is toggled per request:
+    - API: ``extra_body={"chat_template_kwargs": {"enable_thinking": false}}``
+    - Prompt shortcut: start message with ``/no_think`` or ``/think``
 
 Architecture:
     ``LLMClient`` is the base class handling streaming, preset loading, and
@@ -103,25 +86,20 @@ def load_sampling_presets(model_id: str) -> dict[str, dict[str, str | int | floa
     """Build sampling presets from a model's recommended_sampling in the Ansible defaults.
 
     Merges two layers:
-      1. recommended_sampling — values from the model creator (model card).
+      1. recommended_sampling — flat dict of values from the model creator.
       2. sampling_overrides   — local tuning on top (e.g. anti-repetition).
 
-    Overrides win on key conflicts.  Flat overrides are applied to every
-    sub-preset; per-preset overrides (keyed by preset name) are applied only
-    to the matching sub-preset.
+    Overrides win on key conflicts.
 
     Args:
         model_id: The model identifier string, as used in ``sglang_model_profiles``
             in the Ansible defaults file.
 
     Returns:
-        A mapping from preset name to a dict of sampling parameters ready to
-        be merged into an OpenAI-compatible chat completion payload.  The dict
-        may contain top-level keys such as ``temperature``, ``top_p``,
-        ``presence_penalty``, ``frequency_penalty``, ``repetition_penalty``,
-        and an optional nested ``extra_body`` dict for SGLang-native keys
-        (``top_k``, ``min_p``, etc.) and ``chat_template_kwargs``.
-        Returns an empty dict if the model has no sampling configuration.
+        A mapping with a single ``"default"`` preset containing sampling
+        parameters ready to be merged into an OpenAI-compatible chat
+        completion payload.  Returns an empty dict if the model has no
+        sampling configuration.
     """
     profile = _MODEL_PROFILES.get(model_id, {})
     raw = profile.get("recommended_sampling", {})
@@ -129,61 +107,37 @@ def load_sampling_presets(model_id: str) -> dict[str, dict[str, str | int | floa
         return {}
 
     overrides = profile.get("sampling_overrides", {})
+    merged: dict[str, object] = {**raw, **overrides}
 
-    # Flat preset (no sub-modes like thinking/non_thinking) — wrap it
-    is_flat = any(k in raw for k in ("temperature", "top_p", "top_k"))
-    if is_flat:
-        raw = {"default": raw}
-
-    # Split overrides into flat (apply to all) and per-preset (keyed by name)
     # OpenAI-compatible top-level keys
     _OPENAI_KEYS: set[str] = {"temperature", "top_p", "presence_penalty",
                                "frequency_penalty", "repetition_penalty"}
-    # SGLang-native keys (sent via extra_body)
+    # SGLang/vLLM-native keys (sent via extra_body)
     _EXTRA_KEYS: set[str] = {"top_k", "min_p", "top_min_p", "min_tokens"}
-    _ALL_SAMPLING_KEYS: set[str] = _OPENAI_KEYS | _EXTRA_KEYS
 
-    flat_overrides: dict[str, object] = {k: v for k, v in overrides.items() if k in _ALL_SAMPLING_KEYS}
-    preset_overrides: dict[str, dict[str, object]] = {
-        k: v for k, v in overrides.items()
-        if k not in _ALL_SAMPLING_KEYS and isinstance(v, dict)
-    }
-
-    presets: dict[str, dict[str, str | int | float | bool | dict[str, str | int | float | bool | dict[str, bool]]]] = {}
-    for name, params in raw.items():
-        # Merge: recommended -> flat overrides -> per-preset overrides
-        merged: dict[str, object] = {**params, **flat_overrides, **preset_overrides.get(name, {})}
-
-        preset: dict[str, str | int | float | bool | dict[str, str | int | float | bool | dict[str, bool]]] = {}
-        for k in _OPENAI_KEYS:
-            if k in merged:
-                preset[k] = merged[k]  # type: ignore[assignment]
-        extra: dict[str, str | int | float | bool | dict[str, bool]] = {}
-        for k in _EXTRA_KEYS:
-            if k in merged:
-                extra[k] = merged[k]  # type: ignore[assignment]
-        if name.startswith("non_thinking"):
-            extra["chat_template_kwargs"] = {"enable_thinking": False}
-        if extra:
-            preset["extra_body"] = extra
-        presets[name] = preset
-    return presets
+    preset: dict[str, str | int | float | bool | dict[str, str | int | float | bool | dict[str, bool]]] = {}
+    for k in _OPENAI_KEYS:
+        if k in merged:
+            preset[k] = merged[k]  # type: ignore[assignment]
+    extra: dict[str, str | int | float | bool | dict[str, bool]] = {}
+    for k in _EXTRA_KEYS:
+        if k in merged:
+            extra[k] = merged[k]  # type: ignore[assignment]
+    if extra:
+        preset["extra_body"] = extra
+    return {"default": preset}
 
 
 def pick_default_preset(presets: dict[str, dict[str, str | int | float | bool | dict[str, str | int | float | bool | dict[str, bool]]]]) -> str | None:
-    """Pick a sensible default preset name from the available presets.
-
-    Preference order: ``"thinking"`` > ``"default"`` > first available key.
+    """Pick the default preset name from the available presets.
 
     Args:
         presets: Mapping of preset name to sampling parameter dict, as returned
             by :func:`load_sampling_presets`.
 
     Returns:
-        The name of the preferred preset, or ``None`` if ``presets`` is empty.
+        ``"default"`` if present, otherwise the first key, or ``None`` if empty.
     """
-    if "thinking" in presets:
-        return "thinking"
     if "default" in presets:
         return "default"
     if presets:
@@ -732,39 +686,41 @@ def test_thinking_mode(client: LLMClient, print_thinking: bool = True) -> None:
 
 
 def test_non_thinking_mode(client: LLMClient) -> None:
-    """Run a simple factual query using the ``non_thinking`` preset.
+    """Run a simple factual query with thinking disabled.
 
-    Asks for the capital of France and prints the elapsed time and token usage.
+    Uses the default preset but overrides ``enable_thinking`` to ``False``.
 
     Args:
         client: The :class:`LLMClient` instance to use.
     """
     print("\n=== Non-Thinking Mode ===")
     t0: float = time.monotonic()
-    usage: dict[str, int] = client.chat(
-        messages=[{"role": "user", "content": "What is the capital of France? Answer in one sentence."}],
-        preset="non_thinking",
-        print_thinking=True,
-    )
+    payload: dict[str, object] = {
+        "model": client.model_id,
+        "messages": [{"role": "user", "content": "What is the capital of France? Answer in one sentence."}],
+        "stream": True,
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
+    }
+    payload = client.apply_preset(payload)
+    usage: dict[str, int] = client.stream_chat(payload, print_thinking=False)  # type: ignore[arg-type]
     elapsed: float = time.monotonic() - t0
     print(f"  [{elapsed:.1f}s, {usage}]")
 
 
 def test_thinking_coding(client: LLMClient) -> None:
-    """Run a code generation test using the ``thinking_coding`` preset.
+    """Run a code generation test with thinking enabled and lower temperature.
 
-    Asks the model to write a Python IPv4 validation function and prints the
-    elapsed time and token usage.
+    Uses lower temperature (0.6) for more precise code generation.
 
     Args:
         client: The :class:`LLMClient` instance to use.
     """
-    print("\n=== Thinking Mode (Coding Preset) ===")
+    print("\n=== Thinking Mode (Coding) ===")
     t0: float = time.monotonic()
     usage: dict[str, int] = client.chat(
         messages=[{"role": "user", "content": "Write a Python function that checks if a string is a valid IPv4 address without using ipaddress module."}],
-        preset="thinking_coding",
         print_thinking=True,
+        temperature=0.6,
     )
     elapsed: float = time.monotonic() - t0
     print(f"  [{elapsed:.1f}s, {usage}]")
@@ -802,31 +758,25 @@ def test_sampling_params_passthrough(client: LLMClient) -> None:
 
 
 def test_all_presets(client: LLMClient) -> None:
-    """Run the same debugging question through every available sampling preset.
-
-    Iterates over all presets in :attr:`LLMClient.presets`, sends the prompt
-    with each one, and prints elapsed time and whether thinking was enabled.
+    """Run the same debugging question with the default sampling preset.
 
     Args:
         client: The :class:`LLMClient` instance to use.
     """
     prompt: str = "How would you approach debugging a memory leak in a Python web application?"
     print("\n" + "=" * 80)
-    print("=== All Sampling Presets Comparison ===")
+    print("=== Default Sampling Preset ===")
     print("=" * 80)
 
-    for preset_name in client.presets:
-        print(f"\n--- Preset: {preset_name} ---")
-        t0: float = time.monotonic()
-        is_thinking: bool = not preset_name.startswith("non_thinking")
-        usage: dict[str, int] = client.chat(
-            messages=[{"role": "user", "content": prompt}],
-            preset=preset_name,
-            print_thinking=False,
-            max_tokens=512,
-        )
-        elapsed: float = time.monotonic() - t0
-        print(f"  [{preset_name}: {elapsed:.1f}s, thinking={'yes' if is_thinking else 'no'}, {usage}]")
+    print(f"\n--- Preset: default ---")
+    t0: float = time.monotonic()
+    usage: dict[str, int] = client.chat(
+        messages=[{"role": "user", "content": prompt}],
+        print_thinking=False,
+        max_tokens=512,
+    )
+    elapsed: float = time.monotonic() - t0
+    print(f"  [default: {elapsed:.1f}s, {usage}]")
 
 
 # ---------------------------------------------------------------------------

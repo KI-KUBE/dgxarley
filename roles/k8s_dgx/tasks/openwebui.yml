@@ -147,6 +147,9 @@
               "ollama": {
                 "url": "{{ openwebui_embedding_ollama_url }}"
               },
+              "openai": {
+                "url": "{{ openwebui_embedding_openai_url | default('') }}"
+              },
               "web": {
                 "search": {
                   "enable": true,

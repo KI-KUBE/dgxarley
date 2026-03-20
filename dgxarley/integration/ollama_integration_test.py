@@ -29,6 +29,7 @@ for _env_file in _env_files:
             os.environ.setdefault(key, value)
 
 OLLAMA_URL: str = os.environ.get("OLLAMA_URL", "https://ollama.example.com")
+# TODO hier die möglichkeit einfügen, dass ich ollama via litellm fahren möchte -> braucht wohl noch ein flag und entsprechend müssen die messages umgeschrieben werden?!
 TIMEOUT: tuple[int, int] = (10, 120)
 
 # Models expected to be loaded (from ollama_preload_models in defaults)
