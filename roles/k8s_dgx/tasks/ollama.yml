@@ -47,14 +47,13 @@
             default_backend ollama_back
           backend ollama_back
             server local 127.0.0.1:{{ ollama_port }}
-        start.sh: |
+        gen-cert.sh: |
           #!/bin/sh
           set -e
           openssl req -x509 -nodes -newkey rsa:2048 \
             -keyout /etc/haproxy/tls/key.pem -out /etc/haproxy/tls/cert.pem \
             -days 3650 -subj '/CN=ollama'
           cat /etc/haproxy/tls/cert.pem /etc/haproxy/tls/key.pem > /etc/haproxy/tls/server.pem
-          exec haproxy -f /etc/haproxy/haproxy.cfg
 
 - name: Create ollama pull-models script configmap
   kubernetes.core.k8s:
@@ -133,6 +132,9 @@
               app: ollama
             annotations:
               kubectl.kubernetes.io/default-container: ollama
+              checksum/config: "{{ (ollama_num_parallel | string ~ ollama_max_loaded_models | string ~ ollama_keep_alive | string ~ ollama_flash_attention | string ~ ollama_kv_cache_type ~ ollama_context_length | string) | hash('sha256') }}"
+              checksum/pull-models: "{{ ollama_preload_models | join(',') | hash('sha256') }}"
+              checksum/tls-haproxy: "{{ (ollama_tls_port | string ~ ollama_port | string) | hash('sha256') }}"
           spec:
             restartPolicy: Always
             nodeSelector:
@@ -162,6 +164,16 @@
                     mountPath: /ollama_models
                   - name: pull-models-script
                     mountPath: /scripts
+              - name: gen-tls-cert
+                image: ollama/ollama:latest
+                command: ["/bin/sh", "/scripts-tls/gen-cert.sh"]
+                volumeMounts:
+                  - name: tls-haproxy-config
+                    mountPath: /scripts-tls/gen-cert.sh
+                    subPath: gen-cert.sh
+                    readOnly: true
+                  - name: tls-cert
+                    mountPath: /etc/haproxy/tls
             containers:
               - name: ollama
                 image: ollama/ollama:latest
@@ -187,7 +199,7 @@
                     mountPath: /ollama_models
               - name: tls-proxy
                 image: haproxy:lts-alpine
-                command: ["/bin/sh", "/scripts/start.sh"]
+                command: ["haproxy", "-f", "/etc/haproxy/haproxy.cfg"]
                 ports:
                   - containerPort: "{{ ollama_tls_port }}"
                     name: tls
@@ -196,12 +208,9 @@
                     mountPath: /etc/haproxy/haproxy.cfg
                     subPath: haproxy.cfg
                     readOnly: true
-                  - name: tls-haproxy-config
-                    mountPath: /scripts/start.sh
-                    subPath: start.sh
-                    readOnly: true
                   - name: tls-cert
                     mountPath: /etc/haproxy/tls
+                    readOnly: true
             volumes:
               - name: ollama-data
                 hostPath:
