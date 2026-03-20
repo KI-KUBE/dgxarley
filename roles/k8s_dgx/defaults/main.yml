@@ -624,4 +624,11 @@ litellm_settings:
   # chat_template_kwargs, thinking_budget, custom logit processors, etc.)
   # so clients can use SGLang/vLLM-native features via extra_body.
   drop_params: false
+  # ssl_verify: false — global override for the ollama/ embedding provider bug.
+  # The ollama/ embedding codepath uses a module-level HTTP singleton that reads
+  # litellm.ssl_verify at creation time but ignores per-model ssl_verify config.
+  # This sets litellm.ssl_verify=False globally so the singleton skips cert
+  # verification for self-signed certs on our HAProxy TLS sidecars.
+  # See LITELLM_UPSTREAM_BUG.md for details.
+  ssl_verify: false
 
