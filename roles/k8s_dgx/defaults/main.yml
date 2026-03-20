@@ -565,7 +565,7 @@ _sglang_sampling_defaults: >-
   {{ sglang_model_profiles[sglang_model].recommended_sampling | default({})
      | combine(sglang_model_profiles[sglang_model].sampling_overrides | default({})) }}
 
-litellm_enabled: false
+litellm_enabled: true
 litellm_namespace: "litellm"
 litellm_image: "ghcr.io/berriai/litellm:main-latest"
 litellm_port: 4000

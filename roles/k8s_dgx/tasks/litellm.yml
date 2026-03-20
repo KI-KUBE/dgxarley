@@ -82,7 +82,7 @@
             labels:
               app: litellm
             annotations:
-              checksum/config: "{{ litellm_model_list | to_json | hash('sha256') }}"
+              checksum/config: "{{ litellm_model_list | string | hash('sha256') }}"
           spec:
             nodeSelector:
               kubernetes.io/arch: amd64
