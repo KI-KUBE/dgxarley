@@ -108,7 +108,7 @@ the mainstream, well-tested code path. The monkey-patch documented here remains 
 anyone who does need `moe_wna16 + EP` (e.g., on GPUs with less memory headroom), but it may
 be solving a problem that doesn't need to exist.
 
-## Additional Bug: EPLB crashes with Qwen3MoE
+## Additional Bug: EPLB crashes with Qwen3MoE and Qwen3.5MoE
 
 When `--enable-eplb` is active with EP, the `EPLBManager` crashes after its first rebalance
 interval (default: 1000 forward passes):
@@ -121,22 +121,29 @@ AttributeError: 'Qwen3MoeForCausalLM' object has no attribute 'routed_experts_we
 
 The EPLB rebalancer needs models to expose a `routed_experts_weights_of_layer` property
 (a dict mapping layer IDs to their expert weight tensors) so it can transfer weights between
-GPUs. `Qwen3MoeForCausalLM` does not implement this — likely only `DeepseekV3ForCausalLM`
-(or similar) was tested with EPLB.
+GPUs. Neither `Qwen3MoeForCausalLM` nor `Qwen3_5MoeForConditionalGeneration` implements this —
+likely only `DeepseekV3ForCausalLM` (or similar) was tested with EPLB.
 
 **Impact**: The crash kills the scheduler, which triggers SIGQUIT → full restart of both nodes.
-This happens reliably after ~1000 inference passes. Also affects `Qwen3_5MoeForConditionalGeneration`
-(Qwen3.5-122B-A10B).
+This happens reliably after ~1000 inference passes (~8 min wall time under moderate load).
+
+**Confirmed failing on both architectures:**
+
+| Model class | Image | Date | Pod |
+|---|---|---|---|
+| `Qwen3MoeForCausalLM` (Qwen3-235B-A22B) | 0.5.9-t5 | 2026-03-19 | sglang-head-855c5799c4 |
+| `Qwen3_5MoeForConditionalGeneration` (Qwen3.5-122B-A10B-FP8) | 0.5.9-dev2-acab24a7-t5 | 2026-03-20 | sglang-head-5d7585955 |
+
+The Qwen3.5 crash on dev2-acab24a7-t5 proves that [PR #19767](https://github.com/sgl-project/sglang/pull/19767)
+("Fix qwen3.5 mtp eplb related issues", merged 2026-03-09) is either not included in
+commit `acab24a7` (2026-03-11), or does not actually fix the `routed_experts_weights_of_layer`
+attribute for `Qwen3_5MoeForConditionalGeneration` despite the claim. The exact same
+`AttributeError` on the same code path (`eplb_manager.py:110`) occurs.
 
 **Workaround**: Disable EPLB (`--enable-eplb` removed). EP=2 still works with static expert
 assignment (experts 0–63 → GPU 0, experts 64–127 → GPU 1). The static assignment is suboptimal
 if expert activation is highly skewed, but in practice Qwen3-235B shows ~0.82 balancedness
 which is acceptable.
-
-**Fix**: [PR #19767](https://github.com/sgl-project/sglang/pull/19767) — *"Fix qwen3.5 mtp eplb
-related issues"* — merged 2026-03-09. Adds the missing `routed_experts_weights_of_layer` property
-to `Qwen3_5MoeForConditionalGeneration`. Available in `scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5`
-(2026-03-12), not yet in a stable `0.5.x` release.
 
 ## Related Issues (none address these bugs)
 

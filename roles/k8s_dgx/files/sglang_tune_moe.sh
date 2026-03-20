@@ -91,22 +91,39 @@ else:
 # Patch: replace Ray tqdm progress bar with print-based progress.
 # Ray's tqdm_ray renders in the Ray dashboard, not in kubectl logs — so the
 # tuning loop appears silent. Replace with periodic prints to stdout.
+# Also adds batch_size context (which sweep, how many configs) and a summary
+# line in main() showing the full tuning plan before starting.
 python3 -c "
 import pathlib
 p = pathlib.Path('${workdir}/tuning_fused_moe_triton.py')
 src = p.read_text()
-old = '        for config in tqdm(search_space):'
-new = '''        _total = len(search_space)
+
+# 1) Replace tqdm loop with print-based progress + batch_size header
+old_loop = '        for config in tqdm(search_space):'
+new_loop = '''        print(f'\\n--- batch_size={num_tokens}: tuning {len(search_space)} configs ---', flush=True)
+        _total = len(search_space)
         for _cfg_idx, config in enumerate(search_space, 1):
             if _cfg_idx == 1 or _cfg_idx % 50 == 0 or _cfg_idx == _total:
                 _pct = _cfg_idx / _total * 100
                 _best_str = f'best={best_time:.1f}us' if best_time < float('inf') else 'searching...'
-                print(f'  [{_cfg_idx}/{_total}] ({_pct:.0f}%) {_best_str}', flush=True)'''
-if old in src:
-    p.write_text(src.replace(old, new, 1))
-    print('Patched tuning_fused_moe_triton.py: replaced Ray tqdm with print progress')
+                print(f'  batch_size={num_tokens}: [{_cfg_idx}/{_total}] ({_pct:.0f}%) {_best_str}', flush=True)'''
+if old_loop in src:
+    src = src.replace(old_loop, new_loop, 1)
+    print('Patched: replaced Ray tqdm with print progress + batch_size header')
 else:
     print('WARNING: tqdm patch target not found — upstream may have changed the loop')
+
+# 2) Add tuning plan summary in main() before _distribute
+old_dist = '        configs = _distribute('
+new_dist = '''        print(f'\\nTuning plan: {len(batch_sizes)} batch sizes {batch_sizes} x {len(search_space)} configs = {len(batch_sizes) * len(search_space)} total benchmarks', flush=True)
+        configs = _distribute('''
+if old_dist in src:
+    src = src.replace(old_dist, new_dist, 1)
+    print('Patched: added tuning plan summary before _distribute')
+else:
+    print('WARNING: _distribute patch target not found')
+
+p.write_text(src)
 "
 
 echo "Scripts downloaded to ${workdir}"

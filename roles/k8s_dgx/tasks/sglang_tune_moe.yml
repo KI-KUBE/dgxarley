@@ -75,7 +75,11 @@
                   - name: RSYNC_TARGET
                     value: "{{ hostvars['spark2']['ansible_host'] }}"
                   - name: FORCE_RETUNE
-                    value: "false"
+                    value: "{{ sglang_force_retune | default('false') }}"
+                  - name: PYTHONUNBUFFERED
+                    value: "1"
+                  - name: RAY_DEDUP_LOGS
+                    value: "0"
                 resources:
                   limits:
                     nvidia.com/gpu: "1"

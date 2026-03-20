@@ -73,28 +73,28 @@ sglang_model_profiles:
     # --quantization awq is WRONG for MoE: AWQConfig.get_quant_method() returns None
     # for FusedMoE → falls through to unquantized FP16 → OOM.
     #
-    #● Für AWQ MoE-Modelle (wie eure Qwen3-235B) die relevanten Optionen in SGLang 0.5.9:
+    # Quantization options for AWQ MoE models (e.g. Qwen3-235B) in SGLang 0.5.9:
     #
     #  ┌────────────────┬─────────────────────┬────────────────┬────────────────────┬──────────────────────────────────────┐
-    #  │ --quantization │       Intern        │ MoE-kompatibel │       Repack       │              Anmerkung               │
+    #  │ --quantization │     Internal        │ MoE-compatible │       Repack       │              Notes                   │
     #  ├────────────────┼─────────────────────┼────────────────┼────────────────────┼──────────────────────────────────────┤
-    #  │ (nicht         │ Auto-detect →       │                │ Ja (~109 GB peak   │ Standard-Pfad, EP-aware via          │
-    #  │ gesetzt)       │ AWQMarlinConfig     │ Ja             │ bei TP=2, ~55 GB   │ FusedMoE.weight_loader               │
-    #  │                │                     │                │ bei EP=2)          │                                      │
+    #  │ (unset)        │ Auto-detect →       │                │ Yes (~109 GB peak  │ Default path, EP-aware via           │
+    #  │                │ AWQMarlinConfig     │ Yes            │ at TP=2, ~55 GB    │ FusedMoE.weight_loader               │
+    #  │                │                     │                │ at EP=2)           │                                      │
     #  ├────────────────┼─────────────────────┼────────────────┼────────────────────┼──────────────────────────────────────┤
-    #  │ moe_wna16      │ MoeWNA16Config →    │ Ja             │ Nein (peak =       │ Kein Repack, aber qzeros EP-Bug      │
-    #  │                │ Triton INT4         │                │ final)             │ (unser Patch)                        │
+    #  │ moe_wna16      │ MoeWNA16Config →    │ Yes            │ No (peak =         │ No repack, but qzeros EP bug         │
+    #  │                │ Triton INT4         │                │ final)             │ (our monkey-patch)                   │
     #  ├────────────────┼─────────────────────┼────────────────┼────────────────────┼──────────────────────────────────────┤
-    #  │ awq            │ AWQConfig           │ Nein           │ —                  │ get_quant_method() returns None für  │
+    #  │ awq            │ AWQConfig           │ No             │ —                  │ get_quant_method() returns None for  │
     #  │                │                     │                │                    │ FusedMoE → FP16 fallback → OOM       │
     #  ├────────────────┼─────────────────────┼────────────────┼────────────────────┼──────────────────────────────────────┤
-    #  │ awq_marlin     │ AWQMarlinConfig     │ Ja             │ Ja                 │ Explizit dasselbe wie auto-detect    │
+    #  │ awq_marlin     │ AWQMarlinConfig     │ Yes            │ Yes                │ Explicitly same as auto-detect       │
     #  └────────────────┴─────────────────────┴────────────────┴────────────────────┴──────────────────────────────────────┘
     #
-    #  Allgemein unterstützt SGLang (via vLLM) noch: gptq, gptq_marlin, marlin, fp8, compressed_tensors, bitsandbytes,
-    #  experts_int8, gguf, squeezellm — aber die sind für euren AWQ-Anwendungsfall nicht relevant.
+    #  SGLang (via vLLM) also supports: gptq, gptq_marlin, marlin, fp8, compressed_tensors, bitsandbytes,
+    #  experts_int8, gguf, squeezellm — but those are not relevant for AWQ models.
     #
-    #  Die vollständige Liste steht in sglang/srt/layers/quantization/__init__.py.
+    #  Full list in sglang/srt/layers/quantization/__init__.py.
     quantization: "moe_wna16"
     #quantization: "awq_marlin"
     attention_backend: "triton"
@@ -106,11 +106,13 @@ sglang_model_profiles:
     # SGLang 0.5.9 qzeros EP bug is monkey-patched at runtime in sglang_launch.sh
     # and sglang_shard_launch.sh (w13_qzeros/w2_qzeros expert_id remapping).
     ep_size: 2
-    # EPLB disabled: SGLang 0.5.9 EPLBManager crashes on rebalance (after 1000 iter)
-    # with Qwen3MoE — model lacks 'routed_experts_weights_of_layer' attribute.
-    # EP=2 still works with static expert assignment (0-63 → GPU0, 64-127 → GPU1).
+    # EPLB disabled: EPLBManager crashes after ~1000 forward passes with AttributeError:
+    # 'Qwen3MoeForCausalLM' has no 'routed_experts_weights_of_layer' (eplb_manager.py:110).
+    # Confirmed broken on both 0.5.9-t5 AND 0.5.9-dev2-acab24a7-t5 (PR #19767 does not
+    # fix Qwen3MoE, only claims to fix Qwen3_5 — but Qwen3_5 also still crashes, see
+    # SGLANG_TP_EP_MOE_UPSTREAM_BUG.md). EP=2 works fine with static assignment.
     enable_eplb: false
-    enable_expert_distribution_metrics: false  # could enable withouth enabling eplb itself -> we would still see the balancing in the logs... but
+    enable_expert_distribution_metrics: false
     # Standard MoE (128 experts, 8 active) — triton attention backend required
     # on SM121 (flashinfer has edge cases with large MoE models).
     # Weight loading (~170s for 25 shards) can be halved with pre-sharding:
@@ -157,7 +159,8 @@ sglang_model_profiles:
     tool_call_parser: "qwen3_coder"
     # Expert parallelism: monkey-patched at runtime (see Thinking profile comment).
     ep_size: 2
-    # EPLB disabled: see Thinking profile comment (Qwen3MoE missing attribute).
+    # EPLB disabled: see Thinking profile comment (Qwen3MoE missing attribute, crashes
+    # after ~1000 iter). Still broken on 0.5.9-dev2-acab24a7-t5.
     enable_eplb: false
     enable_expert_distribution_metrics: false
     # Standard MoE (128 experts, 8 active) — triton attention backend required
@@ -269,9 +272,12 @@ sglang_model_profiles:
     #    disable_deep_gemm: true
     # Expert parallelism: monkey-patched at runtime (see Thinking profile comment).
     ep_size: 2
-    # EPLB disabled: see Thinking profile comment (Qwen3MoE missing attribute).
-    enable_eplb: false  # does not work on this model -> even with 0.5.9-dev2-acab24a7-t5
-    enable_expert_distribution_metrics: true # could enable for information purposes...
+    # EPLB disabled: Qwen3_5MoeForConditionalGeneration also lacks
+    # 'routed_experts_weights_of_layer'. Crashes after ~1000 forward passes.
+    # Confirmed broken on 0.5.9-dev2-acab24a7-t5 (2026-03-20, pod sglang-head-5d7585955).
+    # PR #19767 claims to fix this but the fix is not effective in this build.
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
     # Qwen3.5: all models think by default (no separate -Thinking variant).
     # Control via enable_thinking=false in API or chat_template_kwargs.
     # Server-side defaults use "thinking" mode sampling (the default mode).
