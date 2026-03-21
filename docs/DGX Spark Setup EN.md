@@ -955,7 +955,7 @@ In **Admin Settings → Documents**:
 - Docling Server URL: `http://docling.docling.svc:5001` (namespace `docling`)
 
 > [!tip] Cross-Namespace DNS
-> Since docling-serve runs in namespace `ollama` and Open WebUI typically runs in namespace `dgx-ai`, the FQDN with namespace must be used: `docling.ollama.svc.cluster.local`.
+> Since docling-serve runs in namespace `ollama` and Open WebUI typically runs in namespace `openwebui`, the FQDN with namespace must be used: `docling.ollama.svc.cluster.local`.
 
 ---
 
@@ -1450,7 +1450,7 @@ apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
   name: qsfp-direct
-  namespace: dgx-ai
+  namespace: sglang
 spec:
   config: |
     {
@@ -1469,7 +1469,7 @@ apiVersion: k8s.cni.cncf.io/v1
 kind: NetworkAttachmentDefinition
 metadata:
   name: qsfp-direct-worker
-  namespace: dgx-ai
+  namespace: sglang
 spec:
   config: |
     {
@@ -1516,20 +1516,30 @@ After setting: reboot Sparks or restart K3s agent service.
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: dgx-ai
+  name: sglang
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vllm
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openwebui
 ---
 # --- RBAC: ServiceAccount for head initContainer (kubectl wait) ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: sglang-head
-  namespace: dgx-ai
+  namespace: sglang
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: pod-reader
-  namespace: dgx-ai
+  namespace: sglang
 rules:
   - apiGroups: [""]
     resources: ["pods"]
@@ -1539,11 +1549,11 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: sglang-head-pod-reader
-  namespace: dgx-ai
+  namespace: sglang
 subjects:
   - kind: ServiceAccount
     name: sglang-head
-    namespace: dgx-ai
+    namespace: sglang
 roleRef:
   kind: Role
   name: pod-reader
@@ -1554,7 +1564,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: sglang-config
-  namespace: dgx-ai
+  namespace: sglang
 data:
   MODEL_PATH: "Qwen/Qwen3-235B-A22B-Instruct-2507-FP8"
   TP_SIZE: "2"
@@ -1569,22 +1579,22 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: openwebui-config
-  namespace: dgx-ai
+  namespace: openwebui
 data:
   OPENAI_API_BASE_URL: "http://<IP-SPARK-1>:8000/v1"
   OPENAI_API_KEY: "sk-dummy"
   RAG_EMBEDDING_ENGINE: "ollama"
   RAG_EMBEDDING_MODEL: "bge-m3"
-  OLLAMA_BASE_URL: "http://ollama-embedding.dgx-ai.svc.cluster.local:11434"
+  OLLAMA_BASE_URL: "http://ollama-embedding.ollama.svc.cluster.local:11434"
   ENABLE_RAG_WEB_SEARCH: "True"
   RAG_WEB_SEARCH_ENGINE: "searxng"
   RAG_WEB_SEARCH_RESULT_COUNT: "5"
   RAG_WEB_SEARCH_CONCURRENT_REQUESTS: "10"
   SEARXNG_QUERY_URL: "http://<IP-YOUR-SEARXNG>:8080/search?q=<query>"
-  PIPELINES_URL: "http://pipelines.dgx-ai.svc.cluster.local:9099"
+  PIPELINES_URL: "http://pipelines.openwebui.svc.cluster.local:9099"
 ```
 
-> **With Multus**: `OPENAI_API_BASE_URL` can point to the service DNS: `http://sglang-head.dgx-ai.svc.cluster.local:8000/v1`. The SGLang pod has a regular cluster IP via `eth0` with Multus.
+> **With Multus**: `OPENAI_API_BASE_URL` can point to the service DNS: `http://sglang-head.sglang.svc.cluster.local:8000/v1`. The SGLang pod has a regular cluster IP via `eth0` with Multus.
 >
 > **Fallback (hostNetwork)**: With `hostNetwork: true`, `OPENAI_API_BASE_URL` must point to the real IP of Spark 1 (`http://<IP-SPARK-1>:8000/v1`), since the pod has no cluster IP.
 
@@ -1596,7 +1606,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: openwebui-data
-  namespace: dgx-ai
+  namespace: openwebui
 spec:
   accessModes: [ReadWriteOnce]
   storageClassName: local-path
@@ -1609,7 +1619,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: pipelines-data
-  namespace: dgx-ai
+  namespace: openwebui
 spec:
   accessModes: [ReadWriteOnce]
   storageClassName: local-path
@@ -1643,7 +1653,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: hf-cache-spark1
-  namespace: dgx-ai
+  namespace: sglang
 spec:
   accessModes: [ReadWriteOnce]
   storageClassName: ""
@@ -1678,7 +1688,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: hf-cache-spark2
-  namespace: dgx-ai
+  namespace: sglang
 spec:
   accessModes: [ReadWriteOnce]
   storageClassName: ""
@@ -1706,7 +1716,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: sglang-worker
-  namespace: dgx-ai
+  namespace: sglang
   labels:
     app: sglang
     role: worker
@@ -1725,7 +1735,7 @@ spec:
         role: worker
       annotations:
         # Multus: QSFP112 as second interface (net1) for NCCL/RDMA
-        k8s.v1.cni.cncf.io/networks: dgx-ai/qsfp-direct-worker
+        k8s.v1.cni.cncf.io/networks: sglang/qsfp-direct-worker
     spec:
       # hostNetwork: true        # ← fallback without Multus (uncomment if Multus is active)
       hostIPC: true               # Shared memory for NCCL
@@ -1789,7 +1799,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: sglang-head
-  namespace: dgx-ai
+  namespace: sglang
   labels:
     app: sglang
     role: head
@@ -1808,7 +1818,7 @@ spec:
         role: head
       annotations:
         # Multus: QSFP112 as second interface (net1) for NCCL/RDMA
-        k8s.v1.cni.cncf.io/networks: dgx-ai/qsfp-direct
+        k8s.v1.cni.cncf.io/networks: sglang/qsfp-direct
     spec:
       # hostNetwork: true        # ← fallback without Multus
       hostIPC: true               # Shared memory for NCCL
@@ -1826,7 +1836,7 @@ spec:
             - -l
             - app=sglang,role=worker
             - -n
-            - dgx-ai
+            - sglang
             - --timeout=600s
       containers:
         - name: sglang
@@ -1891,7 +1901,7 @@ spec:
             claimName: hf-cache-spark1
 ```
 
-> **Startup ordering (automated)**: The head pod contains an `initContainer` (`wait-for-worker`) that waits for the worker pod via `kubectl wait --for=condition=Ready` (timeout: 600s). This means no manual ordering is needed during `kubectl apply` — both Deployments can be deployed **simultaneously**. The RBAC access (`ServiceAccount: sglang-head` → `Role: pod-reader`) allows the initContainer to query pod status in namespace `dgx-ai`. The `startupProbe` on the head then gives the model up to ~10 minutes of loading time — Qwen3-235B-FP8 typically takes 3–6 minutes to load from disk.
+> **Startup ordering (automated)**: The head pod contains an `initContainer` (`wait-for-worker`) that waits for the worker pod via `kubectl wait --for=condition=Ready` (timeout: 600s). This means no manual ordering is needed during `kubectl apply` — both Deployments can be deployed **simultaneously**. The RBAC access (`ServiceAccount: sglang-head` → `Role: pod-reader`) allows the initContainer to query pod status in namespace `sglang`. The `startupProbe` on the head then gives the model up to ~10 minutes of loading time — Qwen3-235B-FP8 typically takes 3–6 minutes to load from disk.
 
 #### SGLang Service
 
@@ -1900,7 +1910,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: sglang-head
-  namespace: dgx-ai
+  namespace: sglang
 spec:
   type: ClusterIP
   selector:
@@ -1911,7 +1921,7 @@ spec:
       targetPort: 8000
 ```
 
-> **With Multus**: The service works like a normal ClusterIP service — Open WebUI can use `http://sglang-head.dgx-ai.svc.cluster.local:8000/v1`. API traffic runs over `eth0` (Flannel), while NCCL communicates internally over `net1` (QSFP).
+> **With Multus**: The service works like a normal ClusterIP service — Open WebUI can use `http://sglang-head.sglang.svc.cluster.local:8000/v1`. API traffic runs over `eth0` (Flannel), while NCCL communicates internally over `net1` (QSFP).
 >
 > **Fallback (hostNetwork)**: With `hostNetwork: true`, traffic is routed directly via the node IP of Spark 1. Open WebUI then uses the direct IP (`http://<IP-SPARK-1>:8000/v1`).
 
@@ -1922,7 +1932,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: open-webui
-  namespace: dgx-ai
+  namespace: openwebui
 spec:
   replicas: 1
   selector:
@@ -1955,7 +1965,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: open-webui
-  namespace: dgx-ai
+  namespace: openwebui
 spec:
   type: NodePort
   selector:
@@ -1975,7 +1985,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: pipelines
-  namespace: dgx-ai
+  namespace: openwebui
 spec:
   replicas: 1
   selector:
@@ -2008,7 +2018,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: pipelines
-  namespace: dgx-ai
+  namespace: openwebui
 spec:
   type: ClusterIP
   selector:
@@ -2025,7 +2035,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ollama-embedding
-  namespace: dgx-ai
+  namespace: ollama
 spec:
   replicas: 1
   selector:
@@ -2073,7 +2083,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: ollama-embedding
-  namespace: dgx-ai
+  namespace: ollama
 spec:
   type: ClusterIP
   selector:
@@ -2088,7 +2098,7 @@ spec:
 
 #### Apply Commands & Verification
 
-**Save all manifests in one file** (e.g. `dgx-ai-stack.yaml`) or apply block by block:
+**Save all manifests in one file** (e.g. `sglang-stack.yaml`) or apply block by block:
 
 ```bash
 # 1. Namespace + ConfigMaps
@@ -2113,7 +2123,7 @@ kubectl apply -f - <<'EOF'
 EOF
 
 # 5. Wait for model loading time (until startupProbe is green):
-kubectl -n dgx-ai logs -f deployment/sglang-head
+kubectl -n sglang logs -f deployment/sglang-head
 
 # 6. Deploy Ollama Embedding + Open WebUI + Pipelines
 kubectl apply -f - <<'EOF'
@@ -2125,7 +2135,7 @@ EOF
 
 ```bash
 # Check all pods
-kubectl -n dgx-ai get pods -o wide
+kubectl -n sglang get pods -o wide
 
 # Test SGLang API
 curl http://<IP-SPARK-1>:8000/v1/models
@@ -2134,8 +2144,8 @@ curl http://<IP-SPARK-1>:8000/v1/models
 curl -s http://<k3smaster-IP>:30000 | head -5
 
 # Check SGLang logs for errors
-kubectl -n dgx-ai logs deployment/sglang-head --tail=50
-kubectl -n dgx-ai logs deployment/sglang-worker --tail=50
+kubectl -n sglang logs deployment/sglang-head --tail=50
+kubectl -n sglang logs deployment/sglang-worker --tail=50
 ```
 
 ---

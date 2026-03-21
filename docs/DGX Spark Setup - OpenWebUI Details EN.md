@@ -83,7 +83,7 @@ WEBUI_URL=<Base URL of the Open WebUI instance>
 Additionally, Open WebUI supports **Trusted Headers** for operation behind an authentication proxy (OAuth2-Proxy, Cloudflare Access, etc.).
 
 > [!success] Implementation Status
-> Open WebUI is running in production in the K3s cluster (namespace `dgx-ai`) on k3smaster with:
+> Open WebUI is running in production in the K3s cluster (namespace `openwebui`) on k3smaster with:
 > - **PostgreSQL backend** (`xomoxcc/postgreslocaled:latest` with pgvector extension) instead of SQLite — DBs: `openwebui` + `openwebui_vectors`
 > - **Admin account + API key** are provisioned idempotently via REST API and stored in the K8s Secret `openwebui-admin-api-key`
 > - **Config seeding**: `config.json` is written at every pod start via a busybox initContainer (`RESET_CONFIG_ON_START=true`)

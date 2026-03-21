@@ -1,9 +1,13 @@
 ---
-- name: Create dgx-ai namespace
+- name: Create workload namespaces
   kubernetes.core.k8s:
     state: present
     definition:
       apiVersion: v1
       kind: Namespace
       metadata:
-        name: "{{ dgx_namespace }}"
+        name: "{{ item }}"
+  loop:
+    - "{{ sglang_namespace }}"
+    - "{{ vllm_namespace }}"
+    - "{{ openwebui_namespace }}"

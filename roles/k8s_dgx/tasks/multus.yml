@@ -12,6 +12,8 @@
 # (enP2p1s0f0np0, ConnectX-7, PCI bus 0002:01:00.0) with static IPs on 10.10.10.0/24.
 # Note: enP2p1s0f0np0 has a capital P (PCI domain 0002). Do not confuse with
 # enp1s0f0np0 (lowercase, PCI domain 0000, port 0 — typically DOWN/unused).
+#
+# NADs are created in both sglang and vllm namespaces so either engine can use QSFP.
 
 - name: Apply Multus CNI thick DaemonSet
   kubernetes.core.k8s:
@@ -40,7 +42,7 @@
       kind: NetworkAttachmentDefinition
       metadata:
         name: qsfp-direct
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ item }}"
       spec:
         config: |
           {
@@ -56,6 +58,9 @@
               ]
             }
           }
+  loop:
+    - "{{ sglang_namespace }}"
+    - "{{ vllm_namespace }}"
 
 - name: Create NetworkAttachmentDefinition for QSFP direct worker (spark-2 worker)
   kubernetes.core.k8s:
@@ -65,7 +70,7 @@
       kind: NetworkAttachmentDefinition
       metadata:
         name: qsfp-direct-worker
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ item }}"
       spec:
         config: |
           {
@@ -81,3 +86,6 @@
               ]
             }
           }
+  loop:
+    - "{{ sglang_namespace }}"
+    - "{{ vllm_namespace }}"

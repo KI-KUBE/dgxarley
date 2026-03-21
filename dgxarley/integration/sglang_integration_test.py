@@ -432,6 +432,7 @@ class RequestStats:
     error: str = ""
     repetition_stopped: bool = False
     repetition_reason: str = ""
+    repetition_diagnostics: dict = field(default_factory=dict)
     clean_output: str = ""
     _start: float = field(default=0.0, repr=False)
     _first_token: bool = field(default=False, repr=False)
@@ -545,6 +546,11 @@ async def stream_request(
                         stats.status = "error"
                         stats.repetition_stopped = True
                         stats.repetition_reason = result.detail
+                        stats.repetition_diagnostics = {
+                            "source": "reasoning",
+                            **result.diagnostics,
+                            "guard_stats": reasoning_guard.get_stats(),
+                        }
                         stats.error = f"repetition: {result.reason.name} — {result.detail}"
                         stats.clean_output = reasoning_guard.get_clean_text()
                         return
@@ -559,6 +565,11 @@ async def stream_request(
                         stats.status = "error"
                         stats.repetition_stopped = True
                         stats.repetition_reason = result.detail
+                        stats.repetition_diagnostics = {
+                            "source": "content",
+                            **result.diagnostics,
+                            "guard_stats": content_guard.get_stats(),
+                        }
                         stats.error = f"repetition: {result.reason.name} — {result.detail}"
                         stats.clean_output = content_guard.get_clean_text()
                         return
@@ -810,6 +821,15 @@ def print_final_summary(all_stats: list[RequestStats], wall_time: float, verbose
             console.print(Panel(
                 Text(s.clean_output + "\n\n[truncated — repetition detected]"),
                 title=f"[bold]#{s.request_id} clean output[/] (repetition stopped)",
+                border_style="yellow",
+                expand=True,
+            ))
+        if s.repetition_stopped and s.repetition_diagnostics:
+            import json as _json
+            diag_text = _json.dumps(s.repetition_diagnostics, indent=2, ensure_ascii=False, default=str)
+            console.print(Panel(
+                Text(diag_text),
+                title=f"[bold]#{s.request_id} repetition diagnostics[/]",
                 border_style="yellow",
                 expand=True,
             ))

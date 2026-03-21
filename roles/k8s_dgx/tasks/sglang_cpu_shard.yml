@@ -21,7 +21,7 @@
       kind: ConfigMap
       metadata:
         name: sglang-cpu-shard-script
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
       data:
         cpu_shard.py: "{{ lookup('file', role_path ~ '/files/sglang_cpu_shard.py') }}"
         launch.sh: "{{ lookup('file', role_path ~ '/files/sglang_cpu_shard_launch.sh') }}"
@@ -33,7 +33,7 @@
     api_version: batch/v1
     kind: Job
     name: "{{ item }}"
-    namespace: "{{ dgx_namespace }}"
+    namespace: "{{ sglang_namespace }}"
   loop:
     - sglang-cpu-shard-spark1
     - sglang-cpu-shard-spark2
@@ -47,7 +47,7 @@
       kind: Job
       metadata:
         name: "sglang-cpu-shard-spark{{ item.spark_id }}"
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
         labels:
           app: sglang-cpu-shard
           node: "spark{{ item.spark_id }}"

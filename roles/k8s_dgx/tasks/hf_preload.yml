@@ -8,10 +8,13 @@
       kind: ConfigMap
       metadata:
         name: hf-preload-script
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ item }}"
       data:
         download_models.py: "{{ lookup('file', role_path ~ '/files/hf_preload_download.py') }}"
         run.sh: "{{ lookup('file', role_path ~ '/files/hf_preload_run.sh') }}"
+  loop:
+    - "{{ sglang_namespace }}"
+    - "{{ vllm_namespace }}"
 
 - name: Delete existing HF preload Job
   kubernetes.core.k8s:
@@ -20,7 +23,10 @@
     api_version: batch/v1
     kind: Job
     name: hf-preload
-    namespace: "{{ dgx_namespace }}"
+    namespace: "{{ item }}"
+  loop:
+    - "{{ sglang_namespace }}"
+    - "{{ vllm_namespace }}"
   when: hf_preload_models | length > 0
 
 - name: Deploy HF preload Job
@@ -32,7 +38,7 @@
       kind: Job
       metadata:
         name: hf-preload
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ item }}"
       spec:
         ttlSecondsAfterFinished: "{{ hf_preload_ttl }}"
         backoffLimit: 1
@@ -86,4 +92,7 @@
                 hostPath:
                   path: /root/.ssh
                   type: Directory
+  loop:
+    - "{{ sglang_namespace }}"
+    - "{{ vllm_namespace }}"
   when: hf_preload_models | length > 0

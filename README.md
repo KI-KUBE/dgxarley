@@ -174,9 +174,9 @@ All persistent data uses hostPath volumes under `/var/lib/k8s-data/` on k3smaste
 
 FQDNs follow the pattern `<service>.<domain-suffix>` (configured via `dns_external_domain_suffix` in vault).
 
-## K8s Workloads (namespace: `dgx-ai`)
+## K8s Workloads (namespaces: `sglang`, `vllm`, `openwebui`)
 
-![K9s dgx-ai pods](media/Bildschirmfoto_2026-03-16_09-06-17_blurred.png)
+![K9s workload pods](media/Bildschirmfoto_2026-03-16_09-06-17_blurred.png)
 
 ### SGLang — Distributed LLM Inference
 
@@ -246,9 +246,9 @@ Two-node tensor-parallel setup across both DGX Sparks:
 ![Open WebUI Daily Briefing (1/2)](media/Bildschirmfoto_2026-03-16_11-58-44_blurred.png)
 ![Open WebUI Daily Briefing (2/2)](media/Bildschirmfoto_2026-03-16_12-02-21_blurred.png)
 
-**All dgx-ai pods running (K9s):**
+**All workload pods running (K9s):**
 
-![dgx-ai pods running](media/Bildschirmfoto_2026-03-16_08-19-01_blurred.png)
+![Workload pods running](media/Bildschirmfoto_2026-03-16_08-19-01_blurred.png)
 
 ### Other Services
 

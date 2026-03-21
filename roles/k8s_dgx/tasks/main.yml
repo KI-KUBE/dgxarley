@@ -1,5 +1,5 @@
 ---
-- name: Deploy dgx-ai namespace
+- name: Deploy workload namespaces
   ansible.builtin.import_tasks: namespace.yml
   tags: namespace
 

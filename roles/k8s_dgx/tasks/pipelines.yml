@@ -10,10 +10,10 @@
       kind: ConfigMap
       metadata:
         name: pipelines-config
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
       data:
         OLLAMA_BASE_URL: "http://ollama.ollama.svc.cluster.local:{{ ollama_port }}"
-        SGLANG_API_BASE_URL: "http://sglang.{{ dgx_namespace }}.svc.cluster.local:{{ sglang_port }}/v1"
+        SGLANG_API_BASE_URL: "http://sglang.{{ sglang_namespace }}.svc.cluster.local:{{ sglang_port }}/v1"
         PIPELINES_API_KEY: "{{ openwebui_secret_key }}"
         SELF_REFLECTION_ENABLED: "{{ openwebui_self_reflection_enabled | default(false) | string }}"
   when: pipelines_enabled
@@ -26,7 +26,7 @@
       kind: ConfigMap
       metadata:
         name: pipelines-seed
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
       data: >-
         {{
           lookup('template', 'pipelines_seed_data.yml.j2') | from_yaml
@@ -42,7 +42,7 @@
       kind: Deployment
       metadata:
         name: pipelines
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
         labels:
           app: pipelines
         annotations:
@@ -157,7 +157,7 @@
       kind: Service
       metadata:
         name: pipelines
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
       spec:
         type: ClusterIP
         selector:
@@ -177,7 +177,7 @@
     api_version: apps/v1
     kind: Deployment
     name: pipelines
-    namespace: "{{ dgx_namespace }}"
+    namespace: "{{ openwebui_namespace }}"
   when: not pipelines_enabled
 
 - name: Remove Pipelines Service
@@ -186,7 +186,7 @@
     api_version: v1
     kind: Service
     name: pipelines
-    namespace: "{{ dgx_namespace }}"
+    namespace: "{{ openwebui_namespace }}"
   when: not pipelines_enabled
 
 - name: Remove pipelines-seed ConfigMap
@@ -195,7 +195,7 @@
     api_version: v1
     kind: ConfigMap
     name: pipelines-seed
-    namespace: "{{ dgx_namespace }}"
+    namespace: "{{ openwebui_namespace }}"
   when: not pipelines_enabled
 
 - name: Remove pipelines-config ConfigMap
@@ -204,5 +204,5 @@
     api_version: v1
     kind: ConfigMap
     name: pipelines-config
-    namespace: "{{ dgx_namespace }}"
+    namespace: "{{ openwebui_namespace }}"
   when: not pipelines_enabled

@@ -67,6 +67,19 @@ class FeedResult:
         tokens_seen: Total number of word-level tokens processed so far.
         worst_ngram_count: Highest occurrence count among all tracked n-grams.
         loop_confidence: Exponentially smoothed loop confidence (0.0--1.0).
+        diagnostics: Detailed trigger info for false-positive analysis. Only
+            populated when ``should_stop`` is True. Keys depend on the
+            :class:`StopReason`:
+
+            **NGRAM_FLOOD**: ``top_ngrams`` (top 10 with counts),
+            ``effective_max``, ``ratio``, ``total_tokens``.
+
+            **SUFFIX_LOOP**: ``pattern_text`` (truncated to 300 chars),
+            ``pattern_length``, ``repetitions``, ``tail_length``.
+
+            **STAGNATION**: ``recycled_ratio``, ``recycled_count``,
+            ``recent_count``, ``sample_recycled`` (up to 10 recycled n-grams),
+            ``sample_new`` (up to 5 n-grams only in recent window).
     """
 
     should_stop: bool = False
@@ -76,6 +89,7 @@ class FeedResult:
     tokens_seen: int = 0
     worst_ngram_count: int = 0
     loop_confidence: float = 0.0
+    diagnostics: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -98,7 +112,7 @@ class GuardConfig:
             additional n-gram repeat. Prevents false positives on longer
             outputs where domain-specific phrases naturally recur. Set to
             0 to disable scaling (use fixed ``ngram_max_count``). With the
-            default of 250, effective limit at 2000 tokens is 5 + 8 = 13.
+            default of 150, effective limit at 450 tokens is 5 + 3 = 8.
         ngram_min_ratio: Minimum density (fraction of total tokens) the
             worst n-gram must reach before triggering. Acts as a second
             gate alongside the count threshold to prevent false positives
@@ -126,8 +140,8 @@ class GuardConfig:
 
     ngram_n: int = 4
     ngram_max_count: int = 5
-    ngram_count_scale_tokens: int = 250
-    ngram_min_ratio: float = 0.025
+    ngram_count_scale_tokens: int = 150
+    ngram_min_ratio: float = 0.08
 
     suffix_window: int = 600
     suffix_min_pattern: int = 30
@@ -340,6 +354,7 @@ class RepetitionGuard:
             return None
 
         worst_gram: tuple[str, int] = self._ngram_counts.most_common(1)[0]
+        top_ngrams: list[tuple[str, int]] = self._ngram_counts.most_common(10)
 
         self._mark_loop_start()
         return FeedResult(
@@ -350,6 +365,15 @@ class RepetitionGuard:
             tokens_seen=self._token_count,
             worst_ngram_count=self._worst_ngram_count,
             loop_confidence=1.0,
+            diagnostics={
+                "trigger": "NGRAM_FLOOD",
+                "worst_ngram": worst_gram[0],
+                "worst_count": worst_gram[1],
+                "effective_max": effective_max,
+                "ratio": round(ratio, 4),
+                "total_tokens": self._token_count,
+                "top_ngrams": {gram: count for gram, count in top_ngrams},
+            },
         )
 
     # ──────────────────────────────────────────────────────
@@ -406,6 +430,7 @@ class RepetitionGuard:
             self._loop_confidence = max(self._loop_confidence, raw_confidence)
 
             if best_pat_len >= min_pat:
+                pattern_text: str = tail[-best_pat_len:]
                 self._mark_loop_start()
                 return FeedResult(
                     should_stop=True,
@@ -415,6 +440,14 @@ class RepetitionGuard:
                     tokens_seen=self._token_count,
                     worst_ngram_count=self._worst_ngram_count,
                     loop_confidence=self._loop_confidence,
+                    diagnostics={
+                        "trigger": "SUFFIX_LOOP",
+                        "pattern_text": pattern_text[:300] + ("..." if len(pattern_text) > 300 else ""),
+                        "pattern_length": best_pat_len,
+                        "repetitions": best_reps,
+                        "tail_length": tail_len,
+                        "total_tokens": self._token_count,
+                    },
                 )
         else:
             self._loop_confidence *= 0.95
@@ -460,6 +493,7 @@ class RepetitionGuard:
             return None
 
         recycled: set[str] = recent_grams & self._early_ngrams
+        new_only: set[str] = recent_grams - self._early_ngrams
         recycled_ratio: float = len(recycled) / len(recent_grams)
 
         if recycled_ratio >= self.config.stagnation_threshold:
@@ -472,6 +506,16 @@ class RepetitionGuard:
                 tokens_seen=self._token_count,
                 worst_ngram_count=self._worst_ngram_count,
                 loop_confidence=recycled_ratio,
+                diagnostics={
+                    "trigger": "STAGNATION",
+                    "recycled_ratio": round(recycled_ratio, 4),
+                    "recycled_count": len(recycled),
+                    "recent_count": len(recent_grams),
+                    "stagnation_window": w,
+                    "total_tokens": self._token_count,
+                    "sample_recycled": sorted(recycled)[:10],
+                    "sample_new": sorted(new_only)[:5],
+                },
             )
 
         return None
@@ -680,6 +724,11 @@ if __name__ == "__main__":
             print(f"   Reason:     {result.reason.name if result.reason else 'unknown'}")
             print(f"   Detail:     {result.detail}")
             print(f"   Confidence: {result.loop_confidence:.0%}")
+            if result.diagnostics:
+                import json as _json
+                print(f"   Diagnostics:")
+                for k, v in result.diagnostics.items():
+                    print(f"      {k}: {_json.dumps(v, ensure_ascii=False, default=str) if isinstance(v, (dict, list)) else v}")
             stopped = True
             break
         else:

@@ -4,7 +4,9 @@ traefik_internal_allowlist:
   - "192.168.123.0/24"
   - "192.168.124.0/24"
 
-dgx_namespace: "dgx-ai"
+sglang_namespace: "sglang"
+vllm_namespace: "vllm"
+openwebui_namespace: "openwebui"
 #sglang_image: "scitrera/dgx-spark-sglang:0.5.9-t5"
 sglang_image: "scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5"
 
@@ -527,7 +529,7 @@ openwebui_admin_password: "changeme"
 # Embedding engine: "openai" routes through LiteLLM (unified OpenAI-v1 interface).
 # Switch back to "ollama" + ollama_url for direct access without LiteLLM proxy.
 openwebui_embedding_engine: "openai"
-openwebui_embedding_openai_url: "http://litellm.{{ dgx_namespace }}.svc.cluster.local:4000/v1"
+openwebui_embedding_openai_url: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:4000/v1"
 openwebui_embedding_ollama_url: "http://ollama-embed.ollama.svc.cluster.local:{{ ollama_port }}"
 
 openwebui_embedding_chunk_size: 20000
@@ -554,7 +556,7 @@ openwebui_self_reflection_enabled: false
 # OpenAI-compatible connections for OpenWebUI
 # Pipelines URL is appended automatically when pipelines_enabled is true.
 openwebui_connections_openai:
-  - "http://sglang.{{ dgx_namespace }}.svc.cluster.local:{{ sglang_port }}/v1"
+  - "http://sglang.{{ sglang_namespace }}.svc.cluster.local:{{ sglang_port }}/v1"
 
 # QSFP IPs for NCCL bootstrap
 qsfp_ip_spark1: "10.10.10.0"
@@ -615,7 +617,7 @@ litellm_model_list:
   - model_name: "{{ sglang_served_model_name }}"
     litellm_params:
       model: "openai/{{ sglang_served_model_name }}"
-      api_base: "http://sglang.{{ dgx_namespace }}.svc.cluster.local:{{ sglang_port }}/v1"
+      api_base: "http://sglang.{{ sglang_namespace }}.svc.cluster.local:{{ sglang_port }}/v1"
       api_key: "none"
       # Sampling defaults from _sglang_sampling_defaults (recommended + overrides):
       temperature: "{{ _sglang_sampling_defaults.temperature | default(omit) }}"

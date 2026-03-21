@@ -468,6 +468,12 @@ def stream_and_display(url: str, payload: dict[str, object], raw_json: bool = Fa
                                     "content": f"thinking: {gr.detail}",
                                     "finish": "guard",
                                 })
+                                if gr.diagnostics:
+                                    chunk_rows.append({
+                                        "n": chunk_count, "type": "diag",
+                                        "content": json.dumps(gr.diagnostics, ensure_ascii=False, default=str),
+                                        "finish": "",
+                                    })
                                 live.update(make_display())
                                 break
 
@@ -490,6 +496,12 @@ def stream_and_display(url: str, payload: dict[str, object], raw_json: bool = Fa
                                     "content": f"content: {gr.detail}",
                                     "finish": "guard",
                                 })
+                                if gr.diagnostics:
+                                    chunk_rows.append({
+                                        "n": chunk_count, "type": "diag",
+                                        "content": json.dumps(gr.diagnostics, ensure_ascii=False, default=str),
+                                        "finish": "",
+                                    })
                                 live.update(make_display())
                                 break
 

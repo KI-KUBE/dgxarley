@@ -4,6 +4,11 @@ Documentation of screenshots taken during development of the dgxarley project (S
 
 ---
 
+<video src="https://github.com/user-attachments/assets/17363c3e-2c59-4d7f-880d-f96004da70e0" width="100%" controls></video>
+[Bildschirmaufnahme 2026-03-21 15:19:28_blurred.mp4](../media/Bildschirmaufnahme%202026-03-21%2015%3A19%3A28_blurred.mp4)
+
+---
+
 ## 1. Bildschirmfoto_2026-03-18_13-39-21_blurred.png
 
 ![Screenshot 13:39](../media/Bildschirmfoto_2026-03-18_13-39-21_blurred.png)

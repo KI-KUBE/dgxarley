@@ -7,7 +7,7 @@
       kind: ConfigMap
       metadata:
         name: vllm-config
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ vllm_namespace }}"
       data:
         VLLM_MODEL: "{{ vllm_model }}"
         VLLM_CONTEXT_LENGTH: "{{ vllm_context_length | string }}"
@@ -37,9 +37,75 @@
       kind: ConfigMap
       metadata:
         name: vllm-launch-script
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ vllm_namespace }}"
       data:
         launch.sh: "{{ lookup('file', role_path ~ '/files/vllm_launch.sh') }}"
+
+- name: Create model-download script ConfigMap in vllm namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: sglang-model-download-script
+        namespace: "{{ vllm_namespace }}"
+      data:
+        download_models.py: "{{ lookup('file', role_path ~ '/files/hf_preload_download.py') }}"
+
+- name: Create wait-for-worker script ConfigMap in vllm namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: sglang-wait-script
+        namespace: "{{ vllm_namespace }}"
+      data:
+        wait_for_worker.sh: "{{ lookup('file', role_path ~ '/files/sglang_wait_for_worker.sh') }}"
+
+- name: Create vLLM ServiceAccount
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ServiceAccount
+      metadata:
+        name: sglang-head
+        namespace: "{{ vllm_namespace }}"
+
+- name: Create vLLM pod-reader Role
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: Role
+      metadata:
+        name: pod-reader
+        namespace: "{{ vllm_namespace }}"
+      rules:
+        - apiGroups: [""]
+          resources: ["pods"]
+          verbs: ["get", "list", "watch"]
+
+- name: Create vLLM RoleBinding
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: rbac.authorization.k8s.io/v1
+      kind: RoleBinding
+      metadata:
+        name: vllm-head-pod-reader
+        namespace: "{{ vllm_namespace }}"
+      roleRef:
+        apiGroup: rbac.authorization.k8s.io
+        kind: Role
+        name: pod-reader
+      subjects:
+        - kind: ServiceAccount
+          name: sglang-head
+          namespace: "{{ vllm_namespace }}"
 
 # Startup ordering: Worker MUST be deployed before head.
 # At the NCCL/PyTorch level, the head (rank 0) hosts the TCP rendezvous server
@@ -59,7 +125,7 @@
       kind: Deployment
       metadata:
         name: vllm-worker
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ vllm_namespace }}"
         labels:
           app: vllm
           role: worker
@@ -170,7 +236,7 @@
       kind: Deployment
       metadata:
         name: vllm-head
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ vllm_namespace }}"
         labels:
           app: vllm
           role: head
@@ -220,7 +286,7 @@
                 command: ["/bin/sh", "/scripts/wait_for_worker.sh"]
                 env:
                   - name: WAIT_NAMESPACE
-                    value: "{{ dgx_namespace }}"
+                    value: "{{ vllm_namespace }}"
                   - name: WAIT_LABEL
                     value: "app=vllm,role=worker"
                 volumeMounts:
@@ -308,7 +374,7 @@
       kind: Service
       metadata:
         name: vllm
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ vllm_namespace }}"
       spec:
         type: ClusterIP
         selector:
@@ -320,6 +386,19 @@
             targetPort: "{{ vllm_port }}"
             protocol: TCP
 
+- name: Create HTTPS redirect middleware in vllm namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: redirect-myhttps
+        namespace: "{{ vllm_namespace }}"
+      spec:
+        redirectScheme:
+          scheme: https
+
 - name: Create vLLM ip allowlist middleware
   kubernetes.core.k8s:
     state: present
@@ -328,7 +407,7 @@
       kind: Middleware
       metadata:
         name: vllm-ip-allowlist
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ vllm_namespace }}"
       spec:
         ipAllowList:
           sourceRange: "{{ traefik_internal_allowlist }}"
@@ -341,7 +420,7 @@
       kind: Certificate
       metadata:
         name: "vllm.{{ dns_external_domain_suffix }}"
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ vllm_namespace }}"
       spec:
         dnsNames:
           - "vllm.{{ dns_external_domain_suffix }}"
@@ -358,7 +437,7 @@
       kind: IngressRoute
       metadata:
         name: vllm-ingress
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ vllm_namespace }}"
       spec:
         entryPoints:
           - web
@@ -369,7 +448,7 @@
           services:
           - kind: Service
             name: vllm
-            namespace: "{{ dgx_namespace }}"
+            namespace: "{{ vllm_namespace }}"
             passHostHeader: true
             port: "{{ vllm_port }}"
           middlewares:
@@ -384,7 +463,7 @@
       kind: IngressRoute
       metadata:
         name: vllm-https-ingress
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ vllm_namespace }}"
       spec:
         entryPoints:
           - websecure
@@ -397,7 +476,7 @@
             services:
               - kind: Service
                 name: vllm
-                namespace: "{{ dgx_namespace }}"
+                namespace: "{{ vllm_namespace }}"
                 passHostHeader: true
                 port: "{{ vllm_port }}"
         tls:

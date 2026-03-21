@@ -20,7 +20,7 @@
       kind: ConfigMap
       metadata:
         name: sglang-tune-moe-script
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
       data:
         tune_moe.sh: "{{ lookup('file', role_path ~ '/files/sglang_tune_moe.sh') }}"
 
@@ -30,7 +30,7 @@
     api_version: batch/v1
     kind: Job
     name: sglang-tune-moe
-    namespace: "{{ dgx_namespace }}"
+    namespace: "{{ sglang_namespace }}"
 
 - name: Deploy SGLang MoE tuning Job
   kubernetes.core.k8s:
@@ -40,7 +40,7 @@
       kind: Job
       metadata:
         name: sglang-tune-moe
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
         labels:
           app: sglang-tune-moe
       spec:

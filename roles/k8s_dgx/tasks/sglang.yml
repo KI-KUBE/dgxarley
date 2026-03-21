@@ -7,7 +7,7 @@
       kind: ConfigMap
       metadata:
         name: sglang-config
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
       data:
         SGLANG_MODEL: "{{ sglang_model }}"
         SGLANG_CONTEXT_LENGTH: "{{ sglang_context_length | string }}"
@@ -51,7 +51,7 @@
       kind: ConfigMap
       metadata:
         name: sglang-launch-script
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
       data:
         launch.sh: "{{ lookup('file', role_path ~ '/files/sglang_launch.sh') }}"
 
@@ -63,7 +63,7 @@
       kind: ConfigMap
       metadata:
         name: sglang-wait-script
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
       data:
         wait_for_worker.sh: "{{ lookup('file', role_path ~ '/files/sglang_wait_for_worker.sh') }}"
 
@@ -75,7 +75,7 @@
       kind: ConfigMap
       metadata:
         name: sglang-model-download-script
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
       data:
         download_models.py: "{{ lookup('file', role_path ~ '/files/hf_preload_download.py') }}"
 
@@ -87,7 +87,7 @@
       kind: ConfigMap
       metadata:
         name: sglang-haproxy-config
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
       data:
         haproxy.cfg: "{{ lookup('template', 'sglang_haproxy.cfg.j2') }}"
 
@@ -100,7 +100,7 @@
       kind: ServiceAccount
       metadata:
         name: sglang-head
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
 
 - name: Create SGLang pod-reader Role
   kubernetes.core.k8s:
@@ -110,7 +110,7 @@
       kind: Role
       metadata:
         name: pod-reader
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
       rules:
         - apiGroups: [""]
           resources: ["pods"]
@@ -124,11 +124,11 @@
       kind: RoleBinding
       metadata:
         name: sglang-head-pod-reader
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
       subjects:
         - kind: ServiceAccount
           name: sglang-head
-          namespace: "{{ dgx_namespace }}"
+          namespace: "{{ sglang_namespace }}"
       roleRef:
         kind: Role
         name: pod-reader
@@ -152,7 +152,7 @@
       kind: Deployment
       metadata:
         name: sglang-worker
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
         labels:
           app: sglang
           role: worker
@@ -265,7 +265,7 @@
       kind: Deployment
       metadata:
         name: sglang-head
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
         labels:
           app: sglang
           role: head
@@ -315,7 +315,7 @@
                 command: ["/bin/sh", "/scripts/wait_for_worker.sh"]
                 env:
                   - name: WAIT_NAMESPACE
-                    value: "{{ dgx_namespace }}"
+                    value: "{{ sglang_namespace }}"
                   - name: WAIT_LABEL
                     value: "app=sglang,role=worker"
                 volumeMounts:
@@ -415,7 +415,7 @@
       kind: Service
       metadata:
         name: sglang
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
       spec:
         type: ClusterIP
         selector:
@@ -427,6 +427,19 @@
             targetPort: "{{ sglang_port }}"
             protocol: TCP
 
+- name: Create HTTPS redirect middleware in sglang namespace
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: redirect-myhttps
+        namespace: "{{ sglang_namespace }}"
+      spec:
+        redirectScheme:
+          scheme: https
+
 - name: Create SGLang ip allowlist middleware
   kubernetes.core.k8s:
     state: present
@@ -435,7 +448,7 @@
       kind: Middleware
       metadata:
         name: sglang-ip-allowlist
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
       spec:
         ipAllowList:
           sourceRange: "{{ traefik_internal_allowlist }}"
@@ -448,7 +461,7 @@
       kind: Certificate
       metadata:
         name: "sglang.{{ dns_external_domain_suffix }}"
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
       spec:
         dnsNames:
           - "sglang.{{ dns_external_domain_suffix }}"
@@ -465,7 +478,7 @@
       kind: IngressRoute
       metadata:
         name: sglang-ingress
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
       spec:
         entryPoints:
           - web
@@ -476,7 +489,7 @@
           services:
           - kind: Service
             name: sglang
-            namespace: "{{ dgx_namespace }}"
+            namespace: "{{ sglang_namespace }}"
             passHostHeader: true
             port: "{{ sglang_port }}"
           middlewares:
@@ -491,7 +504,7 @@
       kind: IngressRoute
       metadata:
         name: sglang-https-ingress
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ sglang_namespace }}"
       spec:
         entryPoints:
           - websecure
@@ -504,7 +517,7 @@
             services:
               - kind: Service
                 name: sglang
-                namespace: "{{ dgx_namespace }}"
+                namespace: "{{ sglang_namespace }}"
                 passHostHeader: true
                 port: "{{ sglang_port }}"
         tls:

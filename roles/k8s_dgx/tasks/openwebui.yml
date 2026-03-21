@@ -21,7 +21,7 @@
     _openai_urls: "{{ openwebui_connections_openai + (pipelines_enabled | ternary([_pipelines_url], [])) }}"
     _openai_keys: "{{ ([''] * openwebui_connections_openai | length) + (pipelines_enabled | ternary([openwebui_secret_key], [])) }}"
   vars:
-    _pipelines_url: "http://pipelines.{{ dgx_namespace }}.svc.cluster.local:{{ pipelines_port }}"
+    _pipelines_url: "http://pipelines.{{ openwebui_namespace }}.svc.cluster.local:{{ pipelines_port }}"
 
 # --- Secrets & ConfigMaps ---
 
@@ -33,7 +33,7 @@
       kind: Secret
       metadata:
         name: openwebui-db-secret
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
       type: Opaque
       stringData:
         DATABASE_URL: "postgresql://openwebui:{{ openwebui_db_password }}@postgresql.postgresql.svc.cluster.local:5432/openwebui"
@@ -47,7 +47,7 @@
       kind: ConfigMap
       metadata:
         name: ollama-openwebui-config
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
       data:
         WEBUI_SECRET_KEY: "{{ openwebui_secret_key }}"
         ENABLE_LOGIN_FORM: "true"
@@ -68,7 +68,7 @@
       kind: ConfigMap
       metadata:
         name: openwebui-seed-config
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
       data:
         config.json: |
           {
@@ -178,7 +178,7 @@
       kind: Deployment
       metadata:
         name: open-webui
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
         labels:
           app: open-webui
         annotations:
@@ -280,7 +280,7 @@
       kind: Service
       metadata:
         name: open-webui
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
       spec:
         type: ClusterIP
         selector:
@@ -299,7 +299,7 @@
       kind: Middleware
       metadata:
         name: openwebui-ip-allowlist
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
       spec:
         ipAllowList:
           sourceRange: "{{ traefik_internal_allowlist }}"
@@ -312,7 +312,7 @@
       kind: Middleware
       metadata:
         name: redirect-myhttps
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
       spec:
         redirectScheme:
           scheme: https
@@ -325,7 +325,7 @@
       kind: Certificate
       metadata:
         name: "openwebui.{{ dns_external_domain_suffix }}"
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
       spec:
         dnsNames:
           - "openwebui.{{ dns_external_domain_suffix }}"
@@ -342,7 +342,7 @@
       kind: IngressRoute
       metadata:
         name: openwebui-ingress
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
       spec:
         entryPoints:
           - web
@@ -353,7 +353,7 @@
           services:
           - kind: Service
             name: open-webui
-            namespace: "{{ dgx_namespace }}"
+            namespace: "{{ openwebui_namespace }}"
             passHostHeader: true
             port: 8080
           middlewares:
@@ -368,7 +368,7 @@
       kind: IngressRoute
       metadata:
         name: openwebui-https-ingress
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
       spec:
         entryPoints:
           - websecure
@@ -381,7 +381,7 @@
             services:
               - kind: Service
                 name: open-webui
-                namespace: "{{ dgx_namespace }}"
+                namespace: "{{ openwebui_namespace }}"
                 passHostHeader: true
                 port: 8080
         tls:
@@ -466,7 +466,7 @@
       kind: Secret
       metadata:
         name: openwebui-admin-api-key
-        namespace: "{{ dgx_namespace }}"
+        namespace: "{{ openwebui_namespace }}"
       type: Opaque
       stringData:
         api_key: "{{ openwebui_admin_api_key }}"
