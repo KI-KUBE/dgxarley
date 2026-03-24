@@ -1,6 +1,7 @@
 # Downloaded from:
-#   curl -o roles/k8s_dgx/files/multus-daemonset-thick.yml \
-#     https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml
+#   https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml
+# Upstream SHA256: 3deea054dc2dca607c2c859e5f31a8fb82389f68c13b5f8be054607151391290
+# Patched by: roles/k8s_dgx/files/update_multus_manifest.sh
 #
 # K3s fixes applied:
 #
@@ -149,9 +150,9 @@ data:
     {
         "chrootDir": "/hostroot",
         "cniVersion": "0.3.1",
+        "binDir": "/var/lib/rancher/k3s/data/cni",
         "logLevel": "verbose",
         "logToStderr": true,
-        "binDir": "/var/lib/rancher/k3s/data/cni",
         "cniConfigDir": "/host/etc/cni/net.d",
         "multusAutoconfigDir": "/host/etc/cni/net.d",
         "multusConfigFile": "auto",
@@ -198,7 +199,7 @@ spec:
               memory: "50Mi"
             limits:
               cpu: "100m"
-              memory: "60Mi"
+              memory: "50Mi"
           securityContext:
             privileged: true
           terminationMessagePolicy: FallbackToLogsOnError

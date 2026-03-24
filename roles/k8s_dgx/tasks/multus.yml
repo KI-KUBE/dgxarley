@@ -1,8 +1,9 @@
 ---
 # Multus thick DaemonSet + QSFP NetworkAttachmentDefinitions.
 #
-# The manifest (files/multus-daemonset-thick.yml) is downloaded from upstream and patched
-# for K3s — see the header comment in that file for all fixes applied.
+# The manifest (files/multus-daemonset-thick.yml) is a pre-patched copy of upstream.
+# To regenerate after upstream changes: bash roles/k8s_dgx/files/update_multus_manifest.sh
+# See the header comment in that file for all fixes applied.
 #
 # Prerequisites (installed by dgx_prepare role, tag: cni):
 #   - host-device CNI plugin in /var/lib/rancher/k3s/data/cni/ (not K3s-bundled)

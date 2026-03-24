@@ -1,4 +1,29 @@
 ---
+# Guard: refuse to deploy if KIKUBE has taken over management of SGLang.
+# The KIKUBE product layer (dgxarley-custom) sets kikube.io/managed-by=kikube
+# on all resources it manages. Once that annotation is present on the Service,
+# Ansible must not overwrite the deployment.
+- name: Check if SGLang is managed by KIKUBE
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: sglang
+    namespace: "{{ sglang_namespace }}"
+  register: _sglang_svc_check
+
+- name: Abort if SGLang is managed by KIKUBE
+  ansible.builtin.fail:
+    msg: >-
+      ABORTED: The SGLang Service in namespace '{{ sglang_namespace }}' has
+      annotation kikube.io/managed-by=kikube. This deployment is now managed
+      by the KIKUBE product layer. Use KIKUBE tooling to deploy changes.
+      To force Ansible override:
+      kubectl annotate svc/sglang -n {{ sglang_namespace }} kikube.io/managed-by-
+  when: >-
+    _sglang_svc_check.resources | length > 0 and
+    'kikube.io/managed-by' in (_sglang_svc_check.resources[0].metadata.annotations | default({})) and
+    _sglang_svc_check.resources[0].metadata.annotations['kikube.io/managed-by'] == 'kikube'
+
 - name: Create SGLang ConfigMap
   kubernetes.core.k8s:
     state: present
