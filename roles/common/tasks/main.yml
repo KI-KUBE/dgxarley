@@ -1,5 +1,10 @@
 ---
 # file: roles/common/tasks/main.yml
+- name: set hostname and /etc/hosts
+  import_tasks: set_hostname.yml
+  tags:
+    - hostname
+
 - name: install basic/helpfull packages, upgrade-full and autoremove
   import_tasks: installbasicpackages.yml
   tags:

@@ -1,0 +1,11 @@
+---
+- name: Set hostname via hostnamectl
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Ensure hostname in /etc/hosts (127.0.1.1 line)
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.1\.1\s'
+    line: "127.0.1.1 {{ inventory_hostname }}"
+    insertafter: '^127\.0\.0\.1'
