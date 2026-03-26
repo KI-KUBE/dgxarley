@@ -13,6 +13,10 @@ qsfp_sriov_pf_pci: "0000:01:00.0"
 qsfp_sriov_pf_iface: "enp1s0f0np0"
 # qsfp_sriov_vf_prefix lives in group_vars/all/main.yml (shared with k8s_dgx)
 
+# Manual DCBX/PFC — only if switch DCBX auto-negotiation doesn't work
+set_dcbx_manually: false
+qsfp_dcbx_roce_tc: 3
+
 memlock_limit: "unlimited"
 stack_limit: 67108864
 nvidia_cdi_output: "/etc/cdi/nvidia.yaml"

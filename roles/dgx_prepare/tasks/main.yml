@@ -7,6 +7,10 @@
   ansible.builtin.import_tasks: qsfp_sriov.yml
   tags: qsfp_sriov
 
+- name: Manual DCBX/PFC on QSFP NIC
+  ansible.builtin.import_tasks: qsfp_dcbx.yml
+  tags: qsfp_dcbx
+
 - name: Configure ulimits
   ansible.builtin.import_tasks: ulimits.yml
   tags: ulimits

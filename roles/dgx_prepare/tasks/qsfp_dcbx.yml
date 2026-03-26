@@ -1,0 +1,27 @@
+---
+# Manual DCBX/PFC configuration for ConnectX-7 QSFP interfaces.
+# Only needed if the switch's DCBX auto-negotiation doesn't work.
+# Gated by set_dcbx_manually (default: false).
+
+- name: Set NIC trust mode to DSCP
+  ansible.builtin.command: mlnx_qos -i {{ qsfp_sriov_pf_iface }} --trust dscp
+  when: set_dcbx_manually | default(false)
+  changed_when: false
+
+- name: Enable PFC on traffic class {{ qsfp_dcbx_roce_tc | default(3) }}
+  ansible.builtin.shell: |
+    PFC=$(python3 -c "tc={{ qsfp_dcbx_roce_tc | default(3) }}; print(','.join('1' if i==tc else '0' for i in range(8)))")
+    mlnx_qos -i {{ qsfp_sriov_pf_iface }} --pfc $PFC
+  when: set_dcbx_manually | default(false)
+  changed_when: false
+
+- name: Verify DCBX/PFC settings
+  ansible.builtin.command: mlnx_qos -i {{ qsfp_sriov_pf_iface }}
+  register: _dcbx_status
+  when: set_dcbx_manually | default(false)
+  changed_when: false
+
+- name: Show DCBX/PFC status
+  ansible.builtin.debug:
+    msg: "{{ _dcbx_status.stdout }}"
+  when: set_dcbx_manually | default(false) and _dcbx_status is defined
