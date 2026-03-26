@@ -11,7 +11,7 @@ service-cidr: "{{ service_cidr }}"
 node-ip: "{{ k3s_node_ip }}"
 bind-address: "{{ k3s_node_ip }}"
 node-external-ip: "{{ k3s_node_ip }}"
-# node-name: "{{ ansible_hostname }}"
+# node-name: "{{ inventory_hostname }}"
 service-node-port-range: "22-32767"
 flannel-ipv6-masq: false
 kubelet-arg:
@@ -28,7 +28,7 @@ node-label:
 node-ip: "{{ k3s_node_ip }}"
 # bind-address: "{{ k3s_node_ip }}"
 node-external-ip: "{{ k3s_node_ip }}"
-# node-name: "{{ ansible_hostname }}"
+# node-name: "{{ inventory_hostname }}"
 kube-proxy-arg:
   - "nodeport-addresses=127.0.0.0/8"
 {% if k3s_node_labels is defined %}
