@@ -11,3 +11,6 @@ huggingface-hub
 pydantic
 aiohttp
 hatchling
+paramiko
+ansible
+ansible-pylibssh
