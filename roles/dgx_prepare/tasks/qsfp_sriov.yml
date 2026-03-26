@@ -39,17 +39,7 @@
     state: started
   when: qsfp_sriov_enabled
 
-- name: Assign deterministic MAC addresses to VF interfaces
-  ansible.builtin.shell: |
-    ip link set {{ qsfp_sriov_vf_prefix }}v{{ item }} down && \
-    ip link set {{ qsfp_sriov_vf_prefix }}v{{ item }} address {{ '02:00:0a:0a:%02x:%02x' | format(host_octet | int, item) }} && \
-    ip link set {{ qsfp_sriov_vf_prefix }}v{{ item }} up
-  loop: "{{ range(0, qsfp_sriov_numvfs | int) | list }}"
-  when: qsfp_sriov_enabled
-  changed_when: false
-  failed_when: false
-
-- name: Apply netplan for VF MTU settings
+- name: Apply netplan for VF MTU and MAC settings
   ansible.builtin.command: netplan apply
   when: qsfp_sriov_enabled
   changed_when: false

@@ -19,6 +19,7 @@ network:
 {% if qsfp_sriov_enabled | default(false) %}
 {% for vf_idx in range(0, qsfp_sriov_numvfs | default(8) | int) %}
     {{ qsfp_sriov_vf_prefix }}v{{ vf_idx }}:
+      macaddress: {{ '02:00:0a:0a:%02x:%02x' | format(host_octet | int, vf_idx) }}
       mtu: {{ qsfp_mtu }}
       dhcp4: false
       dhcp6: false
