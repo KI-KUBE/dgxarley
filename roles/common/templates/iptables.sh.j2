@@ -225,7 +225,7 @@ iptables -A HTSTUFFIN -p igmp -d 224.0.0.0/24 -m set --match-set localnets src -
 iptables -A HTSTUFFIN -p udp -d 224.0.0.0/24 -m set --match-set localnets src -j RETURN
 iptables -A HTSTUFFIN -m pkttype --pkt-type multicast -m set --match-set localnets src -j RETURN
 iptables -A HTSTUFFIN -m pkttype --pkt-type broadcast -m set --match-set localnets src -j RETURN
-iptables -A HTSTUFFIN -d 255.255.255.255 -p udp -j RETURN
+iptables -A HTSTUFFIN -d 255.255.255.255 -p udp -m set --match-set localnets src -j RETURN
 
 # tracepath/traceroute UDP probes
 iptables -A HTSTUFFIN -p udp --dport 33434:44500 -m set --match-set localnets src -j RETURN
