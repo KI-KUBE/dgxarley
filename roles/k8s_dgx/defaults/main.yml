@@ -293,6 +293,31 @@ sglang_model_profiles:
       top_p: 0.95
       top_k: 20
       presence_penalty: 1.5
+  "nvidia/MiniMax-M2.5-NVFP4":
+    info_url: "https://huggingface.co/nvidia/MiniMax-M2.5-NVFP4"
+    # 229B/8-active MoE (256 experts, sigmoid routing), NVFP4 quantized (~139 GB weights).
+    # Fits on 2× DGX Spark with TP=2 EP=2 (~70 GB/GPU weights, ~58 GB/GPU free for KV).
+    # Recommended launch (NVIDIA model card):
+    #   python3 -m sglang.launch_server --model nvidia/MiniMax-M2.5-NVFP4 --tensor-parallel-size 8 \
+    #     --quantization modelopt_fp4 --trust-remote-code --reasoning-parser minimax-append-think \
+    #     --tool-call-parser minimax-m2 --moe-runner-backend flashinfer_cutlass --attention-backend flashinfer
+    load_format: "sharded_state"
+    context_length: 196608
+    quantization: "modelopt_fp4"
+    trust_remote_code: true
+    moe_runner_backend: "flashinfer_cutlass"
+    kv_cache_dtype: "fp8_e4m3"
+    mem_fraction_static: "0.80"
+    attention_backend: "flashinfer"
+    reasoning_parser: "minimax-append-think"
+    tool_call_parser: "minimax-m2"
+    ep_size: 2
+    # Reasoning model: thinking is always on (chat template injects <think>\n).
+    # Thinking tokens wrapped in <think>...</think>, exposed via reasoning_content field.
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 40
 
 # Speculative decoding — predicts multiple tokens per forward pass, then
 # verifies in one step. Increases throughput (up to ~60%) at the cost of
@@ -327,7 +352,8 @@ sglang_speculative_num_draft_tokens: 4
 #sglang_model: "Qwen/Qwen3.5-35B-A3B-FP8"
 #sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
 
-sglang_model: "Qwen/Qwen3.5-122B-A10B-FP8"
+sglang_model: "nvidia/MiniMax-M2.5-NVFP4"
+#sglang_model: "Qwen/Qwen3.5-122B-A10B-FP8"
 #sglang_model: "QuantTrio/Qwen3-235B-A22B-Thinking-2507-AWQ"
 #sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
 
@@ -341,6 +367,8 @@ sglang_mem_fraction_static: "{{ sglang_model_profiles[sglang_model].mem_fraction
 sglang_reasoning_parser: "{{ sglang_model_profiles[sglang_model].reasoning_parser | default('') }}"
 sglang_tool_call_parser: "{{ sglang_model_profiles[sglang_model].tool_call_parser | default('') }}"
 sglang_quantization: "{{ sglang_model_profiles[sglang_model].quantization | default('') }}"
+sglang_trust_remote_code: "{{ sglang_model_profiles[sglang_model].trust_remote_code | default(false) }}"
+sglang_moe_runner_backend: "{{ sglang_model_profiles[sglang_model].moe_runner_backend | default('') }}"
 # Load format: "auto" (default) or "sharded_state" (for pre-sharded models).
 # Use "sharded_state" after running sglang_shard Job to reduce peak GPU memory.
 sglang_load_format: "{{ sglang_model_profiles[sglang_model].load_format | default('auto') }}"
@@ -598,9 +626,10 @@ hf_cache_path: "/var/lib/hf-cache"
 hf_token: "hf_CHANGEME"
 # HuggingFace model pre-download Job
 hf_preload_models:
-  - "QuantTrio/Qwen3-235B-A22B-Thinking-2507-AWQ"
-  - "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
+  - "nvidia/MiniMax-M2.5-NVFP4"
   - "Qwen/Qwen3.5-122B-A10B-FP8"
+#  - "QuantTrio/Qwen3-235B-A22B-Thinking-2507-AWQ"
+#  - "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
 #  - "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
 #  - "Qwen/Qwen3.5-35B-A3B-FP8"
 #  - "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"
