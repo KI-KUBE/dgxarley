@@ -50,6 +50,8 @@ mikrotik_mgmt_interfaces:
     address: "192.168.124.1/24"
 
 mikrotik_default_gateway: "192.168.123.1"
+mikrotik_dns_servers:
+  - "192.168.123.1"
 
 mikrotik_srcnat_rules:
   - comment: "masquerade vlan124 to vlan123"

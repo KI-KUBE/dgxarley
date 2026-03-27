@@ -1,6 +1,8 @@
 ---
-- name: Enable VLAN filtering on bridge
+- name: Configure VLAN filtering on bridge
   community.routeros.command:
     commands:
-      - /interface/bridge/set [find name={{ mikrotik_bridge_name }}] vlan-filtering=yes
+      - >-
+        /interface/bridge/set [find name={{ mikrotik_bridge_name }}]
+        vlan-filtering={{ 'yes' if mikrotik_bridge_vlans | default([]) | length > 0 else 'no' }}
   changed_when: false

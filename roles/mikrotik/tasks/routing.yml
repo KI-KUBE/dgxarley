@@ -1,5 +1,5 @@
 ---
-- name: Ensure default route via {{ mikrotik_default_gateway }}
+- name: Ensure default route
   community.routeros.command:
     commands:
       - >-
@@ -7,3 +7,10 @@
         do={ /ip/route/add dst-address=0.0.0.0/0 gateway={{ mikrotik_default_gateway }} }
         else={ /ip/route/set [find dst-address=0.0.0.0/0] gateway={{ mikrotik_default_gateway }} }
   changed_when: false
+
+- name: Ensure DNS servers
+  community.routeros.command:
+    commands:
+      - /ip/dns/set servers={{ mikrotik_dns_servers | join(',') }}
+  changed_when: false
+  when: mikrotik_dns_servers | default([]) | length > 0

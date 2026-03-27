@@ -127,14 +127,21 @@
   when: qsfp_switch | default(false)
 
 # 9. Global lossless settings, QoS HW offload, DCBX
-- name: Set lossless traffic class and buffer allocation
+# lossless-traffic-class requires RouterOS v7.23+; ignore error on older versions
+- name: Set lossless traffic class (v7.23+)
   community.routeros.command:
     commands:
-      - >-
-        /interface/ethernet/switch/qos/settings/set
-        lossless-traffic-class={{ mikrotik_roce_traffic_class }}
-        lossless-buffers=auto
+      - /interface/ethernet/switch/qos/settings/set lossless-traffic-class={{ mikrotik_roce_traffic_class }}
   changed_when: false
+  failed_when: false
+  when: qsfp_switch | default(false)
+
+- name: Set lossless buffers (v7.23+)
+  community.routeros.command:
+    commands:
+      - /interface/ethernet/switch/qos/settings/set lossless-buffers=auto
+  changed_when: false
+  failed_when: false
   when: qsfp_switch | default(false)
 
 - name: Enable QoS hardware offloading

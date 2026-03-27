@@ -5,9 +5,9 @@
       - >-
         :if ([:len [/interface/bridge/port/find interface={{ item.interface }}]] = 0)
         do={ /interface/bridge/port/add bridge={{ mikrotik_bridge_name }}
-        interface={{ item.interface }} pvid={{ item.pvid }} hw=yes }
+        interface={{ item.interface }} {{ 'pvid=' ~ item.pvid if item.pvid is defined else '' }} hw=yes }
         else={ /interface/bridge/port/set [find interface={{ item.interface }}]
-        bridge={{ mikrotik_bridge_name }} pvid={{ item.pvid }} hw=yes }
+        bridge={{ mikrotik_bridge_name }} {{ 'pvid=' ~ item.pvid if item.pvid is defined else '' }} hw=yes }
   loop: "{{ mikrotik_bridge_ports }}"
   loop_control:
     label: "{{ item.interface }}"

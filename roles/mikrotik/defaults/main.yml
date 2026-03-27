@@ -1,5 +1,11 @@
 ---
 mikrotik_bridge_name: bridge
+mikrotik_bridge_ports: []
+mikrotik_bridge_vlans: []
+mikrotik_mgmt_interfaces: []
+mikrotik_dns_servers: []
+mikrotik_dhcp_servers: []
+mikrotik_srcnat_rules: []
 
 # RoCE/RDMA lossless Ethernet — only active when qsfp_switch: true
 mikrotik_qsfp_roce_ports: []
