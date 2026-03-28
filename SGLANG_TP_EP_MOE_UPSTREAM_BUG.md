@@ -219,6 +219,62 @@ Add EP-aware slicing in the `else` branch, same logic as `_slice_scale()`:
 
 Monkey-patched in `sglang_launch.sh` and `sglang_shard_launch.sh` (same string-replace pattern as the `moe_wna16` patch). The patch inserts the EP slicing block after the two assignments in the `else` branch.
 
+## Additional Bug: ModelOptModelLoader doesn't support sharded_state load format
+
+### Status
+
+**Unreported** as of 2026-03-28. Bug exists in SGLang `sglang/srt/model_loader/loader.py`, class `ModelOptModelLoader`.
+
+### Affected Configuration
+
+- Quantization: `modelopt_fp4` (NVFP4-quantized models)
+- Load format: `sharded_state` (pre-sharded checkpoints from `save_sharded_model`)
+- Any model loaded through `ModelOptModelLoader` with `--load-format sharded_state`
+- Tested with: nvidia/MiniMax-M2.5-NVFP4, pre-sharded TP=2 EP=2, on 0.5.9-dev2-acab24a7-t5
+
+Non-NVFP4 models (FP8, AWQ, etc.) are **not affected** — they use `DefaultModelLoader` or `ShardedStateLoader` directly.
+
+### The Bug
+
+`ModelOptModelLoader` inherits from `DefaultModelLoader`. For pre-quantized models (the common case for NVFP4), `load_model()` calls `super().load_model()` → `DefaultModelLoader._prepare_weights()`. This method handles `LoadFormat.AUTO`, `SAFETENSORS`, `PT`, `MISTRAL`, `NPCACHE`, and `DUMMY` — but **not `SHARDED_STATE`**, raising:
+
+```
+ValueError: Unknown load_format: LoadFormat.SHARDED_STATE
+```
+
+Meanwhile, `ShardedStateLoader` (which handles `SHARDED_STATE`) is a separate class inheriting from `BaseModelLoader`, not `DefaultModelLoader`. The two loaders are not composed.
+
+### Root Cause
+
+`ModelOptModelLoader` was designed for NVFP4 models loaded from standard HuggingFace checkpoints. Pre-sharded loading (`sharded_state`) was never considered in this code path. The class inheritance (`ModelOptModelLoader → DefaultModelLoader`) hardwires the default weight loading pipeline, which doesn't know about rank-specific shard files.
+
+### Fix
+
+In `ModelOptModelLoader.load_model()`, before falling through to `super().load_model()`, check for `SHARDED_STATE` and delegate to `ShardedStateLoader`:
+
+```python
+if model_config._is_already_quantized():
+    logger.info("Model is already quantized, loading directly...")
+    if self.load_config.load_format == LoadFormat.SHARDED_STATE:
+        logger.info("Using ShardedStateLoader for pre-quantized sharded model")
+        _sharded_loader = ShardedStateLoader(self.load_config)
+        return _sharded_loader.load_model(
+            model_config=model_config, device_config=device_config
+        )
+    return super().load_model(
+        model_config=model_config, device_config=device_config
+    )
+```
+
+This works because `ShardedStateLoader.load_model()` already:
+1. Initializes the model with `_initialize_model()` (respects quant config)
+2. Calls `quant_method.process_weights_after_loading()` (required for NVFP4 scale processing)
+3. Loads per-rank shard files via `safe_open` + `state_dict[key].data.copy_(tensor)`
+
+### Our Workaround
+
+Monkey-patched in `sglang_launch.sh` and `sglang_shard_launch.sh`. The patch inserts the `SHARDED_STATE` check before the existing `super().load_model()` call in `ModelOptModelLoader.load_model()`.
+
 ## Related Upstream Issues & PRs
 
 ### Directly addressing our bugs

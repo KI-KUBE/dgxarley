@@ -153,6 +153,48 @@ print("Patched modelopt_quant.py: EP-aware input_scale slicing in else-branch")
 PATCH_MODELOPT_EOF
 fi
 
+# Patch ModelOptModelLoader to support load_format=sharded_state (SGLang 0.5.9 bug).
+# ModelOptModelLoader inherits DefaultModelLoader whose _prepare_weights() doesn't
+# handle LoadFormat.SHARDED_STATE → "Unknown load_format" error. Fix: for pre-quantized
+# models with sharded_state, delegate to ShardedStateLoader instead of super().load_model().
+LOADER="/usr/local/lib/python3.12/dist-packages/sglang/srt/model_loader/loader.py"
+if grep -q 'class ModelOptModelLoader' "$LOADER" 2>/dev/null; then
+  python3 << 'PATCH_MODELOPT_SHARDED_EOF'
+import sys
+f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/model_loader/loader.py"
+with open(f) as fh:
+    code = fh.read()
+old = '''        if model_config._is_already_quantized():
+            logger.info("Model is already quantized, loading directly...")
+            # Use default loading for pre-quantized models
+            return super().load_model(
+                model_config=model_config, device_config=device_config
+            )'''
+new = '''        if model_config._is_already_quantized():
+            logger.info("Model is already quantized, loading directly...")
+            # Sharded state: delegate to ShardedStateLoader (which calls
+            # process_weights_after_loading and loads per-rank shard files).
+            # DefaultModelLoader._prepare_weights doesn't handle SHARDED_STATE.
+            if self.load_config.load_format == LoadFormat.SHARDED_STATE:
+                logger.info("Using ShardedStateLoader for pre-quantized sharded model")
+                _sharded_loader = ShardedStateLoader(self.load_config)
+                return _sharded_loader.load_model(
+                    model_config=model_config, device_config=device_config
+                )
+            # Use default loading for pre-quantized models
+            return super().load_model(
+                model_config=model_config, device_config=device_config
+            )'''
+if old not in code:
+    print("ModelOptModelLoader: already patched or source changed, skipping")
+    sys.exit(0)
+code = code.replace(old, new, 1)
+with open(f, 'w') as fh:
+    fh.write(code)
+print("Patched ModelOptModelLoader: sharded_state support for pre-quantized models")
+PATCH_MODELOPT_SHARDED_EOF
+fi
+
 args=(
   tini -s --
   python3 -m sglang.launch_server
