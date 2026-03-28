@@ -55,6 +55,8 @@ def main():
         shard_suffix += f"-EP{ep}"
     if quantization:
         shard_suffix += f"-{quantization}"
+    if moe_runner_backend:
+        shard_suffix += f"-{moe_runner_backend}"
     default_output = f"/root/.cache/huggingface/sharded/{model_slug}-{shard_suffix}"
     output_dir = os.environ.get("SHARD_OUTPUT_DIR", default_output)
 

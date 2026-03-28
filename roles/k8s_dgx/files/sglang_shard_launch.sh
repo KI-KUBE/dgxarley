@@ -174,6 +174,9 @@ fi
 if [ -n "$SGLANG_QUANTIZATION" ]; then
   shard_suffix="${shard_suffix}-${SGLANG_QUANTIZATION}"
 fi
+if [ -n "$SGLANG_MOE_RUNNER_BACKEND" ]; then
+  shard_suffix="${shard_suffix}-${SGLANG_MOE_RUNNER_BACKEND}"
+fi
 shard_dir="/root/.cache/huggingface/sharded/${model_slug}-${shard_suffix}"
 if [ ! -f "$shard_dir/model.safetensors.index.json" ]; then
   rm -f "$shard_dir"/model-rank-*-part-*.safetensors 2>/dev/null || true

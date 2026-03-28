@@ -39,6 +39,9 @@ if [ "$SGLANG_LOAD_FORMAT" = "sharded_state" ]; then
   if [ -n "$SGLANG_QUANTIZATION" ]; then
     shard_suffix="${shard_suffix}-${SGLANG_QUANTIZATION}"
   fi
+  if [ -n "$SGLANG_MOE_RUNNER_BACKEND" ]; then
+    shard_suffix="${shard_suffix}-${SGLANG_MOE_RUNNER_BACKEND}"
+  fi
   sharded_path="/root/.cache/huggingface/sharded/${model_slug}-${shard_suffix}"
   marker="${sharded_path}/model.safetensors.index.json"
   echo "Waiting for sharded checkpoint at ${marker} ..."
@@ -279,6 +282,9 @@ if [ "$SGLANG_CUDA_GRAPH_MAX_BS" = "0" ]; then
   args+=(--disable-cuda-graph)
 elif [ -n "$SGLANG_CUDA_GRAPH_MAX_BS" ] && [ "$SGLANG_CUDA_GRAPH_MAX_BS" != "256" ]; then
   args+=(--cuda-graph-max-bs "$SGLANG_CUDA_GRAPH_MAX_BS")
+fi
+if [ "$SGLANG_DISABLE_PIECEWISE_CUDA_GRAPH" = "true" ]; then
+  args+=(--disable-piecewise-cuda-graph)
 fi
 if [ -n "$SGLANG_SERVED_MODEL_NAME" ]; then
   args+=(--served-model-name "$SGLANG_SERVED_MODEL_NAME")
