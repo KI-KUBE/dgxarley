@@ -73,6 +73,7 @@ def main():
     if force and (Path(output_dir) / "model.safetensors.index.json").exists():
         print(f"[rank {node_rank}] FORCE_RESHARD set — removing existing shards at {output_dir}", flush=True)
         shutil.rmtree(output_dir)
+        print(f"[rank {node_rank}] Removed {output_dir}", flush=True)
 
     # Ensure the model is downloaded locally
     from huggingface_hub import snapshot_download
