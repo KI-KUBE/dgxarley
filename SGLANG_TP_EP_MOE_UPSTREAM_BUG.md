@@ -2,8 +2,12 @@
 
 ## Status
 
-**Unreported** as of 2026-03-19. Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447).
+**Open upstream (vLLM only)** as of 2026-03-28. Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447).
 
+- vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, unreviewed, not merged
+- SGLang: no upstream issue or PR filed
+
+Files:
 - SGLang: `sglang/srt/layers/quantization/moe_wna16.py`, lines 491–504 (v0.5.9)
 - vLLM: `vllm/model_executor/layers/quantization/moe_wna16.py`, lines 492–505
 
@@ -110,6 +114,10 @@ be solving a problem that doesn't need to exist.
 
 ## Additional Bug: EPLB crashes with Qwen3MoE and Qwen3.5MoE
 
+**Upstream status** as of 2026-03-28:
+- Qwen3.5: fixed via [PR #19767](https://github.com/sgl-project/sglang/pull/19767) (merged 2026-03-09)
+- Qwen3: [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — open since 2026-03-26, not merged
+
 When `--enable-eplb` is active with EP, the `EPLBManager` crashes after its first rebalance
 interval (default: 1000 forward passes):
 
@@ -149,7 +157,7 @@ which is acceptable.
 
 ### Status
 
-**Unreported** as of 2026-03-27. Bug exists in SGLang `sglang/srt/layers/quantization/modelopt_quant.py`, class `ModelOptNvFp4FusedMoEMethod`.
+**Reported** as of 2026-03-28: [sgl-project/sglang#21602](https://github.com/sgl-project/sglang/issues/21602). Bug exists in SGLang `sglang/srt/layers/quantization/modelopt_quant.py`, class `ModelOptNvFp4FusedMoEMethod`.
 
 ### Affected Configuration
 
@@ -211,10 +219,20 @@ Add EP-aware slicing in the `else` branch, same logic as `_slice_scale()`:
 
 Monkey-patched in `sglang_launch.sh` and `sglang_shard_launch.sh` (same string-replace pattern as the `moe_wna16` patch). The patch inserts the EP slicing block after the two assignments in the `else` branch.
 
-## Related Issues (none address these bugs)
+## Related Upstream Issues & PRs
 
+### Directly addressing our bugs
+- vLLM [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — fix moe_wna16 qzeros EP (open, unreviewed)
+- SGLang [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — fix EPLB Qwen3 missing `routed_experts_weights_of_layer` (open)
+- SGLang [PR #19767](https://github.com/sgl-project/sglang/pull/19767) — fix EPLB Qwen3.5 (merged 2026-03-09)
+- SGLang [#21602](https://github.com/sgl-project/sglang/issues/21602) — our report: NVFP4 input_scale not EP-aware
+
+### Related but not fixing our bugs
 - vLLM #12647 — moe_wna16 AssertionError (KV cache conflict, unrelated)
 - vLLM #22961 — TypeError in moe_wna16_weight_loader (return_success param, unrelated)
 - vLLM PR #14447 — introduced moe_wna16 marlin kernel (origin of this code)
+- vLLM [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch (open, different sub-bug)
 - SGLang PR #17137 — non-Marlin WNA16MoE port (does not fix EP bug)
 - SGLang #14158 — update_weights_from_tensor for WNA16MoE (unrelated)
+- SGLang [PR #13715](https://github.com/sgl-project/sglang/pull/13715) — fix EPLB + FP4 weight tensor filtering (merged, different issue)
+- SGLang [PR #20963](https://github.com/sgl-project/sglang/pull/20963) — Nvidia modelopt refactoring (migrates Bug 3 as-is)
