@@ -82,17 +82,23 @@ def main():
     # Create Engine with multi-node TP params
     from sglang import Engine
 
+    # mem_fraction_static from env (set by Ansible from model profile), fallback 0.80.
+    # Shard job only loads weights and saves — no inference. Use the same fraction
+    # as the serving profile so the Engine doesn't OOM on heavy models (e.g.
+    # MiniMax-M2.5-NVFP4 at ~70 GB/GPU needs > 0.60). context_length=128 minimizes
+    # the actual KV cache allocation within that fraction.
+    mem_frac = float(os.environ.get("SGLANG_MEM_FRACTION", "0.80"))
+
     engine_kwargs = {
         "model_path": local_path,
         "tp_size": tp,
         "nnodes": nnodes,
         "node_rank": node_rank,
         "dist_init_addr": nccl_init_addr,
-        # Shard job only needs to load weights and save — no inference.
-        # Minimize KV cache and skip CUDA graph capture to avoid OOM.
-        "mem_fraction_static": 0.60,
+        "mem_fraction_static": mem_frac,
         "context_length": 128,
         "disable_cuda_graph": True,
+        "disable_piecewise_cuda_graph": True,
     }
     if ep > 1:
         engine_kwargs["ep_size"] = ep
