@@ -1,4 +1,4 @@
-# SGLang/vLLM Upstream Bug: moe_wna16 qzeros + Expert Parallelism
+# SGLang/vLLM Upstream Bugs: MoE + Expert Parallelism (moe_wna16 + modelopt_quant)
 
 ## Status
 
@@ -144,6 +144,72 @@ attribute for `Qwen3_5MoeForConditionalGeneration` despite the claim. The exact 
 assignment (experts 0–63 → GPU 0, experts 64–127 → GPU 1). The static assignment is suboptimal
 if expert activation is highly skewed, but in practice Qwen3-235B shows ~0.82 balancedness
 which is acceptable.
+
+## Additional Bug: modelopt_quant.py NVFP4 input_scale not EP-aware
+
+### Status
+
+**Unreported** as of 2026-03-27. Bug exists in SGLang `sglang/srt/layers/quantization/modelopt_quant.py`, class `ModelOptNvFp4FusedMoEMethod`.
+
+### Affected Configuration
+
+- Quantization: `modelopt_fp4` (NVFP4-quantized MoE models)
+- Expert Parallelism: `ep_size > 1`
+- Backend: the `else` fallback branch in `process_weights_after_loading` (i.e., when neither `enable_flashinfer_cutlass_moe`, `enable_flashinfer_trtllm_moe`, nor `enable_flashinfer_cutedsl_moe` is active — this is the path hit by the **shard job** which doesn't configure a MoE runner backend)
+- Tested with: nvidia/MiniMax-M2.5-NVFP4 (256 experts), TP=2, EP=2, shard job on 0.5.9-dev2-acab24a7-t5
+
+The `flashinfer_cutlass` and `trtllm` branches are **not affected** (they reduce input_scale to a scalar via `.max()`). The `cutedsl` branch is **not affected** (it has a `_slice_scale()` helper that correctly slices to local experts).
+
+### The Bug
+
+In `process_weights_after_loading()`, the `else` branch computes:
+
+```python
+w13_input_scale = layer.w13_input_scale.max(dim=-1).values.to(torch.float32)  # shape: (num_experts,)
+w2_input_scale = layer.w2_input_scale                                          # shape: (num_experts,)
+```
+
+These are then multiplied with EP-local weight scales:
+
+```python
+(w13_input_scale * w13_weight_scale_2).to(torch.float32)  # (256,) * (128,) → RuntimeError
+(w2_input_scale * layer.w2_weight_scale_2).to(torch.float32)  # same
+```
+
+`w13_weight_scale_2` has shape `(num_local_experts,)` = 128 with EP=2, but `w13_input_scale` remains at `(num_experts,)` = 256.
+
+### Root Cause
+
+`w13_input_scale` and `w2_input_scale` are allocated as global tensors (flagged with `_sglang_require_global_experts = True`) because the weight loader fills them for all experts. The `cutedsl` branch correctly slices them to local experts via `_slice_scale()`, but this helper is defined inside the `elif` block and is not available to the `else` branch. The `else` branch was never tested with EP > 1.
+
+### Crash Output
+
+```
+[2026-03-27 18:41:27 TP0 EP0] Scheduler hit an exception:
+  File ".../modelopt_quant.py", line 1560, in process_weights_after_loading
+    (w13_input_scale * w13_weight_scale_2).to(torch.float32),
+RuntimeError: The size of tensor a (256) must match the size of tensor b (128) at non-singleton dimension 0
+```
+
+### Fix
+
+Add EP-aware slicing in the `else` branch, same logic as `_slice_scale()`:
+
+```python
+        else:
+            w13_input_scale = layer.w13_input_scale.max(dim=-1).values.to(torch.float32)
+            w2_input_scale = layer.w2_input_scale
+            # EP-aware slicing: no-op when ep_size=1
+            if layer.moe_ep_size > 1:
+                _ep_start = layer.moe_ep_rank * layer.num_local_experts
+                _ep_end = _ep_start + layer.num_local_experts
+                w13_input_scale = w13_input_scale[_ep_start:_ep_end]
+                w2_input_scale = w2_input_scale[_ep_start:_ep_end]
+```
+
+### Our Workaround
+
+Monkey-patched in `sglang_launch.sh` and `sglang_shard_launch.sh` (same string-replace pattern as the `moe_wna16` patch). The patch inserts the EP slicing block after the two assignments in the `else` branch.
 
 ## Related Issues (none address these bugs)
 
