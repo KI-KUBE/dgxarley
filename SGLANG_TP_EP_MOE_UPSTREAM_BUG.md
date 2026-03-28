@@ -223,7 +223,7 @@ Monkey-patched in `sglang_launch.sh` and `sglang_shard_launch.sh` (same string-r
 
 ### Status
 
-**Unreported** as of 2026-03-28. Bug exists in SGLang `sglang/srt/model_loader/loader.py`, class `ModelOptModelLoader`.
+**Reported** as of 2026-03-28: [sgl-project/sglang#21603](https://github.com/sgl-project/sglang/issues/21603). Bug exists in SGLang `sglang/srt/model_loader/loader.py`, class `ModelOptModelLoader`.
 
 ### Affected Configuration
 
@@ -246,34 +246,28 @@ Meanwhile, `ShardedStateLoader` (which handles `SHARDED_STATE`) is a separate cl
 
 ### Root Cause
 
-`ModelOptModelLoader` was designed for NVFP4 models loaded from standard HuggingFace checkpoints. Pre-sharded loading (`sharded_state`) was never considered in this code path. The class inheritance (`ModelOptModelLoader → DefaultModelLoader`) hardwires the default weight loading pipeline, which doesn't know about rank-specific shard files.
+`ModelOptModelLoader` inherits `DefaultModelLoader` whose `_prepare_weights()` doesn't handle `LoadFormat.SHARDED_STATE` → raises `ValueError: Unknown load_format`. `ShardedStateLoader` (which handles `SHARDED_STATE`) is a separate class inheriting `BaseModelLoader` — the two are not composed.
+
+**Note**: After fixing the loader dispatch, we initially hit a secondary `IndexError` (tensor shape mismatch during shard loading). This was **not an upstream bug** but a config issue on our side: the shard job didn't pass `moe_runner_backend`, causing `process_weights_after_loading` to take a different branch (per-expert 1D scales) than serving (scalar scales via `flashinfer_cutlass`). Fixed by passing `SGLANG_MOE_RUNNER_BACKEND` to the shard job so both use the same code path.
 
 ### Fix
 
-In `ModelOptModelLoader.load_model()`, before falling through to `super().load_model()`, check for `SHARDED_STATE` and delegate to `ShardedStateLoader`:
+In `ModelOptModelLoader.load_model()`, check for `SHARDED_STATE` and delegate to `ShardedStateLoader`:
 
 ```python
 if model_config._is_already_quantized():
-    logger.info("Model is already quantized, loading directly...")
     if self.load_config.load_format == LoadFormat.SHARDED_STATE:
-        logger.info("Using ShardedStateLoader for pre-quantized sharded model")
         _sharded_loader = ShardedStateLoader(self.load_config)
         return _sharded_loader.load_model(
             model_config=model_config, device_config=device_config
         )
-    return super().load_model(
-        model_config=model_config, device_config=device_config
-    )
+    return super().load_model(...)
 ```
-
-This works because `ShardedStateLoader.load_model()` already:
-1. Initializes the model with `_initialize_model()` (respects quant config)
-2. Calls `quant_method.process_weights_after_loading()` (required for NVFP4 scale processing)
-3. Loads per-rank shard files via `safe_open` + `state_dict[key].data.copy_(tensor)`
 
 ### Our Workaround
 
-Monkey-patched in `sglang_launch.sh` and `sglang_shard_launch.sh`. The patch inserts the `SHARDED_STATE` check before the existing `super().load_model()` call in `ModelOptModelLoader.load_model()`.
+- **Loader dispatch**: monkey-patched in `sglang_launch.sh` and `sglang_shard_launch.sh` (delegates to `ShardedStateLoader` when `load_format == SHARDED_STATE`)
+- **Shard job config**: `SGLANG_MOE_RUNNER_BACKEND` env var added to shard job containers in `sglang_shard.yml`, passed through to `Engine()` in `sglang_save_sharded.py` — ensures consistent `process_weights_after_loading` branches between shard and serving
 
 ## Related Upstream Issues & PRs
 
@@ -282,6 +276,7 @@ Monkey-patched in `sglang_launch.sh` and `sglang_shard_launch.sh`. The patch ins
 - SGLang [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — fix EPLB Qwen3 missing `routed_experts_weights_of_layer` (open)
 - SGLang [PR #19767](https://github.com/sgl-project/sglang/pull/19767) — fix EPLB Qwen3.5 (merged 2026-03-09)
 - SGLang [#21602](https://github.com/sgl-project/sglang/issues/21602) — our report: NVFP4 input_scale not EP-aware
+- SGLang [#21603](https://github.com/sgl-project/sglang/issues/21603) — our report: ModelOptModelLoader doesn't support sharded_state
 
 ### Related but not fixing our bugs
 - vLLM #12647 — moe_wna16 AssertionError (KV cache conflict, unrelated)

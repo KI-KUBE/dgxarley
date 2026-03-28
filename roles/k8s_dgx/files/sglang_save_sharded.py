@@ -38,6 +38,7 @@ def main():
     model_id = os.environ.get("SGLANG_MODEL", "")
     quantization = os.environ.get("SGLANG_QUANTIZATION", "") or None
     attention_backend = os.environ.get("SGLANG_ATTENTION_BACKEND", "") or None
+    moe_runner_backend = os.environ.get("SGLANG_MOE_RUNNER_BACKEND", "") or None
     tp = int(os.environ.get("TP", "2"))
     ep = int(os.environ.get("EP", "1"))
     nnodes = int(os.environ.get("NNODES", "2"))
@@ -63,11 +64,15 @@ def main():
     print(f"[rank {node_rank}] NCCL init:    {nccl_init_addr}", flush=True)
     print(f"[rank {node_rank}] Output:       {output_dir}", flush=True)
 
-    # Check if already sharded
     # Check if already sharded (index.json is written last by ShardedStateLoader)
-    if (Path(output_dir) / "model.safetensors.index.json").exists():
+    force = os.environ.get("FORCE_RESHARD", "").lower() in ("1", "true", "yes")
+    if (Path(output_dir) / "model.safetensors.index.json").exists() and not force:
         print(f"[rank {node_rank}] Sharded checkpoint already exists (index.json found), skipping.", flush=True)
+        print(f"[rank {node_rank}] Use -e force_sglang_shard=true to re-shard.", flush=True)
         sys.exit(0)
+    if force and (Path(output_dir) / "model.safetensors.index.json").exists():
+        print(f"[rank {node_rank}] FORCE_RESHARD set — removing existing shards at {output_dir}", flush=True)
+        shutil.rmtree(output_dir)
 
     # Ensure the model is downloaded locally
     from huggingface_hub import snapshot_download
@@ -106,6 +111,12 @@ def main():
         engine_kwargs["quantization"] = quantization
     if attention_backend:
         engine_kwargs["attention_backend"] = attention_backend
+    if moe_runner_backend:
+        # Critical for NVFP4+sharded_state: process_weights_after_loading takes
+        # different branches depending on the MoE backend (flashinfer_cutlass →
+        # scalar input_scale vs. else → per-expert). Shards must be saved with
+        # the same backend as serving, otherwise tensor shapes won't match at load.
+        engine_kwargs["moe_runner_backend"] = moe_runner_backend
     # Speculative decoding params (speculative_algo, etc.) are NOT passed to
     # Engine — they only affect inference, not weight sharding. The shard job
     # loads and saves weights identically regardless of speculative mode.
