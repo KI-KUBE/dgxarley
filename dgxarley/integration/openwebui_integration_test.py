@@ -45,6 +45,7 @@ Usage::
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -451,6 +452,8 @@ class LLMClient:
 
         in_thinking: bool = False
         usage: dict[str, int] = {}
+        think_chars: int = 0
+        content_chars: int = 0
         for raw_line in response.iter_lines():
             if not raw_line:
                 continue
@@ -468,12 +471,14 @@ class LLMClient:
             reasoning: str = delta.get("reasoning_content", "")
             content: str = delta.get("content", "")
             if reasoning:
+                think_chars += len(reasoning)
                 if print_thinking:
                     if not in_thinking:
                         print("\033[2m<think>", end="", flush=True)
                         in_thinking = True
                     print(reasoning, end="", flush=True)
             if content:
+                content_chars += len(content)
                 if in_thinking:
                     if print_thinking:
                         print("</think>\033[0m\n", end="", flush=True)
@@ -482,6 +487,17 @@ class LLMClient:
         if in_thinking:
             print("</think>\033[0m", end="", flush=True)
         print()
+
+        # Token breakdown summary
+        think_est = think_chars // 4
+        content_est = content_chars // 4
+        total_tok = usage.get("completion_tokens", think_est + content_est)
+        prompt_tok = usage.get("prompt_tokens", 0)
+        print(
+            f"\033[2m  tokens: {total_tok} total"
+            f" (think ~{think_est} / content ~{content_est})"
+            f" | prompt: {prompt_tok}\033[0m"
+        )
         return usage
 
     # -- Convenience helpers --
@@ -955,6 +971,12 @@ def main() -> None:
         action="store_true",
         help="Print full payload JSON before each request",
     )
+    parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompt",
+    )
     args = parser.parse_args()
 
     client: OpenWebUIClient = create_openwebui_client(verbose=args.verbose)
@@ -972,6 +994,29 @@ def main() -> None:
             "sampling",
             "presets",
         }
+
+    # Show config summary and wait for confirmation
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.syntax import Syntax
+
+    config_summary = {
+        "tests": sorted(tests),
+        "verbose": args.verbose,
+    }
+    Console().print(
+        Panel(
+            Syntax(json.dumps(config_summary, indent=2, ensure_ascii=False), "json", theme="monokai"),
+            title="[bold]Test Configuration[/]",
+            border_style="cyan",
+        )
+    )
+    if not args.yes:
+        try:
+            input("[Enter to run tests, Ctrl+C to abort] ")
+        except KeyboardInterrupt:
+            print("\nAborted.")
+            sys.exit(0)
 
     if "xkcd" in tests:
         image: Image.Image = get_random_xkcd_image(get_random_xkcd_image_url())
