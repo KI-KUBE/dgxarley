@@ -2,10 +2,12 @@
 
 ## Status
 
-**Unreported** as of 2026-03-20. Bug exists on SGLang `main` branch.
+**Fixed upstream** as of 2026-03-27.
 
+- Fix PR: [#20232](https://github.com/sgl-project/sglang/pull/20232) — "[fix] qwen3.5 fuse_moe_triton_tune bug", merged 2026-03-27 (commit `e2b8463c`)
 - File: `benchmark/kernels/fused_moe_triton/common_utils.py`, function `get_model_config()`
-- Transformers version: 5.3.0
+- Transformers version: 5.3.0 (unchanged)
+- Our image (`0.5.9-dev2-acab24a7`, 2026-03-11) predates the fix — our workaround in `sglang_tune_moe.sh` is still needed until the next image rebuild
 
 ## Affected Configuration
 
@@ -58,14 +60,18 @@ SGLang expects: E=128,N=1024,device_name=NVIDIA_GB10,dtype=fp8_w8a8,block_shape=
 
 SGLang logs: `Using default MoE kernel config. Performance might be sub-optimal!` — the tuned config exists but SGLang can't find it because the filename doesn't match.
 
-## Additional: no `_down` MoE config support
+## Additional: no `_down` MoE config support in main tuning script
 
-SGLang also looks for a `_down.json` variant (down-projection MoE kernel), but the upstream tuning script (`tuning_fused_moe_triton.py`) does not support generating this. SGLang falls back to defaults for the down projection. Non-critical.
+SGLang also looks for a `_down.json` variant (down-projection MoE kernel), but the main tuning script (`tuning_fused_moe_triton.py`) does not support generating this. SGLang falls back to defaults for the down projection. Non-critical.
 
 ```
 Using MoE kernel config with down_moe=False. Performance might be sub-optimal!
 Config file not found at .../E=128,N=1024,device_name=NVIDIA_GB10,dtype=fp8_w8a8,block_shape=[128, 128]_down.json
 ```
+
+A separate script `tuning_fused_moe_triton_sep.py` (introduced by PR #10567, 2025-10-28) **does** support
+`_down.json` generation — it tunes gate/up and down-projection kernels separately via `save_configs_sep()`
+with `down_moe=True`. Our `sglang_tune_moe.sh` currently uses the main script, not the `_sep` variant.
 
 ## Fix
 
@@ -85,3 +91,8 @@ if hasattr(config, "text_config"):
 ## Our Workaround
 
 `roles/k8s_dgx/files/sglang_tune_moe.sh` patches `common_utils.py` after downloading it from GitHub. The patch is idempotent — if upstream fixes the code and the patch target is no longer found, it prints a warning and continues.
+
+Since the upstream fix (PR #20232) landed 2026-03-27, the patch target will no longer be found when
+downloading from current `main`. The script handles this gracefully (warns and proceeds with the
+unpatched upstream file, which now works correctly). The workaround can be removed on the next
+image rebuild that includes the fix.

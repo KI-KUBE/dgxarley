@@ -2,9 +2,9 @@
 
 ## Status
 
-**Open upstream (vLLM only)** as of 2026-03-28. Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447).
+**Open upstream (vLLM only)** as of 2026-03-29. Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447).
 
-- vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, unreviewed, not merged
+- vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, only bot review, not merged
 - SGLang: no upstream issue or PR filed
 
 Files:
@@ -114,9 +114,9 @@ be solving a problem that doesn't need to exist.
 
 ## Additional Bug: EPLB crashes with Qwen3MoE and Qwen3.5MoE
 
-**Upstream status** as of 2026-03-28:
+**Upstream status** as of 2026-03-29:
 - Qwen3.5: fixed via [PR #19767](https://github.com/sgl-project/sglang/pull/19767) (merged 2026-03-09)
-- Qwen3: [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — open since 2026-03-26, not merged
+- Qwen3: [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — open since 2026-03-26, bot-approved but no human merge yet
 
 When `--enable-eplb` is active with EP, the `EPLBManager` crashes after its first rebalance
 interval (default: 1000 forward passes):
@@ -158,6 +158,10 @@ which is acceptable.
 ### Status
 
 **Reported** as of 2026-03-28: [sgl-project/sglang#21602](https://github.com/sgl-project/sglang/issues/21602). Bug exists in SGLang `sglang/srt/layers/quantization/modelopt_quant.py`, class `ModelOptNvFp4FusedMoEMethod`.
+
+Two competing fix PRs have been filed (neither merged as of 2026-03-29):
+- [PR #20869](https://github.com/sgl-project/sglang/pull/20869) (2026-03-18) — broader fix: EP-slices input_scale, passes `num_local_experts` to `CutlassMoEParams`, extends SM120 support
+- [PR #21630](https://github.com/sgl-project/sglang/pull/21630) (2026-03-29) — narrower fix: only the `else` branch (non-FlashInfer backends)
 
 ### Affected Configuration
 
@@ -223,7 +227,7 @@ Monkey-patched in `sglang_launch.sh` and `sglang_shard_launch.sh` (same string-r
 
 ### Status
 
-**Reported** as of 2026-03-28: [sgl-project/sglang#21603](https://github.com/sgl-project/sglang/issues/21603). Bug exists in SGLang `sglang/srt/model_loader/loader.py`, class `ModelOptModelLoader`.
+**Reported** as of 2026-03-28: [sgl-project/sglang#21603](https://github.com/sgl-project/sglang/issues/21603). Bug exists in SGLang `sglang/srt/model_loader/loader.py`, class `ModelOptModelLoader`. No fix PR filed as of 2026-03-29.
 
 ### Affected Configuration
 
@@ -272,11 +276,13 @@ if model_config._is_already_quantized():
 ## Related Upstream Issues & PRs
 
 ### Directly addressing our bugs
-- vLLM [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — fix moe_wna16 qzeros EP (open, unreviewed)
-- SGLang [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — fix EPLB Qwen3 missing `routed_experts_weights_of_layer` (open)
+- vLLM [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — fix moe_wna16 qzeros EP (open, only bot review)
+- SGLang [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — fix EPLB Qwen3 missing `routed_experts_weights_of_layer` (open, bot-approved)
 - SGLang [PR #19767](https://github.com/sgl-project/sglang/pull/19767) — fix EPLB Qwen3.5 (merged 2026-03-09)
 - SGLang [#21602](https://github.com/sgl-project/sglang/issues/21602) — our report: NVFP4 input_scale not EP-aware
-- SGLang [#21603](https://github.com/sgl-project/sglang/issues/21603) — our report: ModelOptModelLoader doesn't support sharded_state
+  - Fix PR: [#20869](https://github.com/sgl-project/sglang/pull/20869) — broader fix incl. CutlassMoEParams + SM120 (open)
+  - Fix PR: [#21630](https://github.com/sgl-project/sglang/pull/21630) — narrower fix, else-branch only (open, 2026-03-29)
+- SGLang [#21603](https://github.com/sgl-project/sglang/issues/21603) — our report: ModelOptModelLoader doesn't support sharded_state (no fix PR)
 
 ### Related but not fixing our bugs
 - vLLM #12647 — moe_wna16 AssertionError (KV cache conflict, unrelated)
