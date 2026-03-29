@@ -818,8 +818,6 @@ def print_final_summary(all_stats: list[RequestStats], wall_time: float, verbose
             s.prompt[:40] + ("..." if len(s.prompt) > 40 else ""),
         )
 
-    console.print(table)
-
     # Full output log for each request
     console.print()
     for s in all_stats:
@@ -872,7 +870,8 @@ def print_final_summary(all_stats: list[RequestStats], wall_time: float, verbose
                 )
             )
 
-    # Aggregate stats at the end (after details, so no scrolling needed)
+    # Results table + aggregate stats at the end (after details, so no scrolling needed)
+    console.print(table)
     done = [s for s in all_stats if s.status == "done"]
     if done:
         total_out = sum(s.output_tokens for s in done)
