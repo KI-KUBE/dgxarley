@@ -7,6 +7,27 @@ name = "dgxarley"
 dynamic = ["version"]
 requires-python = ">=3.14"
 readme = "README_pypi.md"
+authors = [
+  { name="Henning Thieß", email="ht@xomox.cc" },
+]
+license-files = ["LICENSE.md"]
+keywords = ["llm", "inference", "sglang", "ollama", "openwebui", "dgx", "k3s", "streaming", "repetition-detection"]
+
+# https://pypi.org/classifiers/
+classifiers = [
+    "Development Status :: 4 - Beta",
+
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: System :: Distributed Computing",
+
+    "License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)",
+    "Operating System :: POSIX :: Linux",
+]
+
+
 dependencies = [
     "requests",
     "rich",
@@ -43,6 +64,13 @@ ansible = [
 build = [
     "hatch",
 ]
+
+[project.urls]
+Homepage = "https://github.com/vroomfondel/dgxarley"
+Repository = "https://github.com/vroomfondel/dgxarley"
+Issues = "https://github.com/vroomfondel/dgxarley/issues"
+
+
 
 [tool.hatch.version]
 path = "dgxarley/__init__.py"

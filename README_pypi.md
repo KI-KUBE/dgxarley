@@ -62,5 +62,20 @@ for chunk in llm_stream:
 Full documentation, network architecture, and Ansible playbooks: [GitHub](https://github.com/vroomfondel/dgxarley)
 
 ## License
+This project is licensed under the LGPL where applicable/possible — see [LICENSE.md](https://github.com/vroomfondel/dgxarley/blob/main/LICENSE.md). Some files/parts may use other licenses: [MIT](https://github.com/vroomfondel/dgxarley/blob/main/LICENSEMIT.md) | [GPL](https://github.com/vroomfondel/dgxarley/blob/main/LICENSEGPL.md) | [LGPL](https://github.com/vroomfondel/dgxarley/blob/main/LICENSELGPL.md). Always check per‑file headers/comments.
 
-LGPL where applicable — see [LICENSE.md](https://github.com/vroomfondel/dgxarley/blob/main/LICENSE.md) for details.
+
+## Authors
+- Repo owner (primary author)
+- Additional attributions are noted inline in code comments
+
+
+## Acknowledgments
+- Inspirations and snippets are referenced in code comments where appropriate.
+
+
+## ⚠️ Note
+
+This is a development/experimental project. For production use, review security settings, customize configurations, and test thoroughly in your environment. Provided "as is" without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose and noninfringement. In no event shall the authors or copyright holders be liable for any claim, damages or other liability, whether in an action of contract, tort or otherwise, arising from, out of or in connection with the software or the use or other dealings in the software. Use at your own risk.
+
+
