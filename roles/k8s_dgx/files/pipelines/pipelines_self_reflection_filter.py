@@ -13,13 +13,13 @@ import aiohttp
 
 # Read SGLang endpoint from environment (set via pipelines-config ConfigMap).
 # Fallback to a sensible cluster-internal default.
-_DEFAULT_SGLANG_URL: str = os.environ.get(
-    "SGLANG_API_BASE_URL", "http://localhost:8000/v1"
-)
+_DEFAULT_SGLANG_URL: str = os.environ.get("SGLANG_API_BASE_URL", "http://localhost:8000/v1")
 
-_DEFAULT_SELF_REFLECTION_ENABLED: bool = os.environ.get(
-    "SELF_REFLECTION_ENABLED", "false"
-).lower() in ("true", "1", "yes")
+_DEFAULT_SELF_REFLECTION_ENABLED: bool = os.environ.get("SELF_REFLECTION_ENABLED", "false").lower() in (
+    "true",
+    "1",
+    "yes",
+)
 
 
 class Pipeline:
@@ -101,11 +101,11 @@ class Pipeline:
             content = msg.get("content", "")
             if isinstance(content, str):
                 if content.startswith("/no_think"):
-                    msg["content"] = content[len("/no_think"):].lstrip("\n ")
+                    msg["content"] = content[len("/no_think") :].lstrip("\n ")
                     body.setdefault("chat_template_kwargs", {})["enable_thinking"] = False
                     print(f"[inlet] /no_think detected — enable_thinking=False, stripped msg: {msg['content'][:80]}")
                 elif content.startswith("/think"):
-                    msg["content"] = content[len("/think"):].lstrip("\n ")
+                    msg["content"] = content[len("/think") :].lstrip("\n ")
                     body.setdefault("chat_template_kwargs", {})["enable_thinking"] = True
                     print(f"[inlet] /think detected — enable_thinking=True, stripped msg: {msg['content'][:80]}")
                 else:
@@ -150,12 +150,7 @@ class Pipeline:
             last_msg = messages[-1] if messages else {}
             if isinstance(last_msg, str):
                 last_msg = {}
-            sources = (
-                body.get("sources")
-                or body.get("citations")
-                or last_msg.get("sources")
-                or []
-            )
+            sources = body.get("sources") or body.get("citations") or last_msg.get("sources") or []
             # Parse OpenWebUI web_search source structure into XML:
             # sources[i]["metadata"] = list of {title, description, source (url), score}
             # sources[i]["document"] = list of full extracted page texts (parallel to metadata)
@@ -165,7 +160,7 @@ class Pipeline:
             snippet_max = self.valves.snippet_max_chars
             source_count = 0
             skipped_count = 0
-            xml_parts = ['<web_search_context>']
+            xml_parts = ["<web_search_context>"]
             for src in sources:
                 if not isinstance(src, dict):
                     continue
@@ -173,11 +168,11 @@ class Pipeline:
                 if isinstance(src_info, dict):
                     queries = src_info.get("queries", [])
                     if queries:
-                        xml_parts.append('  <search_queries>')
+                        xml_parts.append("  <search_queries>")
                         for q in queries:
                             if isinstance(q, str):
-                                xml_parts.append(f'    <query>{q}</query>')
-                        xml_parts.append('  </search_queries>')
+                                xml_parts.append(f"    <query>{q}</query>")
+                        xml_parts.append("  </search_queries>")
                 metadata_list = src.get("metadata", [])
                 if not isinstance(metadata_list, list):
                     metadata_list = []
@@ -186,7 +181,7 @@ class Pipeline:
                 if not isinstance(doc_list, list):
                     doc_list = []
                 if metadata_list:
-                    xml_parts.append('  <sources>')
+                    xml_parts.append("  <sources>")
                     for idx, meta in enumerate(metadata_list):
                         if not isinstance(meta, dict):
                             continue
@@ -202,11 +197,11 @@ class Pipeline:
                         if title or url:
                             xml_parts.append(f'    <source relevance="{score:.2f}" language="{lang}">')
                             if title:
-                                xml_parts.append(f'      <title>{title}</title>')
+                                xml_parts.append(f"      <title>{title}</title>")
                             if desc:
-                                xml_parts.append(f'      <description>{desc}</description>')
+                                xml_parts.append(f"      <description>{desc}</description>")
                             if url:
-                                xml_parts.append(f'      <url>{url}</url>')
+                                xml_parts.append(f"      <url>{url}</url>")
                             # Document snippet (parallel index into doc_list)
                             if include_snippets and idx < len(doc_list):
                                 raw_doc = doc_list[idx]
@@ -214,11 +209,11 @@ class Pipeline:
                                     snippet = raw_doc.strip()[:snippet_max]
                                     if len(raw_doc.strip()) > snippet_max:
                                         snippet += "..."
-                                    xml_parts.append(f'      <snippet>{snippet}</snippet>')
-                            xml_parts.append('    </source>')
+                                    xml_parts.append(f"      <snippet>{snippet}</snippet>")
+                            xml_parts.append("    </source>")
                             source_count += 1
-                    xml_parts.append('  </sources>')
-            xml_parts.append('</web_search_context>')
+                    xml_parts.append("  </sources>")
+            xml_parts.append("</web_search_context>")
 
             if source_count > 0:
                 sources_text = "\n" + "\n".join(xml_parts) + "\n"
@@ -227,10 +222,13 @@ class Pipeline:
                 print(f"[outlet] Found {source_count} web search sources{skipped_msg}{snippets_msg}")
             else:
                 sources_text = ""
-                print(f"[outlet] No web search sources found (checked body keys: {[k for k in body.keys() if k != 'messages']}, "
-                      f"assistant msg keys: {list(last_msg.keys()) if last_msg else 'n/a'})")
+                print(
+                    f"[outlet] No web search sources found (checked body keys: {[k for k in body.keys() if k != 'messages']}, "
+                    f"assistant msg keys: {list(last_msg.keys()) if last_msg else 'n/a'})"
+                )
 
             from datetime import datetime
+
             datum_zeit = datetime.now().strftime("%d.%m.%Y, %H:%M Uhr")
             has_web_sources = source_count > 0
 
@@ -297,6 +295,7 @@ class Pipeline:
             )
         except Exception as e:
             import traceback
+
             print(f"Self-Reflection Filter error:\n{traceback.format_exc()}")
             return body
 
@@ -323,7 +322,9 @@ class Pipeline:
                         # SGLang may return thinking in reasoning_content and answer in content,
                         # or content may be None if the model only produced reasoning.
                         reflection = msg.get("content") or msg.get("reasoning_content") or ""
-                        print(f"Self-Reflection response (status={resp.status}, len={len(reflection)}): {reflection[:30]}")
+                        print(
+                            f"Self-Reflection response (status={resp.status}, len={len(reflection)}): {reflection[:30]}"
+                        )
 
                         print("Full Self-Reflection response:")
                         print(reflection)
@@ -340,15 +341,13 @@ class Pipeline:
                             )
                         else:
                             print("ELSE")
-                            messages[-1]["content"] = (
-                                original_answer
-                                + "\n\n---\n✅ *Selbstprüfung bestanden.*"
-                            )
+                            messages[-1]["content"] = original_answer + "\n\n---\n✅ *Selbstprüfung bestanden.*"
                     else:
                         body_text = await resp.text()
                         print(f"Self-Reflection API error: status={resp.status}, body={body_text[:500]}")
         except Exception:
             import traceback
+
             print(f"Self-Reflection Filter error:\n{traceback.format_exc()}")
 
         body["messages"] = messages

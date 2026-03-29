@@ -34,7 +34,6 @@ from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import Callable, Generator, Iterator, TypeVar
 
-
 # ──────────────────────────────────────────────────────────────
 # Data Structures
 # ──────────────────────────────────────────────────────────────
@@ -157,6 +156,7 @@ class GuardConfig:
 # ──────────────────────────────────────────────────────────────
 # Guard Class
 # ──────────────────────────────────────────────────────────────
+
 
 class RepetitionGuard:
     """Streaming-capable repetition watchdog.
@@ -299,7 +299,7 @@ class RepetitionGuard:
 
         start: int = max(0, len(tokens) - len(new_words) - n + 1)
         for i in range(start, len(tokens) - n + 1):
-            gram: str = " ".join(tokens[i:i + n])
+            gram: str = " ".join(tokens[i : i + n])
             self._ngram_counts[gram] += 1
 
             if self._ngram_counts[gram] > self._worst_ngram_count:
@@ -361,7 +361,7 @@ class RepetitionGuard:
             should_stop=True,
             reason=StopReason.NGRAM_FLOOD,
             detail=f"N-Gram '{worst_gram[0]}' appeared {worst_gram[1]}× "
-                   f"(limit: {effective_max}, ratio: {ratio:.1%})",
+            f"(limit: {effective_max}, ratio: {ratio:.1%})",
             tokens_seen=self._token_count,
             worst_ngram_count=self._worst_ngram_count,
             loop_confidence=1.0,
@@ -413,7 +413,7 @@ class RepetitionGuard:
             reps: int = 1
             pos: int = tail_len - pat_len * 2
             while pos >= 0:
-                block: str = tail[pos:pos + pat_len]
+                block: str = tail[pos : pos + pat_len]
                 matches: int = sum(a == b for a, b in zip(block, pattern))
                 if matches / pat_len >= 0.9:
                     reps += 1
@@ -443,8 +443,7 @@ class RepetitionGuard:
                 return FeedResult(
                     should_stop=True,
                     reason=StopReason.SUFFIX_LOOP,
-                    detail=f"Loop detected: {best_pat_len} char pattern × {best_reps} "
-                           f"(tail of {tail_len} chars)",
+                    detail=f"Loop detected: {best_pat_len} char pattern × {best_reps} " f"(tail of {tail_len} chars)",
                     tokens_seen=self._token_count,
                     worst_ngram_count=self._worst_ngram_count,
                     loop_confidence=self._loop_confidence,
@@ -494,7 +493,7 @@ class RepetitionGuard:
         recent_tokens: list[str] = tokens[-w:]
         recent_grams: set[str] = set()
         for i in range(len(recent_tokens) - n + 1):
-            gram: str = " ".join(recent_tokens[i:i + n])
+            gram: str = " ".join(recent_tokens[i : i + n])
             recent_grams.add(gram)
 
         if not recent_grams:
@@ -510,7 +509,7 @@ class RepetitionGuard:
                 should_stop=True,
                 reason=StopReason.STAGNATION,
                 detail=f"Stagnation: {recycled_ratio:.0%} of recent {n}-grams "
-                       f"are recycled ({len(recycled)}/{len(recent_grams)})",
+                f"are recycled ({len(recycled)}/{len(recent_grams)})",
                 tokens_seen=self._token_count,
                 worst_ngram_count=self._worst_ngram_count,
                 loop_confidence=recycled_ratio,
@@ -563,7 +562,7 @@ class RepetitionGuard:
             first detected, trimmed of trailing whitespace.
         """
         if self._last_clean_pos > 0:
-            return self._full_text[:self._last_clean_pos].rstrip()
+            return self._full_text[: self._last_clean_pos].rstrip()
         return self._full_text.rstrip()
 
     def get_full_text(self) -> str:
@@ -599,6 +598,7 @@ class RepetitionGuard:
 # ──────────────────────────────────────────────────────────────
 # Convenience: Wrapper for OpenAI-compatible streams
 # ──────────────────────────────────────────────────────────────
+
 
 def guarded_stream(
     stream_iterator: Iterator[_T],
@@ -649,6 +649,7 @@ def guarded_stream(
     if extract_token is not None:
         _extract = extract_token
     else:
+
         def _extract(chunk: _T) -> tuple[str, str]:
             try:
                 delta = chunk.choices[0].delta  # type: ignore[union-attr]
@@ -714,10 +715,12 @@ if __name__ == "__main__":
     print("=" * 60)
     print()
 
-    guard = RepetitionGuard(GuardConfig(
-        ngram_max_count=4,
-        min_tokens_before_check=20,
-    ))
+    guard = RepetitionGuard(
+        GuardConfig(
+            ngram_max_count=4,
+            min_tokens_before_check=20,
+        )
+    )
 
     words: list[str] = simulated_tokens.split(" ")
     stopped: bool = False
@@ -734,9 +737,12 @@ if __name__ == "__main__":
             print(f"   Confidence: {result.loop_confidence:.0%}")
             if result.diagnostics:
                 import json as _json
+
                 print(f"   Diagnostics:")
                 for k, v in result.diagnostics.items():
-                    print(f"      {k}: {_json.dumps(v, ensure_ascii=False, default=str) if isinstance(v, (dict, list)) else v}")
+                    print(
+                        f"      {k}: {_json.dumps(v, ensure_ascii=False, default=str) if isinstance(v, (dict, list)) else v}"
+                    )
             stopped = True
             break
         else:
@@ -750,5 +756,5 @@ if __name__ == "__main__":
 
     clean: str = guard.get_clean_text()
     print(f"\nClean text ({len(clean)} chars):")
-    print(f"  \"{clean[:120]}...\"")
+    print(f'  "{clean[:120]}..."')
     print()

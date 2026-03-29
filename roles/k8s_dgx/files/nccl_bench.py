@@ -16,9 +16,10 @@ import torch.distributed as dist
 
 WARMUP_ITERS = 5
 BENCH_ITERS = 20
-MIN_BYTES = 1 * 1024 * 1024       # 1 MB
-MAX_BYTES = 1024 * 1024 * 1024     # 1 GB
+MIN_BYTES = 1 * 1024 * 1024  # 1 MB
+MAX_BYTES = 1024 * 1024 * 1024  # 1 GB
 STEP_FACTOR = 2
+
 
 def main():
     rank = int(os.environ["RANK"])
@@ -39,7 +40,9 @@ def main():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
         print(f"CUDA: {torch.version.cuda}, PyTorch: {torch.__version__}")
         print()
-        print(f"{'size':>12s}  {'count':>12s}  {'type':>6s}  {'redop':>5s}  {'time_us':>10s}  {'algbw_GBs':>10s}  {'busbw_GBs':>10s}")
+        print(
+            f"{'size':>12s}  {'count':>12s}  {'type':>6s}  {'redop':>5s}  {'time_us':>10s}  {'algbw_GBs':>10s}  {'busbw_GBs':>10s}"
+        )
 
     results = []
 
@@ -64,8 +67,8 @@ def main():
 
         avg_s = (t1 - t0) / BENCH_ITERS
         avg_us = avg_s * 1e6
-        algbw = size / avg_s / 1e9                          # GB/s
-        busbw = algbw * 2 * (world_size - 1) / world_size   # bus bandwidth for all-reduce
+        algbw = size / avg_s / 1e9  # GB/s
+        busbw = algbw * 2 * (world_size - 1) / world_size  # bus bandwidth for all-reduce
 
         if rank == 0:
             results.append((size, count, avg_us, algbw, busbw))
@@ -79,9 +82,12 @@ def main():
         peak_size = max(results, key=lambda r: r[4])
         avg_busbw = sum(r[4] for r in results) / len(results)
         print()
-        print(f"RESULT: {world_size} ranks | peak busbw {peak_busbw:.2f} GB/s ({peak_busbw * 8:.1f} Gbit/s) @ {peak_size[0] // 1024 // 1024}MB | avg busbw {avg_busbw:.2f} GB/s ({avg_busbw * 8:.1f} Gbit/s)")
+        print(
+            f"RESULT: {world_size} ranks | peak busbw {peak_busbw:.2f} GB/s ({peak_busbw * 8:.1f} Gbit/s) @ {peak_size[0] // 1024 // 1024}MB | avg busbw {avg_busbw:.2f} GB/s ({avg_busbw * 8:.1f} Gbit/s)"
+        )
 
     dist.destroy_process_group()
+
 
 if __name__ == "__main__":
     main()

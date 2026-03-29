@@ -82,7 +82,9 @@ with open(_defaults_path) as _f:
 _MODEL_PROFILES: dict[str, object] = _dgx_defaults.get("sglang_model_profiles", {})  # type: ignore[assignment]
 
 
-def load_sampling_presets(model_id: str) -> dict[str, dict[str, str | int | float | bool | dict[str, str | int | float | bool | dict[str, bool]]]]:
+def load_sampling_presets(
+    model_id: str,
+) -> dict[str, dict[str, str | int | float | bool | dict[str, str | int | float | bool | dict[str, bool]]]]:
     """Build sampling presets from a model's recommended_sampling in the Ansible defaults.
 
     Merges two layers:
@@ -110,8 +112,7 @@ def load_sampling_presets(model_id: str) -> dict[str, dict[str, str | int | floa
     merged: dict[str, object] = {**raw, **overrides}
 
     # OpenAI-compatible top-level keys
-    _OPENAI_KEYS: set[str] = {"temperature", "top_p", "presence_penalty",
-                               "frequency_penalty", "repetition_penalty"}
+    _OPENAI_KEYS: set[str] = {"temperature", "top_p", "presence_penalty", "frequency_penalty", "repetition_penalty"}
     # SGLang/vLLM-native keys (sent via extra_body)
     _EXTRA_KEYS: set[str] = {"top_k", "min_p", "top_min_p", "min_tokens"}
 
@@ -128,7 +129,9 @@ def load_sampling_presets(model_id: str) -> dict[str, dict[str, str | int | floa
     return {"default": preset}
 
 
-def pick_default_preset(presets: dict[str, dict[str, str | int | float | bool | dict[str, str | int | float | bool | dict[str, bool]]]]) -> str | None:
+def pick_default_preset(
+    presets: dict[str, dict[str, str | int | float | bool | dict[str, str | int | float | bool | dict[str, bool]]]],
+) -> str | None:
     """Pick the default preset name from the available presets.
 
     Args:
@@ -148,6 +151,7 @@ def pick_default_preset(presets: dict[str, dict[str, str | int | float | bool | 
 # ---------------------------------------------------------------------------
 # LLMClient base class
 # ---------------------------------------------------------------------------
+
 
 class LLMClient:
     """Base class for streaming LLM chat completions with sampling presets.
@@ -208,7 +212,26 @@ class LLMClient:
         """
         return {"Content-Type": "application/json"}
 
-    def _prepare_payload(self, payload: dict[str, str | int | float | bool | list[dict[str, str | list[dict[str, str | dict[str, str]]]]] | dict[str, str | int | float | bool]]) -> dict[str, str | int | float | bool | list[dict[str, str | list[dict[str, str | dict[str, str]]]]] | dict[str, str | int | float | bool]]:
+    def _prepare_payload(
+        self,
+        payload: dict[
+            str,
+            str
+            | int
+            | float
+            | bool
+            | list[dict[str, str | list[dict[str, str | dict[str, str]]]]]
+            | dict[str, str | int | float | bool],
+        ],
+    ) -> dict[
+        str,
+        str
+        | int
+        | float
+        | bool
+        | list[dict[str, str | list[dict[str, str | dict[str, str]]]]]
+        | dict[str, str | int | float | bool],
+    ]:
         """Transform the payload before sending it to the backend.
 
         The base implementation returns the payload unchanged.  Subclasses
@@ -236,10 +259,26 @@ class LLMClient:
 
     def apply_preset(
         self,
-        payload: dict[str, str | int | float | bool | list[dict[str, str | list[dict[str, str | dict[str, str]]]]] | dict[str, str | int | float | bool]],
+        payload: dict[
+            str,
+            str
+            | int
+            | float
+            | bool
+            | list[dict[str, str | list[dict[str, str | dict[str, str]]]]]
+            | dict[str, str | int | float | bool],
+        ],
         preset: str | None = ...,  # type: ignore[assignment]
         allow_fallback: bool = True,
-    ) -> dict[str, str | int | float | bool | list[dict[str, str | list[dict[str, str | dict[str, str]]]]] | dict[str, str | int | float | bool]]:
+    ) -> dict[
+        str,
+        str
+        | int
+        | float
+        | bool
+        | list[dict[str, str | list[dict[str, str | dict[str, str]]]]]
+        | dict[str, str | int | float | bool],
+    ]:
         """Merge a named sampling preset into the request payload.
 
         The ``preset`` parameter uses ``...`` (Ellipsis) as a sentinel meaning
@@ -274,8 +313,10 @@ class LLMClient:
         if preset not in self.presets:
             if allow_fallback:
                 available: list[str] = list(self.presets) or ["(none)"]
-                print(f"  [WARN] Preset '{preset}' not available for {self.model_id} "
-                      f"(available: {available}), using '{self.default_preset}'")
+                print(
+                    f"  [WARN] Preset '{preset}' not available for {self.model_id} "
+                    f"(available: {available}), using '{self.default_preset}'"
+                )
                 if self.default_preset is None:
                     return payload
                 preset = self.default_preset
@@ -311,7 +352,18 @@ class LLMClient:
 
     # -- Streaming --
 
-    def _niceprint_payload(self, payload: dict[str, str | int | float | bool | list[dict[str, str | list[dict[str, str | dict[str, str]]]]] | dict[str, str | int | float | bool]]) -> None:
+    def _niceprint_payload(
+        self,
+        payload: dict[
+            str,
+            str
+            | int
+            | float
+            | bool
+            | list[dict[str, str | list[dict[str, str | dict[str, str]]]]]
+            | dict[str, str | int | float | bool],
+        ],
+    ) -> None:
         """Print a human-readable payload summary to stdout.
 
         Base64-encoded image data is replaced with a placeholder to keep the
@@ -345,7 +397,19 @@ class LLMClient:
                 display[k] = v
         print(f"\033[2m[payload] {json.dumps(display, indent=2, ensure_ascii=False)}\n[/payload]\033[0m")
 
-    def stream_chat(self, payload: dict[str, str | int | float | bool | list[dict[str, str | list[dict[str, str | dict[str, str]]]]] | dict[str, str | int | float | bool]], print_thinking: bool = True) -> dict[str, int]:
+    def stream_chat(
+        self,
+        payload: dict[
+            str,
+            str
+            | int
+            | float
+            | bool
+            | list[dict[str, str | list[dict[str, str | dict[str, str]]]]]
+            | dict[str, str | int | float | bool],
+        ],
+        print_thinking: bool = True,
+    ) -> dict[str, int]:
         """Stream a chat completion request and print the response to stdout.
 
         Parses the SSE stream, printing ``reasoning_content`` deltas in dim
@@ -369,8 +433,11 @@ class LLMClient:
         if self.verbose:
             self._niceprint_payload(payload)
         response = requests.post(
-            self._endpoint(), headers=self._headers(), json=payload,
-            stream=True, timeout=(10, 300),
+            self._endpoint(),
+            headers=self._headers(),
+            json=payload,
+            stream=True,
+            timeout=(10, 300),
         )
         response.raise_for_status()
 
@@ -469,10 +536,18 @@ class LLMClient:
         b64: str = base64.b64encode(buf.getvalue()).decode("utf-8")
 
         self.chat(
-            messages=[{"role": "user", "content": [
-                {"type": "text", "text": "Beschreibe dieses Bild. Was siehst du? Wenn es ein Comic ist, erkläre den Witz."},
-                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
-            ]}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Beschreibe dieses Bild. Was siehst du? Wenn es ein Comic ist, erkläre den Witz.",
+                        },
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                    ],
+                }
+            ],
             preset=preset,
             print_thinking=print_thinking,
         )
@@ -496,7 +571,10 @@ class LLMClient:
         payload: dict[str, object] = {
             "model": self.model_id,
             "messages": [
-                {"role": "system", "content": "Erstelle eine übersicht über die geschehnisse der nacht. so im sinne eines daily briefings"},
+                {
+                    "role": "system",
+                    "content": "Erstelle eine übersicht über die geschehnisse der nacht. so im sinne eines daily briefings",
+                },
                 {"role": "user", "content": "Erstelle mir bitte das Daily Briefing für heute."},
             ],
             "stream": True,
@@ -515,6 +593,7 @@ class LLMClient:
 # ---------------------------------------------------------------------------
 # OpenWebUI client
 # ---------------------------------------------------------------------------
+
 
 class OpenWebUIClient(LLMClient):
     """LLM client routed via OpenWebUI.
@@ -569,6 +648,7 @@ class OpenWebUIClient(LLMClient):
 # SGLang direct client
 # ---------------------------------------------------------------------------
 
+
 class SGLangClient(LLMClient):
     """LLM client speaking directly to the SGLang server (no auth, flattened extra_body).
 
@@ -586,7 +666,26 @@ class SGLangClient(LLMClient):
         """
         return f"{self.base_url}/v1/chat/completions"
 
-    def _prepare_payload(self, payload: dict[str, str | int | float | bool | list[dict[str, str | list[dict[str, str | dict[str, str]]]]] | dict[str, str | int | float | bool]]) -> dict[str, str | int | float | bool | list[dict[str, str | list[dict[str, str | dict[str, str]]]]] | dict[str, str | int | float | bool]]:
+    def _prepare_payload(
+        self,
+        payload: dict[
+            str,
+            str
+            | int
+            | float
+            | bool
+            | list[dict[str, str | list[dict[str, str | dict[str, str]]]]]
+            | dict[str, str | int | float | bool],
+        ],
+    ) -> dict[
+        str,
+        str
+        | int
+        | float
+        | bool
+        | list[dict[str, str | list[dict[str, str | dict[str, str]]]]]
+        | dict[str, str | int | float | bool],
+    ]:
         """Flatten ``extra_body`` into top-level fields for SGLang compatibility.
 
         SGLang expects keys such as ``top_k``, ``min_p``, and
@@ -611,6 +710,7 @@ class SGLangClient(LLMClient):
 # ---------------------------------------------------------------------------
 # XKCD helpers (backend-independent)
 # ---------------------------------------------------------------------------
+
 
 def get_random_xkcd_image_url() -> str:
     """Fetch a random XKCD comic and return its image URL.
@@ -642,6 +742,7 @@ def get_random_xkcd_image(url: str) -> Image.Image:
         requests.HTTPError: If the HTTP request fails.
     """
     from io import BytesIO
+
     resp = requests.get(url, timeout=10)
     resp.raise_for_status()
     return Image.open(BytesIO(resp.content))
@@ -663,6 +764,7 @@ def print_ascii_representation_of_image(image: Image.Image) -> None:
 # ---------------------------------------------------------------------------
 # Test functions (operate on any LLMClient)
 # ---------------------------------------------------------------------------
+
 
 def test_thinking_mode(client: LLMClient, print_thinking: bool = True) -> None:
     """Run a basic arithmetic reasoning test using the ``thinking`` preset.
@@ -718,7 +820,12 @@ def test_thinking_coding(client: LLMClient) -> None:
     print("\n=== Thinking Mode (Coding) ===")
     t0: float = time.monotonic()
     usage: dict[str, int] = client.chat(
-        messages=[{"role": "user", "content": "Write a Python function that checks if a string is a valid IPv4 address without using ipaddress module."}],
+        messages=[
+            {
+                "role": "user",
+                "content": "Write a Python function that checks if a string is a valid IPv4 address without using ipaddress module.",
+            }
+        ],
         print_thinking=True,
         temperature=0.6,
     )
@@ -783,6 +890,7 @@ def test_all_presets(client: LLMClient) -> None:
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+
 def create_openwebui_client(verbose: bool = False) -> OpenWebUIClient:
     """Create an :class:`OpenWebUIClient` from environment variables.
 
@@ -806,8 +914,7 @@ def create_openwebui_client(verbose: bool = False) -> OpenWebUIClient:
     api_key: str = os.environ.get("OPENWEBUI_API_KEY", os.environ.get("API_KEY", ""))
     if not api_key:
         raise ValueError(
-            "Set OPENWEBUI_API_KEY environment variable. "
-            "Generate at: OpenWebUI -> User -> Account -> API Keys"
+            "Set OPENWEBUI_API_KEY environment variable. " "Generate at: OpenWebUI -> User -> Account -> API Keys"
         )
     print(f"[OpenWebUI] {owui_url} model={model_id}")
     return OpenWebUIClient(owui_url, model_id, api_key, verbose=verbose)
@@ -829,11 +936,12 @@ def main() -> None:
         nargs="*",
         default=["xkcd", "briefing"],
         help="Tests to run: xkcd, xkcd_non_thinking, briefing, briefing_non_thinking, "
-             "thinking, non_thinking, coding, sampling, presets, all "
-             "(default: xkcd briefing)",
+        "thinking, non_thinking, coding, sampling, presets, all "
+        "(default: xkcd briefing)",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Print full payload JSON before each request",
     )
@@ -843,8 +951,17 @@ def main() -> None:
 
     tests: set[str] = set(args.tests)
     if "all" in tests:
-        tests = {"xkcd", "briefing", "xkcd_non_thinking", "briefing_non_thinking",
-                 "thinking", "non_thinking", "coding", "sampling", "presets"}
+        tests = {
+            "xkcd",
+            "briefing",
+            "xkcd_non_thinking",
+            "briefing_non_thinking",
+            "thinking",
+            "non_thinking",
+            "coding",
+            "sampling",
+            "presets",
+        }
 
     if "xkcd" in tests:
         image: Image.Image = get_random_xkcd_image(get_random_xkcd_image_url())
@@ -866,10 +983,7 @@ def main() -> None:
     if "briefing_non_thinking" in tests:
         print(f"\n{'*' * 80}")
         t0 = time.monotonic()
-        client.get_daily_briefing(
-            print_thinking=True,
-            preset="non_thinking"
-        )
+        client.get_daily_briefing(print_thinking=True, preset="non_thinking")
         elapsed = time.monotonic() - t0
         print(f"\n--- Daily Briefing completed in {elapsed:.1f}s ---")
 

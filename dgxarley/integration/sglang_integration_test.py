@@ -88,13 +88,20 @@ def _serialize_logit_processor(module: str, cls_name: str) -> str:
     """
     import io
     import struct
+
     buf = io.BytesIO()
-    buf.write(b'\x80\x04\x95')                                     # PROTO 4 + FRAME
+    buf.write(b"\x80\x04\x95")  # PROTO 4 + FRAME
     mod, cls = module.encode(), cls_name.encode()
-    frame = (b'\x8c' + bytes([len(mod)]) + mod +                    # SHORT_BINUNICODE module
-             b'\x94\x8c' + bytes([len(cls)]) + cls +                # MEMOIZE + SHORT_BINUNICODE class
-             b'\x94\x93\x94\x2e')                                   # MEMOIZE + STACK_GLOBAL + MEMOIZE + STOP
-    buf.write(struct.pack('<Q', len(frame)))
+    frame = (
+        b"\x8c"
+        + bytes([len(mod)])
+        + mod  # SHORT_BINUNICODE module
+        + b"\x94\x8c"
+        + bytes([len(cls)])
+        + cls  # MEMOIZE + SHORT_BINUNICODE class
+        + b"\x94\x93\x94\x2e"
+    )  # MEMOIZE + STACK_GLOBAL + MEMOIZE + STOP
+    buf.write(struct.pack("<Q", len(frame)))
     buf.write(frame)
     return json.dumps({"callable": buf.getvalue().hex()})
 
@@ -396,6 +403,7 @@ def create_sglang_client(verbose: bool = False) -> SGLangClient:
 # Parallel load test
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class RequestStats:
     """Tracks timing and output statistics for a single parallel streaming request.
@@ -583,6 +591,7 @@ async def stream_request(
 
     except Exception as e:
         import traceback
+
         stats.status = "error"
         stats.error = f"{e}\n{traceback.format_exc()}"
 
@@ -818,42 +827,53 @@ def print_final_summary(all_stats: list[RequestStats], wall_time: float, verbose
     console.print()
     for s in all_stats:
         if s.thinking and verbose:
-            console.print(Panel(
-                Text(s.thinking, style="dim cyan"),
-                title=f"[bold]#{s.request_id} thinking[/]",
-                border_style="cyan",
-                expand=True,
-            ))
+            console.print(
+                Panel(
+                    Text(s.thinking, style="dim cyan"),
+                    title=f"[bold]#{s.request_id} thinking[/]",
+                    border_style="cyan",
+                    expand=True,
+                )
+            )
         if s.repetition_stopped and s.clean_output:
-            console.print(Panel(
-                Text(s.clean_output + "\n\n[truncated — repetition detected]"),
-                title=f"[bold]#{s.request_id} clean output[/] (repetition stopped)",
-                border_style="yellow",
-                expand=True,
-            ))
+            console.print(
+                Panel(
+                    Text(s.clean_output + "\n\n[truncated — repetition detected]"),
+                    title=f"[bold]#{s.request_id} clean output[/] (repetition stopped)",
+                    border_style="yellow",
+                    expand=True,
+                )
+            )
         if s.repetition_stopped and s.repetition_diagnostics:
             import json as _json
+
             diag_text = _json.dumps(s.repetition_diagnostics, indent=2, ensure_ascii=False, default=str)
-            console.print(Panel(
-                Text(diag_text),
-                title=f"[bold]#{s.request_id} repetition diagnostics[/]",
-                border_style="yellow",
-                expand=True,
-            ))
+            console.print(
+                Panel(
+                    Text(diag_text),
+                    title=f"[bold]#{s.request_id} repetition diagnostics[/]",
+                    border_style="yellow",
+                    expand=True,
+                )
+            )
         elif s.output:
-            console.print(Panel(
-                Text(s.output),
-                title=f"[bold]#{s.request_id} full output[/] ({s.status})",
-                border_style="green" if s.status == "done" else "red",
-                expand=True,
-            ))
+            console.print(
+                Panel(
+                    Text(s.output),
+                    title=f"[bold]#{s.request_id} full output[/] ({s.status})",
+                    border_style="green" if s.status == "done" else "red",
+                    expand=True,
+                )
+            )
         elif s.error:
-            console.print(Panel(
-                Text(s.error, style="red"),
-                title=f"[bold red]#{s.request_id} error[/]",
-                border_style="red",
-                expand=True,
-            ))
+            console.print(
+                Panel(
+                    Text(s.error, style="red"),
+                    title=f"[bold red]#{s.request_id} error[/]",
+                    border_style="red",
+                    expand=True,
+                )
+            )
 
 
 async def run_parallel_test(
@@ -944,7 +964,11 @@ async def run_parallel_test(
     url = f"{sglang_url.rstrip('/')}/v1/chat/completions"
     console = Console()
     console.print(f"[bold]Starting {n} parallel requests to {url}[/]")
-    think_info = " | Thinking: OFF" if no_think else (f" | Thinking budget: {thinking_budget}" if thinking_budget is not None else "")
+    think_info = (
+        " | Thinking: OFF"
+        if no_think
+        else (f" | Thinking budget: {thinking_budget}" if thinking_budget is not None else "")
+    )
     console.print(f"[dim]Model: {model_id} | Preset: {preset} | Max tokens: {max_tokens}{think_info}[/]\n")
 
     wall_start = time.monotonic()
@@ -963,16 +987,14 @@ async def run_parallel_test(
     # Only register stdin reader if stdin is a TTY (not piped)
     if sys.stdin.isatty():
         import tty, termios
+
         old_settings = termios.tcgetattr(sys.stdin)
         tty.setcbreak(sys.stdin.fileno())  # char-at-a-time, no echo
         loop.add_reader(sys.stdin.fileno(), _on_stdin_ready)
 
     try:
         async with aiohttp.ClientSession() as session:
-            tasks = [
-                stream_request(session, url, payloads[i], all_stats[i], no_guard=no_guard)
-                for i in range(n)
-            ]
+            tasks = [stream_request(session, url, payloads[i], all_stats[i], no_guard=no_guard) for i in range(n)]
 
             # Live display updates while requests stream
             with Live(build_live_display(all_stats, verbose), console=console, refresh_per_second=4) as live:
@@ -982,9 +1004,7 @@ async def run_parallel_test(
                     pending.add(asyncio.ensure_future(t))
 
                 while pending:
-                    done_tasks, pending = await asyncio.wait(
-                        pending, timeout=0.25, return_when=asyncio.FIRST_COMPLETED
-                    )
+                    done_tasks, pending = await asyncio.wait(pending, timeout=0.25, return_when=asyncio.FIRST_COMPLETED)
                     live.update(build_live_display(all_stats, verbose))
 
                     if abort_requested:
@@ -1015,6 +1035,7 @@ async def run_parallel_test(
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     """Parse command-line arguments and run the selected integration tests.
 
@@ -1039,16 +1060,18 @@ def main() -> None:
         nargs="*",
         default=["thinking"],
         help="Tests to run: xkcd, briefing, thinking, coding, sampling, presets, "
-             "parallel, all (default: thinking). Combine with --no-think to "
-             "disable reasoning on any test.",
+        "parallel, all (default: thinking). Combine with --no-think to "
+        "disable reasoning on any test.",
     )
     parser.add_argument(
-        "-v", "--verbose",
+        "-v",
+        "--verbose",
         action="store_true",
         help="Show thinking/reasoning tokens and full payloads",
     )
     parser.add_argument(
-        "-n", "--num-requests",
+        "-n",
+        "--num-requests",
         type=int,
         default=4,
         help="Number of parallel requests (for 'parallel' test, default: 4)",
@@ -1089,7 +1112,7 @@ def main() -> None:
         default=None,
         metavar="STREAM",
         help="Disable streaming repetition guard. "
-             "Values: content, reasoning, both (default: both if flag given without value)",
+        "Values: content, reasoning, both (default: both if flag given without value)",
     )
     args = parser.parse_args()
 
@@ -1108,19 +1131,23 @@ def main() -> None:
         if not sglang_url:
             raise ValueError("Set SGLANG_URL (or LITELLM_URL with USE_LITELLM=true)")
         validate_model(sglang_url, model_id)
-        prompts: list[str] = [args.prompt] * args.num_requests if args.prompt else random.sample(PARALLEL_PROMPTS, len(PARALLEL_PROMPTS))
-        asyncio.run(run_parallel_test(
-            n=args.num_requests,
-            sglang_url=sglang_url,
-            model_id=model_id,
-            preset=args.preset,
-            prompts=prompts,
-            max_tokens=args.max_tokens,
-            verbose=verbose,
-            thinking_budget=args.thinking_budget,
-            no_think=no_think,
-            no_guard=args.no_guard,
-        ))
+        prompts: list[str] = (
+            [args.prompt] * args.num_requests if args.prompt else random.sample(PARALLEL_PROMPTS, len(PARALLEL_PROMPTS))
+        )
+        asyncio.run(
+            run_parallel_test(
+                n=args.num_requests,
+                sglang_url=sglang_url,
+                model_id=model_id,
+                preset=args.preset,
+                prompts=prompts,
+                max_tokens=args.max_tokens,
+                verbose=verbose,
+                thinking_budget=args.thinking_budget,
+                no_think=no_think,
+                no_guard=args.no_guard,
+            )
+        )
 
     # Sequential tests
     if tests:

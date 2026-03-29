@@ -18,6 +18,49 @@ dependencies = [
 [tool.hatch.version]
 path = "dgxarley/__init__.py"
 
+[tool.isort]
+profile = "black"
+line_length = 120
+
+[tool.black]
+line-length = 120
+target-version = ["py313"]
+#extend-exclude = '''
+#(?x)(
+#    automowerclient
+#    | husqvarnaauth
+#)
+#'''
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "tests/*.py"
+
+[tool.mypy]
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+exclude = '''(?x)(
+    \.venv
+    | venv
+    | \.pyi$
+    )'''
+
+[[tool.mypy.overrides]]
+module = ["cv2", "numpy", "pytesseract", "kubernetes.*"]
+ignore_missing_imports = true
+
+
 [project.scripts]
 sglang-raw = "dgxarley.integration.sglang_raw:main"
 sglang-test = "dgxarley.integration.sglang_integration_test:main"

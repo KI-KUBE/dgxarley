@@ -22,10 +22,10 @@ from collections import Counter
 from dataclasses import dataclass, field
 from difflib import SequenceMatcher
 
-
 # ──────────────────────────────────────────────────────────────
 # Data Structures
 # ──────────────────────────────────────────────────────────────
+
 
 @dataclass
 class NGramHit:
@@ -137,6 +137,7 @@ class RepetitionReport:
 # Helper Functions
 # ──────────────────────────────────────────────────────────────
 
+
 def _tokenize(text: str) -> list[str]:
     """Split text into lowercase word tokens using whitespace and punctuation boundaries.
 
@@ -163,13 +164,14 @@ def _split_sentences(text: str) -> list[str]:
     Returns:
         A list of sentence strings, each at least 6 characters long.
     """
-    raw = re.split(r'(?<=[.!?])\s+', text.strip())
+    raw = re.split(r"(?<=[.!?])\s+", text.strip())
     return [s.strip() for s in raw if len(s.strip()) > 5]
 
 
 # ──────────────────────────────────────────────────────────────
 # 1) N-Gram Repetition
 # ──────────────────────────────────────────────────────────────
+
 
 def detect_ngram_repetition(
     text: str,
@@ -205,15 +207,20 @@ def detect_ngram_repetition(
     all_hits: list[NGramHit] = []
 
     for n in ns:
-        ngrams: list[str] = [" ".join(tokens[i:i + n]) for i in range(total - n + 1)]
+        ngrams: list[str] = [" ".join(tokens[i : i + n]) for i in range(total - n + 1)]
         counts: Counter[str] = Counter(ngrams)
 
         for gram, count in counts.items():
             if count >= min_count:
                 ratio: float = (count * n) / total
-                all_hits.append(NGramHit(
-                    ngram=gram, n=n, count=count, ratio=ratio,
-                ))
+                all_hits.append(
+                    NGramHit(
+                        ngram=gram,
+                        n=n,
+                        count=count,
+                        ratio=ratio,
+                    )
+                )
 
     # Deduplicate: if "a b c d" is already reported, skip "a b c"
     all_hits.sort(key=lambda h: (h.n, h.count), reverse=True)
@@ -236,6 +243,7 @@ def detect_ngram_repetition(
 # ──────────────────────────────────────────────────────────────
 # 2) Sentence Repetition
 # ──────────────────────────────────────────────────────────────
+
 
 def detect_sentence_repetition(
     text: str,
@@ -275,18 +283,18 @@ def detect_sentence_repetition(
             if comparison_count > max_comparisons:
                 break
 
-            sim: float = SequenceMatcher(
-                None, sentences[i].lower(), sentences[j].lower()
-            ).ratio()
+            sim: float = SequenceMatcher(None, sentences[i].lower(), sentences[j].lower()).ratio()
 
             if sim >= similarity_threshold:
-                hits.append(SentenceHit(
-                    sentence_a=sentences[i],
-                    sentence_b=sentences[j],
-                    similarity=sim,
-                    index_a=i,
-                    index_b=j,
-                ))
+                hits.append(
+                    SentenceHit(
+                        sentence_a=sentences[i],
+                        sentence_b=sentences[j],
+                        similarity=sim,
+                        index_a=i,
+                        index_b=j,
+                    )
+                )
                 involved.update([i, j])
 
     if not hits:
@@ -303,6 +311,7 @@ def detect_sentence_repetition(
 # ──────────────────────────────────────────────────────────────
 # 3) Loop Detection (consecutively repeating blocks)
 # ──────────────────────────────────────────────────────────────
+
 
 def detect_loops(
     text: str,
@@ -342,7 +351,7 @@ def detect_loops(
     for plen in range(min_pattern_len, min(max_pattern_len, text_len // 2) + 1, step):
         pos: int = 0
         while pos <= text_len - plen * 2:
-            pattern: str = text[pos:pos + plen]
+            pattern: str = text[pos : pos + plen]
 
             if not pattern.strip():
                 pos += 1
@@ -351,7 +360,7 @@ def detect_loops(
             reps: int = 1
             check_pos: int = pos + plen
             while check_pos + plen <= text_len:
-                if text[check_pos:check_pos + plen] == pattern:
+                if text[check_pos : check_pos + plen] == pattern:
                     reps += 1
                     check_pos += plen
                 else:
@@ -360,17 +369,16 @@ def detect_loops(
             if reps >= min_repetitions:
                 loop_start: int = pos
                 loop_end: int = pos + plen * reps
-                already_covered: bool = any(
-                    s <= loop_start and e >= loop_end
-                    for s, e in covered_ranges
-                )
+                already_covered: bool = any(s <= loop_start and e >= loop_end for s, e in covered_ranges)
                 if not already_covered:
-                    hits.append(LoopHit(
-                        pattern=pattern[:200] + ("..." if len(pattern) > 200 else ""),
-                        length_chars=plen,
-                        repetitions=reps,
-                        start_pos=pos,
-                    ))
+                    hits.append(
+                        LoopHit(
+                            pattern=pattern[:200] + ("..." if len(pattern) > 200 else ""),
+                            length_chars=plen,
+                            repetitions=reps,
+                            start_pos=pos,
+                        )
+                    )
                     covered_ranges.append((loop_start, loop_end))
                 pos = check_pos
             else:
@@ -386,6 +394,7 @@ def detect_loops(
 # ──────────────────────────────────────────────────────────────
 # Main Function
 # ──────────────────────────────────────────────────────────────
+
 
 def detect_repetition(
     text: str,
@@ -439,10 +448,13 @@ def detect_repetition(
     sentences: list[str] = _split_sentences(text)
 
     ngram_score, ngram_hits = detect_ngram_repetition(
-        text, ns=ngram_ns, min_count=ngram_min_count,
+        text,
+        ns=ngram_ns,
+        min_count=ngram_min_count,
     )
     sentence_score, sentence_hits = detect_sentence_repetition(
-        text, similarity_threshold=sentence_similarity_threshold,
+        text,
+        similarity_threshold=sentence_similarity_threshold,
     )
     loop_score, loop_hits = detect_loops(
         text,
@@ -526,13 +538,13 @@ if __name__ == "__main__":
     if report.sentence_hits:
         print("\n  Top Sentence Similarities:")
         for h in report.sentence_hits[:5]:
-            print(f"    [{h.similarity:.0%}] \"{h.sentence_a[:60]}...\"")
-            print(f"         ↔ \"{h.sentence_b[:60]}...\"")
+            print(f'    [{h.similarity:.0%}] "{h.sentence_a[:60]}..."')
+            print(f'         ↔ "{h.sentence_b[:60]}..."')
 
     if report.loop_hits:
         print("\n  Loops:")
         for h in report.loop_hits[:3]:
             print(f"    {h.length_chars} chars × {h.repetitions} reps @ pos {h.start_pos}")
-            print(f"    Pattern: \"{h.pattern[:80]}...\"")
+            print(f'    Pattern: "{h.pattern[:80]}..."')
 
     print()

@@ -40,6 +40,7 @@ AWQ_SUFFIXES = ("qweight", "qzeros", "scales")
 # Config loading
 # ---------------------------------------------------------------------------
 
+
 def load_configs(model_path: Path):
     """Load model config, quantize config, and safetensors index."""
     with open(model_path / "config.json") as f:
@@ -82,9 +83,7 @@ def get_architecture_params(config: dict):
         "model_type": model_type,
         "hidden_size": config["hidden_size"],
         "num_attention_heads": config["num_attention_heads"],
-        "num_key_value_heads": config.get(
-            "num_key_value_heads", config["num_attention_heads"]
-        ),
+        "num_key_value_heads": config.get("num_key_value_heads", config["num_attention_heads"]),
         "num_hidden_layers": config["num_hidden_layers"],
         "vocab_size": config["vocab_size"],
         "head_dim": config.get(
@@ -96,18 +95,13 @@ def get_architecture_params(config: dict):
     if model_type in ("qwen2_moe", "qwen3_moe"):
         params["num_experts"] = config["num_experts"]
         params["moe_intermediate_size"] = config["moe_intermediate_size"]
-        params["intermediate_size"] = config.get(
-            "shared_expert_intermediate_size", config["intermediate_size"]
-        )
+        params["intermediate_size"] = config.get("shared_expert_intermediate_size", config["intermediate_size"])
         params["is_moe"] = True
     elif model_type in ("qwen2", "qwen3"):
         params["intermediate_size"] = config["intermediate_size"]
         params["is_moe"] = False
     else:
-        raise ValueError(
-            f"Unsupported model_type: {model_type!r}. "
-            "Supported: qwen2, qwen2_moe, qwen3, qwen3_moe"
-        )
+        raise ValueError(f"Unsupported model_type: {model_type!r}. " "Supported: qwen2, qwen2_moe, qwen3, qwen3_moe")
 
     return params
 
@@ -115,6 +109,7 @@ def get_architecture_params(config: dict):
 # ---------------------------------------------------------------------------
 # Tensor grouping & file access
 # ---------------------------------------------------------------------------
+
 
 def group_tensors_by_layer(weight_map: dict):
     """Group tensor names by layer number. Non-layer tensors go to 'global'."""
@@ -148,6 +143,7 @@ def get_tensor(name: str, weight_map: dict, open_files: dict) -> torch.Tensor:
 # TP split primitives
 # ---------------------------------------------------------------------------
 
+
 def split_column(tensor: torch.Tensor, tp: int, rank: int) -> torch.Tensor:
     """Column-parallel split: split last dimension (out_features)."""
     size = tensor.shape[-1]
@@ -163,23 +159,16 @@ def split_row(tensor: torch.Tensor, tp: int, rank: int) -> torch.Tensor:
     """
     dim = 0 if tensor.dim() == 2 else 1
     size = tensor.shape[dim]
-    assert size % tp == 0, (
-        f"Row split: shape={list(tensor.shape)} dim={dim} "
-        f"size={size} not divisible by tp={tp}"
-    )
+    assert size % tp == 0, f"Row split: shape={list(tensor.shape)} dim={dim} " f"size={size} not divisible by tp={tp}"
     chunk = size // tp
     return torch.narrow(tensor, dim, rank * chunk, chunk).contiguous()
 
 
-def split_vocab(
-    tensor: torch.Tensor, tp: int, rank: int, vocab_size: int
-) -> torch.Tensor:
+def split_vocab(tensor: torch.Tensor, tp: int, rank: int, vocab_size: int) -> torch.Tensor:
     """Vocab-parallel split: pad to multiple of tp, split dim 0."""
     padded = math.ceil(vocab_size / tp) * tp
     if tensor.shape[0] < padded:
-        pad = torch.zeros(
-            padded - tensor.shape[0], *tensor.shape[1:], dtype=tensor.dtype
-        )
+        pad = torch.zeros(padded - tensor.shape[0], *tensor.shape[1:], dtype=tensor.dtype)
         tensor = torch.cat([tensor, pad], dim=0)
     chunk = padded // tp
     return tensor[rank * chunk : (rank + 1) * chunk].contiguous()
@@ -189,9 +178,14 @@ def split_vocab(
 # Layer processing — attention
 # ---------------------------------------------------------------------------
 
+
 def process_qkv(
-    prefix: str, params: dict, tp: int, rank: int,
-    weight_map: dict, open_files: dict,
+    prefix: str,
+    params: dict,
+    tp: int,
+    rank: int,
+    weight_map: dict,
+    open_files: dict,
 ) -> dict:
     """Fuse q/k/v projections into qkv_proj with GQA-aware TP split."""
     output = {}
@@ -214,9 +208,7 @@ def process_qkv(
         k_chunk = k[..., rank * kv_per_rank : (rank + 1) * kv_per_rank]
         v_chunk = v[..., rank * kv_per_rank : (rank + 1) * kv_per_rank]
 
-        output[f"{prefix}.self_attn.qkv_proj.{suffix}"] = torch.cat(
-            [q_chunk, k_chunk, v_chunk], dim=-1
-        ).contiguous()
+        output[f"{prefix}.self_attn.qkv_proj.{suffix}"] = torch.cat([q_chunk, k_chunk, v_chunk], dim=-1).contiguous()
 
     # Bias (if present — Qwen2 has attention_bias)
     q_bias = f"{prefix}.self_attn.q_proj.bias"
@@ -224,27 +216,30 @@ def process_qkv(
         qb = get_tensor(q_bias, weight_map, open_files)
         kb = get_tensor(f"{prefix}.self_attn.k_proj.bias", weight_map, open_files)
         vb = get_tensor(f"{prefix}.self_attn.v_proj.bias", weight_map, open_files)
-        output[f"{prefix}.self_attn.qkv_proj.bias"] = torch.cat([
-            qb[rank * q_per_rank : (rank + 1) * q_per_rank],
-            kb[rank * kv_per_rank : (rank + 1) * kv_per_rank],
-            vb[rank * kv_per_rank : (rank + 1) * kv_per_rank],
-        ]).contiguous()
+        output[f"{prefix}.self_attn.qkv_proj.bias"] = torch.cat(
+            [
+                qb[rank * q_per_rank : (rank + 1) * q_per_rank],
+                kb[rank * kv_per_rank : (rank + 1) * kv_per_rank],
+                vb[rank * kv_per_rank : (rank + 1) * kv_per_rank],
+            ]
+        ).contiguous()
 
     return output
 
 
 def process_o_proj(
-    prefix: str, tp: int, rank: int,
-    weight_map: dict, open_files: dict,
+    prefix: str,
+    tp: int,
+    rank: int,
+    weight_map: dict,
+    open_files: dict,
 ) -> dict:
     """Row-parallel split for o_proj.  Bias is replicated."""
     output = {}
     for suffix in AWQ_SUFFIXES:
         name = f"{prefix}.self_attn.o_proj.{suffix}"
         if name in weight_map:
-            output[name] = split_row(
-                get_tensor(name, weight_map, open_files), tp, rank
-            )
+            output[name] = split_row(get_tensor(name, weight_map, open_files), tp, rank)
 
     bias_name = f"{prefix}.self_attn.o_proj.bias"
     if bias_name in weight_map:
@@ -257,9 +252,13 @@ def process_o_proj(
 # Layer processing — MLP (dense)
 # ---------------------------------------------------------------------------
 
+
 def process_dense_mlp(
-    prefix: str, tp: int, rank: int,
-    weight_map: dict, open_files: dict,
+    prefix: str,
+    tp: int,
+    rank: int,
+    weight_map: dict,
+    open_files: dict,
 ) -> dict:
     """Fuse gate+up → gate_up_proj (column split), row-split down_proj."""
     output = {}
@@ -271,16 +270,12 @@ def process_dense_mlp(
         gate = get_tensor(gate_name, weight_map, open_files)
         up = get_tensor(f"{prefix}.mlp.up_proj.{suffix}", weight_map, open_files)
         fused = torch.cat([gate, up], dim=-1)
-        output[f"{prefix}.mlp.gate_up_proj.{suffix}"] = split_column(
-            fused, tp, rank
-        )
+        output[f"{prefix}.mlp.gate_up_proj.{suffix}"] = split_column(fused, tp, rank)
 
     for suffix in AWQ_SUFFIXES:
         name = f"{prefix}.mlp.down_proj.{suffix}"
         if name in weight_map:
-            output[name] = split_row(
-                get_tensor(name, weight_map, open_files), tp, rank
-            )
+            output[name] = split_row(get_tensor(name, weight_map, open_files), tp, rank)
 
     return output
 
@@ -289,9 +284,15 @@ def process_dense_mlp(
 # Layer processing — MoE experts
 # ---------------------------------------------------------------------------
 
+
 def process_moe_experts(
-    prefix: str, params: dict, tp: int, ep: int, rank: int,
-    weight_map: dict, open_files: dict,
+    prefix: str,
+    params: dict,
+    tp: int,
+    ep: int,
+    rank: int,
+    weight_map: dict,
+    open_files: dict,
 ) -> dict:
     """Fuse per-expert gate+up → w13, stack down → w2, with EP/TP distribution.
 
@@ -308,7 +309,7 @@ def process_moe_experts(
         expert_start = rank * experts_per_rank
         expert_end = expert_start + experts_per_rank
         moe_tp = tp // ep  # TP within EP group (1 when ep=tp)
-        moe_tp_rank = 0    # With ep=tp, single rank per EP group
+        moe_tp_rank = 0  # With ep=tp, single rank per EP group
     else:
         experts_per_rank = num_experts
         expert_start = 0
@@ -330,34 +331,34 @@ def process_moe_experts(
 
         ref_up = get_tensor(
             f"{prefix}.mlp.experts.{expert_start}.up_proj.{suffix}",
-            weight_map, open_files,
+            weight_map,
+            open_files,
         )
         up_out = ref_up.shape[1]
         del ref_up
 
         ref_down = get_tensor(
             f"{prefix}.mlp.experts.{expert_start}.down_proj.{suffix}",
-            weight_map, open_files,
+            weight_map,
+            open_files,
         )
         down_in_packed = ref_down.shape[0]
         down_out = ref_down.shape[1]
         del ref_down
 
-        w13 = torch.empty(
-            experts_per_rank, in_packed, gate_out + up_out, dtype=dtype
-        )
-        w2 = torch.empty(
-            experts_per_rank, down_in_packed, down_out, dtype=dtype
-        )
+        w13 = torch.empty(experts_per_rank, in_packed, gate_out + up_out, dtype=dtype)
+        w2 = torch.empty(experts_per_rank, down_in_packed, down_out, dtype=dtype)
 
         for local_idx, global_idx in enumerate(range(expert_start, expert_end)):
             gate = get_tensor(
                 f"{prefix}.mlp.experts.{global_idx}.gate_proj.{suffix}",
-                weight_map, open_files,
+                weight_map,
+                open_files,
             )
             up = get_tensor(
                 f"{prefix}.mlp.experts.{global_idx}.up_proj.{suffix}",
-                weight_map, open_files,
+                weight_map,
+                open_files,
             )
             w13[local_idx, :, :gate_out] = gate
             w13[local_idx, :, gate_out:] = up
@@ -365,19 +366,16 @@ def process_moe_experts(
 
             down = get_tensor(
                 f"{prefix}.mlp.experts.{global_idx}.down_proj.{suffix}",
-                weight_map, open_files,
+                weight_map,
+                open_files,
             )
             w2[local_idx] = down
             del down
 
         # w13 column-parallel, w2 row-parallel (within EP group)
         if moe_tp > 1:
-            output[f"{prefix}.mlp.experts.w13_{suffix}"] = split_column(
-                w13, moe_tp, moe_tp_rank
-            )
-            output[f"{prefix}.mlp.experts.w2_{suffix}"] = split_row(
-                w2, moe_tp, moe_tp_rank
-            )
+            output[f"{prefix}.mlp.experts.w13_{suffix}"] = split_column(w13, moe_tp, moe_tp_rank)
+            output[f"{prefix}.mlp.experts.w2_{suffix}"] = split_row(w2, moe_tp, moe_tp_rank)
         else:
             # EP=TP: whole experts, no dimension split
             output[f"{prefix}.mlp.experts.w13_{suffix}"] = w13
@@ -388,8 +386,11 @@ def process_moe_experts(
 
 
 def process_shared_expert(
-    prefix: str, tp: int, rank: int,
-    weight_map: dict, open_files: dict,
+    prefix: str,
+    tp: int,
+    rank: int,
+    weight_map: dict,
+    open_files: dict,
 ) -> dict:
     """Fuse shared_expert gate+up → gate_up_proj, row-split down_proj."""
     output = {}
@@ -401,19 +402,16 @@ def process_shared_expert(
         gate = get_tensor(gate_name, weight_map, open_files)
         up = get_tensor(
             f"{prefix}.mlp.shared_expert.up_proj.{suffix}",
-            weight_map, open_files,
+            weight_map,
+            open_files,
         )
         fused = torch.cat([gate, up], dim=-1)
-        output[f"{prefix}.mlp.shared_expert.gate_up_proj.{suffix}"] = (
-            split_column(fused, tp, rank)
-        )
+        output[f"{prefix}.mlp.shared_expert.gate_up_proj.{suffix}"] = split_column(fused, tp, rank)
 
     for suffix in AWQ_SUFFIXES:
         name = f"{prefix}.mlp.shared_expert.down_proj.{suffix}"
         if name in weight_map:
-            output[name] = split_row(
-                get_tensor(name, weight_map, open_files), tp, rank
-            )
+            output[name] = split_row(get_tensor(name, weight_map, open_files), tp, rank)
 
     return output
 
@@ -422,9 +420,16 @@ def process_shared_expert(
 # Full layer & global processing
 # ---------------------------------------------------------------------------
 
+
 def process_layer(
-    layer_idx: int, layer_tensors: list, params: dict,
-    tp: int, ep: int, rank: int, weight_map: dict, open_files: dict,
+    layer_idx: int,
+    layer_tensors: list,
+    params: dict,
+    tp: int,
+    ep: int,
+    rank: int,
+    weight_map: dict,
+    open_files: dict,
 ) -> dict:
     """Process all tensors in a single transformer layer."""
     output = {}
@@ -438,20 +443,14 @@ def process_layer(
     has_experts = any(".mlp.experts." in name for name in layer_tensors)
 
     if has_experts:
-        output.update(
-            process_moe_experts(prefix, params, tp, ep, rank, weight_map, open_files)
-        )
-        output.update(
-            process_shared_expert(prefix, tp, rank, weight_map, open_files)
-        )
+        output.update(process_moe_experts(prefix, params, tp, ep, rank, weight_map, open_files))
+        output.update(process_shared_expert(prefix, tp, rank, weight_map, open_files))
         # Replicated: router gate, shared_expert_gate
         for name in layer_tensors:
             if ".mlp.gate.weight" in name or ".mlp.shared_expert_gate.weight" in name:
                 output[name] = get_tensor(name, weight_map, open_files)
     else:
-        output.update(
-            process_dense_mlp(prefix, tp, rank, weight_map, open_files)
-        )
+        output.update(process_dense_mlp(prefix, tp, rank, weight_map, open_files))
 
     # Replicated: layernorms
     for name in layer_tensors:
@@ -462,8 +461,12 @@ def process_layer(
 
 
 def process_global_tensors(
-    tensor_names: list, params: dict, tp: int, rank: int,
-    weight_map: dict, open_files: dict,
+    tensor_names: list,
+    params: dict,
+    tp: int,
+    rank: int,
+    weight_map: dict,
+    open_files: dict,
 ) -> dict:
     """Process non-layer tensors (embed_tokens, norm, lm_head)."""
     output = {}
@@ -480,6 +483,7 @@ def process_global_tensors(
 # ---------------------------------------------------------------------------
 # Shard writer
 # ---------------------------------------------------------------------------
+
 
 class ShardWriter:
     """Accumulates tensors and flushes to safetensors files at a size threshold."""
@@ -522,6 +526,7 @@ class ShardWriter:
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
+
 
 def main():
     model_id = os.environ.get("SGLANG_MODEL", "")
@@ -576,8 +581,7 @@ def main():
 
     print(f"[rank {rank}] Architecture: {params['model_type']}", flush=True)
     print(
-        f"[rank {rank}] AWQ: {bits}-bit, group_size={group_size}, "
-        f"pack_factor={pack_factor}",
+        f"[rank {rank}] AWQ: {bits}-bit, group_size={group_size}, " f"pack_factor={pack_factor}",
         flush=True,
     )
     print(
@@ -605,13 +609,24 @@ def main():
         all_names = []
         for layer_idx in sorted(k for k in groups if k != "global"):
             result = process_layer(
-                layer_idx, groups[layer_idx], params,
-                tp, ep, rank, weight_map, open_files,
+                layer_idx,
+                groups[layer_idx],
+                params,
+                tp,
+                ep,
+                rank,
+                weight_map,
+                open_files,
             )
             all_names.extend(sorted(result.keys()))
         if "global" in groups:
             result = process_global_tensors(
-                groups["global"], params, tp, rank, weight_map, open_files,
+                groups["global"],
+                params,
+                tp,
+                rank,
+                weight_map,
+                open_files,
             )
             all_names.extend(sorted(result.keys()))
         print(f"\n[rank {rank}] Output tensor names ({len(all_names)}):", flush=True)
@@ -630,8 +645,14 @@ def main():
             flush=True,
         )
         result = process_layer(
-            layer_idx, groups[layer_idx], params,
-            tp, ep, rank, weight_map, open_files,
+            layer_idx,
+            groups[layer_idx],
+            params,
+            tp,
+            ep,
+            rank,
+            weight_map,
+            open_files,
         )
         total_tensors += len(result)
         writer.add(result)
@@ -639,7 +660,12 @@ def main():
     if "global" in groups:
         print(f"[rank {rank}] Global tensors", flush=True)
         result = process_global_tensors(
-            groups["global"], params, tp, rank, weight_map, open_files,
+            groups["global"],
+            params,
+            tp,
+            rank,
+            weight_map,
+            open_files,
         )
         total_tensors += len(result)
         writer.add(result)
@@ -662,16 +688,21 @@ def main():
 
     # Write index file (serves as completion marker — written last after all parts)
     import json
+
     weight_map_out = {}
     for part_idx in range(writer.part):
         filename = f"model-rank-{rank}-part-{part_idx}.safetensors"
         filepath = output_dir / filename
         if filepath.exists():
             from safetensors import safe_open
+
             with safe_open(str(filepath), framework="pt") as f:
                 for key in f.keys():
                     weight_map_out[key] = filename
-    index_data = {"metadata": {"model": model_id, "tp": tp, "ep": ep, "rank": rank, "method": "cpu_shard"}, "weight_map": weight_map_out}
+    index_data = {
+        "metadata": {"model": model_id, "tp": tp, "ep": ep, "rank": rank, "method": "cpu_shard"},
+        "weight_map": weight_map_out,
+    }
     (output_dir / "model.safetensors.index.json").write_text(json.dumps(index_data, indent=2))
     print(f"[rank {rank}] CPU sharding complete.", flush=True)
 

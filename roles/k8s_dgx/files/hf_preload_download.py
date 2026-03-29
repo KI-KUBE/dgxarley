@@ -11,11 +11,7 @@ _state = {"total": 0, "model_path": "", "active": True}
 
 def _cache_size(path):
     try:
-        return sum(
-            os.path.getsize(os.path.join(dp, f))
-            for dp, _, fns in os.walk(path)
-            for f in fns
-        )
+        return sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fns in os.walk(path) for f in fns)
     except Exception:
         return 0
 
@@ -33,8 +29,7 @@ def _monitor(path, interval=10):
         if total_size > 0:
             pct = min(downloaded / total_size * 100, 100)
             print(
-                f"  [progress] {downloaded / 1e9:.1f} / {total_size / 1e9:.1f} GB"
-                f" ({pct:.0f}%)",
+                f"  [progress] {downloaded / 1e9:.1f} / {total_size / 1e9:.1f} GB" f" ({pct:.0f}%)",
                 flush=True,
             )
         else:
@@ -95,21 +90,24 @@ for model_id in models:
         _state["active"] = False
         if rsync_targets:
             import subprocess
+
             model_dir = "models--" + model_id.replace("/", "--")
             src = f"/root/.cache/huggingface/hub/{model_dir}/"
             ssh_opts = ["-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null"]
             for target in rsync_targets:
                 dst = f"root@{target}:{hf_cache_host_path}/hub/{model_dir}/"
                 print(f"Syncing {model_dir} to {target}:{hf_cache_host_path}/hub/ ...", flush=True)
-                proc = subprocess.Popen([
-                    "rsync", "-ah", "--info=progress2", "--inplace",
-                    "-e", "ssh " + " ".join(ssh_opts),
-                    src, dst
-                ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                proc = subprocess.Popen(
+                    ["rsync", "-ah", "--info=progress2", "--inplace", "-e", "ssh " + " ".join(ssh_opts), src, dst],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
                 t_out = threading.Thread(target=_stream, args=(proc.stdout,), daemon=True)
                 t_err = threading.Thread(target=_stream, args=(proc.stderr, "[rsync stderr] "), daemon=True)
-                t_out.start(); t_err.start()
-                t_out.join(); t_err.join()
+                t_out.start()
+                t_err.start()
+                t_out.join()
+                t_err.join()
                 rc = proc.wait()
                 if rc != 0:
                     raise RuntimeError(f"rsync to {target} failed with exit code {rc}")

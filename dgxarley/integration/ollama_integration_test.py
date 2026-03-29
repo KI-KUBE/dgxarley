@@ -57,7 +57,6 @@ CHAT_MODEL_LITELLM: str = "qwen2.5-coder:latest"
 USE_LITELLM: bool = os.environ.get("USE_LITELLM", "").lower() in ("1", "true", "yes")
 
 
-
 def _base_url() -> str:
     """Return the active base URL depending on mode."""
     return LITELLM_URL if USE_LITELLM else OLLAMA_URL
@@ -309,7 +308,8 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Ollama integration tests")
     parser.add_argument(
-        "--via-litellm", action="store_true",
+        "--via-litellm",
+        action="store_true",
         help="Test via LiteLLM proxy (OpenAI-compatible API) instead of Ollama native API",
     )
     args = parser.parse_args()

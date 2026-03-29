@@ -15,8 +15,8 @@ import sys
 import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-GOTIFY_URL = os.environ.get('GOTIFY_URL', 'https://gotify.example.com')
-GOTIFY_TOKEN = os.environ.get('GOTIFY_TOKEN', '')
+GOTIFY_URL = os.environ.get("GOTIFY_URL", "https://gotify.example.com")
+GOTIFY_TOKEN = os.environ.get("GOTIFY_TOKEN", "")
 
 
 def pp(msg):
@@ -25,28 +25,28 @@ def pp(msg):
 
 class WebhookHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path in ('/healthz', '/readyz'):
+        if self.path in ("/healthz", "/readyz"):
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(b'OK')
+            self.wfile.write(b"OK")
         else:
             self.send_response(404)
             self.end_headers()
 
     def do_POST(self):
-        if self.path == '/webhook':
-            content_length = int(self.headers['Content-Length'])
+        if self.path == "/webhook":
+            content_length = int(self.headers["Content-Length"])
             body = self.rfile.read(content_length)
 
             try:
                 data = json.loads(body)
 
-                status = data.get('status', 'unknown')
-                alerts = data.get('alerts', [])
+                status = data.get("status", "unknown")
+                alerts = data.get("alerts", [])
 
                 for alert in alerts:
-                    annotations = alert.get('annotations', {})
-                    labels = alert.get('labels', {})
+                    annotations = alert.get("annotations", {})
+                    labels = alert.get("labels", {})
 
                     title = f"{'🔥' if status == 'firing' else '✅'} {labels.get('alertname', 'Alert')}"
                     message = (
@@ -57,11 +57,11 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
                     resp = requests.post(
                         f"{GOTIFY_URL}/message",
-                        params={'token': GOTIFY_TOKEN},
+                        params={"token": GOTIFY_TOKEN},
                         json={
-                            'title': title,
-                            'message': message,
-                            'priority': 8 if status == 'firing' else 5,
+                            "title": title,
+                            "message": message,
+                            "priority": 8 if status == "firing" else 5,
                         },
                     )
 
@@ -70,7 +70,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(b'OK')
+                self.wfile.write(b"OK")
 
             except Exception as e:
                 pp(f"Error processing webhook: {e}")
@@ -82,8 +82,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
 
-if __name__ == '__main__':
-    pp('Alertmanager-Gotify bridge __main__ invoked')
-    server = HTTPServer(('0.0.0.0', 8080), WebhookHandler)
-    pp('Alertmanager-Gotify bridge listening on :8080')
+if __name__ == "__main__":
+    pp("Alertmanager-Gotify bridge __main__ invoked")
+    server = HTTPServer(("0.0.0.0", 8080), WebhookHandler)
+    pp("Alertmanager-Gotify bridge listening on :8080")
     server.serve_forever()

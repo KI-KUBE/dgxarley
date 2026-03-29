@@ -15,8 +15,8 @@ import sys
 import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-GOTIFY_URL = os.environ.get('GOTIFY_URL', 'https://gotify.example.com')
-GOTIFY_TOKEN = os.environ.get('GOTIFY_TOKEN', '')
+GOTIFY_URL = os.environ.get("GOTIFY_URL", "https://gotify.example.com")
+GOTIFY_TOKEN = os.environ.get("GOTIFY_TOKEN", "")
 
 
 def pp(msg):
@@ -25,37 +25,37 @@ def pp(msg):
 
 class WebhookHandler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path in ('/healthz', '/readyz'):
+        if self.path in ("/healthz", "/readyz"):
             self.send_response(200)
             self.end_headers()
-            self.wfile.write(b'OK')
+            self.wfile.write(b"OK")
         else:
             self.send_response(404)
             self.end_headers()
 
     def do_POST(self):
-        if self.path == '/webhook':
-            content_length = int(self.headers.get('Content-Length', 0))
+        if self.path == "/webhook":
+            content_length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(content_length)
 
             try:
                 data = json.loads(body)
 
                 # Keel payload: {"name": "...", "message": "...", "createdAt": "..."}
-                name = data.get('name', 'Keel')
-                message = data.get('message', 'No message')
-                created_at = data.get('createdAt', '')
+                name = data.get("name", "Keel")
+                message = data.get("message", "No message")
+                created_at = data.get("createdAt", "")
 
                 title = f"⚙️ Keel: {name}"
                 body_text = f"{message}\n{created_at}" if created_at else message
 
                 resp = requests.post(
                     f"{GOTIFY_URL}/message",
-                    params={'token': GOTIFY_TOKEN},
+                    params={"token": GOTIFY_TOKEN},
                     json={
-                        'title': title,
-                        'message': body_text,
-                        'priority': 5,
+                        "title": title,
+                        "message": body_text,
+                        "priority": 5,
                     },
                 )
 
@@ -64,7 +64,7 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(b'OK')
+                self.wfile.write(b"OK")
 
             except Exception as e:
                 pp(f"Error processing webhook: {e}")
@@ -76,8 +76,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
             self.end_headers()
 
 
-if __name__ == '__main__':
-    pp('Keel-Gotify bridge __main__ invoked')
-    server = HTTPServer(('0.0.0.0', 8080), WebhookHandler)
-    pp('Keel-Gotify bridge listening on :8080')
+if __name__ == "__main__":
+    pp("Keel-Gotify bridge __main__ invoked")
+    server = HTTPServer(("0.0.0.0", 8080), WebhookHandler)
+    pp("Keel-Gotify bridge listening on :8080")
     server.serve_forever()

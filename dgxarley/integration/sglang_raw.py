@@ -159,7 +159,9 @@ def build_payload(
     return payload
 
 
-def stream_and_display(url: str, payload: dict[str, object], raw_json: bool = False, guard_enabled: bool = True) -> None:
+def stream_and_display(
+    url: str, payload: dict[str, object], raw_json: bool = False, guard_enabled: bool = True
+) -> None:
     """Stream a chat-completions SSE response and render it in a two-panel Rich display.
 
     The upper panel shows the interpreted output (thinking tokens in cyan,
@@ -339,9 +341,13 @@ def stream_and_display(url: str, payload: dict[str, object], raw_json: bool = Fa
             A :class:`rich.table.Table` populated with the current chunk rows.
         """
         from rich.table import Table as RichTable
+
         tbl = RichTable(
-            show_lines=False, expand=True, pad_edge=False,
-            title="[bold]SSE chunks[/]", border_style="blue",
+            show_lines=False,
+            expand=True,
+            pad_edge=False,
+            title="[bold]SSE chunks[/]",
+            border_style="blue",
         )
         tbl.add_column("#", justify="right", style="dim", width=5)
         tbl.add_column("Type", width=8)
@@ -434,10 +440,14 @@ def stream_and_display(url: str, payload: dict[str, object], raw_json: bool = Fa
                 u = chunk.get("usage")
                 if u:
                     usage_info = u
-                    chunk_rows.append({
-                        "n": chunk_count, "type": "usage", "content": json.dumps(u),
-                        "tokens": str(u.get("completion_tokens", "")),
-                    })
+                    chunk_rows.append(
+                        {
+                            "n": chunk_count,
+                            "type": "usage",
+                            "content": json.dumps(u),
+                            "tokens": str(u.get("completion_tokens", "")),
+                        }
+                    )
 
                 choice = (chunk.get("choices") or [None])[0]
                 if choice:
@@ -454,26 +464,36 @@ def stream_and_display(url: str, payload: dict[str, object], raw_json: bool = Fa
                             t_first_token = time.monotonic()
                         thinking_text += reasoning
                         thinking_tokens_est = len(thinking_text) // 4
-                        chunk_rows.append({
-                            "n": chunk_count, "type": "think",
-                            "content": repr(reasoning), "finish": fr,
-                        })
+                        chunk_rows.append(
+                            {
+                                "n": chunk_count,
+                                "type": "think",
+                                "content": repr(reasoning),
+                                "finish": fr,
+                            }
+                        )
                         if thinking_guard:
                             gr: FeedResult = thinking_guard.feed(reasoning)
                             if gr.should_stop:
                                 guard_status = f"STOPPED ({gr.reason.name})"
                                 finish_reason = "repetition_guard"
-                                chunk_rows.append({
-                                    "n": chunk_count, "type": "guard",
-                                    "content": f"thinking: {gr.detail}",
-                                    "finish": "guard",
-                                })
+                                chunk_rows.append(
+                                    {
+                                        "n": chunk_count,
+                                        "type": "guard",
+                                        "content": f"thinking: {gr.detail}",
+                                        "finish": "guard",
+                                    }
+                                )
                                 if gr.diagnostics:
-                                    chunk_rows.append({
-                                        "n": chunk_count, "type": "diag",
-                                        "content": json.dumps(gr.diagnostics, ensure_ascii=False, default=str),
-                                        "finish": "",
-                                    })
+                                    chunk_rows.append(
+                                        {
+                                            "n": chunk_count,
+                                            "type": "diag",
+                                            "content": json.dumps(gr.diagnostics, ensure_ascii=False, default=str),
+                                            "finish": "",
+                                        }
+                                    )
                                 live.update(make_display())
                                 break
 
@@ -482,35 +502,49 @@ def stream_and_display(url: str, payload: dict[str, object], raw_json: bool = Fa
                             t_first_token = time.monotonic()
                         content_text += content
                         content_tokens_est = len(content_text) // 4
-                        chunk_rows.append({
-                            "n": chunk_count, "type": "content",
-                            "content": repr(content), "finish": fr,
-                        })
+                        chunk_rows.append(
+                            {
+                                "n": chunk_count,
+                                "type": "content",
+                                "content": repr(content),
+                                "finish": fr,
+                            }
+                        )
                         if content_guard:
                             gr = content_guard.feed(content)
                             if gr.should_stop:
                                 guard_status = f"STOPPED ({gr.reason.name})"
                                 finish_reason = "repetition_guard"
-                                chunk_rows.append({
-                                    "n": chunk_count, "type": "guard",
-                                    "content": f"content: {gr.detail}",
-                                    "finish": "guard",
-                                })
+                                chunk_rows.append(
+                                    {
+                                        "n": chunk_count,
+                                        "type": "guard",
+                                        "content": f"content: {gr.detail}",
+                                        "finish": "guard",
+                                    }
+                                )
                                 if gr.diagnostics:
-                                    chunk_rows.append({
-                                        "n": chunk_count, "type": "diag",
-                                        "content": json.dumps(gr.diagnostics, ensure_ascii=False, default=str),
-                                        "finish": "",
-                                    })
+                                    chunk_rows.append(
+                                        {
+                                            "n": chunk_count,
+                                            "type": "diag",
+                                            "content": json.dumps(gr.diagnostics, ensure_ascii=False, default=str),
+                                            "finish": "",
+                                        }
+                                    )
                                 live.update(make_display())
                                 break
 
                     # Chunk with only finish_reason, no content
                     if fr and not reasoning and not content and not u:
-                        chunk_rows.append({
-                            "n": chunk_count, "type": "finish",
-                            "content": "", "finish": fr,
-                        })
+                        chunk_rows.append(
+                            {
+                                "n": chunk_count,
+                                "type": "finish",
+                                "content": "",
+                                "finish": fr,
+                            }
+                        )
 
                 live.update(make_display())
 
@@ -581,7 +615,11 @@ def main() -> None:
 
     url = f"{sglang_url.rstrip('/')}/v1/chat/completions"
     payload = build_payload(
-        model_id, args.prompt, args.max_tokens, args.thinking_budget, args.no_think,
+        model_id,
+        args.prompt,
+        args.max_tokens,
+        args.thinking_budget,
+        args.no_think,
         temperature=args.temperature,
         top_p=args.top_p,
         top_k=args.top_k,
@@ -605,11 +643,13 @@ def main() -> None:
             cls_name = "(serialized)"
         display_payload["custom_logit_processor"] = cls_name
     display_payload["prompt"] = args.prompt[:120] + ("..." if len(args.prompt) > 120 else "")
-    c.print(Panel(
-        Syntax(json.dumps(display_payload, indent=2, ensure_ascii=False), "json", theme="monokai"),
-        title=f"[bold]POST {url}[/]",
-        border_style="cyan",
-    ))
+    c.print(
+        Panel(
+            Syntax(json.dumps(display_payload, indent=2, ensure_ascii=False), "json", theme="monokai"),
+            title=f"[bold]POST {url}[/]",
+            border_style="cyan",
+        )
+    )
     if not args.yes:
         try:
             input("[Enter to send, Ctrl+C to abort] ")
