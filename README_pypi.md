@@ -7,6 +7,24 @@
 
 Tooling for the DGX Arley K3s inference cluster — integration tests, streaming utilities, and CLI entry points for SGLang, Ollama, and OpenWebUI services.
 
+
+**Heureka! — Qwen3-235B-A22B MoE (AWQ 4-bit) running distributed inference across both DGX Sparks:**
+
+![235B AWQ Heureka](https://raw.githubusercontent.com/vroomfondel/dgxarley/main/media/Bildschirmfoto_2026-03-17_21-53-58_blurred.png)
+
+
+### `sglang-raw` — Dual-panel SSE stream viewer
+
+![sglang-raw: rendered response + raw JSON chunks](https://raw.githubusercontent.com/vroomfondel/dgxarley/main/media/Bildschirmfoto_2026-03-18_17-29-30_blurred.png)
+
+Dual-panel Rich TUI: top half renders the AI response in real time, bottom half shows raw JSON SSE stream chunks (`chat_completion_chunk`, `choices`, `delta`, `finish_reason`).
+
+### `sglang-raw` — Think/text token classification
+
+![sglang-raw: token table with think/text classification](https://raw.githubusercontent.com/vroomfondel/dgxarley/main/media/Bildschirmfoto_2026-03-18_17-35-04_blurred.png)
+
+Token-level stream inspection with columns for type (`think` vs `text`), content, finish reason, and token count — visualizing the separation of reasoning and output tokens.
+
 ## What's included
 
 ### CLI tools
