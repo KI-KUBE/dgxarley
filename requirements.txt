@@ -1,11 +1,11 @@
-pre-commit
+
 jinja2
 PyYAML
 kubernetes
 requests
 dnspython
 ascii_magic
-Pillow
+
 pygithub
 huggingface-hub
 pydantic

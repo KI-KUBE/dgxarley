@@ -13,6 +13,34 @@ dependencies = [
     "PyYAML",
     "ascii-magic",
     "Pillow",
+    "pydantic",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pre-commit",
+    "pytest",
+    "mypy",
+    "black",
+    "isort",
+    "types-requests",
+    "types-PyYAML",
+    "sglang",
+    # torch is installed via requirements-dev.txt with --extra-index-url
+    # (PyTorch cu129 wheel index) — cannot be specified here in pyproject.toml
+]
+ansible = [
+    "jinja2",
+    "kubernetes",
+    "dnspython",
+    "pygithub",
+    "huggingface-hub",
+    "paramiko",
+    "ansible",
+    "ansible-pylibssh",
+]
+build = [
+    "hatch",
 ]
 
 [tool.hatch.version]
@@ -57,7 +85,10 @@ exclude = '''(?x)(
     )'''
 
 [[tool.mypy.overrides]]
-module = ["cv2", "numpy", "pytesseract", "kubernetes.*"]
+module = [
+    "cv2", "numpy", "pytesseract", "kubernetes.*",
+    "aiohttp", "ascii_magic",
+]
 ignore_missing_imports = true
 
 
