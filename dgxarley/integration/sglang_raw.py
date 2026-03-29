@@ -46,7 +46,6 @@ from dgxarley import configure_logging, glogger, print_banner
 os.environ.setdefault("LOGURU_LEVEL", "DEBUG")
 configure_logging()
 glogger.enable("dgxarley")
-print_banner(module=Path(__file__).stem)
 
 from loguru import logger
 
@@ -586,7 +585,7 @@ def main() -> None:
     missing.  Exits with status 0 on a ``KeyboardInterrupt`` at the
     confirmation prompt.
     """
-
+    print_banner(module=Path(__file__).stem)
     parser = argparse.ArgumentParser(
         description="Raw SGLang SSE stream viewer",
         formatter_class=argparse.RawDescriptionHelpFormatter,

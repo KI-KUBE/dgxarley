@@ -28,7 +28,6 @@ from dgxarley import configure_logging, glogger, print_banner
 os.environ.setdefault("LOGURU_LEVEL", "DEBUG")
 configure_logging()
 glogger.enable("dgxarley")
-print_banner(module=Path(__file__).stem)
 
 from loguru import logger
 
@@ -313,6 +312,7 @@ def test_chat_streaming() -> TestResult:
 
 def main() -> None:
     """Run all Ollama integration tests and exit with an appropriate status code."""
+    print_banner(module=Path(__file__).stem)
     global USE_LITELLM  # noqa: PLW0603
 
     parser = argparse.ArgumentParser(description="Ollama integration tests")

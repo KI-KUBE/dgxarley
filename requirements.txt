@@ -6,6 +6,7 @@ requests
 dnspython
 ascii_magic
 loguru
+tabulate
 
 pygithub
 huggingface-hub

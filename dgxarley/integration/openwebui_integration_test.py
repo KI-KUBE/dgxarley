@@ -58,7 +58,6 @@ from dgxarley import configure_logging, glogger, print_banner
 os.environ.setdefault("LOGURU_LEVEL", "DEBUG")
 configure_logging()
 glogger.enable("dgxarley")
-print_banner(module=Path(__file__).stem)
 
 from loguru import logger
 
@@ -919,7 +918,7 @@ def create_openwebui_client(verbose: bool = False) -> OpenWebUIClient:
     Raises:
         ValueError: If neither ``OPENWEBUI_API_KEY`` nor ``API_KEY`` is set.
     """
-    model_id: str = os.environ.get("MODEL_ID", "Qwen/Qwen3.5-35B-A3B")
+    model_id: str = os.environ.get("MODEL_ID", "nvidia/MiniMax-M2.5-NVFP4")
     owui_url: str = os.environ.get("OPEN_WEBUI_URL", "https://openwebui.example.com")
     api_key: str = os.environ.get("OPENWEBUI_API_KEY", os.environ.get("API_KEY", ""))
     if not api_key:
@@ -938,6 +937,7 @@ def main() -> None:
     ``sampling``, ``presets``, ``all``.  The special name ``all`` expands to
     the full set.  Defaults to ``xkcd briefing``.
     """
+    print_banner(module=Path(__file__).stem)
     import argparse
 
     parser = argparse.ArgumentParser(description="OpenWebUI / SGLang integration tests")

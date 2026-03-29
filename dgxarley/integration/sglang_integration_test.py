@@ -71,7 +71,6 @@ from dgxarley import configure_logging, glogger, print_banner
 os.environ.setdefault("LOGURU_LEVEL", "DEBUG")
 configure_logging()
 glogger.enable("dgxarley")
-print_banner(module=Path(__file__).stem)
 
 from loguru import logger
 
@@ -1062,6 +1061,7 @@ def main() -> None:
         SystemExit: If argument parsing fails or the model validation check
             fails.
     """
+    print_banner(module=Path(__file__).stem)
     import argparse
 
     parser = argparse.ArgumentParser(description="Direct SGLang integration tests")
@@ -1126,6 +1126,12 @@ def main() -> None:
         help="Disable streaming repetition guard. "
         "Values: content, reasoning, both (default: both if flag given without value)",
     )
+    parser.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip confirmation prompt",
+    )
     args = parser.parse_args()
 
     verbose: bool = args.verbose
@@ -1133,6 +1139,35 @@ def main() -> None:
     tests: set[str] = set(args.tests)
     if "all" in tests:
         tests = {"xkcd", "briefing", "thinking", "coding", "sampling", "presets"}
+
+    # Show config summary and wait for confirmation
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.syntax import Syntax
+
+    config_summary = {
+        "tests": sorted(tests),
+        "verbose": verbose,
+        "no_think": no_think,
+        "max_tokens": args.max_tokens,
+        "thinking_budget": args.thinking_budget,
+        "num_requests": args.num_requests,
+        "preset": args.preset,
+        "no_guard": args.no_guard,
+    }
+    Console().print(
+        Panel(
+            Syntax(json.dumps(config_summary, indent=2, ensure_ascii=False), "json", theme="monokai"),
+            title="[bold]Test Configuration[/]",
+            border_style="cyan",
+        )
+    )
+    if not args.yes:
+        try:
+            input("[Enter to run tests, Ctrl+C to abort] (press 'q' during parallel tests to stop early) ")
+        except KeyboardInterrupt:
+            print("\nAborted.")
+            sys.exit(0)
 
     # Handle parallel test separately (async)
     if "parallel" in tests:
