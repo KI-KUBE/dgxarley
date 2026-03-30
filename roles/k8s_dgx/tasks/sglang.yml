@@ -52,6 +52,7 @@
         SGLANG_SPECULATIVE_EAGLE_TOPK: "{{ sglang_speculative_eagle_topk | string }}"
         SGLANG_SPECULATIVE_NUM_DRAFT_TOKENS: "{{ sglang_speculative_num_draft_tokens | string }}"
         SGLANG_DIST_TIMEOUT: "{{ sglang_dist_timeout | string }}"
+        SGLANG_WATCHDOG_TIMEOUT: "{{ sglang_watchdog_timeout | string }}"
         SGLANG_ATTENTION_BACKEND: "{{ sglang_attention_backend }}"
         SGLANG_FP8_GEMM_RUNNER_BACKEND: "{{ sglang_fp8_gemm_runner_backend }}"
         SGLANG_FP4_GEMM_BACKEND: "{{ sglang_fp4_gemm_backend }}"
@@ -65,6 +66,19 @@
         SGLANG_ENABLE_EPLB: "{{ sglang_enable_eplb | string | lower }}"
         SGLANG_ENABLE_EXPERT_DISTRIBUTION_METRICS: "{{ sglang_enable_expert_distribution_metrics | string | lower }}"
         SGLANG_ENABLE_JIT_DEEPGEMM: "{{ 'false' if sglang_disable_deep_gemm | bool else 'true' }}"
+        # Flash Attention 4 CuTe DSL JIT: enable persistent disk cache so compiled
+        # kernels survive pod restarts. First start compiles (~slow), subsequent
+        # starts load from cache. Cache dir on hf-cache hostPath for persistence.
+        FLASH_ATTENTION_CUTE_DSL_CACHE_ENABLED: "1"
+        FLASH_ATTENTION_CUTE_DSL_CACHE_DIR: "/root/.cache/huggingface/fa4_cute_dsl_cache"
+        # FlashInfer 0.6.6 CUTLASS MoE JIT: on first inference, flashinfer_cutlass
+        # generates and compiles ~30+ CUTLASS instantiations (moe_gemm_kernels_*,
+        # cutlass_kernel_file_gemm_sm90_M{64,128}_group*) via nvcc/cicc/cc1plus.
+        # Default: all compile in parallel → 15+ processes × ~1 GB each → OOM on
+        # 121 GB DGX Spark. MAX_JOBS=2 serializes to 2 concurrent compilations.
+        # Subsequent starts load from FlashInfer's own cache at
+        # /root/.cache/flashinfer/0.6.6/121a/cached_ops/ (on hf-cache hostPath).
+        MAX_JOBS: "{{ sglang_jit_max_jobs | default(2) | string }}"
         # Fix CUDA allocator fragmentation during AWQ Marlin repack (SGLang #11471)
         PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
         SGLANG_MOE_CONFIG_DIR: "{{ sglang_moe_config_dir }}"

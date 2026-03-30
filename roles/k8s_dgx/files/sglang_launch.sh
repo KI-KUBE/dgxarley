@@ -199,6 +199,16 @@ print("Patched modelopt_quant.py: EP-aware input_scale slicing in else-branch")
 PATCH_MODELOPT_EOF
 fi
 
+# Patch modelopt_quant.py: CutlassMoEParams uses layer.num_experts (global=256)
+# instead of layer.num_local_experts (128 with EP=2). The cutlass_moe_fp4 forward
+# function then asserts num_experts == weight expert dim, which fails because
+# weights are EP-sliced to num_local_experts. Fix: use num_local_experts.
+if grep -q 'num_experts=layer.num_experts,  # global num experts' "$MODELOPT_QUANT" 2>/dev/null; then
+  sed -i 's/num_experts=layer\.num_experts,  # global num experts/num_experts=layer.num_local_experts,  # EP-aware: use local expert count/' "$MODELOPT_QUANT"
+  sed -i 's/existing_params\.num_experts != layer\.num_experts/existing_params.num_experts != layer.num_local_experts/' "$MODELOPT_QUANT"
+  echo "Patched modelopt_quant.py: CutlassMoEParams uses num_local_experts for EP"
+fi
+
 # Patch ModelOptModelLoader to support load_format=sharded_state (SGLang 0.5.9 bug).
 # ModelOptModelLoader inherits DefaultModelLoader whose _prepare_weights() doesn't
 # handle LoadFormat.SHARDED_STATE → "Unknown load_format" error. Fix: for pre-quantized
@@ -311,6 +321,9 @@ if [ -n "$SGLANG_SCHEDULE_POLICY" ]; then
 fi
 if [ -n "$SGLANG_DIST_TIMEOUT" ]; then
   args+=(--dist-timeout "$SGLANG_DIST_TIMEOUT")
+fi
+if [ -n "$SGLANG_WATCHDOG_TIMEOUT" ]; then
+  args+=(--watchdog-timeout "$SGLANG_WATCHDOG_TIMEOUT")
 fi
 if [ -n "$SGLANG_ATTENTION_BACKEND" ]; then
   args+=(--attention-backend "$SGLANG_ATTENTION_BACKEND")

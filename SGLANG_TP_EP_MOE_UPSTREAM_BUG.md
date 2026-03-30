@@ -273,6 +273,107 @@ if model_config._is_already_quantized():
 - **Loader dispatch**: monkey-patched in `sglang_launch.sh` and `sglang_shard_launch.sh` (delegates to `ShardedStateLoader` when `load_format == SHARDED_STATE`)
 - **Shard job config**: `SGLANG_MOE_RUNNER_BACKEND` env var added to shard job containers in `sglang_shard.yml`, passed through to `Engine()` in `sglang_save_sharded.py` — ensures consistent `process_weights_after_loading` branches between shard and serving
 
+## Additional Bug: CutlassMoEParams uses global num_experts with EP
+
+### Status
+
+**Unreported** as of 2026-03-30. Bug exists in SGLang v0.5.10rc0
+`sglang/srt/layers/quantization/modelopt_quant.py`, method
+`_maybe_init_cutlass_moe_params()`, and
+`sglang/srt/layers/moe/cutlass_moe.py`, function `cutlass_moe_fp4()`.
+
+### Affected Configuration
+
+- Quantization: `modelopt_fp4` (NVFP4-quantized MoE models)
+- Expert Parallelism: `ep_size > 1`
+- MoE runner backend: `triton` (which falls back to `cutlass_moe_fp4` for FP4)
+- Tested with: nvidia/MiniMax-M2.5-NVFP4 (256 experts), TP=2, EP=2, v0.5.10rc0
+
+The `flashinfer_cutlass` backend takes a different code path and is **not affected**
+by this specific assertion — but has its own issues with CUDA graph capture JIT OOM.
+
+### The Bug
+
+`_maybe_init_cutlass_moe_params()` in `modelopt_quant.py` creates `CutlassMoEParams`
+with `num_experts=layer.num_experts` (global, 256). With EP=2, each rank only holds
+128 experts — the weight tensors `w1_fp4` and `w2_fp4` have shape `[128, ...]`.
+
+In `cutlass_moe_fp4()`, the assertion on line 419 checks:
+
+```python
+e_w1, nx2_w1, half_k_w1 = w1_fp4.shape          # e_w1 = 128 (local)
+assert e_w1 == e_w2 and e_w1 == params.num_experts  # params.num_experts = 256 (global)
+# → AssertionError: ('Number of experts must match', ' between weights.')
+```
+
+Additionally, `prepare_moe_input()` on line 98 receives `params.num_experts` (256),
+but `topk_ids` only reference local expert indices 0–127. All internal tensors
+(strides, expert_offsets, problem_sizes) are sized for 256 experts instead of 128.
+
+### Traceback
+
+```
+File ".../modelopt_quant.py", line 2010, in apply
+    output = cutlass_moe_fp4(
+File ".../cutlass_moe.py", line 419, in cutlass_moe_fp4
+    assert e_w1 == e_w2 and e_w1 == params.num_experts, (
+AssertionError: ('Number of experts must match', ' between weights.')
+```
+
+### Fix
+
+Use `layer.num_local_experts` instead of `layer.num_experts` when creating
+`CutlassMoEParams`. This is a no-op when `ep_size=1` (num_local_experts == num_experts).
+
+```python
+# In _maybe_init_cutlass_moe_params():
+layer.cutlass_moe_params = CutlassMoEParams(
+    CutlassMoEType.BlockscaledFP4,
+    device,
+    num_experts=layer.num_local_experts,  # was: layer.num_experts
+    intermediate_size_per_partition=inter_size,
+    hidden_size=hidden_size,
+)
+```
+
+Note: PR #20869 (open, 2026-03-18) already includes this fix as part of a broader
+EP-awareness patch for `modelopt_quant.py`, but has not been merged.
+
+### Deeper Issue: cutlass_fp4_group_mm CUDA kernel assert with EP
+
+Even after fixing `CutlassMoEParams` to use `num_local_experts`, the underlying
+CUTLASS FP4 MoE GEMM kernel (`nvfp4_blockwise_moe.cuh:78`) triggers a device-side
+assert when called with EP-sliced expert tensors. This is a compiled C++/CUDA kernel
+— not patchable from Python.
+
+```
+File ".../sglang/jit_kernel/nvfp4.py", line 504, in _cutlass_fp4_group_mm_custom_op
+    module.cutlass_fp4_group_mm(
+RuntimeError: Runtime check failed at .../sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh:78:
+    CUDA error: device-side assert triggered
+```
+
+Tested: nvidia/MiniMax-M2.5-NVFP4 (256 experts), TP=2, EP=2, v0.5.10rc0,
+`moe_runner_backend=triton` (which falls back to `cutlass_moe_fp4` for NVFP4).
+The Python-level `CutlassMoEParams` patch (num_local_experts) resolves the
+assertion in `cutlass_moe_fp4()`, but the CUTLASS kernel itself does not support
+EP-partitioned expert tensors.
+
+**Impact**: `moe_runner_backend: "triton"` is **unusable** with NVFP4 + EP > 1.
+The only working MoE backend for NVFP4 + EP is `flashinfer_cutlass`, which uses
+a different code path that does not go through `cutlass_moe_fp4`.
+
+### Our Workaround
+
+The `CutlassMoEParams` Python-level fix is monkey-patched in `sglang_launch.sh`
+and `sglang_shard_launch.sh`: `sed` replaces `layer.num_experts` with
+`layer.num_local_experts` in both the `CutlassMoEParams` constructor call and
+the cache-invalidation check. The patch is guarded by a grep for the upstream
+comment `# global num experts` — if upstream fixes this, the patch auto-skips.
+
+However, the CUDA kernel-level issue cannot be patched. For NVFP4 + EP > 1, use
+`moe_runner_backend: "flashinfer_cutlass"` (not `"triton"`).
+
 ## Related Upstream Issues & PRs
 
 ### Directly addressing our bugs

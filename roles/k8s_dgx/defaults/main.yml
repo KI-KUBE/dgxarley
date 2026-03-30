@@ -323,13 +323,25 @@ sglang_model_profiles:
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.80"
     attention_backend: "flashinfer"
+    # NÄCHSTER TEST:
+    # fp4_gemm_backend: "cutlass" statt auto (→ flashinfer_cudnn)
+    jit_max_jobs: 8
     # Piecewise CUDA graph capture fails with NCCL error on EP=2 NVFP4 (only
     # ~17 GB free after model+KV — not enough for capture buffers + all-reduce).
     disable_piecewise_cuda_graph: true
+    # CUDA graph capture on multi-node TP=2 EP=2 with NVFP4: hangs at 0% GPU
+    # during first forward pass (Triton/FlashInfer kernel JIT or NCCL sync).
+    # OOMs system RAM after ~15 min. Keep disabled; toggle via disable_cuda_graph.
     disable_cuda_graph: true
-    # Standard CUDA graph capture OOMs with only ~21 GB free after model+KV
-    # on v0.5.10rc0 (weights now ~72 GB vs ~62 GB on dev2). Limit to BS≤8.
-    cuda_graph_max_bs: 8
+    cuda_graph_max_bs: 4
+    # DeepGemm is designed for FP8 with ue8m0 scale format. For NVFP4 models
+    # (scale_fmt != ue8m0): (1) the JIT-compiled kernels aren't optimized for
+    # this format and may degrade accuracy, (2) JIT compilation blocks the
+    # scheduler forward loop synchronously, triggering the 300s watchdog kill,
+    # (3) parallel nvcc/cicc processes exhaust system RAM. With DeepGemm
+    # disabled, auto-selection uses flashinfer_cudnn (cuDNN backend) — NVIDIA's
+    # recommended path for NVFP4 on Blackwell. No performance loss expected.
+    disable_deep_gemm: true
     # NOTE: "minimax-append-think" does NOT separate reasoning_content — it dumps
     # everything into content with inline <think> tags (by design, see sgl-project/sglang#15508).
     # Use "minimax" instead — it maps to Qwen3Detector which properly separates
@@ -386,7 +398,6 @@ sglang_model_profiles:
     recommended_sampling:
       temperature: 1.0
       top_p: 0.95
-
 
 
 
@@ -472,6 +483,9 @@ sglang_disable_piecewise_cuda_graph: "{{ sglang_model_profiles[sglang_model].dis
 # that so clients (OpenWebUI etc.) see the original model name.
 sglang_served_model_name: "{{ sglang_model }}"
 
+# sglang default: os.cpu_count()
+sglang_jit_max_jobs: "{{ sglang_model_profiles[sglang_model].jit_max_jobs | default(16) }}"
+
 sglang_tp: 2
 # Expert parallelism: partitions the TP group for MoE layers.
 # EP must divide TP (ep_size <= tp_size). With EP=TP, MoE layers use
@@ -490,6 +504,11 @@ sglang_port: 8000
 sglang_internal_port: 30080
 sglang_haproxy_timeout: 1800
 sglang_dist_timeout: 1800
+# Scheduler watchdog timeout (seconds). The scheduler subprocess is killed if
+# no forward pass completes within this window. Default 300s is too short for
+# the first forward pass on large MoE models — FlashInfer CUTLASS kernel loading
+# and cuDNN autotuning on the first request can take several minutes.
+sglang_watchdog_timeout: 3600
 
 # Max concurrent requests. Limits how many requests SGLang processes in parallel.
 # Set to 0 for unlimited (only bounded by KV-cache pool size).
