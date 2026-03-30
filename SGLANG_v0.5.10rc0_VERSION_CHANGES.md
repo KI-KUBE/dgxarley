@@ -16,7 +16,7 @@ models. Reduces memory overhead and improves throughput for models with complex 
 - #21565 — guard crash when model has no layers
 - #20747 — Kimi-K2.5 compatibility
 
-If instability is observed, `--disable-cuda-graph` disables both standard and piecewise mode.
+If instability is observed, --disable-cuda-graph disables both standard and piecewise mode.
 
 **`sgl-kernel` renamed to `sglang-kernel`** (PR #20440)
 Package renamed from `sgl-kernel` (0.3.21) to `sglang-kernel` (0.4.0). Any pip dependency or

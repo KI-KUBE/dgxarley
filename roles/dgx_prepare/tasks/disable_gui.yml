@@ -107,6 +107,19 @@
   ansible.builtin.command: update-grub
   when: _grub_cmdline_changed is changed
 
+- name: Find active XDG autostart desktop files
+  ansible.builtin.find:
+    paths: /etc/xdg/autostart
+    patterns: "*.desktop"
+  register: _xdg_autostart_files
+
+- name: Rename XDG autostart files to .desktop.OFF
+  ansible.builtin.command: mv "{{ item.path }}" "{{ item.path }}.OFF"
+  loop: "{{ _xdg_autostart_files.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+  when: _xdg_autostart_files.files | length > 0
+
 - name: Disable and stop Docker services
   ansible.builtin.systemd:
     name: "{{ item }}"

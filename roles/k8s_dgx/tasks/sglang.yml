@@ -56,6 +56,7 @@
         SGLANG_FP8_GEMM_RUNNER_BACKEND: "{{ sglang_fp8_gemm_runner_backend }}"
         SGLANG_FP4_GEMM_BACKEND: "{{ sglang_fp4_gemm_backend }}"
         SGLANG_CUDA_GRAPH_MAX_BS: "{{ sglang_cuda_graph_max_bs | string }}"
+        TQDM_POSITION: "-1"
         SGLANG_DISABLE_PIECEWISE_CUDA_GRAPH: "{{ sglang_disable_piecewise_cuda_graph | string | lower }}"
         SGLANG_SERVED_MODEL_NAME: "{{ sglang_served_model_name }}"
         SGLANG_CHAT_TEMPLATE_KWARGS: "{{ sglang_chat_template_kwargs | to_json }}"
@@ -385,22 +386,17 @@
                     nvidia.com/gpu: "1"
                 securityContext:
                   privileged: true
-                startupProbe:
-                  httpGet:
-                    path: /v1/models
-                    port: "{{ sglang_port }}"
-                  initialDelaySeconds: 30
-                  periodSeconds: 10
-                  failureThreshold: 120
                 readinessProbe:
                   httpGet:
                     path: /v1/models
                     port: "{{ sglang_port }}"
                   periodSeconds: 15
+                  failureThreshold: 3
                 livenessProbe:
                   httpGet:
                     path: /v1/models
                     port: "{{ sglang_port }}"
+                  initialDelaySeconds: 1800
                   periodSeconds: 30
                   failureThreshold: 3
                 volumeMounts:
