@@ -56,11 +56,12 @@ fi
 # Patch safetensors_weights_iterator to log progress per shard file.
 # tqdm writes directly to sys.stderr in TP worker subprocesses — this output is
 # NOT forwarded by SGLang's logger infrastructure, so it never appears in kubectl logs.
-# Inject logger.info() calls that go through the proper logging pipeline.
+# Additionally, BAR_FORMAT in v0.5.10rc0 lacks a trailing \n, so tqdm uses \r
+# (carriage return) which is invisible in non-TTY kubectl logs.
+# Fix: replace tqdm loop with logger.info() calls that go through the logging pipeline.
 WEIGHT_UTILS="/usr/local/lib/python3.12/dist-packages/sglang/srt/model_loader/weight_utils.py"
 if grep -q 'for st_file in tqdm(' "$WEIGHT_UTILS" 2>/dev/null; then
   python3 << 'PATCH_SAFETENSORS_TQDM_EOF'
-import re
 f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/model_loader/weight_utils.py"
 with open(f) as fh:
     code = fh.read()
@@ -70,13 +71,14 @@ if "\nlogger = " not in code and "\nlogger=" not in code:
         "from tqdm.auto import tqdm",
         "import logging\nfrom tqdm.auto import tqdm\nlogger = logging.getLogger(__name__)",
         1)
-# Wrap the tqdm loop in safetensors_weights_iterator with per-file logging.
-# Target the specific pattern inside safetensors_weights_iterator.
+# v0.5.10rc0 signature: no is_all_weights_sharded, no decryption_key,
+# uses BAR_FORMAT (no underscore), has position=tqdm._get_free_pos().
 old = '''    for st_file in tqdm(
         hf_weights_files,
         desc="Loading safetensors checkpoint shards",
         disable=not enable_tqdm,
-        bar_format=_BAR_FORMAT,
+        bar_format=BAR_FORMAT,
+        position=tqdm._get_free_pos(),
     ):'''
 new = '''    _total = len(hf_weights_files)
     for _i, st_file in enumerate(hf_weights_files, 1):
@@ -84,7 +86,6 @@ new = '''    _total = len(hf_weights_files)
             logger.info(f"Loading safetensors shard {_i}/{_total}: {os.path.basename(st_file)}")'''
 if old in code:
     code = code.replace(old, new, 1)
-    # Ensure os is imported (needed for os.path.basename)
     if "import os" not in code:
         code = "import os\n" + code
     with open(f, 'w') as fh:
