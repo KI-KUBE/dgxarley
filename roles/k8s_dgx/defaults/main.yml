@@ -8,7 +8,8 @@ sglang_namespace: "sglang"
 vllm_namespace: "vllm"
 openwebui_namespace: "openwebui"
 #sglang_image: "scitrera/dgx-spark-sglang:0.5.9-t5"
-sglang_image: "scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5"
+#sglang_image: "scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5"
+sglang_image: "scitrera/dgx-spark-sglang:0.5.10rc0"
 
 # Model profiles: context_length, kv_cache_dtype, mem_fraction_static
 sglang_model_profiles:
