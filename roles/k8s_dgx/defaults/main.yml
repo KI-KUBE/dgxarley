@@ -326,6 +326,7 @@ sglang_model_profiles:
     # Piecewise CUDA graph capture fails with NCCL error on EP=2 NVFP4 (only
     # ~17 GB free after model+KV — not enough for capture buffers + all-reduce).
     disable_piecewise_cuda_graph: true
+    disable_cuda_graph: true
     # Standard CUDA graph capture OOMs with only ~21 GB free after model+KV
     # on v0.5.10rc0 (weights now ~72 GB vs ~62 GB on dev2). Limit to BS≤8.
     cuda_graph_max_bs: 8
@@ -456,9 +457,12 @@ sglang_fp8_gemm_runner_backend: "{{ sglang_model_profiles[sglang_model].fp8_gemm
 # On SM120 (Blackwell), "auto" selects flashinfer_cudnn (cuDNN-optimized kernels).
 sglang_fp4_gemm_backend: "{{ sglang_model_profiles[sglang_model].fp4_gemm_backend | default('auto') }}"
 # Maximum batch size for CUDA graph capture. Lower values reduce startup time.
-# Set to 0 to disable CUDA graph capture entirely (--disable-cuda-graph).
+# Set to 0 to also disable (prefer disable_cuda_graph: true in model profile).
 # Default: 128 (SGLang default is 256, reduced for faster startup)
 sglang_cuda_graph_max_bs: "{{ sglang_model_profiles[sglang_model].cuda_graph_max_bs | default(128) }}"
+# Disable CUDA graph capture entirely (--disable-cuda-graph).
+# Emergency kill switch — overrides cuda_graph_max_bs when true.
+sglang_disable_cuda_graph: "{{ sglang_model_profiles[sglang_model].disable_cuda_graph | default(false) }}"
 # Disable piecewise CUDA graph capture (--disable-piecewise-cuda-graph).
 # Needed for NVFP4+EP models where capture OOMs on the all-reduce buffers.
 sglang_disable_piecewise_cuda_graph: "{{ sglang_model_profiles[sglang_model].disable_piecewise_cuda_graph | default(false) }}"

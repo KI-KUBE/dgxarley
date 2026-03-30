@@ -53,6 +53,48 @@ if [ "$SGLANG_LOAD_FORMAT" = "sharded_state" ]; then
   echo "Using pre-sharded model at ${model_path}"
 fi
 
+# Patch safetensors_weights_iterator to log progress per shard file.
+# tqdm writes directly to sys.stderr in TP worker subprocesses — this output is
+# NOT forwarded by SGLang's logger infrastructure, so it never appears in kubectl logs.
+# Inject logger.info() calls that go through the proper logging pipeline.
+WEIGHT_UTILS="/usr/local/lib/python3.12/dist-packages/sglang/srt/model_loader/weight_utils.py"
+if grep -q 'for st_file in tqdm(' "$WEIGHT_UTILS" 2>/dev/null; then
+  python3 << 'PATCH_SAFETENSORS_TQDM_EOF'
+import re
+f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/model_loader/weight_utils.py"
+with open(f) as fh:
+    code = fh.read()
+# Add logger import if missing
+if "\nlogger = " not in code and "\nlogger=" not in code:
+    code = code.replace(
+        "from tqdm.auto import tqdm",
+        "import logging\nfrom tqdm.auto import tqdm\nlogger = logging.getLogger(__name__)",
+        1)
+# Wrap the tqdm loop in safetensors_weights_iterator with per-file logging.
+# Target the specific pattern inside safetensors_weights_iterator.
+old = '''    for st_file in tqdm(
+        hf_weights_files,
+        desc="Loading safetensors checkpoint shards",
+        disable=not enable_tqdm,
+        bar_format=_BAR_FORMAT,
+    ):'''
+new = '''    _total = len(hf_weights_files)
+    for _i, st_file in enumerate(hf_weights_files, 1):
+        if enable_tqdm:
+            logger.info(f"Loading safetensors shard {_i}/{_total}: {os.path.basename(st_file)}")'''
+if old in code:
+    code = code.replace(old, new, 1)
+    # Ensure os is imported (needed for os.path.basename)
+    if "import os" not in code:
+        code = "import os\n" + code
+    with open(f, 'w') as fh:
+        fh.write(code)
+    print("Patched safetensors_weights_iterator: tqdm replaced with logger.info per-file progress")
+else:
+    print("safetensors_weights_iterator: tqdm patch target not found, skipping")
+PATCH_SAFETENSORS_TQDM_EOF
+fi
+
 # Patch ShardedStateLoader to log progress per shard file (no progress bar by default)
 LOADER="/usr/local/lib/python3.12/dist-packages/sglang/srt/model_loader/loader.py"
 if grep -q 'for path in filepaths:' "$LOADER" 2>/dev/null; then
@@ -278,7 +320,7 @@ fi
 if [ -n "$SGLANG_FP4_GEMM_BACKEND" ] && [ "$SGLANG_FP4_GEMM_BACKEND" != "auto" ]; then
   args+=(--fp4-gemm-backend "$SGLANG_FP4_GEMM_BACKEND")
 fi
-if [ "$SGLANG_CUDA_GRAPH_MAX_BS" = "0" ]; then
+if [ "$SGLANG_DISABLE_CUDA_GRAPH" = "true" ] || [ "$SGLANG_CUDA_GRAPH_MAX_BS" = "0" ]; then
   args+=(--disable-cuda-graph)
 elif [ -n "$SGLANG_CUDA_GRAPH_MAX_BS" ] && [ "$SGLANG_CUDA_GRAPH_MAX_BS" != "256" ]; then
   args+=(--cuda-graph-max-bs "$SGLANG_CUDA_GRAPH_MAX_BS")
