@@ -70,13 +70,12 @@ of getting 503 — is gone. Back to uvicorn's native bind behavior.
 **Note**: This feature is present in our current `acab24a7` image (the fix #19805 is in our
 snapshot). In v0.5.10rc0, both the feature and its fix are reverted.
 
-**EADDRINUSE sidecar workaround eliminated**: The prebinding via `_prebind_listening_socket`
-was the root cause of the EADDRINUSE bug on multi-node heads — it bound `0.0.0.0:<http_port>`
-with `SO_REUSEADDR`/`SO_REUSEPORT`, conflicting with the Scheduler subprocess. With the
-prebinding removed, the head can safely use `--host 0.0.0.0` directly. The HAProxy sidecar
-proxy (`haproxy:lts-alpine`) that forwarded `0.0.0.0:8000` → `127.0.0.1:30080` is no longer
-needed and has been removed from the deployment. The sglang container now binds `0.0.0.0:8000`
-directly, eliminating a container, a ConfigMap, and the internal port indirection.
+**EADDRINUSE sidecar workaround still needed**: The prebinding removal alone does NOT fix
+the EADDRINUSE bug. The Scheduler subprocess still binds `<pod-ip>:<port>` for internal
+communication, so uvicorn's `0.0.0.0:<same-port>` still conflicts. Confirmed on v0.5.10rc0:
+`[Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use`.
+The HAProxy sidecar (`haproxy:lts-alpine`, `0.0.0.0:8000` → `127.0.0.1:30080`) remains in
+the deployment.
 
 ### MoE Triton Tuning text_config Fix (PR #20232, merged 2026-03-27)
 
@@ -231,9 +230,8 @@ to `0.0.0.0`, allowing unauthenticated remote access. Now bound to `127.0.0.1`.
 3. **Add `--pre-warm-nccl`** to launch args — eliminates cold-start TTFT spike
 4. ~~**CUDA graph OOM**~~ — MiniMax-M2.5-NVFP4 profile: `disable_cuda_graph: true` (weights
    now ~72 GB, only ~21 GB free after KV — standard capture OOMs). Other models keep default.
-5. ~~**HAProxy sidecar removed**~~ — EADDRINUSE bug fixed by PR #20468. Head now binds
-   `0.0.0.0:8000` directly. `sglang_internal_port`, `sglang_haproxy_timeout`, HAProxy
-   ConfigMap, and sidecar container all removed.
+5. **HAProxy sidecar still needed** — EADDRINUSE NOT fixed by PR #20468 alone (Scheduler
+   still binds `<pod-ip>:<port>`). Sidecar remains.
 6. ~~**Startup probe removed**~~ — replaced with `livenessProbe.initialDelaySeconds: 1800`
    (same pattern as worker). No more fixed time budget for startup.
 7. ~~**tqdm progress visibility**~~ — `TQDM_POSITION: "-1"` in ConfigMap forces newlines.

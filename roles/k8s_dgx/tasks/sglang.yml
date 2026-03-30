@@ -109,6 +109,19 @@
       data:
         download_models.py: "{{ lookup('file', role_path ~ '/files/hf_preload_download.py') }}"
 
+- name: Create SGLang HAProxy config ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: sglang-haproxy-config
+        namespace: "{{ sglang_namespace }}"
+      data:
+        haproxy.cfg: "{{ lookup('template', 'sglang_haproxy.cfg.j2') }}"
+
+
 - name: Create SGLang ServiceAccount
   kubernetes.core.k8s:
     state: present
@@ -348,16 +361,11 @@
                 envFrom:
                   - configMapRef:
                       name: sglang-config
-                ports:
-                  - containerPort: "{{ sglang_port }}"
-                    name: http
                 env:
                   - name: SGLANG_IMAGE
                     value: "{{ sglang_image }}"
                   - name: NODE_RANK
                     value: "0"
-                  - name: SGLANG_HOST
-                    value: "0.0.0.0"
                   - name: TP
                     value: "{{ sglang_tp | string }}"
                   - name: EP
@@ -371,7 +379,7 @@
                   - name: NCCL_PORT
                     value: "{{ nccl_bootstrap_port | string }}"
                   - name: SGLANG_PORT
-                    value: "{{ sglang_port | string }}"
+                    value: "{{ sglang_internal_port | string }}"
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
                 resources:
@@ -398,6 +406,16 @@
                   - name: launch-script
                     mountPath: /scripts
                     readOnly: true
+              - name: proxy
+                image: haproxy:lts-alpine
+                args: []
+                volumeMounts:
+                  - name: haproxy-config
+                    mountPath: /usr/local/etc/haproxy
+                    readOnly: true
+                ports:
+                  - containerPort: "{{ sglang_port }}"
+                    name: http
             volumes:
               - name: hf-cache
                 hostPath:
@@ -410,6 +428,9 @@
                 configMap:
                   name: sglang-launch-script
                   defaultMode: 0755
+              - name: haproxy-config
+                configMap:
+                  name: sglang-haproxy-config
               - name: wait-script
                 configMap:
                   name: sglang-wait-script
