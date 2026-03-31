@@ -2,9 +2,9 @@
 
 ## Status
 
-**Open upstream (vLLM only)** as of 2026-03-29. Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447).
+**Open upstream (vLLM only)** as of 2026-03-31. Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447).
 
-- vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, only bot review, not merged
+- vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, stale ~4 weeks, not merged
 - SGLang: no upstream issue or PR filed
 
 Files:
@@ -114,9 +114,9 @@ be solving a problem that doesn't need to exist.
 
 ## Additional Bug: EPLB crashes with Qwen3MoE and Qwen3.5MoE
 
-**Upstream status** as of 2026-03-29:
+**Upstream status** as of 2026-03-31:
 - Qwen3.5: fixed via [PR #19767](https://github.com/sgl-project/sglang/pull/19767) (merged 2026-03-09)
-- Qwen3: [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — open since 2026-03-26, bot-approved but no human merge yet
+- Qwen3: [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — closed without merge 2026-03-30 (CI failure). No replacement PR filed yet
 
 When `--enable-eplb` is active with EP, the `EPLBManager` crashes after its first rebalance
 interval (default: 1000 forward passes):
@@ -159,9 +159,11 @@ which is acceptable.
 
 **Reported** as of 2026-03-28: [sgl-project/sglang#21602](https://github.com/sgl-project/sglang/issues/21602). Bug exists in SGLang `sglang/srt/layers/quantization/modelopt_quant.py`, class `ModelOptNvFp4FusedMoEMethod`.
 
-Two competing fix PRs have been filed (neither merged as of 2026-03-29):
-- [PR #20869](https://github.com/sgl-project/sglang/pull/20869) (2026-03-18) — broader fix: EP-slices input_scale, passes `num_local_experts` to `CutlassMoEParams`, extends SM120 support
-- [PR #21630](https://github.com/sgl-project/sglang/pull/21630) (2026-03-29) — narrower fix: only the `else` branch (non-FlashInfer backends)
+Two competing fix PRs have been filed (neither merged as of 2026-03-31):
+- [PR #20869](https://github.com/sgl-project/sglang/pull/20869) (2026-03-18) — broader fix: EP-slices input_scale, passes `num_local_experts` to `CutlassMoEParams`, extends SM120 support. No human review, stale ~2 weeks
+- [PR #21630](https://github.com/sgl-project/sglang/pull/21630) (2026-03-29) — narrower fix: only the `else` branch (non-FlashInfer backends). No review yet
+
+Maintainer feedback on [#21602](https://github.com/sgl-project/sglang/issues/21602) (2026-03-30): the global `w13_input_scale` shape is model-dependent — some models (e.g. DSR1 NVFP4) require the full `num_experts` dimension. The maintainer is receptive to fixing this but notes the solution needs to be model-aware rather than a blanket slice to `num_local_experts`
 
 ### Affected Configuration
 
@@ -378,7 +380,7 @@ However, the CUDA kernel-level issue cannot be patched. For NVFP4 + EP > 1, use
 
 ### Directly addressing our bugs
 - vLLM [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — fix moe_wna16 qzeros EP (open, only bot review)
-- SGLang [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — fix EPLB Qwen3 missing `routed_experts_weights_of_layer` (open, bot-approved)
+- SGLang [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — fix EPLB Qwen3 missing `routed_experts_weights_of_layer` (closed without merge 2026-03-30, CI failure)
 - SGLang [PR #19767](https://github.com/sgl-project/sglang/pull/19767) — fix EPLB Qwen3.5 (merged 2026-03-09)
 - SGLang [#21602](https://github.com/sgl-project/sglang/issues/21602) — our report: NVFP4 input_scale not EP-aware
   - Fix PR: [#20869](https://github.com/sgl-project/sglang/pull/20869) — broader fix incl. CutlassMoEParams + SM120 (open)
