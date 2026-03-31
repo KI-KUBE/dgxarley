@@ -12,3 +12,25 @@
   loop_control:
     label: "{{ item.interface }}"
   changed_when: false
+
+- name: Set comment on bridge port
+  community.routeros.command:
+    commands:
+      - >-
+        /interface/bridge/port/set [find interface={{ item.interface }}]
+        comment="{{ item.comment }}"
+  loop: "{{ mikrotik_bridge_ports | selectattr('comment', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.interface }}"
+  changed_when: false
+
+- name: Set comment on ethernet interface
+  community.routeros.command:
+    commands:
+      - >-
+        /interface/ethernet/set [find default-name={{ item.interface }}]
+        comment="{{ item.comment }}"
+  loop: "{{ mikrotik_bridge_ports | selectattr('comment', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.interface }}"
+  changed_when: false

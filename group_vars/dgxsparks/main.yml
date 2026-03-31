@@ -27,6 +27,10 @@ ovs_vlans:
         via: "{{ dgxsparks_gateway }}"
         metric: 100
 
+# DCBX/PFC: switch LLDP-DCBX doesn't auto-configure the ConnectX-7,
+# so we set trust=dscp + PFC on tc3 manually to match the CRS812 RoCE config.
+set_dcbx_manually: true
+
 # QSFP Point-to-Point Netzwerk zwischen den Sparks
 qsfp_network: "10.10.10.0/24"
 qsfp_vf_network: "10.10.100.0/24"

@@ -18,9 +18,11 @@ mikrotik_bridge_ports:
   - interface: qsfp56-2-1
     comment: "spark2 QSFP56 1x100G"
   - interface: qsfp56-dd-1-1
-    comment: "spark3 QSFP-DD 1x400G"
+    comment: "spark3 QSFP-DD breakout lanes 1-4"
+  - interface: qsfp56-dd-1-5
+    comment: "spark4 QSFP-DD breakout lanes 5-8"
   - interface: qsfp56-dd-2-1
-    comment: "spark4 QSFP-DD 1x400G"
+    comment: "spare QSFP-DD"
 
 # No VLANs — pure L2 bridge (real values in vault.yml)
 mikrotik_bridge_vlans: []
@@ -31,12 +33,17 @@ mikrotik_dns_servers:
   - "192.168.123.1"
 
 # RoCE/RDMA lossless Ethernet on QSFP ports
+# egress_rate: "0" = unlimited. 98DX7335 caps shaper at 100G — useless for >=200G links.
+# advertise: optional, restricts speed negotiation (needed for breakout cables)
 mikrotik_qsfp_roce_ports:
   - name: qsfp56-1-1
-    egress_rate: "200.0Gbps"
+    egress_rate: "0"
   - name: qsfp56-2-1
-    egress_rate: "200.0Gbps"
+    egress_rate: "0"
   - name: qsfp56-dd-1-1
-    egress_rate: "200.0Gbps"  # "400.0Gbps", but currently directly connected to spark3 -> no breakout cable
+    egress_rate: "0"
+    advertise: "200G-baseCR4"  # breakout: restrict to max 200G (real value in vault)
+  - name: qsfp56-dd-1-5
+    egress_rate: "0"
   - name: qsfp56-dd-2-1
-    egress_rate: "200.0Gbps"  # "400.0Gbps", but currently directly connected to spark4 -> no breakout cable
+    egress_rate: "0"
