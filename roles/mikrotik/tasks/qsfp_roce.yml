@@ -16,6 +16,19 @@
   changed_when: false
   when: qsfp_switch | default(false)
 
+# 1b. Restrict advertise speeds (breakout cables need max 200G to trigger lane split)
+- name: Set advertise on QSFP port (breakout)
+  community.routeros.command:
+    commands:
+      - >-
+        /interface/ethernet/set [find default-name={{ item.name }}]
+        advertise={{ item.advertise }}
+  loop: "{{ mikrotik_qsfp_roce_ports | selectattr('advertise', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.name }}"
+  changed_when: false
+  when: qsfp_switch | default(false)
+
 # 2. QoS profile for RoCE data traffic
 - name: Ensure QoS profile roce (tc={{ mikrotik_roce_traffic_class }})
   community.routeros.command:
@@ -117,7 +130,7 @@
     commands:
       - >-
         /interface/ethernet/switch/qos/port/set {{ item.name }}
-        egress-rate-queue{{ mikrotik_roce_traffic_class }}={{ item.egress_rate }}
+        {{ 'egress-rate-queue' ~ mikrotik_roce_traffic_class ~ '=' ~ item.egress_rate if item.egress_rate is defined else '' }}
         pfc=pfc-tc{{ mikrotik_roce_traffic_class }}
         trust-l3=keep
   loop: "{{ mikrotik_qsfp_roce_ports }}"
