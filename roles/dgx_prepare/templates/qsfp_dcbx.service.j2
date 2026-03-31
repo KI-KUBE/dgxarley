@@ -1,0 +1,13 @@
+# Managed by Ansible — do not edit
+[Unit]
+Description=Set DCBX trust=dscp + PFC on tc{{ qsfp_dcbx_roce_tc }} for {{ qsfp_sriov_pf_iface }}
+After=network-pre.target sys-subsystem-net-devices-{{ qsfp_sriov_pf_iface }}.device
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/mlnx_qos -i {{ qsfp_sriov_pf_iface }} --trust dscp
+ExecStart=/usr/bin/mlnx_qos -i {{ qsfp_sriov_pf_iface }} --pfc {{ pfc_string }}
+
+[Install]
+WantedBy=multi-user.target
