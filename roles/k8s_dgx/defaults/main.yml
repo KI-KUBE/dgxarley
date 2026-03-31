@@ -113,7 +113,7 @@ sglang_model_profiles:
     # SGLang 0.5.9 qzeros EP bug is monkey-patched at runtime in sglang_launch.sh
     # and sglang_shard_launch.sh (w13_qzeros/w2_qzeros expert_id remapping).
     num_experts: 128
-    ep_size: "{{ sglang_nnodes if (128 % (sglang_nnodes | int) == 0) else 2 }}"
+    ep_size: "{{ sglang_nnodes if (128 % (sglang_nnodes | int) == 0) else 1 }}"
     # EPLB disabled: EPLBManager crashes after ~1000 forward passes with AttributeError:
     # 'Qwen3MoeForCausalLM' has no 'routed_experts_weights_of_layer' (eplb_manager.py:110).
     # Confirmed broken on both 0.5.9-t5 AND 0.5.9-dev2-acab24a7-t5 (PR #19767 does not
@@ -167,7 +167,7 @@ sglang_model_profiles:
     tool_call_parser: "qwen3_coder"
     # Expert parallelism: monkey-patched at runtime (see Thinking profile comment).
     num_experts: 128
-    ep_size: "{{ sglang_nnodes if (128 % (sglang_nnodes | int) == 0) else 2 }}"
+    ep_size: "{{ sglang_nnodes if (128 % (sglang_nnodes | int) == 0) else 1 }}"
     # EPLB disabled: see Thinking profile comment (Qwen3MoE missing attribute, crashes
     # after ~1000 iter). Still broken on 0.5.9-dev2-acab24a7-t5.
     enable_eplb: false
@@ -282,7 +282,7 @@ sglang_model_profiles:
     #    disable_deep_gemm: true
     # Expert parallelism: monkey-patched at runtime (see Thinking profile comment).
     num_experts: 256
-    ep_size: "{{ sglang_nnodes if (256 % (sglang_nnodes | int) == 0) else 2 }}"
+    ep_size: "{{ sglang_nnodes if (256 % (sglang_nnodes | int) == 0) else 1 }}"
     # EPLB disabled: Qwen3_5MoeForConditionalGeneration also lacks
     # 'routed_experts_weights_of_layer'. Crashes after ~1000 forward passes.
     # Confirmed broken on 0.5.9-dev2-acab24a7-t5 (2026-03-20, pod sglang-head-5d7585955).
@@ -363,7 +363,7 @@ sglang_model_profiles:
     reasoning_parser: "minimax"
     tool_call_parser: "minimax-m2"
     num_experts: 256
-    ep_size: "{{ sglang_nnodes if (256 % (sglang_nnodes | int) == 0) else 2 }}"
+    ep_size: "{{ sglang_nnodes if (256 % (sglang_nnodes | int) == 0) else 1 }}"
     # Reasoning model: thinking is always on (chat template injects <think>\n).
     # Thinking tokens wrapped in <think>...</think>, exposed via reasoning_content field.
     recommended_sampling:
@@ -395,7 +395,7 @@ sglang_model_profiles:
     trust_remote_code: true
     kv_cache_dtype: "fp8_e4m3"
     num_experts: 512
-    ep_size: "{{ sglang_nnodes if (512 % (sglang_nnodes | int) == 0) else 2 }}"
+    ep_size: "{{ sglang_nnodes if (512 % (sglang_nnodes | int) == 0) else 1 }}"
     mem_fraction_static: "0.80"
     attention_backend: "triton"
     reasoning_parser: "nemotron_3"
