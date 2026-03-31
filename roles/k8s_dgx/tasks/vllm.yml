@@ -177,7 +177,7 @@
             enableServiceLinks: false         # prevent K8s VLLM_PORT=tcp://... injection
             hostIPC: true                    # Shared Memory für NCCL
             nodeSelector:
-              spark-id: "{{ worker_rank + 1 }}"
+              spark-id: "{{ (worker_rank + 1) | string }}"
             initContainers:
               - name: model-download
                 image: "{{ vllm_image }}"
@@ -316,7 +316,9 @@
                   - name: WAIT_LABEL
                     value: "app=vllm,role=worker"
                   - name: WAIT_COUNT
-                    value: "{{ (vllm_nnodes | int) - 1 }}"
+                    value: "{{ ((vllm_nnodes | int) - 1) | string }}"
+                  - name: WAIT_TIMEOUT
+                    value: "{{ vllm_wait_timeout | string }}"
                 volumeMounts:
                   - name: wait-script
                     mountPath: /scripts

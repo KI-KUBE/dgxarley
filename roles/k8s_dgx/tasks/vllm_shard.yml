@@ -93,7 +93,7 @@
             enableServiceLinks: false
             hostIPC: true
             nodeSelector:
-              spark-id: "{{ worker_rank + 1 }}"
+              spark-id: "{{ (worker_rank + 1) | string }}"
             restartPolicy: Never
             initContainers:
               - name: model-download
@@ -227,7 +227,9 @@
                   - name: WAIT_LABEL
                     value: "app=vllm-shard,role=worker"
                   - name: WAIT_COUNT
-                    value: "{{ (vllm_nnodes | int) - 1 }}"
+                    value: "{{ ((vllm_nnodes | int) - 1) | string }}"
+                  - name: WAIT_TIMEOUT
+                    value: "{{ vllm_wait_timeout | string }}"
                 volumeMounts:
                   - name: wait-script
                     mountPath: /scripts

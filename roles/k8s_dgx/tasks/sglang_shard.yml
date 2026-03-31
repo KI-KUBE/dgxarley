@@ -93,7 +93,7 @@
             enableServiceLinks: false
             hostIPC: true
             nodeSelector:
-              spark-id: "{{ worker_rank + 1 }}"
+              spark-id: "{{ (worker_rank + 1) | string }}"
             restartPolicy: Never
             initContainers:
               - name: model-download
@@ -239,7 +239,9 @@
                   - name: WAIT_LABEL
                     value: "app=sglang-shard,role=worker"
                   - name: WAIT_COUNT
-                    value: "{{ (sglang_nnodes | int) - 1 }}"
+                    value: "{{ ((sglang_nnodes | int) - 1) | string }}"
+                  - name: WAIT_TIMEOUT
+                    value: "{{ sglang_wait_timeout | string }}"
                 volumeMounts:
                   - name: wait-script
                     mountPath: /scripts

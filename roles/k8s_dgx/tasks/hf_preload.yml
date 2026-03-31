@@ -61,7 +61,7 @@
                   - name: HF_PRELOAD_MODELS
                     value: "{{ hf_preload_models | join(',') }}"
                   - name: RSYNC_TARGETS
-                    value: "{{ hostvars['spark1']['ansible_host'] }}"
+                    value: "{{ range(1, sglang_nnodes | int + 1) | reject('equalto', 2) | map('string') | map('regex_replace', '^(.+)$', 'spark\\1') | map('extract', hostvars, 'ansible_host') | join(' ') }}"
                   - name: HF_CACHE_HOST_PATH
                     value: "{{ hf_cache_path }}"
                 resources:
