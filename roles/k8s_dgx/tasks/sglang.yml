@@ -245,7 +245,7 @@
               k8s.v1.cni.cncf.io/networks: "{{ '[{\"name\":\"qsfp-vf' ~ qsfp_sriov_assignments.sglang.vf ~ '\",\"ips\":[\"' ~ _sglang_qsfp_ips[worker_rank] ~ '/24\"]}]' if qsfp_sriov_enabled | default(false) else 'qsfp-direct-worker' ~ worker_rank }}"
               kubectl.kubernetes.io/default-container: sglang
               checksum/launch-script: "{{ lookup('file', role_path ~ '/files/sglang_launch.sh') | hash('sha256') }}"
-              checksum/config: "{{ (sglang_model ~ sglang_context_length ~ sglang_kv_cache_dtype ~ sglang_mem_fraction_static ~ sglang_quantization ~ sglang_load_format ~ sglang_attention_backend ~ sglang_ep) | hash('sha256') }}"
+              checksum/config: "{{ (sglang_model ~ sglang_context_length ~ sglang_kv_cache_dtype ~ sglang_mem_fraction_static ~ sglang_quantization ~ sglang_load_format ~ sglang_attention_backend ~ sglang_ep ~ sglang_tp ~ sglang_pp) | hash('sha256') }}"
           spec:
             enableServiceLinks: false         # prevent K8s SGLANG_PORT=tcp://... injection
             hostIPC: true                    # shared memory for NCCL
@@ -286,6 +286,8 @@
                         fieldPath: status.podIP
                   - name: TP
                     value: "{{ sglang_tp | string }}"
+                  - name: PP
+                    value: "{{ sglang_pp | string }}"
                   - name: EP
                     value: "{{ sglang_ep | string }}"
                   - name: NNODES
@@ -305,10 +307,13 @@
                     nvidia.com/gpu: "1"
                 securityContext:
                   privileged: true
+                # Liveness probe: restart stale workers when head dies and NCCL breaks.
+                # Uses process check (not HTTP) because PP workers have no API server.
+                # Works for both TP and PP: the sglang process dies on NCCL timeout
+                # regardless of parallelism mode.
                 livenessProbe:
-                  httpGet:
-                    path: /health
-                    port: 8000
+                  exec:
+                    command: ["pgrep", "-f", "sglang.launch_server"]
                   initialDelaySeconds: 900
                   periodSeconds: 30
                   failureThreshold: 3
@@ -366,7 +371,7 @@
               k8s.v1.cni.cncf.io/networks: "{{ '[{\"name\":\"qsfp-vf' ~ qsfp_sriov_assignments.sglang.vf ~ '\",\"ips\":[\"' ~ qsfp_sriov_assignments.sglang.head_ip ~ '/24\"]}]' if qsfp_sriov_enabled | default(false) else 'qsfp-direct' }}"
               kubectl.kubernetes.io/default-container: sglang
               checksum/launch-script: "{{ lookup('file', role_path ~ '/files/sglang_launch.sh') | hash('sha256') }}"
-              checksum/config: "{{ (sglang_model ~ sglang_context_length ~ sglang_kv_cache_dtype ~ sglang_mem_fraction_static ~ sglang_quantization ~ sglang_load_format ~ sglang_attention_backend ~ sglang_ep) | hash('sha256') }}"
+              checksum/config: "{{ (sglang_model ~ sglang_context_length ~ sglang_kv_cache_dtype ~ sglang_mem_fraction_static ~ sglang_quantization ~ sglang_load_format ~ sglang_attention_backend ~ sglang_ep ~ sglang_tp ~ sglang_pp) | hash('sha256') }}"
           spec:
             serviceAccountName: sglang-head
             enableServiceLinks: false         # prevent K8s SGLANG_PORT=tcp://... injection
@@ -425,6 +430,8 @@
                     value: "127.0.0.1"
                   - name: TP
                     value: "{{ sglang_tp | string }}"
+                  - name: PP
+                    value: "{{ sglang_pp | string }}"
                   - name: EP
                     value: "{{ sglang_ep | string }}"
                   - name: NNODES
