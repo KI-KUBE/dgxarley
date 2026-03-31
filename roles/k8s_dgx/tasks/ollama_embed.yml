@@ -134,7 +134,7 @@
           spec:
             restartPolicy: Always
             nodeSelector:
-              spark-id: "3"
+              spark-id: "2"
             dnsConfig:
               options:
                 - name: ndots

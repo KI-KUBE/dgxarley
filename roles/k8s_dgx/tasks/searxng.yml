@@ -17,7 +17,13 @@
         name: searxng-env-config
         namespace: searxng
       data:
-        GRANIAN_LOG_ACCESS_ENABLED: "true"
+        # Granian config (replaces uwsgi.ini) — all GRANIAN_* env vars map 1:1 to CLI flags
+        # Dockerfile defaults: GRANIAN_INTERFACE=wsgi, GRANIAN_HOST=::, GRANIAN_PORT=8080,
+        #   GRANIAN_BLOCKING_THREADS=4, GRANIAN_WEBSOCKETS=false
+        GRANIAN_WORKERS: "2"                        # worker processes (Dockerfile default: 1)
+        GRANIAN_BLOCKING_THREADS: "4"               # threads per worker running Python/WSGI handlers
+        GRANIAN_BACKLOG: "512"                      # OS-level connection backlog (default: 1024)
+        GRANIAN_LOG_ACCESS_ENABLED: "true"          # access logging
 
 
 - name: Create searxng configmap
@@ -54,8 +60,7 @@
             redis_url: "redis://redis.redis.svc.cluster.local:6379/3"
 
           outgoing:
-            request_timeout: 10.0
-            source_ips: "0.0.0.0"
+            request_timeout: 5.0
 
           engines:
             # default-enabled engines (explicit)
@@ -83,57 +88,6 @@
               disabled: true
             - name: yep
               disabled: true
-        uwsgi.ini: |
-          [uwsgi]
-          # Who will run the code
-          uid = searxng
-          gid = searxng
-
-          # Number of workers (usually CPU count)
-          # default value: %k (= number of CPU core, see Dockerfile)
-          workers = %k
-
-          # Number of threads per worker
-          # default value: 4 (see Dockerfile)
-          threads = 4
-
-          # The right granted on the created socket
-          chmod-socket = 666
-
-          # Plugin to use and interpreter config
-          single-interpreter = true
-          master = true
-          plugin = python3
-          lazy-apps = true
-          enable-threads = 4
-
-          # Module to import
-          module = searx.webapp
-
-          # Virtualenv and python path
-          pythonpath = /usr/local/searxng/
-          chdir = /usr/local/searxng/searx/
-
-          # automatically set processes name to something meaningful
-          auto-procname = true
-
-          # Disable request logging for privacy
-          disable-logging = true
-          log-5xx = true
-
-          # Set the max size of a request (request-body excluded)
-          buffer-size = 8192
-
-          # No keep alive
-          # See https://github.com/searx/searx-docker/issues/24
-          add-header = Connection: close
-
-          # uwsgi serves the static files
-          static-map = /static=/usr/local/searxng/searx/static
-          # expires set to one day
-          static-expires = /* 86400
-          static-gzip-all = True
-          offload-threads = 4
 
 
 - name: Create searxng service
@@ -187,6 +141,7 @@
           spec:
             nodeSelector:
               kubernetes.io/arch: amd64
+            enableServiceLinks: false
             dnsConfig:
               options:
                 - name: ndots
