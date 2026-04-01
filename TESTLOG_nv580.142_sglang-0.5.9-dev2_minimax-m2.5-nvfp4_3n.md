@@ -118,6 +118,12 @@ spark3 added as third DGX Spark. `sglang_nnodes` changed from 2 to 3.
 
 - **Conclusion:** The FlashInfer CUTLASS **MoE dispatch kernel** (`moe_runner_backend=flashinfer_cutlass`) was the source of Xid 13 all along. `moe_runner_backend=triton` (which falls back to `cutlass_moe_fp4` for NVFP4 — a different code path) avoids the illegal instruction. FlashInfer attention is fine.
 
+### Test 13: PP=3, triton MoE, re-enable CUDA graphs (max_bs=8)
+
+- **Config change:** `disable_cuda_graph: false`, `cuda_graph_max_bs: 8` (reduced from 16 to lower capture memory pressure). Tests whether CUDA graph OOM (Tests 8+9) was caused by `flashinfer_cutlass` MoE graphs or by graph capture in general.
+- **Config:** `tp_size=1, pp_size=3, moe_runner_backend=triton, fp4_gemm_backend=flashinfer_cutlass, attention_backend=flashinfer, disable_cuda_graph=false, disable_piecewise_cuda_graph=true, pp_async_batch_depth=0, cuda_graph_max_bs=8`
+- **Result:** *pending*
+
 ---
 
 ## Configuration Matrix (MiniMax M2.5, 3× DGX Spark)
@@ -138,6 +144,7 @@ All tests use: `tp=1, pp=3, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | 10 | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | Xid 13 ~10min (spark3) | — |
 | 11 | fi_cutlass | triton | fi_cutlass | true | true | 0 | — | Xid 13 ~8min (spark3) | — |
 | 12 | triton | flashinfer | fi_cutlass | true | true | 0 | — | **STABLE 32+ min** | 15.1 / 18.9 tok/s |
+| 13 | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | *pending* | — |
 
 ### Column Legend
 
