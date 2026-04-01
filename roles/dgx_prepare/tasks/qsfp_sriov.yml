@@ -84,3 +84,12 @@
       ansible.builtin.file:
         path: /etc/systemd/system/qsfp-sriov.service
         state: absent
+
+# Emergency recovery script — always deployed when SR-IOV is enabled.
+# Cleans orphaned CNI namespaces and resets VFs. Safe to run manually.
+- name: Deploy SR-IOV emergency reset script
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/scripts/reset_qsfp_sriov.sh"
+    dest: /usr/local/bin/reset_qsfp_sriov.sh
+    mode: "0755"
+  when: qsfp_sriov_enabled | default(false)
