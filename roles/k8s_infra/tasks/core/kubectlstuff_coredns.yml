@@ -53,8 +53,23 @@
           }
           import /etc/coredns/custom/*.server
 
-# Replicas, resources and anti-affinity are managed via coredns-extend.yaml
-# (HelmChartConfig in /var/lib/rancher/k3s/server/manifests/, deployed by k3sserver role)
+# K3s deploys CoreDNS as a flat Addon manifest, NOT a HelmChart.
+# HelmChartConfig (coredns-extend.yaml) has no effect on Addon-managed components.
+# The upstream manifest already includes topologySpreadConstraints (DoNotSchedule
+# on kubernetes.io/hostname), so no extra anti-affinity needed.
+# Since K3s PR #6552 (v1.25+), replicas is omitted from the manifest, so this
+# patch persists across K3s restarts.
+- name: scale coredns to {{ coredns_replicas }} replicas
+  kubernetes.core.k8s:
+    state: patched
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: coredns
+        namespace: kube-system
+      spec:
+        replicas: "{{ coredns_replicas | int }}"
 
 - name: restart coredns deployment
   kubernetes.core.k8s:

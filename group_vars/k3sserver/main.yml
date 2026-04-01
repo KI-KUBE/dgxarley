@@ -21,7 +21,7 @@ k3s_version: "v1.35.3+k3s1"
 
 # DNS
 dns_external_domain_suffix: "dgx.example.com"
-coredns_replicas: 1
+coredns_replicas: 2
 
 # Pod/Service CIDRs fuer iptables ipsets
 localnets_k3sserver:
