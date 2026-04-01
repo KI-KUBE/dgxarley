@@ -10,8 +10,8 @@ openwebui_namespace: "openwebui"
 
 # curl -s 'https://hub.docker.com/v2/repositories/scitrera/dgx-spark-sglang/tags/?page_size=20&ordering=last_updated' | jq '.results[] | {name, last_updated}'
 #sglang_image: "scitrera/dgx-spark-sglang:0.5.9-t5"
-sglang_image: "scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5"
-#sglang_image: "scitrera/dgx-spark-sglang:0.5.10rc0"
+#sglang_image: "scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5"
+sglang_image: "scitrera/dgx-spark-sglang:0.5.10rc0"
 
 sglang_nnodes: 3
 
@@ -351,11 +351,11 @@ sglang_model_profiles:
     # (NV_ERR_NO_MEMORY in _memdescAllocInternal, Tests 8+9). Re-testing with
     # moe_runner_backend=triton which may produce smaller capture buffers.
     disable_cuda_graph: false
-    cuda_graph_max_bs: 8
+    cuda_graph_max_bs: 16
     # PP async micro-batching: overlaps forward passes across pipeline stages.
     # 0 = synchronous (default, one batch at a time). Higher values push more
     # micro-batches into the pipeline concurrently, hiding inter-stage latency.
-    # pp_async_batch_depth: 2  # crashed after ~13min on 0.5.9-dev2 — too experimental
+    # pp_async_batch_depth: 2  # stable but -9% throughput vs sync (Test 14)
     pp_async_batch_depth: 0
     # DeepGemm is designed for FP8 with ue8m0 scale format. For NVFP4 models
     # (scale_fmt != ue8m0): (1) the JIT-compiled kernels aren't optimized for

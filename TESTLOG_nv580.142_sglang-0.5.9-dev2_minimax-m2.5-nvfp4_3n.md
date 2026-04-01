@@ -122,7 +122,55 @@ spark3 added as third DGX Spark. `sglang_nnodes` changed from 2 to 3.
 
 - **Config change:** `disable_cuda_graph: false`, `cuda_graph_max_bs: 8` (reduced from 16 to lower capture memory pressure). Tests whether CUDA graph OOM (Tests 8+9) was caused by `flashinfer_cutlass` MoE graphs or by graph capture in general.
 - **Config:** `tp_size=1, pp_size=3, moe_runner_backend=triton, fp4_gemm_backend=flashinfer_cutlass, attention_backend=flashinfer, disable_cuda_graph=false, disable_piecewise_cuda_graph=true, pp_async_batch_depth=0, cuda_graph_max_bs=8`
-- **Result:** *pending*
+- **Result:** CUDA graph capture **succeeded** — no OOM. 6 graphs captured (BS 1,2,4,8,12,16) in 80s, using only 1.64 GB. 30.95 GB free after capture. This proves the OOM in Tests 8+9 was caused by the `flashinfer_cutlass` MoE kernel's graph buffers, not by CUDA graph capture in general. The `triton` MoE backend produces much smaller graphs (~1.64 GB vs. OOM).
+- **Key numbers from startup:** weights=46.94 GB, KV cache=2×14.88 GB (251K tokens), graph capture=1.64 GB, avail after all=30.95 GB.
+- **Throughput:**
+
+  | Metric | 1 request | 4 parallel |
+  |--------|-----------|------------|
+  | Wall time | 132.4s | 431.3s |
+  | Successful / failed | 1 / 0 | 4 / 0 |
+  | Total output tokens | 2129 | 13572 |
+  | Aggregate throughput | 16.1 tok/s | 31.5 tok/s |
+  | Avg TTFT | 1.07s | 1.09s |
+  | Avg per-request tok/s | 16.1 | 12.6 |
+  | P50 per-request tok/s | 16.1 | 12.8 |
+
+- **vs. Test 12 (no CUDA graphs):** +6.6% single (15.1→16.1), **+67% parallel** (18.9→31.5). CUDA graphs primarily help with concurrent request throughput by reducing kernel launch overhead in the decode loop.
+
+### Test 14: PP=3, triton MoE, CUDA graphs, pp_async_batch_depth=2
+
+- **Config change:** `pp_async_batch_depth: 2` (re-test — Test 7 crashed with `flashinfer_cutlass` MoE, now using `triton` MoE + CUDA graphs).
+- **Config:** `tp_size=1, pp_size=3, moe_runner_backend=triton, fp4_gemm_backend=flashinfer_cutlass, attention_backend=flashinfer, disable_cuda_graph=false, disable_piecewise_cuda_graph=true, pp_async_batch_depth=2, cuda_graph_max_bs=8`
+- **Result:** **STABLE** (no crash — unlike Test 7 which crashed with fi_cutlass MoE). But **slower** than Test 13 at 4∥.
+- **Throughput:**
+
+  | Metric | 1 request | 4 parallel | 8 parallel |
+  |--------|-----------|------------|------------|
+  | Wall time | 104.6s | 312.5s | 658.9s |
+  | Successful / failed | 1 / 0 | 4 / 0 | 8 / 0 |
+  | Total output tokens | 1674 | 8973 | 24013 |
+  | Aggregate throughput | 16.0 tok/s | 28.7 tok/s | 36.4 tok/s |
+  | Avg TTFT | 1.27s | 1.17s | 1.60s |
+  | Avg per-request tok/s | 16.0 | 13.1 | 6.5 |
+  | Peak concurrent tok/s | — | 52.5 | 52.4 |
+
+- **vs. Test 13 (pp_async=0):** 1∥ identical (16.0 vs 16.1), 4∥ **-9%** (28.7 vs 31.5), peak identical (~52). The async micro-batching overhead reduces average throughput without improving peak. The pipeline is already saturated at 4∥ with synchronous scheduling.
+- **Conclusion:** `pp_async_batch_depth=2` is stable with triton MoE but **hurts performance**. Revert to 0.
+
+---
+
+## Learnings
+
+1. **Xid 13 (Illegal Instruction at `0x1c81fb60:0x1174`)** is caused exclusively by the **`flashinfer_cutlass` MoE dispatch kernel** in the `scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5` image on SM121 (Blackwell GB10). It fires regardless of `attention_backend` (flashinfer/triton) and `fp4_gemm_backend` (cudnn/cutlass). Fix: `moe_runner_backend: "triton"`.
+
+2. **CUDA graph capture OOM** (NV_ERR_NO_MEMORY in `_memdescAllocInternal`) was also caused by `flashinfer_cutlass` MoE — its graph capture buffers are too large for 256-expert MoE layers. With `moe_runner_backend: "triton"`, graph capture uses only ~1.64 GB and succeeds with plenty of headroom (~31 GB free).
+
+3. **`fp4_gemm_backend: auto` → `flashinfer_cudnn` on SM121** produces a separate Xid 13 — a different illegal instruction from the cuDNN JIT path. Fix: `fp4_gemm_backend: "flashinfer_cutlass"`. This is independent of the MoE Xid 13.
+
+4. **Piecewise CUDA graphs** (58 variable-length chunks) always OOM regardless of MoE backend — too many graphs × 256 experts per stage. Keep `disable_piecewise_cuda_graph: true`.
+
+5. **`pp_async_batch_depth > 0`** is unstable on 0.5.9-dev2 — NCCL crash after ~13min. Keep at 0.
 
 ---
 
@@ -130,21 +178,22 @@ spark3 added as third DGX Spark. `sglang_nnodes` changed from 2 to 3.
 
 All tests use: `tp=1, pp=3, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0.80, disable_deep_gemm=true, context_length=196608, max_running_requests=32, schedule_policy=lpm, watchdog_timeout=3600, dist_timeout=1800` unless noted.
 
-| # | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | pp_async | cuda_graph_max_bs | Stability | Throughput (4∥) |
-|---|------------|-----------|----------|----------------|---------------|----------|-------------------|-----------|-----------------|
-| 1 | — | — | — | — | — | — | — | TP=3 AssertionError | — |
-| 2 | fi_cutlass | flashinfer | auto→cudnn | false | true | 0 | 16 | OK startup, livenessProbe kill | — |
-| 3 | fi_cutlass | flashinfer | auto→cudnn | false | true | 0 | 16 | Xid 13 ~4min | — |
-| 4 | fi_cutlass | flashinfer | auto→cudnn | true | true | 0 | — | Xid 13 ~2-4min | — |
-| 5 | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | **STABLE 12+ min** | — |
-| 6 | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 16 | **STABLE 9+ min** | — |
-| 7 | fi_cutlass | flashinfer | fi_cutlass | false | true | 2 | 16 | NCCL crash ~13min | — |
-| 8 | fi_cutlass | flashinfer | fi_cutlass | false | false | 0 | 16 | OOM piecewise capture | — |
-| 9 | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 16 | OOM graph capture | — |
-| 10 | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | Xid 13 ~10min (spark3) | — |
-| 11 | fi_cutlass | triton | fi_cutlass | true | true | 0 | — | Xid 13 ~8min (spark3) | — |
-| 12 | triton | flashinfer | fi_cutlass | true | true | 0 | — | **STABLE 32+ min** | 15.1 / 18.9 tok/s |
-| 13 | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | *pending* | — |
+| # | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | pp_async | cuda_graph_max_bs | Stability | 1∥ tok/s | 4∥ avg | 4∥ peak | 8∥ avg | 8∥ peak |
+|---|------------|-----------|----------|----------------|---------------|----------|-------------------|-----------|---------|--------|---------|--------|---------|
+| 1 | — | — | — | — | — | — | — | TP=3 AssertionError | — | — | — | — | — |
+| 2 | fi_cutlass | flashinfer | auto→cudnn | false | true | 0 | 16 | OK startup, probe kill | — | — | — | — | — |
+| 3 | fi_cutlass | flashinfer | auto→cudnn | false | true | 0 | 16 | Xid 13 ~4min | — | — | — | — | — |
+| 4 | fi_cutlass | flashinfer | auto→cudnn | true | true | 0 | — | Xid 13 ~2-4min | — | — | — | — | — |
+| 5 | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | **STABLE 12+ min** | — | — | — | — | — |
+| 6 | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 16 | **STABLE 9+ min** | — | — | — | — | — |
+| 7 | fi_cutlass | flashinfer | fi_cutlass | false | true | 2 | 16 | NCCL crash ~13min | — | — | — | — | — |
+| 8 | fi_cutlass | flashinfer | fi_cutlass | false | false | 0 | 16 | OOM piecewise | — | — | — | — | — |
+| 9 | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 16 | OOM graph capture | — | — | — | — | — |
+| 10 | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | Xid 13 ~10min | — | — | — | — | — |
+| 11 | fi_cutlass | triton | fi_cutlass | true | true | 0 | — | Xid 13 ~8min | — | — | — | — | — |
+| 12 | triton | flashinfer | fi_cutlass | true | true | 0 | — | **STABLE 32+min** | 15.1 | 18.9 | ~40 | — | — |
+| 13 | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | **STABLE, graphs** | 16.1 | 31.5 | 50.6 | — | — |
+| 14 | triton | flashinfer | fi_cutlass | false | true | 2 | 8 | **STABLE** (slower) | 16.0 | 28.7 | 52.5 | 36.4 | 52.4 |
 
 ### Column Legend
 
@@ -157,4 +206,8 @@ All tests use: `tp=1, pp=3, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | dis_piecewise | `disable_piecewise_cuda_graph` — true = only fixed-BS graphs, false = piecewise variable-length graphs (58 chunks) |
 | pp_async | `pp_async_batch_depth` — async micro-batches in PP pipeline (0 = synchronous) |
 | cuda_graph_max_bs | `cuda_graph_max_bs` — largest batch size to capture (— = N/A when graphs disabled) |
-| Throughput (1∥ / 4∥) | Aggregate tok/s: single request / 4 parallel requests |
+| 1∥ tok/s | Aggregate throughput with 1 sequential request |
+| 4∥ avg | Aggregate throughput with 4 parallel requests (total output tokens / wall time) |
+| 4∥ peak | Peak concurrent throughput at 4∥ = sum of per-request tok/s while all requests active |
+| 8∥ avg | Aggregate throughput with 8 parallel requests |
+| 8∥ peak | Peak concurrent throughput at 8∥ |
