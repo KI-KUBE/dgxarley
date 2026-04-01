@@ -60,8 +60,17 @@ All fixed by: removing stale keys (delete + recreate ConfigMap), correcting HCA 
 - **NCCL transport confirmed:** `NET/IBext_v11` using `rocep1s0f0v0:1/RoCE`, GPU Direct RDMA (DMABUF) enabled. NOT Socket.
 - **NCCL version:** 2.29.2+cuda13.1 (different from 0.5.9-dev2 which had 2.29.3)
 - **Result:** **STABLE** — server starts, CUDA graph capture succeeds, inference works.
-- **Throughput (1∥):** 7.9 tok/s — significantly slower than 0.5.9-dev2 Socket (16.1 tok/s). Server-side gen throughput ~35 tok/s (vs ~49 on 0.5.9-dev2). Likely an image regression, not transport-related.
-- **Throughput (4∥):** *pending*
+- **Throughput:**
+
+  | Metric | 1 request | 4 parallel |
+  |--------|-----------|------------|
+  | Successful / failed | 1 / 0 | 3 / 1 (REP stop) |
+  | Aggregate throughput | 7.9 tok/s | 16.1 tok/s |
+  | Avg per-request tok/s | 7.9 | 6.8 |
+  | Peak concurrent tok/s | — | ~41 (server-side) |
+
+- **Note:** 1 of 4 requests stopped early (repetition detection), so client-side aggregate is skewed. Server-side gen throughput peak ~41 tok/s during the 4∥ run.
+- **vs. 0.5.9-dev2 Socket (Test 13):** server-side peak **-16%** (41 vs 49). Image regression, not transport-related.
 
 ### Test 3: Socket transport (for comparison)
 
@@ -78,7 +87,7 @@ All tests use: `tp=1, pp=3, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | # | nccl_transport | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | pp_async | cuda_graph_max_bs | Stability | 1∥ tok/s | 4∥ avg | 4∥ peak |
 |---|----------------|------------|-----------|----------|----------------|---------------|----------|-------------------|-----------|---------|--------|---------|
 | 1 | roce (broken) | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | NCCL invalid usage | — | — | — |
-| 2 | roce | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | **STABLE** | 7.9 | — | — |
+| 2 | roce | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | **STABLE** | 7.9 | 16.1 | ~41 (srv) |
 | 3 | socket | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | *pending* | — | — | — |
 
 ### Column Legend
