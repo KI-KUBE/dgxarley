@@ -222,8 +222,60 @@ def test_guard_config_defaults() -> None:
     cfg = GuardConfig()
     assert cfg.ngram_n == 4
     assert cfg.ngram_max_count == 6
+    assert cfg.suffix_min_reps == 3
     assert cfg.min_tokens_before_check == 40
     assert cfg.check_every_n == 3
+
+
+def test_guard_suffix_loop_ignores_structured_data() -> None:
+    """Structured/tabular data with 2 similar lines should NOT trigger SUFFIX_LOOP.
+
+    Regression test for false positive on DNS root server NS records where
+    adjacent lines like '.  518400  IN  NS  a.root-servers.net' and
+    '.  518400  IN  NS  b.root-servers.net' share >90% character similarity.
+    """
+    guard = RepetitionGuard(
+        GuardConfig(
+            min_tokens_before_check=5,
+            check_every_n=1,
+            # Disable ngram/stagnation to isolate suffix loop
+            ngram_max_count=999,
+            stagnation_threshold=1.0,
+        )
+    )
+    # Simulate DNS records — each line is ~55 chars, differ only in server letter
+    preamble = "Here are the root servers for the DNS root zone:\n"
+    records = (
+        ".            518400    IN    NS    a.root-servers.net.\n"
+        ".            518400    IN    NS    b.root-servers.net.\n"
+    )
+    text = preamble + records
+    for word in text.split():
+        result = guard.feed(word + " ")
+        assert not result.should_stop, f"False positive on structured data: {result.detail}"
+
+
+def test_guard_suffix_loop_detects_three_reps() -> None:
+    """Three repetitions of a pattern should trigger SUFFIX_LOOP."""
+    guard = RepetitionGuard(
+        GuardConfig(
+            min_tokens_before_check=5,
+            check_every_n=1,
+            # Disable ngram/stagnation to isolate suffix loop
+            ngram_max_count=999,
+            stagnation_threshold=1.0,
+        )
+    )
+    block = "This is a block that repeats verbatim in the output stream. "
+    text = "Some preamble text here. " + block * 4
+    stopped = False
+    for word in text.split():
+        result = guard.feed(word + " ")
+        if result.should_stop:
+            assert result.reason == StopReason.SUFFIX_LOOP
+            stopped = True
+            break
+    assert stopped, "Guard should have triggered SUFFIX_LOOP on 4 repetitions"
 
 
 # ---------------------------------------------------------------------------

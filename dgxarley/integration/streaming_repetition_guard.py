@@ -124,6 +124,11 @@ class GuardConfig:
         suffix_min_pattern: Shortest pattern (in characters) that counts
             as a loop. Below 30 there are too many false positives with
             natural language.
+        suffix_min_reps: Minimum number of fuzzy-matched repetitions of the
+            pattern required to trigger a stop. Default 3 avoids false
+            positives on structured/tabular data (DNS records, code
+            listings, table rows) where two adjacent lines share >90%
+            formatting by coincidence.
         stagnation_window: Number of trailing tokens to consider for
             stagnation detection.
         stagnation_threshold: Fraction (0.0--1.0) of tokens in the window
@@ -144,6 +149,7 @@ class GuardConfig:
 
     suffix_window: int = 600
     suffix_min_pattern: int = 30
+    suffix_min_reps: int = 3
 
     stagnation_window: int = 80
     stagnation_threshold: float = 0.85
@@ -421,12 +427,12 @@ class RepetitionGuard:
                 else:
                     break
 
-            if reps >= 2 and reps > best_reps:
+            if reps >= self.config.suffix_min_reps and reps > best_reps:
                 best_reps = reps
                 best_pat_len = pat_len
 
-        if best_reps >= 2:
-            raw_confidence: float = min(best_reps / 3.0, 1.0)
+        if best_reps >= self.config.suffix_min_reps:
+            raw_confidence: float = min(best_reps / (self.config.suffix_min_reps + 1), 1.0)
             self._loop_confidence = max(self._loop_confidence, raw_confidence)
 
             if best_pat_len >= min_pat:
