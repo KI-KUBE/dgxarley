@@ -43,10 +43,30 @@ Throughput on 0.5.9-dev2: 16.1 tok/s (1∥), 31.5 tok/s (4∥ avg), 50.6 tok/s (
 
 ## 2026-04-01: v0.5.10rc0 — initial test
 
-### Test 1: Winner config from 0.5.9-dev2
+### Test 1: NCCL init failures with RoCE
 
-- **Config:** Same as baseline above. No changes except image `0.5.10rc0`.
-- **Key question:** Does the FlashInfer CUTLASS MoE Xid 13 bug (`0x1c81fb60:0x1174`) still exist in 0.5.10rc0? If fixed, `moe_runner_backend=flashinfer_cutlass` could be restored for better performance.
+Initial attempts to use RoCE transport failed due to multiple NCCL config issues:
+
+- `NCCL_NET=""` (empty string) ≠ unset → NCCL tries to match plugin named `""` → `ncclInvalidUsage` at PP CommSplit
+- `NCCL_IB_DISABLE=""` residue from strategic merge (old ConfigMap key not removed)
+- `NCCL_IB_HCA="roceenp1s0f0v0"` (wrong — included `en` prefix from netdev name, correct: `rocep1s0f0v0`)
+- Missing `NCCL_IB_MERGE_NICS=0` → PF+VF merge heuristic breaks VF-only communication
+
+All fixed by: removing stale keys (delete + recreate ConfigMap), correcting HCA name, adding MERGE_NICS=0.
+
+### Test 2: RoCE transport, winner config
+
+- **Config:** Same as baseline, plus `nccl_transport=roce` (NCCL_IB_HCA=rocep1s0f0v0, NCCL_IB_GID_INDEX=3, NCCL_IB_MERGE_NICS=0, no NCCL_NET, no NCCL_IB_DISABLE).
+- **NCCL transport confirmed:** `NET/IBext_v11` using `rocep1s0f0v0:1/RoCE`, GPU Direct RDMA (DMABUF) enabled. NOT Socket.
+- **NCCL version:** 2.29.2+cuda13.1 (different from 0.5.9-dev2 which had 2.29.3)
+- **Result:** **STABLE** — server starts, CUDA graph capture succeeds, inference works.
+- **Throughput (1∥):** 7.9 tok/s — significantly slower than 0.5.9-dev2 Socket (16.1 tok/s). Server-side gen throughput ~35 tok/s (vs ~49 on 0.5.9-dev2). Likely an image regression, not transport-related.
+- **Throughput (4∥):** *pending*
+
+### Test 3: Socket transport (for comparison)
+
+- **Config:** Same as Test 2 but `nccl_transport=socket` (NCCL_NET=Socket, NCCL_IB_DISABLE=1).
+- **Purpose:** Isolate whether the throughput regression is from RoCE or from the 0.5.10rc0 image itself.
 - **Result:** *pending*
 
 ---
@@ -55,9 +75,11 @@ Throughput on 0.5.9-dev2: 16.1 tok/s (1∥), 31.5 tok/s (4∥ avg), 50.6 tok/s (
 
 All tests use: `tp=1, pp=3, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0.80, disable_deep_gemm=true, context_length=196608, max_running_requests=32, schedule_policy=lpm, watchdog_timeout=3600, dist_timeout=1800` unless noted.
 
-| # | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | pp_async | cuda_graph_max_bs | Stability | 1∥ tok/s | 4∥ avg | 4∥ peak | 8∥ avg | 8∥ peak |
-|---|------------|-----------|----------|----------------|---------------|----------|-------------------|-----------|---------|--------|---------|--------|---------|
-| 1 | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | *pending* | — | — | — | — | — |
+| # | nccl_transport | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | pp_async | cuda_graph_max_bs | Stability | 1∥ tok/s | 4∥ avg | 4∥ peak |
+|---|----------------|------------|-----------|----------|----------------|---------------|----------|-------------------|-----------|---------|--------|---------|
+| 1 | roce (broken) | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | NCCL invalid usage | — | — | — |
+| 2 | roce | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | **STABLE** | 7.9 | — | — |
+| 3 | socket | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | *pending* | — | — | — |
 
 ### Column Legend
 
