@@ -222,7 +222,7 @@ def test_guard_config_defaults() -> None:
     cfg = GuardConfig()
     assert cfg.ngram_n == 4
     assert cfg.ngram_max_count == 6
-    assert cfg.suffix_min_reps == 3
+    assert cfg.suffix_min_reps == 4
     assert cfg.min_tokens_before_check == 40
     assert cfg.check_every_n == 3
 

@@ -125,10 +125,12 @@ class GuardConfig:
             as a loop. Below 30 there are too many false positives with
             natural language.
         suffix_min_reps: Minimum number of fuzzy-matched repetitions of the
-            pattern required to trigger a stop. Default 3 avoids false
+            pattern required to trigger a stop. Default 4 avoids false
             positives on structured/tabular data (DNS records, code
-            listings, table rows) where two adjacent lines share >90%
-            formatting by coincidence.
+            listings, table rows) and mathematical notation (LaTeX
+            formulas reusing ``\\frac``, ``\\left``, ``\\right``) where
+            three adjacent blocks can share >90% character similarity
+            by coincidence.
         stagnation_window: Number of trailing tokens to consider for
             stagnation detection.
         stagnation_threshold: Fraction (0.0--1.0) of tokens in the window
@@ -149,7 +151,7 @@ class GuardConfig:
 
     suffix_window: int = 600
     suffix_min_pattern: int = 30
-    suffix_min_reps: int = 3
+    suffix_min_reps: int = 4
 
     stagnation_window: int = 80
     stagnation_threshold: float = 0.85
