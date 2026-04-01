@@ -169,6 +169,22 @@
           }
 
 # --- OpenWebUI Deployment & Service ---
+- name: Fetch configmap and secret data for config hash
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: "{{ item.kind }}"
+    name: "{{ item.name }}"
+    namespace: ollama
+  register: _openwebui_config_resources
+  loop:
+    - { kind: ConfigMap, name: ollama-openwebui-config }
+    - { kind: ConfigMap, name: openwebui-seed-config }
+    - { kind: Secret, name: openwebui-oauth-secret }
+
+- name: Compute config hash from configmap and secret data
+  set_fact:
+    openwebui_config_hash: "{{ _openwebui_config_resources.results | map(attribute='resources') | map('first') | map(attribute='data') | map('to_json') | join('|') | hash('sha256') }}"
+
 
 - name: Deploy Open WebUI Deployment
   kubernetes.core.k8s:
@@ -199,6 +215,7 @@
               app: open-webui
             annotations:
               kubectl.kubernetes.io/default-container: open-webui
+              config-hash: "{{ openwebui_config_hash }}"
           spec:
             restartPolicy: Always
             initContainers:
