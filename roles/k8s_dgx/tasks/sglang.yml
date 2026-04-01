@@ -27,6 +27,7 @@
 - name: Create SGLang ConfigMap
   kubernetes.core.k8s:
     state: present
+    apply: true  # full replace — removes stale keys (e.g. NCCL_IB_DISABLE after RoCE switch)
     definition:
       apiVersion: v1
       kind: ConfigMap
@@ -86,19 +87,15 @@
         SGLANG_MOE_CONFIG_DIR: "{{ sglang_moe_config_dir }}"
         SGLANG_ENABLE_TP_MEMORY_INBALANCE_CHECK: "0"
         NCCL_SOCKET_IFNAME: "{{ nccl_socket_ifname }}"
-        # RoCE v2 over QSFP SR-IOV VFs: restrict NCCL to the correct VF's RoCE
-        # device. Without this, privileged pods see all 10+ RoCE devices (PF + 8 VFs)
-        # and NCCL tries to use the wrong ones → crash.
-        # NCCL_NET="" (empty) overrides any previous "Socket" value in the ConfigMap
-        # via strategic merge, letting NCCL auto-select (IBext from HPC-X on NGC images).
-        # Fallback: set NCCL_NET=Socket to bypass RoCE entirely (TCP over QSFP).
-        NCCL_NET: "Socket"
-        NCCL_IB_DISABLE: "1"
-        # RoCE device name = "roce" + PCI-derived name (without "en" prefix from netdev).
-        # netdev: enp1s0f0v0 → RoCE device: rocep1s0f0v0
-        NCCL_IB_HCA: "roce{{ qsfp_sriov_vf_prefix | regex_replace('^en', '') }}v{{ qsfp_sriov_assignments.sglang.vf }}"
-        NCCL_IB_GID_INDEX: "3"
-        NCCL_DEBUG: "WARN"
+        # NCCL transport: controlled by sglang_nccl_transport (roce/socket).
+        # With apply: true, the ConfigMap is fully replaced — keys from the
+        # inactive mode vanish automatically (no strategic merge residue).
+        NCCL_IB_HCA: "{{ sglang_nccl_env.NCCL_IB_HCA | default(omit) }}"
+        NCCL_IB_GID_INDEX: "{{ sglang_nccl_env.NCCL_IB_GID_INDEX | default(omit) }}"
+        NCCL_IB_MERGE_NICS: "{{ sglang_nccl_env.NCCL_IB_MERGE_NICS | default(omit) }}"
+        NCCL_NET: "{{ sglang_nccl_env.NCCL_NET | default(omit) }}"
+        NCCL_IB_DISABLE: "{{ sglang_nccl_env.NCCL_IB_DISABLE | default(omit) }}"
+        NCCL_DEBUG: "INFO"
 
 - name: Create SGLang launch script ConfigMap
   kubernetes.core.k8s:
