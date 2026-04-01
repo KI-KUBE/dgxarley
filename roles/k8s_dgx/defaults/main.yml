@@ -332,11 +332,10 @@ sglang_model_profiles:
     # Without it, transformers refuses to load the model class. Safe here because
     # the code comes from NVIDIA's official nvidia/MiniMax-M2.5-NVFP4 repo.
     trust_remote_code: true
-    # Xid 13 (Illegal Instruction at 0x1c81fb60:0x1174) on SM121 is caused by the
-    # FlashInfer CUTLASS MoE dispatch kernel — it fires regardless of attention_backend
-    # or fp4_gemm_backend. triton MoE compiles kernels at runtime for the exact SM.
-    # flashinfer_cutlass attention is fine (different code path from MoE dispatch).
-    moe_runner_backend: "triton"
+    # Xid 13 on 0.5.9-dev2 was caused by flashinfer_cutlass MoE dispatch kernel.
+    # Re-testing on 0.5.10rc0 which may have fixed the kernel for SM121.
+    # Fallback: "triton" (compiles at runtime, proven stable on both images).
+    moe_runner_backend: "flashinfer_cutlass"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.80"
     attention_backend: "flashinfer"
