@@ -104,6 +104,11 @@ All tests use: `tp=1, pp=3, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | 4 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 8 | OOM graph capture | — | — | — | — | — |
 | 5 | socket | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | OOM on first request | — | — | — | — | — |
 | 6 | socket | triton | flashinfer | fi_cutlass | false | true | 2 | 8 | **STABLE** (slower) | 16.0 | 31.0 | 47.3 | 34.5 | 61.3 |
+| 7 | socket | triton | flashinfer | fi_cutlass | true | true | 0 | — | **STABLE** | 6.1 (TTFT 159s!) | 23.0 | 39.0 | 38.9 | 56.3 |
+| 8 | socket | triton | flashinfer | fi_cutlass | false | false | 0 | 8 | **STABLE** | 15.6 | 29.1 | 50.7 | 36.8 | 51.6 |
+| 9 | socket | triton | triton | fi_cutlass | false | true | 0 | 8 | *pending* | — | — | — | — | — |
+| 10 | socket | triton | flashinfer | auto→cudnn | false | true | 0 | 8 | *pending* | — | — | — | — | — |
+| 11 | socket | fi_cutlass | flashinfer | auto→cudnn | false | true | 0 | 8 | *pending* | — | — | — | — | — |
 
 ### Column Legend
 
