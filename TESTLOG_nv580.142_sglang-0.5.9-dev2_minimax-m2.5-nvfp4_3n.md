@@ -178,22 +178,22 @@ spark3 added as third DGX Spark. `sglang_nnodes` changed from 2 to 3.
 
 All tests use: `tp=1, pp=3, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0.80, disable_deep_gemm=true, context_length=196608, max_running_requests=32, schedule_policy=lpm, watchdog_timeout=3600, dist_timeout=1800` unless noted.
 
-| # | nccl_transport | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | pp_async | cuda_graph_max_bs | Stability | 1∥ tok/s | 4∥ avg | 4∥ peak | 8∥ avg | 8∥ peak |
-|---|----------------|------------|-----------|----------|----------------|---------------|----------|-------------------|-----------|---------|--------|---------|--------|---------|
-| 1 | socket | — | — | — | — | — | — | — | TP=3 AssertionError | — | — | — | — | — |
-| 2 | socket | fi_cutlass | flashinfer | auto→cudnn | false | true | 0 | 16 | OK startup, probe kill | — | — | — | — | — |
-| 3 | socket | fi_cutlass | flashinfer | auto→cudnn | false | true | 0 | 16 | Xid 13 ~4min | — | — | — | — | — |
-| 4 | socket | fi_cutlass | flashinfer | auto→cudnn | true | true | 0 | — | Xid 13 ~2-4min | — | — | — | — | — |
-| 5 | socket | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | **STABLE 12+ min** | — | — | — | — | — |
-| 6 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 16 | **STABLE 9+ min** | — | — | — | — | — |
-| 7 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 2 | 16 | NCCL crash ~13min | — | — | — | — | — |
-| 8 | socket | fi_cutlass | flashinfer | fi_cutlass | false | false | 0 | 16 | OOM piecewise | — | — | — | — | — |
-| 9 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 16 | OOM graph capture | — | — | — | — | — |
-| 10 | socket | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | Xid 13 ~10min | — | — | — | — | — |
-| 11 | socket | fi_cutlass | triton | fi_cutlass | true | true | 0 | — | Xid 13 ~8min | — | — | — | — | — |
-| 12 | socket | triton | flashinfer | fi_cutlass | true | true | 0 | — | **STABLE 32+min** | 15.1 | 18.9 | ~40 | — | — |
-| 13 | socket | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | **STABLE, graphs** | 16.1 | 31.5 | 50.6 | — | — |
-| 14 | socket | triton | flashinfer | fi_cutlass | false | true | 2 | 8 | **STABLE** (slower) | 16.0 | 28.7 | 52.5 | 36.4 | 52.4 |
+| # | nccl_transport | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | pp_async | cuda_graph_max_bs | Stability | 1∥ tok/s | 4∥ tok/s | 8∥ tok/s |
+|---|----------------|------------|-----------|----------|----------------|---------------|----------|-------------------|-----------|---------|---------|---------|
+| 1 | socket | — | — | — | — | — | — | — | TP=3 AssertionError | — | — | — |
+| 2 | socket | fi_cutlass | flashinfer | auto→cudnn | false | true | 0 | 16 | OK startup, probe kill | — | — | — |
+| 3 | socket | fi_cutlass | flashinfer | auto→cudnn | false | true | 0 | 16 | Xid 13 ~4min | — | — | — |
+| 4 | socket | fi_cutlass | flashinfer | auto→cudnn | true | true | 0 | — | Xid 13 ~2-4min | — | — | — |
+| 5 | socket | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | **STABLE 12+ min** | — | — | — |
+| 6 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 16 | **STABLE 9+ min** | — | — | — |
+| 7 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 2 | 16 | NCCL crash ~13min | — | — | — |
+| 8 | socket | fi_cutlass | flashinfer | fi_cutlass | false | false | 0 | 16 | OOM piecewise | — | — | — |
+| 9 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 16 | OOM graph capture | — | — | — |
+| 10 | socket | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | Xid 13 ~10min | — | — | — |
+| 11 | socket | fi_cutlass | triton | fi_cutlass | true | true | 0 | — | Xid 13 ~8min | — | — | — |
+| 12 | socket | triton | flashinfer | fi_cutlass | true | true | 0 | — | **STABLE 32+min** | 15.1 | ~40 | — |
+| 13 | socket | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | **STABLE, graphs** | 16.1 | 50.6 | — |
+| 14 | socket | triton | flashinfer | fi_cutlass | false | true | 2 | 8 | **STABLE** (slower) | 16.0 | 52.5 | 52.4 |
 
 ### Column Legend
 
@@ -207,8 +207,6 @@ All tests use: `tp=1, pp=3, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | dis_piecewise | `disable_piecewise_cuda_graph` — true = only fixed-BS graphs, false = piecewise variable-length graphs (58 chunks) |
 | pp_async | `pp_async_batch_depth` — async micro-batches in PP pipeline (0 = synchronous) |
 | cuda_graph_max_bs | `cuda_graph_max_bs` — largest batch size to capture (— = N/A when graphs disabled) |
-| 1∥ tok/s | Aggregate throughput with 1 sequential request |
-| 4∥ avg | Aggregate throughput with 4 parallel requests (total output tokens / wall time) |
-| 4∥ peak | Peak concurrent throughput at 4∥ = sum of per-request tok/s while all requests active |
-| 8∥ avg | Aggregate throughput with 8 parallel requests |
-| 8∥ peak | Peak concurrent throughput at 8∥ |
+| 1∥ tok/s | Throughput with 1 sequential request (= per-request tok/s) |
+| 4∥ tok/s | Peak concurrent throughput at 4∥ (sum of per-request tok/s) |
+| 8∥ tok/s | Peak concurrent throughput at 8∥ (sum of per-request tok/s) |

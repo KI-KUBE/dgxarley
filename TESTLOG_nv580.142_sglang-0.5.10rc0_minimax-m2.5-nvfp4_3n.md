@@ -28,7 +28,7 @@ fp4_gemm_backend=flashinfer_cutlass
 disable_cuda_graph=false
 disable_piecewise_cuda_graph=true
 pp_async_batch_depth=0
-cuda_graph_max_bs=8
+cuda_graph_max_bs=16
 disable_deep_gemm=true
 quantization=modelopt_fp4
 kv_cache_dtype=fp8_e4m3
@@ -96,23 +96,23 @@ All fixed by: removing stale keys (delete + recreate ConfigMap), correcting HCA 
 
 All tests use: `tp=1, pp=3, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0.80, disable_deep_gemm=true, context_length=196608, max_running_requests=32, schedule_policy=lpm, watchdog_timeout=3600, dist_timeout=1800` unless noted.
 
-| # | nccl_transport | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | pp_async | cuda_graph_max_bs | Stability | 1∥ tok/s | 4∥ avg | 4∥ peak | 8∥ avg | 8∥ peak |
-|---|----------------|------------|-----------|----------|----------------|---------------|----------|-------------------|-----------|---------|--------|---------|--------|---------|
-| 1 | roce (broken) | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | NCCL invalid usage | — | — | — | — | — |
-| 2 | roce | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | **STABLE** | 7.9 | 16.1 | ~41 (srv) | 33.8 | ~51 (srv) |
-| 3 | socket | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | **STABLE** | 16.0 | 33.5 | 41.0 | 50.5 | 72.8 |
-| 4 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 8 | OOM graph capture | — | — | — | — | — |
-| 5 | socket | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | OOM on first request | — | — | — | — | — |
-| 6 | socket | triton | flashinfer | fi_cutlass | false | true | 2 | 8 | **STABLE** (slower) | 16.0 | 31.0 | 47.3 | 34.5 | 61.3 |
-| 7 | socket | triton | flashinfer | fi_cutlass | true | true | 0 | — | **STABLE** | 6.1 (TTFT 159s!) | 23.0 | 39.0 | 38.9 | 56.3 |
-| 8 | socket | triton | flashinfer | fi_cutlass | false | false | 0 | 8 | **STABLE** | 15.6 | 29.1 | 50.7 | 36.8 | 51.6 |
-| 9 | socket | triton | triton | fi_cutlass | false | true | 0 | 8 | *pending* | — | — | — | — | — |
-| 10 | socket | triton | triton | fi_cutlass | true | true | 0 | — | *pending* | — | — | — | — | — |
-| 11 | socket | triton | triton | fi_cutlass | false | false | 0 | 8 | *pending* | — | — | — | — | — |
-| 12 | socket | triton | triton | fi_cutlass | false | true | 2 | 8 | *pending* | — | — | — | — | — |
-| 13 | socket | triton | flashinfer | fi_cudnn | false | true | 0 | 8 | *pending* | — | — | — | — | — |
-| 14 | socket | triton | triton | fi_cudnn | false | true | 0 | 8 | *pending* | — | — | — | — | — |
-| 15 | socket | fi_cutlass | flashinfer | fi_cudnn | false | true | 0 | 8 | *pending* | — | — | — | — | — |
+| # | nccl_transport | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | pp_async | cuda_graph_max_bs | Stability | 1∥ tok/s | 4∥ tok/s | 8∥ tok/s |
+|---|----------------|------------|-----------|----------|----------------|---------------|----------|-------------------|-----------|---------|---------|---------|
+| 1 | roce (broken) | triton | flashinfer | fi_cutlass | false | true | 0 | 16 | NCCL invalid usage | — | — | — |
+| 2 | roce | triton | flashinfer | fi_cutlass | false | true | 0 | 16 | **STABLE** | 7.9 | ~41 (srv) | ~51 (srv) |
+| 3 | socket | triton | flashinfer | fi_cutlass | false | true | 0 | 16 | **STABLE** | 16.0 | 41.0 | 72.8 |
+| 4 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 16 | OOM graph capture | — | — | — |
+| 5 | socket | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | OOM on first request | — | — | — |
+| 6 | socket | triton | flashinfer | fi_cutlass | false | true | 2 | 16 | **STABLE** | 16.0 | 47.3 | 61.3 |
+| 7 | socket | triton | flashinfer | fi_cutlass | true | true | 0 | — | **STABLE** | 6.1 (TTFT 159s!) | 39.0 | 56.3 |
+| 8 | socket | triton | flashinfer | fi_cutlass | false | false | 0 | 16 | **STABLE** | 15.6 | 50.7 | 51.6 |
+| 9 | socket | triton | triton | fi_cutlass | false | true | 0 | 16 | **STABLE** | 15.4 | 40.5 | 77.4 |
+| 10 | socket | triton | triton | fi_cutlass | true | true | 0 | — | **STABLE** | 4.5 (TTFT 182s!) | 43.2 | 49.8 |
+| 11 | socket | triton | triton | fi_cutlass | false | false | 0 | 16 | **STABLE** | 15.9 | 39.3 | 73.2 |
+| 12 | socket | triton | triton | fi_cutlass | false | true | 2 | 16 | **STABLE** | 16.1 | 46.9 | 52.8 |
+| 13 | socket | triton | flashinfer | fi_cudnn | false | true | 0 | 16 | **STABLE** | 15.6 | 27.5 | 54.6 |
+| 14 | socket | triton | triton | fi_cudnn | false | true | 0 | 16 | *pending* | — | — | — |
+| 15 | socket | fi_cutlass | flashinfer | fi_cudnn | false | true | 0 | 16 | *pending* | — | — | — |
 
 ### Column Legend
 
@@ -125,8 +125,6 @@ All tests use: `tp=1, pp=3, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | dis_piecewise | `disable_piecewise_cuda_graph` — true = only fixed-BS graphs |
 | pp_async | `pp_async_batch_depth` — async micro-batches in PP pipeline (0 = synchronous) |
 | cuda_graph_max_bs | `cuda_graph_max_bs` — largest batch size to capture |
-| 1∥ tok/s | Aggregate throughput with 1 sequential request |
-| 4∥ avg | Aggregate throughput with 4 parallel requests (total output tokens / wall time) |
-| 4∥ peak | Peak concurrent throughput at 4∥ = sum of per-request tok/s while all requests active |
-| 8∥ avg | Aggregate throughput with 8 parallel requests |
-| 8∥ peak | Peak concurrent throughput at 8∥ |
+| 1∥ tok/s | Throughput with 1 sequential request (= per-request tok/s) |
+| 4∥ tok/s | Peak concurrent throughput at 4∥ (sum of per-request tok/s) |
+| 8∥ tok/s | Peak concurrent throughput at 8∥ (sum of per-request tok/s) |
