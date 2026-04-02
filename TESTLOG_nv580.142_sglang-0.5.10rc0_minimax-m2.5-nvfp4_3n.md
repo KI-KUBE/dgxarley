@@ -110,9 +110,9 @@ All tests use: `tp=1, pp=3, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | 10 | socket | triton | triton | fi_cutlass | true | true | 0 | — | *pending* | — | — | — | — | — |
 | 11 | socket | triton | triton | fi_cutlass | false | false | 0 | 8 | *pending* | — | — | — | — | — |
 | 12 | socket | triton | triton | fi_cutlass | false | true | 2 | 8 | *pending* | — | — | — | — | — |
-| 13 | socket | triton | flashinfer | auto→cudnn | false | true | 0 | 8 | *pending* | — | — | — | — | — |
-| 14 | socket | triton | triton | auto→cudnn | false | true | 0 | 8 | *pending* | — | — | — | — | — |
-| 15 | socket | fi_cutlass | flashinfer | auto→cudnn | false | true | 0 | 8 | *pending* | — | — | — | — | — |
+| 13 | socket | triton | flashinfer | fi_cudnn | false | true | 0 | 8 | *pending* | — | — | — | — | — |
+| 14 | socket | triton | triton | fi_cudnn | false | true | 0 | 8 | *pending* | — | — | — | — | — |
+| 15 | socket | fi_cutlass | flashinfer | fi_cudnn | false | true | 0 | 8 | *pending* | — | — | — | — | — |
 
 ### Column Legend
 
@@ -120,7 +120,7 @@ All tests use: `tp=1, pp=3, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 |--------|-------------|
 | moe_runner | `moe_runner_backend` — MoE expert dispatch kernel (`fi_cutlass` = flashinfer_cutlass, `triton` = triton→cutlass_moe_fp4 fallback for NVFP4) |
 | attention | `attention_backend` — attention kernel |
-| fp4_gemm | `fp4_gemm_backend` — FP4 dense GEMM kernel |
+| fp4_gemm | `fp4_gemm_backend` — FP4 dense GEMM kernel (`fi_cutlass` = flashinfer_cutlass, `fi_cudnn` = flashinfer_cudnn; valid choices: auto, flashinfer_cudnn, flashinfer_cutlass, flashinfer_trtllm) |
 | dis_cuda_graph | `disable_cuda_graph` — true = eager mode, false = capture CUDA graphs |
 | dis_piecewise | `disable_piecewise_cuda_graph` — true = only fixed-BS graphs |
 | pp_async | `pp_async_batch_depth` — async micro-batches in PP pipeline (0 = synchronous) |
