@@ -964,6 +964,7 @@ async def run_parallel_test(
     thinking_budget: int | None = None,
     no_think: bool = False,
     no_guard: str | None = None,
+    result_file: str | None = None,
 ) -> None:
     """Run ``n`` parallel streaming requests with a live Rich display.
 
@@ -1107,6 +1108,77 @@ async def run_parallel_test(
     wall_time = time.monotonic() - wall_start
     print_final_summary(all_stats, wall_time, verbose)
 
+    if result_file:
+        _write_result_json(all_stats, wall_time, model_id, preset, result_file)
+
+
+def _write_result_json(
+    all_stats: list[RequestStats],
+    wall_time: float,
+    model_id: str,
+    preset: str | None,
+    result_file: str,
+) -> None:
+    """Write per-request results and aggregate stats to a JSON file."""
+    requests_out = []
+    for s in all_stats:
+        think_est = len(s.thinking) // 4 if s.thinking else 0
+        content_est = len(s.output) // 4 if s.output else 0
+        requests_out.append(
+            {
+                "request_id": s.request_id,
+                "status": "repetition" if s.repetition_stopped else s.status,
+                "ttft": round(s.ttft, 4) if s.ttft > 0 else None,
+                "total_time": round(s.total_time, 2),
+                "prompt_tokens": s.prompt_tokens,
+                "think_tokens_est": think_est or None,
+                "content_tokens_est": content_est or None,
+                "output_tokens": s.output_tokens,
+                "tokens_per_sec": round(s.tokens_per_sec, 2) if s.tokens_per_sec > 0 else None,
+                "finish_reason": s.finish_reason or None,
+                "prompt": s.prompt[:120],
+            }
+        )
+
+    done = [s for s in all_stats if s.status == "done"]
+    aggregate: dict[str, object] = {
+        "wall_time": round(wall_time, 2),
+        "successful_requests": len(done),
+        "failed_requests": len(all_stats) - len(done),
+    }
+    if done:
+        total_out = sum(s.output_tokens for s in done)
+        total_prompt = sum(s.prompt_tokens for s in done)
+        total_think_est = sum(len(s.thinking) // 4 for s in done)
+        total_content_est = sum(len(s.output) // 4 for s in done)
+        avg_ttft = sum(s.ttft for s in done) / len(done)
+        avg_tps = sum(s.tokens_per_sec for s in done) / len(done)
+        p50_ttft = sorted(s.ttft for s in done)[len(done) // 2]
+        p50_tps = sorted(s.tokens_per_sec for s in done)[len(done) // 2]
+        aggregate.update(
+            {
+                "total_prompt_tokens": total_prompt,
+                "total_output_tokens": total_out,
+                "think_tokens_est": total_think_est,
+                "content_tokens_est": total_content_est,
+                "aggregate_throughput": round(total_out / wall_time, 2) if wall_time > 0 else 0,
+                "avg_ttft": round(avg_ttft, 4),
+                "p50_ttft": round(p50_ttft, 4),
+                "avg_per_request_tps": round(avg_tps, 2),
+                "p50_per_request_tps": round(p50_tps, 2),
+            }
+        )
+
+    result = {
+        "model": model_id,
+        "preset": preset,
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        "requests": requests_out,
+        "aggregate": aggregate,
+    }
+    Path(result_file).write_text(json.dumps(result, indent=2, ensure_ascii=False) + "\n")
+    Console().print(f"[dim]Results written to {result_file}[/]")
+
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -1193,6 +1265,13 @@ def main() -> None:
         "Values: content, reasoning, both (default: both if flag given without value)",
     )
     parser.add_argument(
+        "--result-file",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Write parallel test results (per-request + aggregate) to a JSON file",
+    )
+    parser.add_argument(
         "-y",
         "--yes",
         action="store_true",
@@ -1259,6 +1338,7 @@ def main() -> None:
                 thinking_budget=args.thinking_budget,
                 no_think=no_think,
                 no_guard=args.no_guard,
+                result_file=args.result_file,
             )
         )
 
