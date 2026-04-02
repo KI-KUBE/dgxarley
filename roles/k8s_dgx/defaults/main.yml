@@ -335,21 +335,20 @@ sglang_model_profiles:
     # flashinfer_cutlass MoE: OOM on first request (0.5.10rc0) and Xid 13 (0.5.9-dev2).
     # Too memory-hungry for 256-expert MoE with PP (all experts per stage).
     # triton MoE compiles at runtime for SM121, stable on both images.
-    moe_runner_backend: "fi_cutlass"
+    moe_runner_backend: "triton"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.80"
     attention_backend: "flashinfer"
-    # auto selects flashinfer_cudnn on SM121 — its FP4 GEMM kernel also triggers
-    # Xid 13 independently. flashinfer_cutlass avoids the cuDNN JIT path.
-    fp4_gemm_backend: "cudnn"
+    # flashinfer_cutlass avoids the cuDNN JIT path which triggers Xid 13 on SM121
+    # and is consistently slower than cutlass across all concurrency levels.
+    fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 16
     # Piecewise CUDA graph capture: OOM during capture — 58 chunks × separate graph
     # buffers exhaust GPU memory (NV_ERR_NO_MEMORY in _memdescAllocInternal).
     # Regular CUDA graphs (6 fixed batch sizes) work fine, only piecewise is too much.
     disable_piecewise_cuda_graph: true
-    # CUDA graph capture: OOM with moe_runner_backend=flashinfer_cutlass (graph
-    # buffers too large for 256-expert MoE layers). Only works with triton MoE.
-    # Set to false when using moe_runner_backend=triton, true for flashinfer_cutlass.
+    # CUDA graph capture: works with triton MoE. OOM with flashinfer_cutlass MoE
+    # (graph buffers too large for 256-expert MoE layers).
     disable_cuda_graph: false
     cuda_graph_max_bs: 16
     # PP async micro-batching: overlaps forward passes across pipeline stages.

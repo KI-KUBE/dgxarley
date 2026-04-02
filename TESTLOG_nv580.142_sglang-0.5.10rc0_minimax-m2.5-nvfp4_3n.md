@@ -112,7 +112,7 @@ All tests use: `tp=1, pp=3, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | 12 | socket | triton | triton | fi_cutlass | false | true | 2 | 16 | **STABLE** | 16.1 | 46.9 | 52.8 |
 | 13 | socket | triton | flashinfer | fi_cudnn | false | true | 0 | 16 | **STABLE** | 15.6 | 27.5 | 54.6 |
 | 14 | socket | triton | triton | fi_cudnn | false | true | 0 | 16 | **STABLE** | 15.8 | 40.5 | 62.1 |
-| 15 | socket | fi_cutlass | flashinfer | fi_cudnn | false | true | 0 | 16 | *pending* | — | — | — |
+| 15 | socket | fi_cutlass | flashinfer | fi_cudnn | false | true | 0 | 16 | OOMKilled (graph capture) | — | — | — |
 
 ### Column Legend
 
