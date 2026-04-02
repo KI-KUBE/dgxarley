@@ -13,7 +13,7 @@ nut_ups_port: "auto"
 nut_ups_desc: "Green Cell UPS 1000VA 600W"
 nut_ups_vendorid: "0001"
 nut_ups_productid: "0000"
-nut_ups_busport: "004"              # physical USB port (nut-scanner -U → busport), stable across reboots
+nut_ups_busport: "001"              # physical USB port (nut-scanner -U → busport), stable across reboots
 # langid_fix: required for Green Cell USB communication
 # norating/novendor: suppress garbage USB queries, use overrides instead
 # Voltage thresholds for 2×12V AGM in series:
@@ -44,7 +44,7 @@ nut_ups_extra_options:
 nut_ups_secondary_driver: "blazer_usb"
 nut_ups_secondary_port: "auto"
 nut_ups_secondary_bus: "001"
-nut_ups_secondary_busport: "001"     # physical USB port 1 (nut-scanner -U → busport)
+nut_ups_secondary_busport: "004"     # physical USB port 4 (nut-scanner -U → busport)
 nut_ups_secondary_desc: "Green Cell UPS 2000VA 1200W"
 nut_ups_secondary_vendorid: "0001"
 nut_ups_secondary_productid: "0000"
