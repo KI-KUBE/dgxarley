@@ -1,3 +1,4 @@
+/env
 /.claude
 .proxyai
 .venv/
@@ -8,6 +9,7 @@ __pycache__/
 .mypy_cache/
 *.local
 *.local.*
+artifacts/
 
 /dist
 

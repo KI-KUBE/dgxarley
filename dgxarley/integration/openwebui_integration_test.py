@@ -51,15 +51,24 @@ from pathlib import Path
 
 import requests
 import yaml
-from ascii_magic import AsciiArt
-from PIL import Image
-
 from dgxarley import configure_logging, glogger, print_banner
 from dgxarley.integration.thinking_parser import ThinkingParser
 
 os.environ.setdefault("LOGURU_LEVEL", "DEBUG")
 configure_logging()
 glogger.enable("dgxarley")
+
+try:
+    from ascii_magic import AsciiArt
+except Exception:
+    AsciiArt = None
+
+try:
+    from PIL import Image
+except Exception:
+    Image = None  # type: ignore[assignment]
+
+_VISION_AVAILABLE: bool = AsciiArt is not None and Image is not None
 
 from loguru import logger
 
@@ -1017,14 +1026,20 @@ def main() -> None:
             sys.exit(0)
 
     if "xkcd" in tests:
-        image: Image.Image = get_random_xkcd_image(get_random_xkcd_image_url())
-        print_ascii_representation_of_image(image)
-        client.explain_image(image, print_thinking=True, preset="thinking")
+        if not _VISION_AVAILABLE:
+            glogger.warning("Skipping xkcd test — Pillow or ascii_magic not installed")
+        else:
+            image: Image.Image = get_random_xkcd_image(get_random_xkcd_image_url())
+            print_ascii_representation_of_image(image)
+            client.explain_image(image, print_thinking=True, preset="thinking")
 
     if "xkcd_non_thinking" in tests:
-        image = get_random_xkcd_image(get_random_xkcd_image_url())
-        print_ascii_representation_of_image(image)
-        client.explain_image(image, print_thinking=True, preset="non_thinking")
+        if not _VISION_AVAILABLE:
+            glogger.warning("Skipping xkcd_non_thinking test — Pillow or ascii_magic not installed")
+        else:
+            image = get_random_xkcd_image(get_random_xkcd_image_url())
+            print_ascii_representation_of_image(image)
+            client.explain_image(image, print_thinking=True, preset="non_thinking")
 
     if "briefing" in tests:
         print(f"\n{'*' * 80}")
