@@ -341,7 +341,7 @@ sglang_model_profiles:
     attention_backend: "flashinfer"
     # flashinfer_cutlass avoids the cuDNN JIT path which triggers Xid 13 on SM121
     # and is consistently slower than cutlass across all concurrency levels.
-    fp4_gemm_backend: "flashinfer_cutlass"
+    fp4_gemm_backend: "flashinfer_cudnn"
     jit_max_jobs: 16
     # Piecewise CUDA graph capture: OOM during capture — 58 chunks × separate graph
     # buffers exhaust GPU memory (NV_ERR_NO_MEMORY in _memdescAllocInternal).
@@ -349,7 +349,7 @@ sglang_model_profiles:
     disable_piecewise_cuda_graph: true
     # CUDA graph capture: works with triton MoE. OOM with flashinfer_cutlass MoE
     # (graph buffers too large for 256-expert MoE layers).
-    disable_cuda_graph: false
+    disable_cuda_graph: true
     cuda_graph_max_bs: 16
     # PP async micro-batching: overlaps forward passes across pipeline stages.
     # 0 = synchronous (default, one batch at a time). Higher values push more
