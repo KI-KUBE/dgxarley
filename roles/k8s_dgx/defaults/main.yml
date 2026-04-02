@@ -338,10 +338,10 @@ sglang_model_profiles:
     moe_runner_backend: "triton"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.80"
-    attention_backend: "flashinfer"
+    attention_backend: "triton"
     # auto selects flashinfer_cudnn on SM121 — its FP4 GEMM kernel also triggers
     # Xid 13 independently. flashinfer_cutlass avoids the cuDNN JIT path.
-    fp4_gemm_backend: "flashinfer_cutlass"
+    fp4_gemm_backend: "cudnn"
     jit_max_jobs: 16
     # Piecewise CUDA graph capture: OOM during capture — 58 chunks × separate graph
     # buffers exhaust GPU memory (NV_ERR_NO_MEMORY in _memdescAllocInternal).
@@ -388,6 +388,7 @@ sglang_model_profiles:
       temperature: 1.0
       top_p: 0.95
       top_k: 40
+    moe_runner: fi_cutlass
   "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4":
     info_url: "https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
     # 120B/12B LatentMoE (Mamba2-Transformer hybrid), NVFP4 quantized (~67 GB weights).
