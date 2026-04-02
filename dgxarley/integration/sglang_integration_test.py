@@ -279,18 +279,6 @@ PARALLEL_PROMPTS: list[str] = [
         "and connect this to broader lessons about conditional probability."
     ),
     (
-        "You are a senior data engineer and analytics consultant who has optimized SQL queries "
-        "for data warehouses processing petabytes of data. You think carefully about query "
-        "plans, index usage, and the practical differences between database engines.\n\n"
-        "A junior analyst needs to write a SQL query that finds the top 3 customers by total "
-        "spend per month for the last year. Write the query using window functions and CTEs, "
-        "explain each clause, and discuss performance considerations. Then show alternative "
-        "approaches: a correlated subquery version and a LATERAL JOIN version. Compare their "
-        "execution plans conceptually and advise on indexing strategy. Assume a PostgreSQL "
-        "database with tables `customers(id, name)` and `orders(id, customer_id, amount, "
-        "created_at)`."
-    ),
-    (
         "You are a principal software architect who has led the migration of a major "
         "e-commerce platform from a monolith to microservices — and later consolidated some "
         "services back. You have strong opinions informed by hard-won experience about when "
@@ -746,7 +734,12 @@ def build_live_display(all_stats: list[RequestStats], verbose: bool = False) -> 
                 content_text = s.output_tail(max_chars)
                 has_content = bool(content_text.strip())
                 if has_content:
-                    c_lines = min(_wrapped_line_count(content_text, inner_width), inner_lines // 2)
+                    c_budget = min(_wrapped_line_count(content_text, inner_width), inner_lines // 2)
+                    content_text, c_trunc = _tail_lines(content_text, c_budget, inner_width)
+                    if c_trunc:
+                        content_text, _ = _tail_lines(content_text, max(1, c_budget - 1), inner_width)
+                        content_text = "...\n" + content_text
+                    c_lines = _wrapped_line_count(content_text, inner_width)
                     t_budget = max(1, inner_lines - c_lines - 2)  # -2 for [thinking]/[/thinking] markers
                     t_tail, truncated = _tail_lines(s.thinking, t_budget, inner_width)
                     if truncated:
@@ -774,7 +767,12 @@ def build_live_display(all_stats: list[RequestStats], verbose: bool = False) -> 
             )
             if verbose and s.thinking:
                 content_text = s.output_tail(max_chars)
-                c_lines = min(_wrapped_line_count(content_text, inner_width), inner_lines // 2)
+                c_budget = min(_wrapped_line_count(content_text, inner_width), inner_lines // 2)
+                content_text, c_trunc = _tail_lines(content_text, c_budget, inner_width)
+                if c_trunc:
+                    content_text, _ = _tail_lines(content_text, max(1, c_budget - 1), inner_width)
+                    content_text = "...\n" + content_text
+                c_lines = _wrapped_line_count(content_text, inner_width)
                 t_budget = max(1, inner_lines - c_lines - 2)
                 t_tail, truncated = _tail_lines(s.thinking, t_budget, inner_width)
                 if truncated:

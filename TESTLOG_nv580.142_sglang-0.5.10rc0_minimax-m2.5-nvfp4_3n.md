@@ -103,7 +103,7 @@ All tests use: `tp=1, pp=3, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | 3 | socket | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | **STABLE** | 16.0 | 33.5 | 41.0 | 50.5 | 72.8 |
 | 4 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 8 | OOM graph capture | — | — | — | — | — |
 | 5 | socket | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | OOM on first request | — | — | — | — | — |
-| 6 | socket | triton | flashinfer | fi_cutlass | false | true | 2 | 8 | *pending* | — | — | — | — | — |
+| 6 | socket | triton | flashinfer | fi_cutlass | false | true | 2 | 8 | **STABLE** (slower) | 16.0 | 31.0 | 47.3 | 34.5 | 61.3 |
 
 ### Column Legend
 

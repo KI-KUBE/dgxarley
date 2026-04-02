@@ -355,8 +355,8 @@ sglang_model_profiles:
     # PP async micro-batching: overlaps forward passes across pipeline stages.
     # 0 = synchronous (default, one batch at a time). Higher values push more
     # micro-batches into the pipeline concurrently, hiding inter-stage latency.
-    # pp_async_batch_depth: 0  # sync baseline (Test 3 winner on 0.5.10rc0)
-    pp_async_batch_depth: 2  # re-test on 0.5.10rc0 (was -9% on 0.5.9-dev2 Test 14)
+    # pp_async_batch_depth: 2  # slower on both images (-7% 4∥, -32% 8∥ on 0.5.10rc0)
+    pp_async_batch_depth: 0
     # DeepGemm is designed for FP8 with ue8m0 scale format. For NVFP4 models
     # (scale_fmt != ue8m0): (1) the JIT-compiled kernels aren't optimized for
     # this format and may degrade accuracy, (2) JIT compilation blocks the
