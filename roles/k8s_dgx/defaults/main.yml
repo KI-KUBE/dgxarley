@@ -453,12 +453,12 @@ sglang_model_profiles:
     moe_runner_backend: "flashinfer_cutlass"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.80"  # model card recommendation
-    attention_backend: "triton"
-    fp4_gemm_backend: "flashinfer_cudnn"
+    attention_backend: "flashinfer"
+    fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 16
     disable_piecewise_cuda_graph: false
     disable_cuda_graph: false
-    cuda_graph_max_bs: 16
+    cuda_graph_max_bs: 8
     pp_async_batch_depth: 0
     # DeepGemm is designed for FP8 with ue8m0 scale format. For NVFP4 models
     # (scale_fmt != ue8m0): (1) the JIT-compiled kernels aren't optimized for
@@ -474,7 +474,7 @@ sglang_model_profiles:
     tool_call_parser: "glm47"
     num_experts: 256
     # ep_size: EP=nnodes → each GPU handles 256/nnodes experts.
-    ep_size: "{{ sglang_nnodes if (256 % (sglang_nnodes | int) == 0) else 1 }}"
+    ep_size: 4
     recommended_sampling:
       temperature: 1.0
       top_p: 0.95
@@ -513,8 +513,10 @@ sglang_speculative_num_draft_tokens: 4
 #sglang_model: "Qwen/Qwen3.5-35B-A3B-FP8"
 #sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
 
-#sglang_model: "nvidia/GLM-5-NVFP4"
-sglang_model: "nvidia/MiniMax-M2.5-NVFP4"
+sglang_model: "nvidia/GLM-5-NVFP4"
+
+# sglang_model: "nvidia/GLM-5-NVFP4"
+#sglang_model: "nvidia/MiniMax-M2.5-NVFP4"
 #sglang_model: "Qwen/Qwen3.5-122B-A10B-FP8"
 #sglang_model: "QuantTrio/Qwen3-235B-A22B-Thinking-2507-AWQ"
 #sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"

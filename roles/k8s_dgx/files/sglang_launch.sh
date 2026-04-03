@@ -4,6 +4,11 @@ set -e
 # Install ping for ARP priming (not included in sglang image)
 apt-get update -qq && apt-get install -y -qq tini iproute2 iputils-ping net-tools curl ethtool >/dev/null 2>&1
 
+# accelerate: required by ModelOptModelLoader for models that use the
+# _standard_quantization_workflow path (e.g. GLM-5-NVFP4). Not shipped
+# in all sglang images — install if missing.
+python3 -c "import accelerate" 2>/dev/null || pip install accelerate
+
 # Prime ARP table on the QSFP link before NCCL tries to connect.
 # Without this, the first TCP SYNs get dropped until ARP resolves,
 # causing ~230s delay in "Init torch distributed".
