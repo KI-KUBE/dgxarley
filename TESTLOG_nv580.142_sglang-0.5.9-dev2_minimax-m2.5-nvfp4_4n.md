@@ -45,8 +45,8 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | 19 | socket | fi_cutlass | flashinfer | fi_cudnn | false | true | 0 | 8 | **STABLE** (5/8 at 8∥) | 15.6 | 48.2 | 44.4 |
 | 20 | socket | fi_cutlass | flashinfer | fi_cudnn | true | true | 0 | — | EP crash at concurrency | 15.1 | — | — |
 | 21 | socket | fi_cutlass | flashinfer | fi_cudnn | false | false | 0 | 8 | **STABLE** | 14.5 | 44.0 | 67.0 |
-| 22 | socket | fi_cutlass | triton | fi_cudnn | false | true | 0 | 8 | pending | — | — | — |
-| 23 | socket | fi_cutlass | triton | fi_cudnn | true | true | 0 | — | pending | — | — | — |
+| 22 | socket | fi_cutlass | triton | fi_cudnn | false | true | 0 | 8 | **STABLE** | 15.7 | 47.9 | 65.3 |
+| 23 | socket | fi_cutlass | triton | fi_cudnn | true | true | 0 | — | timeout (not ready after 900s) | — | — | — |
 | 24 | socket | fi_cutlass | triton | fi_cudnn | false | false | 0 | 8 | pending | — | — | — |
 | 25 | socket | cutlass | flashinfer | fi_cutlass | false | true | 0 | 8 | pending | — | — | — |
 | 26 | socket | cutlass | flashinfer | fi_cutlass | true | true | 0 | — | pending | — | — | — |
