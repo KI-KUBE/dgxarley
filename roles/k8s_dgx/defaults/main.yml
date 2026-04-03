@@ -452,7 +452,7 @@ sglang_model_profiles:
     # Untested on DGX Spark — values below are initial defaults, pending test matrix.
     moe_runner_backend: "flashinfer_cutlass"
     kv_cache_dtype: "fp8_e4m3"
-    mem_fraction_static: "0.80"  # model card recommendation
+    mem_fraction_static: "0.40"  # model card says 0.80 but OOM at init with EP=4 on GB10
     attention_backend: "flashinfer"
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 16

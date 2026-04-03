@@ -4,16 +4,57 @@ set -e
 # Install ping for ARP priming (not included in sglang image)
 apt-get update -qq && apt-get install -y -qq tini iproute2 iputils-ping net-tools curl ethtool >/dev/null 2>&1
 
-# accelerate: required by ModelOptModelLoader for models that use the
-# _standard_quantization_workflow path (e.g. GLM-5-NVFP4). Not shipped
-# in all sglang images — install if missing.
-python3 -c "import accelerate" 2>/dev/null || pip install accelerate
+# GLM-5 specific: transformers upgrade + mem_get_info patch.
+# Only needed for glm_moe_dsa models — skip for MiniMax, Qwen, etc.
+if [[ "$SGLANG_MODEL" == *"GLM-5"* ]]; then
+  echo "GLM-5 model detected — applying GLM-5 specific patches..."
 
-# transformers ≥5.3.0: would be needed for glm_moe_dsa (GLM-5) model type,
-# but upgrading pulls in huggingface_hub 1.9.0 which breaks torch.cuda.mem_get_info()
-# on GB10 (CUDA OOM before weight loading). Disabled until a compatible image ships it.
-# python3 -c "from transformers.models.auto.configuration_auto import CONFIG_MAPPING; assert 'glm_moe_dsa' in CONFIG_MAPPING" 2>/dev/null \
-#   || pip install transformers==5.3.0
+  # accelerate: required by ModelOptModelLoader for GLM-5-NVFP4.
+  python3 -c "import accelerate" 2>/dev/null || pip install accelerate
+
+  # transformers ≥5.3.0: required for glm_moe_dsa model type.
+  # Must also pull huggingface_hub >=1.3.0 (transformers 5.3.0 dependency).
+  python3 -c "from transformers.models.auto.configuration_auto import CONFIG_MAPPING; assert 'glm_moe_dsa' in CONFIG_MAPPING" 2>/dev/null \
+    || pip install transformers==5.3.0 huggingface_hub==1.3.0
+
+  # Patch _cuda_mem_fallback: transformers 5.x + huggingface_hub >=1.3.0
+  # triggers a CUDA context init during import that breaks torch.cuda.mem_get_info()
+  # on GB10 (cudaErrorMemoryAllocation). nvidia-smi also can't report memory on GB10.
+  # Fix: fall back to /proc/meminfo (GB10 unified memory = system RAM).
+  COMMON_PY="/usr/local/lib/python3.12/dist-packages/sglang/srt/utils/common.py"
+  if grep -q '_cuda_mem_fallback' "$COMMON_PY" 2>/dev/null; then
+    python3 << 'PATCH_MEM_FALLBACK_EOF'
+f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/utils/common.py"
+with open(f) as fh:
+    code = fh.read()
+old = '    raise RuntimeError(\n        f"Failed to get GPU memory capacity from nvidia-smi. "'
+if old in code:
+    new = '''    # GB10 unified memory: read total from /proc/meminfo
+    import logging as _logging
+    try:
+        with open("/proc/meminfo") as _mf:
+            for _line in _mf:
+                if _line.startswith("MemTotal:"):
+                    _mem_mib = int(_line.split()[1]) // 1024  # kB → MiB
+                    break
+        _logging.getLogger(__name__).warning(
+            f"nvidia-smi and torch.cuda.mem_get_info() both failed. "
+            f"Falling back to /proc/meminfo MemTotal: {_mem_mib} MiB."
+        )
+        return _mem_mib
+    except Exception as _e:
+        _logging.getLogger(__name__).warning(f"/proc/meminfo fallback also failed: {_e}")
+    raise RuntimeError(
+        f"Failed to get GPU memory capacity from nvidia-smi. "'''
+    code = code.replace(old, new, 1)
+    with open(f, 'w') as fh:
+        fh.write(code)
+    print("Patched _cuda_mem_fallback: /proc/meminfo fallback for unified memory (GB10)")
+else:
+    print("_cuda_mem_fallback: patch target not found, skipping")
+PATCH_MEM_FALLBACK_EOF
+  fi
+fi
 
 # Prime ARP table on the QSFP link before NCCL tries to connect.
 # Without this, the first TCP SYNs get dropped until ARP resolves,
