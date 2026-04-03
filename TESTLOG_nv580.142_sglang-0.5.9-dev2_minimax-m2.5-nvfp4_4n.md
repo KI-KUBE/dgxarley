@@ -1,4 +1,4 @@
-# SGLang Test Log — MiniMax M2.5 NVFP4, 4 Nodes, v0.5.10rc0
+# SGLang Test Log — MiniMax M2.5 NVFP4, 4 Nodes, v0.5.9dev2
 
 ## Environment
 
@@ -43,8 +43,8 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | 17 | socket | fi_cutlass | triton | fi_cutlass | true | true | 0 | — | **STABLE** | 14.9 (TTFT 9.8s) | 48.2 | 70.7 |
 | 18 | socket | fi_cutlass | triton | fi_cutlass | false | false | 0 | 8 | EP crash at concurrency | 15.4 | — | — |
 | 19 | socket | fi_cutlass | flashinfer | fi_cudnn | false | true | 0 | 8 | **STABLE** (5/8 at 8∥) | 15.6 | 48.2 | 44.4 |
-| 20 | socket | fi_cutlass | flashinfer | fi_cudnn | true | true | 0 | — | *running* | 15.1 | — | — |
-| 21 | socket | fi_cutlass | flashinfer | fi_cudnn | false | false | 0 | 8 | pending | — | — | — |
+| 20 | socket | fi_cutlass | flashinfer | fi_cudnn | true | true | 0 | — | EP crash at concurrency | 15.1 | — | — |
+| 21 | socket | fi_cutlass | flashinfer | fi_cudnn | false | false | 0 | 8 | **STABLE** | 14.5 | 44.0 | 67.0 |
 | 22 | socket | fi_cutlass | triton | fi_cudnn | false | true | 0 | 8 | pending | — | — | — |
 | 23 | socket | fi_cutlass | triton | fi_cudnn | true | true | 0 | — | pending | — | — | — |
 | 24 | socket | fi_cutlass | triton | fi_cudnn | false | false | 0 | 8 | pending | — | — | — |
