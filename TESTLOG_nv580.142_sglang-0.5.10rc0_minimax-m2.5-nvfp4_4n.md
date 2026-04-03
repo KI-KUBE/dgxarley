@@ -48,13 +48,25 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | 22 | socket | fi_cutlass | triton | fi_cudnn | false | true | 0 | 16 | pending | — | — | — |
 | 23 | socket | fi_cutlass | triton | fi_cudnn | true | true | 0 | — | pending | — | — | — |
 | 24 | socket | fi_cutlass | triton | fi_cudnn | false | false | 0 | 16 | pending | — | — | — |
+| 25 | socket | cutlass | flashinfer | fi_cutlass | false | true | 0 | 16 | pending | — | — | — |
+| 26 | socket | cutlass | flashinfer | fi_cutlass | true | true | 0 | — | pending | — | — | — |
+| 27 | socket | cutlass | flashinfer | fi_cutlass | false | false | 0 | 16 | pending | — | — | — |
+| 28 | socket | cutlass | triton | fi_cutlass | false | true | 0 | 16 | pending | — | — | — |
+| 29 | socket | cutlass | triton | fi_cutlass | true | true | 0 | — | pending | — | — | — |
+| 30 | socket | cutlass | triton | fi_cutlass | false | false | 0 | 16 | pending | — | — | — |
+| 31 | socket | cutlass | flashinfer | fi_cudnn | false | true | 0 | 16 | pending | — | — | — |
+| 32 | socket | cutlass | flashinfer | fi_cudnn | true | true | 0 | — | pending | — | — | — |
+| 33 | socket | cutlass | flashinfer | fi_cudnn | false | false | 0 | 16 | pending | — | — | — |
+| 34 | socket | cutlass | triton | fi_cudnn | false | true | 0 | 16 | pending | — | — | — |
+| 35 | socket | cutlass | triton | fi_cudnn | true | true | 0 | — | pending | — | — | — |
+| 36 | socket | cutlass | triton | fi_cudnn | false | false | 0 | 16 | pending | — | — | — |
 
 ### Column Legend
 
 | Column | Description |
 |--------|-------------|
 | nccl_transport | `sglang_nccl_transport` — NCCL inter-node transport (`socket` = TCP/IP, `roce` = RDMA/RoCE via IBext) |
-| moe_runner | `moe_runner_backend` — MoE expert dispatch kernel (`fi_cutlass` = flashinfer_cutlass, `triton` = triton→cutlass_moe_fp4 fallback for NVFP4) |
+| moe_runner | `moe_runner_backend` — MoE expert dispatch kernel (`fi_cutlass` = flashinfer_cutlass, `triton` = triton→cutlass_moe_fp4 fallback for NVFP4, `cutlass` = cutlass direct) |
 | attention | `attention_backend` — attention kernel (`flashinfer` = FlashInfer, `triton` = Triton) |
 | fp4_gemm | `fp4_gemm_backend` — FP4 dense GEMM kernel (`fi_cutlass` = flashinfer_cutlass, `fi_cudnn` = flashinfer_cudnn; valid choices: auto, flashinfer_cudnn, flashinfer_cutlass, flashinfer_trtllm) |
 | dis_cuda_graph | `disable_cuda_graph` — true = eager mode, false = capture CUDA graphs |
