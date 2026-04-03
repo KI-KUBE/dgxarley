@@ -7,16 +7,13 @@ apt-get update -qq && apt-get install -y -qq tini iproute2 iputils-ping net-tool
 # accelerate: required by ModelOptModelLoader for models that use the
 # _standard_quantization_workflow path (e.g. GLM-5-NVFP4). Not shipped
 # in all sglang images — install if missing.
-# accelerate: required by ModelOptModelLoader for models that use the
-# _standard_quantization_workflow path (e.g. GLM-5-NVFP4). Not shipped
-# in all sglang images — install if missing.
 python3 -c "import accelerate" 2>/dev/null || pip install accelerate
 
-# transformers ≥5.3.0: required for glm_moe_dsa (GLM-5) model type.
-# Older images ship transformers that don't recognize this architecture,
-# causing AutoConfig.from_pretrained to fail before trust_remote_code kicks in.
-python3 -c "from transformers.models.auto.configuration_auto import CONFIG_MAPPING; assert 'glm_moe_dsa' in CONFIG_MAPPING" 2>/dev/null \
-  || pip install --upgrade transformers
+# transformers ≥5.3.0: would be needed for glm_moe_dsa (GLM-5) model type,
+# but upgrading pulls in huggingface_hub 1.9.0 which breaks torch.cuda.mem_get_info()
+# on GB10 (CUDA OOM before weight loading). Disabled until a compatible image ships it.
+# python3 -c "from transformers.models.auto.configuration_auto import CONFIG_MAPPING; assert 'glm_moe_dsa' in CONFIG_MAPPING" 2>/dev/null \
+#   || pip install transformers==5.3.0
 
 # Prime ARP table on the QSFP link before NCCL tries to connect.
 # Without this, the first TCP SYNs get dropped until ARP resolves,
