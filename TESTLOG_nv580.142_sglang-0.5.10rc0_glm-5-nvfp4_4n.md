@@ -11,14 +11,37 @@
 | OS | Ubuntu 24.04.4 LTS (aarch64)                       |
 | K3s | v1.35.3+k3s1                                       |
 | Nodes | spark1, spark2, spark3, spark4 (1 GPU each)        |
-| Image | `scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5` |
+| Image | `scitrera/dgx-spark-sglang:0.5.10rc0` |
 | Model | `nvidia/GLM-5-NVFP4`                         |
 
-Previous test series with 4 nodes: see `TESTLOG_nv580.142_sglang-0.5.9-dev2_glm-5-nvfp4_4n.md`.
+## Result: Does NOT fit on 4× DGX Spark (4× 128 GB)
+
+GLM-5-NVFP4 (744B/40B-active) is too large for 4 nodes with 128 GB unified memory each.
+
+**Tested configurations:**
+
+- **EP=4, TP=4, PP=1** (`mem_fraction_static=0.80`): OOM during weight init.
+  `torch.OutOfMemoryError` at `modelopt_quant.py:create_weights` — ~108 GB used,
+  tried to allocate 384 MiB with only 755 MiB free (of 121 GB usable CUDA).
+  Even with `mem_fraction_static=0.40`: same OOM — the model weights alone exceed
+  available CUDA memory per GPU. All 78 layers' attention weights (BF16, not quantized)
+  are on every GPU (TP-sharded but not PP-split), consuming the bulk of memory.
+
+- **PP=4, TP=1, EP=1** (`mem_fraction_static=0.80`): OOM on node4.
+  Each GPU gets ~20 layers with all 256 experts, but the per-layer weight footprint
+  (256 experts × MoE FFN at FP4 + full attention at BF16) still exceeds ~121 GB.
+
+**Why:** NVFP4 only quantizes MoE FFN weights; attention projections (q/k/v/o with
+MLA kv_lora_rank=512, q_lora_rank=2048), DSA indexer, lm_head, and MTP layer remain
+in BF16. The BF16 attention is the dominant memory consumer. Model card recommends
+TP=8 on B300 (8 GPUs). `cpu_offload_gb` does not help on GB10 unified memory
+(same physical RAM, CUDA and CPU allocators compete for the same pool).
+
+**Conclusion:** GLM-5-NVFP4 requires more than 4× 128 GB. Test matrix abandoned.
 
 ---
 
-## Configuration Matrix
+## Configuration Matrix (abandoned)
 
 All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0.60, disable_deep_gemm=true, context_length=196608, max_running_requests=32, schedule_policy=lpm, watchdog_timeout=3600, dist_timeout=1800` unless noted.
 
