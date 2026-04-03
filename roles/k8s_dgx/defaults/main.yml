@@ -10,8 +10,8 @@ openwebui_namespace: "openwebui"
 
 # curl -s 'https://hub.docker.com/v2/repositories/scitrera/dgx-spark-sglang/tags/?page_size=20&ordering=last_updated' | jq '.results[] | {name, last_updated}'
 #sglang_image: "scitrera/dgx-spark-sglang:0.5.9-t5"
-sglang_image: "scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5"
-#sglang_image: "scitrera/dgx-spark-sglang:0.5.10rc0"
+#sglang_image: "scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5"
+sglang_image: "scitrera/dgx-spark-sglang:0.5.10rc0"
 
 sglang_nnodes: 4
 
@@ -456,7 +456,7 @@ sglang_model_profiles:
     attention_backend: "flashinfer"
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 16
-    disable_piecewise_cuda_graph: false
+    disable_piecewise_cuda_graph: true
     disable_cuda_graph: false
     cuda_graph_max_bs: 8
     pp_async_batch_depth: 0
