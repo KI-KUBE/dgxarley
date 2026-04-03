@@ -965,6 +965,7 @@ async def run_parallel_test(
     no_think: bool = False,
     no_guard: str | None = None,
     result_file: str | None = None,
+    extra_info: dict[str, object] | None = None,
 ) -> None:
     """Run ``n`` parallel streaming requests with a live Rich display.
 
@@ -1047,7 +1048,11 @@ async def run_parallel_test(
         if no_think
         else (f" | Thinking budget: {thinking_budget}" if thinking_budget is not None else "")
     )
-    console.print(f"[dim]Model: {model_id} | Preset: {preset} | Max tokens: {max_tokens}{think_info}[/]\n")
+    console.print(f"[dim]Model: {model_id} | Preset: {preset} | Max tokens: {max_tokens}{think_info}[/]")
+    if extra_info:
+        params = "  ".join(f"{k}={v}" for k, v in extra_info.items())
+        console.print(f"[dim]Params: {params}[/]")
+    console.print()
 
     wall_start = time.monotonic()
 
