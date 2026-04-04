@@ -480,17 +480,17 @@ sglang_model_profiles:
     # Note: model card does NOT specify --moe-runner-backend or --attention-backend.
     # model_type=glm4_moe is in transformers 4.57.6 — no upgrade needed (unlike GLM-5).
     nccl_transport: "socket"
-    tp_size: 4  # num_kv_heads=8 → TP=4 works (2 KV heads/GPU). EP auto from nnodes.
+    tp_size: 1  # num_kv_heads=8 → TP=4 works (2 KV heads/GPU). EP auto from nnodes.
     context_length: 196608  # model max 202752; leave headroom
     #chunked_prefill_size: 131072  # NVIDIA model card recommendation
     quantization: "modelopt_fp4"
     trust_remote_code: true
     # Untested on DGX Spark — values below are initial defaults, pending test matrix.
-    moe_runner_backend: "flashinfer_cutlass"
+    moe_runner_backend: "triton"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.60"
     # mem_fraction_static: "0.80"  # model card recommendation
-    attention_backend: "triton"
+    attention_backend: "flashinfer"
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 16
     disable_piecewise_cuda_graph: true
@@ -501,7 +501,7 @@ sglang_model_profiles:
     reasoning_parser: "glm45"
     tool_call_parser: "glm47"
     num_experts: 160
-    ep_size: 4
+    ep_size: 1
     #ep_size: "{{ sglang_nnodes if (160 % (sglang_nnodes | int) == 0) else 1 }}"
     recommended_sampling:
       temperature: 1.0
