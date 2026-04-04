@@ -734,14 +734,14 @@ def build_live_display(
     for s in all_stats:
         if s.status == "pending":
             style = "dim"
-            header = f"[dim]#{s.request_id} pending[/]"
+            panel_title = f"[dim]#{s.request_id} pending[/]"
             body = Text(s.prompt[:80] + "...", style="dim")
         elif s.status == "streaming":
             elapsed = time.monotonic() - s._start
             style = "yellow"
             tps = f" {s.tokens_per_sec:.1f} t/s" if s._first_token else ""
             tok_detail = _tok_detail(s)
-            header = f"[yellow]#{s.request_id} streaming {elapsed:.1f}s{tps}{tok_detail}[/]"
+            panel_title = f"[yellow]#{s.request_id} streaming {elapsed:.1f}s{tps}{tok_detail}[/]"
             if verbose and s.thinking:
                 content_text = s.output_tail(max_chars)
                 has_content = bool(content_text.strip())
@@ -772,7 +772,7 @@ def build_live_display(
         elif s.status == "done":
             style = "green"
             tok_detail = _tok_detail(s)
-            header = (
+            panel_title = (
                 f"[green]#{s.request_id} done[/] "
                 f"TTFT={s.ttft:.2f}s | {s.total_time:.1f}s | "
                 f"{s.output_tokens} tok{tok_detail} | {s.tokens_per_sec:.1f} t/s"
@@ -797,15 +797,15 @@ def build_live_display(
             body = Text(display, style="white")
         elif s.repetition_stopped:
             style = "yellow"
-            header = f"[yellow]#{s.request_id} REPETITION — {s.repetition_reason[:60]}[/]"
+            panel_title = f"[yellow]#{s.request_id} REPETITION — {s.repetition_reason[:60]}[/]"
             display = s.clean_output[-max_chars:] if s.clean_output else s.output_tail(max_chars)
             body = Text(display, style="white")
         else:
             style = "red"
-            header = f"[red]#{s.request_id} ERROR[/]"
+            panel_title = f"[red]#{s.request_id} ERROR[/]"
             body = Text(s.error[:max_chars], style="red")
 
-        panels.append(Panel(body, title=header, border_style=style, height=panel_height))
+        panels.append(Panel(body, title=panel_title, border_style=style, height=panel_height))
     grid = Table.grid(padding=(0, 1))
     grid.add_column(width=col_width)
     grid.add_column(width=col_width)
