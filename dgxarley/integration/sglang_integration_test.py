@@ -662,7 +662,11 @@ def _wrapped_line_count(text: str, wrap_width: int) -> int:
     return sum(max(1, -(-len(l) // wrap_width)) for l in text.split("\n"))
 
 
-def build_live_display(all_stats: list[RequestStats], verbose: bool = False) -> Table:
+def build_live_display(
+    all_stats: list[RequestStats],
+    verbose: bool = False,
+    header: str = "",
+) -> Table:
     """Build a Rich Table showing the live state of all parallel requests.
 
     Renders a two-column grid of :class:`rich.panel.Panel` objects — one per
@@ -674,6 +678,9 @@ def build_live_display(all_stats: list[RequestStats], verbose: bool = False) -> 
             or completed request.
         verbose: If ``True``, the thinking/reasoning tokens are included in
             the panel body alongside content tokens.
+        header: Optional multi-line header text displayed above the summary
+            row (e.g. URL, model, params).  Included in the height
+            calculation so panels don't push it off-screen.
 
     Returns:
         A :class:`rich.table.Table` suitable for passing to
@@ -713,8 +720,10 @@ def build_live_display(all_stats: list[RequestStats], verbose: bool = False) -> 
     console_height = Console().height
     col_width = (console_width - 1) // 2
     n_rows = (len(all_stats) + 1) // 2
-    # Reserve 4 lines for summary header, split remaining height across panel rows
-    panel_height = max(8, (console_height - 4) // n_rows) if n_rows > 0 else 16
+    # Reserve lines for header text + summary row, split remaining height across panel rows
+    header_lines = header.count("\n") + 1 if header else 0
+    reserved = 4 + header_lines
+    panel_height = max(8, (console_height - reserved) // n_rows) if n_rows > 0 else 16
     # Usable lines/width inside panel (subtract borders + padding)
     inner_width = col_width - 4
     inner_lines = panel_height - 2
@@ -806,6 +815,8 @@ def build_live_display(all_stats: list[RequestStats], verbose: bool = False) -> 
         grid.add_row(left, right)
 
     outer = Table.grid()
+    if header:
+        outer.add_row(Text.from_markup(header))
     outer.add_row(summary)
     outer.add_row(grid)
     return outer
@@ -1046,17 +1057,19 @@ async def run_parallel_test(
 
     url = f"{sglang_url.rstrip('/')}/v1/chat/completions"
     console = Console()
-    console.print(f"[bold]Starting {n} parallel requests to {url}[/]")
     think_info = (
         " | Thinking: OFF"
         if no_think
         else (f" | Thinking budget: {thinking_budget}" if thinking_budget is not None else "")
     )
-    console.print(f"[dim]Model: {model_id} | Preset: {preset} | Max tokens: {max_tokens}{think_info}[/]")
+    _header_lines = [
+        f"[bold]Starting {n} parallel requests to {url}[/]",
+        f"[dim]Model: {model_id} | Preset: {preset} | Max tokens: {max_tokens}{think_info}[/]",
+    ]
     if extra_info:
         params = "  ".join(f"{k}={v}" for k, v in extra_info.items())
-        console.print(f"[dim]Params: {params}[/]")
-    console.print()
+        _header_lines.append(f"[dim]Params: {params}[/]")
+    _live_header = "\n".join(_header_lines)
 
     wall_start = time.monotonic()
 
@@ -1084,7 +1097,9 @@ async def run_parallel_test(
             tasks = [stream_request(session, url, payloads[i], all_stats[i], no_guard=no_guard) for i in range(n)]
 
             # Live display updates while requests stream
-            with Live(build_live_display(all_stats, verbose), console=console, refresh_per_second=4) as live:
+            with Live(
+                build_live_display(all_stats, verbose, header=_live_header), console=console, refresh_per_second=4
+            ) as live:
                 # Start all tasks
                 pending: set[asyncio.Task[None]] = set()
                 for t in tasks:
@@ -1092,7 +1107,7 @@ async def run_parallel_test(
 
                 while pending:
                     done_tasks, pending = await asyncio.wait(pending, timeout=0.25, return_when=asyncio.FIRST_COMPLETED)
-                    live.update(build_live_display(all_stats, verbose))
+                    live.update(build_live_display(all_stats, verbose, header=_live_header))
 
                     if abort_requested:
                         for t in pending:  # type: ignore[assignment]
