@@ -10,8 +10,10 @@ openwebui_namespace: "openwebui"
 
 # curl -s 'https://hub.docker.com/v2/repositories/scitrera/dgx-spark-sglang/tags/?page_size=20&ordering=last_updated' | jq '.results[] | {name, last_updated}'
 #sglang_image: "scitrera/dgx-spark-sglang:0.5.9-t5"
-sglang_image: "scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5"
+#sglang_image: "scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5"
 #sglang_image: "scitrera/dgx-spark-sglang:0.5.10rc0"
+
+sglang_image: "scitrera/dgx-spark-sglang:0.5.10rc0"
 
 sglang_nnodes: 4
 
@@ -425,6 +427,7 @@ sglang_model_profiles:
     nccl_transport: "socket"  # RoCE is 2× slower (IBext overhead, see TESTLOG). Socket until debugged.
     tp_size: 1  # PP=nnodes, TP=1 — each GPU gets ~20 layers with all 256 experts
     context_length: 16384 #196608  # model max 202752; leave headroom
+    #chunked_prefill_size: 131072  # NVIDIA model card recommendation
     quantization: "modelopt_fp4"
     # trust_remote_code: required because GLM-5 ships custom model code
     # (GlmMoeDsaForCausalLM, custom tokenizer) in the HF repo that SGLang must
@@ -479,13 +482,15 @@ sglang_model_profiles:
     nccl_transport: "socket"
     tp_size: 4  # num_kv_heads=8 → TP=4 works (2 KV heads/GPU). EP auto from nnodes.
     context_length: 196608  # model max 202752; leave headroom
+    #chunked_prefill_size: 131072  # NVIDIA model card recommendation
     quantization: "modelopt_fp4"
     trust_remote_code: true
     # Untested on DGX Spark — values below are initial defaults, pending test matrix.
-    moe_runner_backend: "flashinfer_cutlass"
+    moe_runner_backend: "triton"
     kv_cache_dtype: "fp8_e4m3"
-    mem_fraction_static: "0.80"  # model card recommendation
-    attention_backend: "flashinfer"
+    mem_fraction_static: "0.60"
+    # mem_fraction_static: "0.80"  # model card recommendation
+    attention_backend: "triton"
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 16
     disable_piecewise_cuda_graph: true
@@ -496,7 +501,8 @@ sglang_model_profiles:
     reasoning_parser: "glm45"
     tool_call_parser: "glm47"
     num_experts: 160
-    ep_size: "{{ sglang_nnodes if (160 % (sglang_nnodes | int) == 0) else 1 }}"
+    ep_size: 4
+    #ep_size: "{{ sglang_nnodes if (160 % (sglang_nnodes | int) == 0) else 1 }}"
     recommended_sampling:
       temperature: 1.0
   "nvidia/Qwen3.5-397B-A17B-NVFP4":
@@ -710,6 +716,11 @@ sglang_attention_backend: "{{ sglang_model_profiles[sglang_model].attention_back
 # and (2) LiteLLM extra_body via _sglang_extra_body_defaults (client-visible default).
 # Per-request extra_body from clients overrides both layers.
 sglang_chat_template_kwargs: "{{ sglang_model_profiles[sglang_model].chat_template_kwargs | default({}) }}"
+
+# Chunked prefill size: maximum number of tokens per prefill chunk.
+# Large values improve throughput for long prompts; lower values reduce
+# per-request latency and memory spikes. 0 = SGLang default (no override).
+sglang_chunked_prefill_size: "{{ sglang_model_profiles[sglang_model].chunked_prefill_size | default(0) }}"
 
 # MoE Triton kernel config directory (host path, under hf_cache_path).
 # Tuned configs are produced by the sglang_tune_moe Job.

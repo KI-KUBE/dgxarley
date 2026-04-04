@@ -2,15 +2,14 @@
 
 ## Status
 
-**Open upstream** as of 2026-04-02. Not fixed in v0.5.10rc0.
+**Fixed upstream** as of 2026-04-04. Merged by maintainer `hnyls2002`.
 
-- Issue: [#15660](https://github.com/sgl-project/sglang/issues/15660) (closed 2025-12-29, but bug persists)
-- Fix PR: [#15562](https://github.com/sgl-project/sglang/pull/15562) — 2 approvals, rebased 2026-03-25 to resolve merge conflicts, community pressure for merge — **still not merged**, blocked on maintainer sign-off
-- Alternative PR: [#17938](https://github.com/sgl-project/sglang/pull/17938) — extends #15562 for tool-call case, no reviews
-- Alternative PR: [#17764](https://github.com/sgl-project/sglang/pull/17764) — "Support reasoning_tokens with openai style in serving_chat", open, no merge
+- Issue: [#15660](https://github.com/sgl-project/sglang/issues/15660) (closed 2025-12-29, but bug persisted until fix)
+- Fix PR: [#15562](https://github.com/sgl-project/sglang/pull/15562) — **merged 2026-04-04** (09:18 UTC). Re-tokenizes reasoning content at the API layer to compute `reasoning_tokens` and populates it into `UsageInfo`
+- Closed as duplicate of #15562: [#17938](https://github.com/sgl-project/sglang/pull/17938), [#17764](https://github.com/sgl-project/sglang/pull/17764), [#17156](https://github.com/sgl-project/sglang/pull/17156) — all closed 2026-04-04
 - Closed without merge: [#15875](https://github.com/sgl-project/sglang/pull/15875) — "fix(openai): include reasoning_tokens in streaming usage"
-- PR [#17156](https://github.com/sgl-project/sglang/pull/17156) — "Add metrics to reasoning tokens", also open, not merged
-- Our image: `0.5.10rc0` (2026-03-28) — bug still present, none of the fix PRs merged
+- Not in v0.5.10rc0 (2026-03-28). Will be included in the next release after v0.5.10rc0
+- Our image: `0.5.10rc0` — bug still present in this image, fix requires next image rebuild
 
 ## Affected Configuration
 
@@ -55,12 +54,8 @@ stages, then surfaces it through `UsageInfo`. The PR has:
 
 ## Our Workaround
 
-None currently applied. Options:
-
-1. **Build from PR #15562 branch** — the fix is approved and conflict-free
-2. **Client-side counting** — run a tokenizer on the `reasoning_content` chunks to
-   estimate reasoning token count
-3. **Wait for merge** — the PR appears merge-ready
+None currently applied. The fix is now merged upstream — will be available in the next
+image rebuild after v0.5.10rc0.
 
 ## Impact
 
@@ -73,4 +68,4 @@ included), but the breakdown is missing.
 
 - `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md` — moe_wna16 qzeros + EP bug (same version)
 - `SGLANG_SHARDED_SPECULATIVE_UPSTREAM_BUG.md` — sharded_state + speculative decoding (same version)
-- SGLang PR [#18022](https://github.com/sgl-project/sglang/pull/18022) — merged test asserting `reasoning_tokens > 0` for tool calls (test likely fails on current main without the fix)
+- SGLang PR [#18022](https://github.com/sgl-project/sglang/pull/18022) — merged test asserting `reasoning_tokens > 0` for tool calls (now passes with #15562 merged)

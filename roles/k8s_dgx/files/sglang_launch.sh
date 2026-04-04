@@ -378,6 +378,9 @@ fi
 if [ -n "$SGLANG_SCHEDULE_POLICY" ]; then
   args+=(--schedule-policy "$SGLANG_SCHEDULE_POLICY")
 fi
+if [ -n "$SGLANG_CHUNKED_PREFILL_SIZE" ] && [ "$SGLANG_CHUNKED_PREFILL_SIZE" != "0" ]; then
+  args+=(--chunked-prefill-size "$SGLANG_CHUNKED_PREFILL_SIZE")
+fi
 if [ -n "$SGLANG_DIST_TIMEOUT" ]; then
   args+=(--dist-timeout "$SGLANG_DIST_TIMEOUT")
 fi

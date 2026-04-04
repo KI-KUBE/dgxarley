@@ -66,6 +66,7 @@
         SGLANG_EP: "{{ sglang_ep | string }}"
         SGLANG_ENABLE_EPLB: "{{ sglang_enable_eplb | string | lower }}"
         SGLANG_ENABLE_EXPERT_DISTRIBUTION_METRICS: "{{ sglang_enable_expert_distribution_metrics | string | lower }}"
+        SGLANG_CHUNKED_PREFILL_SIZE: "{{ sglang_chunked_prefill_size | string }}"
         SGLANG_ENABLE_JIT_DEEPGEMM: "{{ 'false' if sglang_disable_deep_gemm | bool else 'true' }}"
         # Flash Attention 4 CuTe DSL JIT: enable persistent disk cache so compiled
         # kernels survive pod restarts. First start compiles (~slow), subsequent
