@@ -38,8 +38,8 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | 14 | socket | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | **infer_error** | — | — | — |
 | 15 | socket | fi_cutlass | flashinfer | fi_cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
 | 16 | socket | fi_cutlass | triton | fi_cutlass | false | true | 0 | 8 | **startup_crash** | — | — | — |
-| 17 | socket | fi_cutlass | triton | fi_cutlass | true | true | 0 | — | pending | — | — | — |
-| 18 | socket | fi_cutlass | triton | fi_cutlass | false | false | 0 | 8 | pending | — | — | — |
+| 17 | socket | fi_cutlass | triton | fi_cutlass | true | true | 0 | — | **bench_crash** | — | — | — |
+| 18 | socket | fi_cutlass | triton | fi_cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
 | 19 | socket | fi_cutlass | flashinfer | fi_cudnn | false | true | 0 | 8 | pending | — | — | — |
 | 20 | socket | fi_cutlass | flashinfer | fi_cudnn | true | true | 0 | — | pending | — | — | — |
 | 21 | socket | fi_cutlass | flashinfer | fi_cudnn | false | false | 0 | 8 | pending | — | — | — |
@@ -174,3 +174,16 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 
 - **Outcome:** startup_crash — **OOMKilled** (workers 1, 2)
 - **Time:** 2026-04-04 11:48–11:54 UTC
+
+### #17 — fi_cutlass moe / triton attn / fi_cutlass fp4 / no-cuda-graph
+
+- **Outcome:** bench_crash — server started, n=1 error after 43s timeout, then **OOMKilled** (workers 1, 2)
+- **Time:** 2026-04-04 17:43 UTC
+- n=1: 0/1 (error after 43s — likely FlashInfer CUTLASS MoE JIT compilation consuming all memory)
+- n=4: 0/4 (instant errors, 0 tokens)
+- **Note:** The 43s wait at n=1 suggests JIT compilation happened but exhausted memory (jit_max_jobs=16). With jit_max_jobs=4 this might survive.
+
+### #18 — fi_cutlass moe / triton attn / fi_cutlass fp4 / piecewise
+
+- **Outcome:** startup_crash — **OOMKilled** (workers 1, 2, 3)
+- **Time:** 2026-04-04 17:53–17:59 UTC
