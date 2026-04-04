@@ -35,6 +35,7 @@ import json
 import os
 import random
 import sys
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -981,6 +982,7 @@ async def run_parallel_test(
     result_file: str | None = None,
     extra_info: dict[str, object] | None = None,
     stall_timeout: float = 120.0,
+    abort_event: threading.Event | None = None,
 ) -> None:
     """Run ``n`` parallel streaming requests with a live Rich display.
 
@@ -1109,7 +1111,12 @@ async def run_parallel_test(
                     done_tasks, pending = await asyncio.wait(pending, timeout=0.25, return_when=asyncio.FIRST_COMPLETED)
                     live.update(build_live_display(all_stats, verbose, header=_live_header))
 
-                    if abort_requested:
+                    if abort_requested or (abort_event is not None and abort_event.is_set()):
+                        reason = (
+                            "external abort (pod failure)"
+                            if (abort_event is not None and abort_event.is_set())
+                            else "user (q pressed)"
+                        )
                         for t in pending:  # type: ignore[assignment]
                             t.cancel()  # type: ignore[attr-defined]
                         # Wait for cancellations to propagate
@@ -1119,7 +1126,7 @@ async def run_parallel_test(
                             if s.status == "streaming":
                                 s.status = "aborted"
                                 s.total_time = time.monotonic() - s._start
-                        console.print("\n[bold yellow]Aborted by user (q pressed)[/]")
+                        console.print(f"\n[bold yellow]Aborted: {reason}[/]")
                         break
 
                     # Stall detection: if ALL streaming requests have
