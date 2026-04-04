@@ -77,8 +77,9 @@ def send_and_read(ser: serial.Serial, cmd: bytes, stop_pattern: str = "") -> str
     ser.write(cmd)
     ser.flush()
     time.sleep(0.3)
+    deadline = time.monotonic() + (ser.timeout or 2.0)
     buf = b""
-    while True:
+    while time.monotonic() < deadline:
         chunk = ser.read(ser.in_waiting or 1)
         if not chunk:
             break
