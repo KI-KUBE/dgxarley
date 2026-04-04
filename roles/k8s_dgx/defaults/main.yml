@@ -10,8 +10,8 @@ openwebui_namespace: "openwebui"
 
 # curl -s 'https://hub.docker.com/v2/repositories/scitrera/dgx-spark-sglang/tags/?page_size=20&ordering=last_updated' | jq '.results[] | {name, last_updated}'
 #sglang_image: "scitrera/dgx-spark-sglang:0.5.9-t5"
-#sglang_image: "scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5"
-sglang_image: "scitrera/dgx-spark-sglang:0.5.10rc0"
+sglang_image: "scitrera/dgx-spark-sglang:0.5.9-dev2-acab24a7-t5"
+#sglang_image: "scitrera/dgx-spark-sglang:0.5.10rc0"
 
 sglang_nnodes: 4
 
@@ -324,7 +324,7 @@ sglang_model_profiles:
     #    the post-processing cost remains the same (~360s either way).
     # load_format: "sharded_state"
     nccl_transport: "socket"  # RoCE is 2× slower (IBext overhead, see TESTLOG). Socket until debugged.
-    tp_size: 4  # PP=nnodes auto-derived (8 KV-heads not divisible by nnodes)
+    tp_size: 4  # TP=4 EP=4 on 4 nodes. num_kv_heads=8 → 2 per GPU.
     context_length: 196608
     quantization: "modelopt_fp4"
     # trust_remote_code: required because MiniMax-M2.5 ships custom model code
@@ -332,58 +332,39 @@ sglang_model_profiles:
     # Without it, transformers refuses to load the model class. Safe here because
     # the code comes from NVIDIA's official nvidia/MiniMax-M2.5-NVFP4 repo.
     trust_remote_code: true
-    # flashinfer_cutlass MoE: OOM on first request (0.5.10rc0) and Xid 13 (0.5.9-dev2).
-    # Too memory-hungry for 256-expert MoE with PP (all experts per stage).
-    # triton MoE compiles at runtime for SM121, stable on both images.
+    # Winner config from 4N EP=4 test matrix (Test 13, 0.5.9-dev2):
+    # fi_cutlass MoE + flashinfer attention + fi_cutlass fp4 + CUDA graphs on.
+    # 1∥: 15.3 tok/s (TTFT 1.2s), 4∥: 46.3, 8∥: 65.9.
+    # triton MoE: EP kernel crash on all configs. cutlass MoE: startup crash on all.
+    # Only fi_cutlass MoE works with EP=4.
     moe_runner_backend: "flashinfer_cutlass"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.60"
-    attention_backend: "triton"
-    # flashinfer_cutlass avoids the cuDNN JIT path which triggers Xid 13 on SM121
-    # and is consistently slower than cutlass across all concurrency levels.
-    fp4_gemm_backend: "flashinfer_cudnn"
+    # flashinfer attention: stable with fi_cutlass MoE across all CUDA graph modes.
+    # triton attention: crashes at concurrency with CUDA graphs (cuGraphLaunch segfault),
+    # but works in eager mode (Test 17: best 8∥ at 70.7, TTFT 9.8s penalty).
+    attention_backend: "flashinfer"
+    # flashinfer_cutlass: stable across all tests. fi_cudnn: less stable at 8∥
+    # (Test 19: 5/8 failures) and crashes in eager mode (Test 20).
+    fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 16
-    # Piecewise CUDA graph capture: OOM during capture — 58 chunks × separate graph
-    # buffers exhaust GPU memory (NV_ERR_NO_MEMORY in _memdescAllocInternal).
-    # Regular CUDA graphs (6 fixed batch sizes) work fine, only piecewise is too much.
-    disable_piecewise_cuda_graph: false
-    # CUDA graph capture: works with triton MoE. OOM with flashinfer_cutlass MoE
-    # (graph buffers too large for 256-expert MoE layers).
+    # Piecewise CUDA graphs: stable with flashinfer attention (Test 15: 14.9/45.7/65.4).
+    # Disabled here for simplicity — regular graphs (Test 13) perform equally.
+    disable_piecewise_cuda_graph: true
+    # CUDA graphs: essential for low TTFT. Without them (eager), TTFT jumps to 10-15s.
     disable_cuda_graph: false
     cuda_graph_max_bs: 8
-    # PP async micro-batching: overlaps forward passes across pipeline stages.
-    # 0 = synchronous (default, one batch at a time). Higher values push more
-    # micro-batches into the pipeline concurrently, hiding inter-stage latency.
-    # pp_async_batch_depth: 2  # slower on both images (-7% 4∥, -32% 8∥ on 0.5.10rc0)
     pp_async_batch_depth: 0
     # DeepGemm is designed for FP8 with ue8m0 scale format. For NVFP4 models
-    # (scale_fmt != ue8m0): (1) the JIT-compiled kernels aren't optimized for
-    # this format and may degrade accuracy, (2) JIT compilation blocks the
-    # scheduler forward loop synchronously, triggering the 300s watchdog kill,
-    # (3) parallel nvcc/cicc processes exhaust system RAM. With DeepGemm
-    # disabled, FP4 GEMM selection falls to fp4_gemm_backend (cutlass above;
-    # default without override would be flashinfer_cudnn on SM121).
+    # (scale_fmt != ue8m0): JIT kernels not optimized, blocks scheduler watchdog,
+    # exhausts system RAM. Disabled — FP4 GEMM falls to fp4_gemm_backend above.
     disable_deep_gemm: true
-    # NOTE: "minimax-append-think" does NOT separate reasoning_content — it dumps
-    # everything into content with inline <think> tags (by design, see sgl-project/sglang#15508).
-    # Use "minimax" instead — it maps to Qwen3Detector which properly separates
-    # <think>...</think> into reasoning_content. Tradeoff: for multi-turn, the caller
-    # must reconstruct interleaved thinking (pass reasoning_content back as
-    # <think>...</think> in the assistant message).
-    # OpenWebUI works with BOTH parsers: it renders reasoning_content natively as a
-    # collapsible "Thought" block, and also detects inline <think> tags in content.
-    # For multi-turn, OpenWebUI serializes reasoning back as <think>...</think> in
-    # the assistant content regardless of which parser was used.
-    # Our CLI tools (sglang_raw, sglang_integration_test) use ThinkingParser which
-    # handles both modes, but "minimax" gives cleaner native separation.
+    # "minimax" parser maps to Qwen3Detector which properly separates
+    # <think>...</think> into reasoning_content. Works with OpenWebUI and CLI tools.
     reasoning_parser: "minimax"
     tool_call_parser: "minimax-m2"
     num_experts: 256
-    # ep_size: EP requires ep_size <= tp_size, and tp_size=1 here (PP mode).
-    # ep_size: "{{ sglang_nnodes if (128 % (sglang_nnodes | int) == 0) else 1 }}"
-    ep_size: 4
-    # Reasoning model: thinking is always on (chat template injects <think>\n).
-    # Thinking tokens wrapped in <think>...</think>, exposed via reasoning_content field.
+    ep_size: "{{ sglang_nnodes if (256 % (sglang_nnodes | int) == 0) else 1 }}"
     recommended_sampling:
       temperature: 1.0
       top_p: 0.95
@@ -431,18 +412,19 @@ sglang_model_profiles:
     # (Document-level Sparse Attention). 78 layers (first 3 dense, rest MoE),
     # 1 shared expert + 256 routed experts per MoE layer. Has MTP head (1 layer)
     # for speculative decoding (NEXTN).
-    # num_attention_heads=64, num_key_value_heads=64 (full MHA via MLA)
-    # → TP=4 works natively (16 heads/GPU), no PP workaround needed.
+    # num_attention_heads=64, num_key_value_heads=64 (full MHA via MLA).
     # NVFP4 quantization: only MoE FFN weights are FP4; attention projections
     # (q/k/v/o), DSA indexer, lm_head, and MTP layer remain in BF16.
+    # EP=4/TP=4 OOM at weight init (~108 GB/GPU, exceeds 121 GB usable).
+    # Use PP=4/TP=1 instead: each GPU gets ~20 of 78 layers with all experts.
     # Recommended launch (NVIDIA model card, for 8-GPU B300):
     #   python3 -m sglang.launch_server --model nvidia/GLM-5-NVFP4 --tensor-parallel-size 8 \
     #     --quantization modelopt_fp4 --trust-remote-code --reasoning-parser glm45 \
     #     --tool-call-parser glm47 --chunked-prefill-size 131072 --mem-fraction-static 0.80
     # Note: model card does NOT specify --moe-runner-backend or --attention-backend.
     nccl_transport: "socket"  # RoCE is 2× slower (IBext overhead, see TESTLOG). Socket until debugged.
-    tp_size: 4  # num_kv_heads=64 → TP=4 works (16 heads/GPU). PP=1 with 4 nodes.
-    context_length: 196608  # model max 202752; leave headroom
+    tp_size: 1  # PP=nnodes, TP=1 — each GPU gets ~20 layers with all 256 experts
+    context_length: 16384 #196608  # model max 202752; leave headroom
     quantization: "modelopt_fp4"
     # trust_remote_code: required because GLM-5 ships custom model code
     # (GlmMoeDsaForCausalLM, custom tokenizer) in the HF repo that SGLang must
@@ -452,7 +434,7 @@ sglang_model_profiles:
     # Untested on DGX Spark — values below are initial defaults, pending test matrix.
     moe_runner_backend: "flashinfer_cutlass"
     kv_cache_dtype: "fp8_e4m3"
-    mem_fraction_static: "0.40"  # model card says 0.80 but OOM at init with EP=4 on GB10
+    mem_fraction_static: "0.20"  # PP=4 should leave enough room (~20 layers/GPU)
     attention_backend: "flashinfer"
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 16
@@ -473,11 +455,94 @@ sglang_model_profiles:
     reasoning_parser: "glm45"
     tool_call_parser: "glm47"
     num_experts: 256
-    # ep_size: EP=nnodes → each GPU handles 256/nnodes experts.
-    ep_size: 4
+    # ep_size: with TP=1/PP=4, EP must be 1 (EP requires ep_size <= tp_size).
+    ep_size: 1
     recommended_sampling:
       temperature: 1.0
       top_p: 0.95
+  "nvidia/GLM-4.7-NVFP4":
+    info_url: "https://huggingface.co/nvidia/GLM-4.7-NVFP4"
+    # 358B/~58B-active MoE (160 experts, top-8, sigmoid routing), NVFP4 quantized (~214 GB).
+    # Architecture: GLM-4 MoE — standard GQA (num_kv_heads=8, 12:1 ratio), 92 layers
+    # (first 3 dense, rest MoE), 1 shared expert + 160 routed experts per MoE layer.
+    # Has MTP head (1 layer) for speculative decoding (NEXTN).
+    # num_attention_heads=96, num_key_value_heads=8 → TP=4 works (2 KV heads/GPU).
+    # NVFP4 quantization: only MoE FFN weights are FP4; attention projections,
+    # lm_head, and MTP layer remain in BF16.
+    # ~214 GB / 4 GPUs (TP=4) ≈ ~54 GB/GPU — fits on 4× DGX Spark.
+    # Recommended launch (NVIDIA model card):
+    #   python3 -m sglang.launch_server --model nvidia/GLM-4.7-NVFP4 --tensor-parallel-size 4 \
+    #     --quantization modelopt_fp4 --trust-remote-code --reasoning-parser glm45 \
+    #     --tool-call-parser glm47 --chunked-prefill-size 131072 --mem-fraction-static 0.80
+    # Note: model card does NOT specify --moe-runner-backend or --attention-backend.
+    # model_type=glm4_moe is in transformers 4.57.6 — no upgrade needed (unlike GLM-5).
+    nccl_transport: "socket"
+    tp_size: 4  # num_kv_heads=8 → TP=4 works (2 KV heads/GPU). EP auto from nnodes.
+    context_length: 196608  # model max 202752; leave headroom
+    quantization: "modelopt_fp4"
+    trust_remote_code: true
+    # Untested on DGX Spark — values below are initial defaults, pending test matrix.
+    moe_runner_backend: "flashinfer_cutlass"
+    kv_cache_dtype: "fp8_e4m3"
+    mem_fraction_static: "0.80"  # model card recommendation
+    attention_backend: "flashinfer"
+    fp4_gemm_backend: "flashinfer_cutlass"
+    jit_max_jobs: 16
+    disable_piecewise_cuda_graph: true
+    disable_cuda_graph: false
+    cuda_graph_max_bs: 8
+    pp_async_batch_depth: 0
+    disable_deep_gemm: true
+    reasoning_parser: "glm45"
+    tool_call_parser: "glm47"
+    num_experts: 160
+    ep_size: "{{ sglang_nnodes if (160 % (sglang_nnodes | int) == 0) else 1 }}"
+    recommended_sampling:
+      temperature: 1.0
+  "nvidia/Qwen3.5-397B-A17B-NVFP4":
+    info_url: "https://huggingface.co/nvidia/Qwen3.5-397B-A17B-NVFP4"
+    # 397B/17B-active MoE (512 experts, top-10, softmax routing), NVFP4 quantized (~234 GB).
+    # Architecture: Qwen3.5 MoE — hybrid attention: 15 full GQA layers + 45 linear
+    # attention layers (every 4th layer is full attention). 60 layers total,
+    # 1 shared expert + 512 routed experts per MoE layer. Multimodal (text+image+video).
+    # Has MTP head (1 layer) for speculative decoding (NEXTN).
+    # num_attention_heads=32, num_key_value_heads=2 → TP=2 max (2 KV heads).
+    # Model card says TP=4 — may work due to hybrid attention (linear heads=16/64
+    # are divisible by 4), but full-attention KV heads=2 could be a problem. Needs testing.
+    # NVFP4 quantization: only routed expert MoE FFN weights are FP4; attention,
+    # shared experts, vision encoder, lm_head, and MTP layer remain in BF16.
+    # ~234 GB / 4 GPUs ≈ ~59 GB/GPU — should fit on 4× DGX Spark.
+    # Recommended launch (NVIDIA model card):
+    #   python3 -m sglang.launch_server --model nvidia/Qwen3.5-397B-A17B-NVFP4 \
+    #     --tensor-parallel-size 4 --quantization modelopt_fp4 --trust-remote-code
+    # Note: model card does NOT specify parsers, moe_runner_backend, or attention_backend.
+    # WARNING: model_type=qwen3_5_moe may require transformers upgrade.
+    nccl_transport: "socket"
+    tp_size: 4  # model card says TP=4; num_kv_heads=2 may limit to TP=2 — needs testing
+    context_length: 196608  # model max 262144; conservative start
+    quantization: "modelopt_fp4"
+    trust_remote_code: true
+    # Untested on DGX Spark — values below are initial defaults, pending test matrix.
+    moe_runner_backend: "flashinfer_cutlass"
+    kv_cache_dtype: "fp8_e4m3"
+    mem_fraction_static: "0.80"
+    attention_backend: "flashinfer"
+    fp4_gemm_backend: "flashinfer_cutlass"
+    jit_max_jobs: 16
+    disable_piecewise_cuda_graph: true
+    disable_cuda_graph: false
+    cuda_graph_max_bs: 8
+    pp_async_batch_depth: 0
+    disable_deep_gemm: true
+    # Qwen3.5 reasoning: model card doesn't specify SGLang parser.
+    # vLLM uses "qwen3". For SGLang, try "deepseek-r1" or "qwen3" if available.
+    reasoning_parser: "qwen3"
+    num_experts: 512
+    ep_size: "{{ sglang_nnodes if (512 % (sglang_nnodes | int) == 0) else 1 }}"
+    recommended_sampling:
+      temperature: 0.6
+      top_p: 0.95
+      top_k: 20
 
 
 # Speculative decoding — predicts multiple tokens per forward pass, then
@@ -513,8 +578,9 @@ sglang_speculative_num_draft_tokens: 4
 #sglang_model: "Qwen/Qwen3.5-35B-A3B-FP8"
 #sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
 
-sglang_model: "nvidia/GLM-5-NVFP4"
+sglang_model: "nvidia/GLM-4.7-NVFP4"
 
+# sglang_model: "nvidia/GLM-4.7-NVFP4"
 # sglang_model: "nvidia/GLM-5-NVFP4"
 #sglang_model: "nvidia/MiniMax-M2.5-NVFP4"
 #sglang_model: "Qwen/Qwen3.5-122B-A10B-FP8"
@@ -888,9 +954,11 @@ hf_cache_path: "/var/lib/hf-cache"
 hf_token: "hf_CHANGEME"
 # HuggingFace model pre-download Job
 hf_preload_models:
-  - "nvidia/GLM-5-NVFP4"
+  - "nvidia/GLM-4.7-NVFP4"
   - "nvidia/MiniMax-M2.5-NVFP4"
-  - "Qwen/Qwen3.5-122B-A10B-FP8"
+#  - "nvidia/Qwen3.5-397B-A17B-NVFP4"
+#  - "Qwen/Qwen3.5-122B-A10B-FP8"
+#  - "nvidia/GLM-5-NVFP4"
 #  - "QuantTrio/Qwen3-235B-A22B-Thinking-2507-AWQ"
 #  - "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
 #  - "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"

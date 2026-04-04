@@ -47,19 +47,19 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | 21 | socket | fi_cutlass | flashinfer | fi_cudnn | false | false | 0 | 8 | **STABLE** | 14.5 | 44.0 | 67.0 |
 | 22 | socket | fi_cutlass | triton | fi_cudnn | false | true | 0 | 8 | **STABLE** | 15.7 | 47.9 | 65.3 |
 | 23 | socket | fi_cutlass | triton | fi_cudnn | true | true | 0 | — | timeout (not ready after 900s) | — | — | — |
-| 24 | socket | fi_cutlass | triton | fi_cudnn | false | false | 0 | 8 | pending | — | — | — |
-| 25 | socket | cutlass | flashinfer | fi_cutlass | false | true | 0 | 8 | pending | — | — | — |
-| 26 | socket | cutlass | flashinfer | fi_cutlass | true | true | 0 | — | pending | — | — | — |
-| 27 | socket | cutlass | flashinfer | fi_cutlass | false | false | 0 | 8 | pending | — | — | — |
-| 28 | socket | cutlass | triton | fi_cutlass | false | true | 0 | 8 | pending | — | — | — |
-| 29 | socket | cutlass | triton | fi_cutlass | true | true | 0 | — | pending | — | — | — |
-| 30 | socket | cutlass | triton | fi_cutlass | false | false | 0 | 8 | pending | — | — | — |
-| 31 | socket | cutlass | flashinfer | fi_cudnn | false | true | 0 | 8 | pending | — | — | — |
-| 32 | socket | cutlass | flashinfer | fi_cudnn | true | true | 0 | — | pending | — | — | — |
-| 33 | socket | cutlass | flashinfer | fi_cudnn | false | false | 0 | 8 | pending | — | — | — |
-| 34 | socket | cutlass | triton | fi_cudnn | false | true | 0 | 8 | pending | — | — | — |
-| 35 | socket | cutlass | triton | fi_cudnn | true | true | 0 | — | pending | — | — | — |
-| 36 | socket | cutlass | triton | fi_cudnn | false | false | 0 | 8 | pending | — | — | — |
+| 24 | socket | fi_cutlass | triton | fi_cudnn | false | false | 0 | 8 | EP crash at 8∥ (n1/n4 ok) | 15.3 | 47.0 | — |
+| 25 | socket | cutlass | flashinfer | fi_cutlass | false | true | 0 | 8 | startup crash | — | — | — |
+| 26 | socket | cutlass | flashinfer | fi_cutlass | true | true | 0 | — | EP inference bug → worker crash | — | — | — |
+| 27 | socket | cutlass | flashinfer | fi_cutlass | false | false | 0 | 8 | startup crash | — | — | — |
+| 28 | socket | cutlass | triton | fi_cutlass | false | true | 0 | 8 | startup crash | — | — | — |
+| 29 | socket | cutlass | triton | fi_cutlass | true | true | 0 | — | EP inference bug (0/N reqs) | — | — | — |
+| 30 | socket | cutlass | triton | fi_cutlass | false | false | 0 | 8 | startup crash | — | — | — |
+| 31 | socket | cutlass | flashinfer | fi_cudnn | false | true | 0 | 8 | startup crash | — | — | — |
+| 32 | socket | cutlass | flashinfer | fi_cudnn | true | true | 0 | — | EP inference bug → worker crash | — | — | — |
+| 33 | socket | cutlass | flashinfer | fi_cudnn | false | false | 0 | 8 | startup crash | — | — | — |
+| 34 | socket | cutlass | triton | fi_cudnn | false | true | 0 | 8 | startup crash | — | — | — |
+| 35 | socket | cutlass | triton | fi_cudnn | true | true | 0 | — | EP inference bug → worker crash | — | — | — |
+| 36 | socket | cutlass | triton | fi_cudnn | false | false | 0 | 8 | startup crash | — | — | — |
 
 ### Column Legend
 
