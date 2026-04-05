@@ -575,11 +575,11 @@ sglang_model_profiles:
     moe_runner_backend: "triton"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.60"
-    attention_backend: "triton"
+    attention_backend: "flashinfer"
     fp8_gemm_runner_backend: "cutlass"  # SM121: auto selects flashinfer→trtllm which is unsupported
     jit_max_jobs: 4
-    disable_piecewise_cuda_graph: true
-    disable_cuda_graph: true  # start conservative — enable after confirming stability
+    disable_piecewise_cuda_graph: false
+    disable_cuda_graph: false # start conservative — enable after confirming stability
     cuda_graph_max_bs: 8
     pp_async_batch_depth: 0
     disable_deep_gemm: true  # SM121: DeepGemm JIT has "Unknown recipe" errors
@@ -596,28 +596,23 @@ sglang_model_profiles:
 # verifies in one step. Increases throughput (up to ~60%) at the cost of
 # higher VRAM usage. Speedup diminishes at high concurrency.
 # Requires models with trained speculative modules (not all models have these).
-sglang_speculative_enabled: false  # HT 2026-03-20  -> no real speedup detected...
+# Speculative decoding settings — now read from model profile (like disable_deep_gemm).
+# Set speculative_enabled: true in a model profile to enable.
 # Caveat: Qwen3.5 MoE + speculative forces radix cache OFF (no prefix caching)
 # and disables the overlap scheduler. Multi-turn / shared-prefix workloads may
 # regress. Benchmark before enabling in production.
 # Algorithm:
 #   "NEXTN" — Multi-Token Prediction. Uses the model's own MTP heads to predict
-#             N tokens ahead. Requires trained MTP modules (Qwen3.5, DeepSeek-V3).
-#             Does NOT work with Qwen3 (no MTP heads).
+#             N tokens ahead. Requires trained MTP modules (Qwen3.5, DeepSeek-V3,
+#             GLM-4.7, GLM-5). Does NOT work with Qwen3 (no MTP heads).
 #   "EAGLE" — External draft model. Uses a separate lightweight model to draft
 #             tokens, then the main model verifies. Requires a compatible EAGLE
 #             checkpoint (--speculative-draft-model-path).
-sglang_speculative_algo: "NEXTN"
-# num_steps: how many speculative steps per iteration (more = higher throughput
-# but more wasted compute on rejected tokens). 2-4 is typical.
-sglang_speculative_num_steps: 3
-# eagle_topk: how many top-k candidates EAGLE considers per step.
-# Only relevant for algo=EAGLE. Higher = better acceptance rate but slower drafting.
-sglang_speculative_eagle_topk: 1
-# num_draft_tokens: total draft tokens generated per speculative iteration.
-# The model verifies all of them in a single forward pass.
-# Higher = more throughput if acceptance rate is good, but wastes more on rejection.
-sglang_speculative_num_draft_tokens: 4
+sglang_speculative_enabled: "{{ sglang_model_profiles[sglang_model].speculative_enabled | default(false) }}"
+sglang_speculative_algo: "{{ sglang_model_profiles[sglang_model].speculative_algo | default('NEXTN') }}"
+sglang_speculative_num_steps: "{{ sglang_model_profiles[sglang_model].speculative_num_steps | default(3) }}"
+sglang_speculative_eagle_topk: "{{ sglang_model_profiles[sglang_model].speculative_eagle_topk | default(1) }}"
+sglang_speculative_num_draft_tokens: "{{ sglang_model_profiles[sglang_model].speculative_num_draft_tokens | default(4) }}"
 
 # Select the active model — parameters are pulled from sglang_model_profiles
 #sglang_model: "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
@@ -625,7 +620,7 @@ sglang_speculative_num_draft_tokens: 4
 #sglang_model: "Qwen/Qwen3.5-35B-A3B-FP8"
 #sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
 
-sglang_model: "nvidia/GLM-4.7-NVFP4"
+sglang_model: "zai-org/GLM-4.7-FP8"
 
 # sglang_model: "nvidia/GLM-4.7-NVFP4"
 # sglang_model: "nvidia/GLM-5-NVFP4"
