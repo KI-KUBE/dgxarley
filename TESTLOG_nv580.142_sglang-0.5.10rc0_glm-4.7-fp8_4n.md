@@ -16,13 +16,13 @@
 
 ## Result: All configurations crash at startup
 
-GLM-4.7-FP8 (160 experts, TP=4, EP=4) fails to start on v0.5.10rc0 across **all 27 tested configurations**. No configuration reached a healthy serving state.
+GLM-4.7-FP8 (160 experts, TP=4, EP=4) fails to start on v0.5.10rc0. **36/54 configurations tested** — all `startup_crash`. Tests #37–54 (`triton` fp8_gemm backend) pending.
 
 **Failure patterns:**
 
 - **triton MoE** (cases #1–12): ~10 min per attempt (weight loading completes, crash during CUDA graph capture or init). Worker-1 crashes first (single worker), or head + all workers crash together.
 - **fi_cutlass MoE** (cases #13–24): ~1–2 min per attempt (crashes very early, before weight loading completes — likely FlashInfer MoE JIT compilation failure on SM121 with FP8).
-- **cutlass MoE** (cases #25–27): ~1–2 min per attempt (same rapid crash pattern as fi_cutlass).
+- **cutlass MoE** (cases #25–36): ~1–2 min per attempt (same rapid crash pattern as fi_cutlass).
 
 **Conclusion:** FP8 quantization on GLM-4.7 is not supported by SGLang v0.5.10rc0 on SM121/Blackwell (DGX Spark). The NVFP4 variant (`nvidia/GLM-4.7-NVFP4`) does work — see `TESTLOG_nv580.142_sglang-0.5.10rc0_glm-4.7-nvfp4_4n.md`.
 
@@ -61,6 +61,33 @@ All tests use: `tp=4, pp=1, ep=4, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0
 | 25 | socket | cutlass | flashinfer | cutlass | false | true | 0 | 8 | **startup_crash** | — | — | — |
 | 26 | socket | cutlass | flashinfer | cutlass | true | true | 0 | — | **startup_crash** | — | — | — |
 | 27 | socket | cutlass | flashinfer | cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
+| 28 | socket | cutlass | triton | cutlass | false | true | 0 | 8 | **startup_crash** | — | — | — |
+| 29 | socket | cutlass | triton | cutlass | true | true | 0 | — | **startup_crash** | — | — | — |
+| 30 | socket | cutlass | triton | cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
+| 31 | socket | cutlass | flashinfer | fi_cutlass | false | true | 0 | 8 | **startup_crash** | — | — | — |
+| 32 | socket | cutlass | flashinfer | fi_cutlass | true | true | 0 | — | **startup_crash** | — | — | — |
+| 33 | socket | cutlass | flashinfer | fi_cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
+| 34 | socket | cutlass | triton | fi_cutlass | false | true | 0 | 8 | **startup_crash** | — | — | — |
+| 35 | socket | cutlass | triton | fi_cutlass | true | true | 0 | — | **startup_crash** | — | — | — |
+| 36 | socket | cutlass | triton | fi_cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
+| 37 | socket | triton | flashinfer | triton | false | true | 0 | 8 | pending | — | — | — |
+| 38 | socket | triton | flashinfer | triton | true | true | 0 | — | pending | — | — | — |
+| 39 | socket | triton | flashinfer | triton | false | false | 0 | 8 | pending | — | — | — |
+| 40 | socket | triton | triton | triton | false | true | 0 | 8 | pending | — | — | — |
+| 41 | socket | triton | triton | triton | true | true | 0 | — | pending | — | — | — |
+| 42 | socket | triton | triton | triton | false | false | 0 | 8 | pending | — | — | — |
+| 43 | socket | fi_cutlass | flashinfer | triton | false | true | 0 | 8 | pending | — | — | — |
+| 44 | socket | fi_cutlass | flashinfer | triton | true | true | 0 | — | pending | — | — | — |
+| 45 | socket | fi_cutlass | flashinfer | triton | false | false | 0 | 8 | pending | — | — | — |
+| 46 | socket | fi_cutlass | triton | triton | false | true | 0 | 8 | pending | — | — | — |
+| 47 | socket | fi_cutlass | triton | triton | true | true | 0 | — | pending | — | — | — |
+| 48 | socket | fi_cutlass | triton | triton | false | false | 0 | 8 | pending | — | — | — |
+| 49 | socket | cutlass | flashinfer | triton | false | true | 0 | 8 | pending | — | — | — |
+| 50 | socket | cutlass | flashinfer | triton | true | true | 0 | — | pending | — | — | — |
+| 51 | socket | cutlass | flashinfer | triton | false | false | 0 | 8 | pending | — | — | — |
+| 52 | socket | cutlass | triton | triton | false | true | 0 | 8 | pending | — | — | — |
+| 53 | socket | cutlass | triton | triton | true | true | 0 | — | pending | — | — | — |
+| 54 | socket | cutlass | triton | triton | false | false | 0 | 8 | pending | — | — | — |
 
 ### Column Legend
 
@@ -69,7 +96,7 @@ All tests use: `tp=4, pp=1, ep=4, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0
 | nccl_transport | `sglang_nccl_transport` — NCCL inter-node transport (`socket` = TCP/IP, `roce` = RDMA/RoCE via IBext) |
 | moe_runner | `moe_runner_backend` — MoE expert dispatch kernel (`fi_cutlass` = flashinfer_cutlass, `triton` = triton, `cutlass` = cutlass direct) |
 | attention | `attention_backend` — attention kernel (`flashinfer` = FlashInfer, `triton` = Triton) |
-| fp8_gemm | `fp8_gemm_runner_backend` — FP8 dense GEMM kernel (`cutlass` = CUTLASS, `fi_cutlass` = flashinfer_cutlass) |
+| fp8_gemm | `fp8_gemm_runner_backend` — FP8 dense GEMM kernel (`cutlass` = CUTLASS, `fi_cutlass` = flashinfer_cutlass, `triton` = Triton) |
 | dis_cuda_graph | `disable_cuda_graph` — true = eager mode, false = capture CUDA graphs |
 | dis_piecewise | `disable_piecewise_cuda_graph` — true = only fixed-BS graphs, false = piecewise variable-length graphs |
 | pp_async | `pp_async_batch_depth` — async micro-batches in PP pipeline (0 = synchronous). Irrelevant with PP=1 (TP-only), always 0 here. |
@@ -160,7 +187,8 @@ All tests use: `tp=4, pp=1, ep=4, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0
 - **Time range:** 2026-04-05 10:24–10:47 UTC
 - Every combination of flashinfer/triton attention × cutlass/fi_cutlass fp8_gemm × cuda_graph/no-cuda-graph/piecewise crashed.
 
-### #25–27 — cutlass MoE (flashinfer attn / cutlass fp8)
+### #25–34 — cutlass MoE (all configs)
 
-- **All startup_crash.** Same ~1–2 min rapid crash pattern as fi_cutlass MoE. Test matrix truncated after 3 configs (all cutlass MoE combos already failing).
-- **Time range:** 2026-04-05 10:48–10:53 UTC
+- **All startup_crash.** Same ~1–2 min rapid crash pattern as fi_cutlass MoE — crashes before weight loading completes. Head + all 3 workers restarted on every attempt.
+- **Time range:** 2026-04-05 10:48–11:11 UTC
+- Every combination of flashinfer/triton attention × cutlass/fi_cutlass fp8_gemm × cuda_graph/no-cuda-graph/piecewise crashed. Full matrix complete (12/12).
