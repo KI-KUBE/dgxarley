@@ -58,6 +58,9 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | 34 | socket | cutlass | triton | fi_cudnn | false | true | 0 | 8 | **startup_crash** | — | — | — |
 | 35 | socket | cutlass | triton | fi_cudnn | true | true | 0 | — | **infer_error** | — | — | — |
 | 36 | socket | cutlass | triton | fi_cudnn | false | false | 0 | 8 | **startup_crash** | — | — | — |
+| 37 | socket | fi_cutlass | triton | fi_cudnn | true | true | 0 | — | **bench_crash** | — | — | — |
+
+> **#37** = #23 winner config + MTP speculative decoding (NEXTN, 3 steps, 4 draft tokens)
 
 ### Column Legend
 
@@ -225,3 +228,11 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 ### #25–36 — cutlass MoE (all configs)
 
 - **All failed.** `cutlass` MoE backend (non-flashinfer) → startup_crash on cuda_graph/piecewise, infer_error (0 tokens) on no-cuda-graph. The `cutlass_moe_fp4` kernel is broken on SM121 regardless of attention or fp4_gemm backend.
+
+### #37 — #23 winner + MTP speculative decoding (NEXTN)
+
+- **Outcome:** bench_crash — Worker-1 restarted during n=1 benchmark
+- **Config:** #23 winner (fi_cutlass MoE + triton attn + fi_cudnn FP4 + no-cuda-graph) + `speculative_algo=NEXTN, speculative_num_steps=3, speculative_num_draft_tokens=4`
+- **n=1:** aborted after 25.2s — TTFT 6.0s, ~151 think tokens, **5.98 tok/s** (vs 8.06 without MTP), then worker-1 crashed
+- **n=4/n=8:** not reached (crashed during n=1)
+- **Note:** MTP actually reduced tok/s (5.98 vs 8.06) before crashing. The crash is likely related to the NCCL connection breaking when the worker restarts mid-inference, not MTP itself.

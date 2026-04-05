@@ -16,7 +16,7 @@
 
 ## Result: All configurations crash at startup
 
-GLM-4.7-FP8 (160 experts, TP=4, EP=4) fails to start on v0.5.10rc0. **36/54 configurations tested** — all `startup_crash`. Tests #37–54 (`triton` fp8_gemm backend) pending.
+GLM-4.7-FP8 (160 experts, TP=4, EP=4) fails to start on v0.5.10rc0 across **all 54 tested configurations**. No configuration reached a healthy serving state.
 
 **Failure patterns:**
 
@@ -70,24 +70,24 @@ All tests use: `tp=4, pp=1, ep=4, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0
 | 34 | socket | cutlass | triton | fi_cutlass | false | true | 0 | 8 | **startup_crash** | — | — | — |
 | 35 | socket | cutlass | triton | fi_cutlass | true | true | 0 | — | **startup_crash** | — | — | — |
 | 36 | socket | cutlass | triton | fi_cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
-| 37 | socket | triton | flashinfer | triton | false | true | 0 | 8 | pending | — | — | — |
-| 38 | socket | triton | flashinfer | triton | true | true | 0 | — | pending | — | — | — |
-| 39 | socket | triton | flashinfer | triton | false | false | 0 | 8 | pending | — | — | — |
-| 40 | socket | triton | triton | triton | false | true | 0 | 8 | pending | — | — | — |
-| 41 | socket | triton | triton | triton | true | true | 0 | — | pending | — | — | — |
-| 42 | socket | triton | triton | triton | false | false | 0 | 8 | pending | — | — | — |
-| 43 | socket | fi_cutlass | flashinfer | triton | false | true | 0 | 8 | pending | — | — | — |
-| 44 | socket | fi_cutlass | flashinfer | triton | true | true | 0 | — | pending | — | — | — |
-| 45 | socket | fi_cutlass | flashinfer | triton | false | false | 0 | 8 | pending | — | — | — |
-| 46 | socket | fi_cutlass | triton | triton | false | true | 0 | 8 | pending | — | — | — |
-| 47 | socket | fi_cutlass | triton | triton | true | true | 0 | — | pending | — | — | — |
-| 48 | socket | fi_cutlass | triton | triton | false | false | 0 | 8 | pending | — | — | — |
-| 49 | socket | cutlass | flashinfer | triton | false | true | 0 | 8 | pending | — | — | — |
-| 50 | socket | cutlass | flashinfer | triton | true | true | 0 | — | pending | — | — | — |
-| 51 | socket | cutlass | flashinfer | triton | false | false | 0 | 8 | pending | — | — | — |
-| 52 | socket | cutlass | triton | triton | false | true | 0 | 8 | pending | — | — | — |
-| 53 | socket | cutlass | triton | triton | true | true | 0 | — | pending | — | — | — |
-| 54 | socket | cutlass | triton | triton | false | false | 0 | 8 | pending | — | — | — |
+| 37 | socket | triton | flashinfer | triton | false | true | 0 | 8 | **startup_crash** | — | — | — |
+| 38 | socket | triton | flashinfer | triton | true | true | 0 | — | **startup_crash** | — | — | — |
+| 39 | socket | triton | flashinfer | triton | false | false | 0 | 8 | **startup_crash** | — | — | — |
+| 40 | socket | triton | triton | triton | false | true | 0 | 8 | **startup_crash** | — | — | — |
+| 41 | socket | triton | triton | triton | true | true | 0 | — | **startup_crash** | — | — | — |
+| 42 | socket | triton | triton | triton | false | false | 0 | 8 | **startup_crash** | — | — | — |
+| 43 | socket | fi_cutlass | flashinfer | triton | false | true | 0 | 8 | **startup_crash** | — | — | — |
+| 44 | socket | fi_cutlass | flashinfer | triton | true | true | 0 | — | **startup_crash** | — | — | — |
+| 45 | socket | fi_cutlass | flashinfer | triton | false | false | 0 | 8 | **startup_crash** | — | — | — |
+| 46 | socket | fi_cutlass | triton | triton | false | true | 0 | 8 | **startup_crash** | — | — | — |
+| 47 | socket | fi_cutlass | triton | triton | true | true | 0 | — | **startup_crash** | — | — | — |
+| 48 | socket | fi_cutlass | triton | triton | false | false | 0 | 8 | **startup_crash** | — | — | — |
+| 49 | socket | cutlass | flashinfer | triton | false | true | 0 | 8 | **startup_crash** | — | — | — |
+| 50 | socket | cutlass | flashinfer | triton | true | true | 0 | — | **startup_crash** | — | — | — |
+| 51 | socket | cutlass | flashinfer | triton | false | false | 0 | 8 | **startup_crash** | — | — | — |
+| 52 | socket | cutlass | triton | triton | false | true | 0 | 8 | **startup_crash** | — | — | — |
+| 53 | socket | cutlass | triton | triton | true | true | 0 | — | **startup_crash** | — | — | — |
+| 54 | socket | cutlass | triton | triton | false | false | 0 | 8 | **startup_crash** | — | — | — |
 
 ### Column Legend
 
@@ -181,14 +181,31 @@ All tests use: `tp=4, pp=1, ep=4, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0
 - **Error:** Head + all 3 workers restarted (total=1 each)
 - **Time:** 2026-04-05 10:14–10:24 UTC
 
-### #13–24 — fi_cutlass MoE (all configs)
+### #13–24 — fi_cutlass MoE / cutlass+fi_cutlass fp8_gemm (all configs)
 
 - **All startup_crash.** Crashes within ~1–2 min (much faster than triton MoE), suggesting failure during FlashInfer MoE JIT initialization — before weight loading completes.
 - **Time range:** 2026-04-05 10:24–10:47 UTC
 - Every combination of flashinfer/triton attention × cutlass/fi_cutlass fp8_gemm × cuda_graph/no-cuda-graph/piecewise crashed.
 
-### #25–34 — cutlass MoE (all configs)
+### #25–36 — cutlass MoE / cutlass+fi_cutlass fp8_gemm (all configs)
 
 - **All startup_crash.** Same ~1–2 min rapid crash pattern as fi_cutlass MoE — crashes before weight loading completes. Head + all 3 workers restarted on every attempt.
 - **Time range:** 2026-04-05 10:48–11:11 UTC
-- Every combination of flashinfer/triton attention × cutlass/fi_cutlass fp8_gemm × cuda_graph/no-cuda-graph/piecewise crashed. Full matrix complete (12/12).
+- Every combination of flashinfer/triton attention × cutlass/fi_cutlass fp8_gemm × cuda_graph/no-cuda-graph/piecewise crashed.
+
+### #37–42 — triton MoE / triton fp8_gemm (all configs)
+
+- **All startup_crash.** ~10 min per attempt — same slow-crash pattern as triton MoE with cutlass/fi_cutlass fp8_gemm (weight loading completes, crash during graph capture or init).
+- **Time range:** 2026-04-05 11:12–12:14 UTC
+- Every combination of flashinfer/triton attention × cuda_graph/no-cuda-graph/piecewise crashed.
+
+### #43–48 — fi_cutlass MoE / triton fp8_gemm (all configs)
+
+- **All startup_crash.** ~1–2 min rapid crash pattern — FlashInfer MoE JIT failure before weight loading.
+- **Time range:** 2026-04-05 12:14–12:25 UTC
+
+### #49–54 — cutlass MoE / triton fp8_gemm (all configs)
+
+- **All startup_crash.** ~1–2 min rapid crash — same as other cutlass/fi_cutlass MoE runs.
+- **Time range:** 2026-04-05 12:26–12:37 UTC
+- Full matrix complete (54/54).
