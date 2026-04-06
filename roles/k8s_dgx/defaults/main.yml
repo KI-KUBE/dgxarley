@@ -326,6 +326,7 @@ sglang_model_profiles:
     #    the post-processing cost remains the same (~360s either way).
     # load_format: "sharded_state"
     nccl_transport: "socket"  # RoCE is 2× slower (IBext overhead, see TESTLOG). Socket until debugged.
+    #nccl_transport: "roce"
     tp_size: 1  # PP=4 (nnodes/tp=4/1=4). TP=1 avoids KV head split issue (8 heads not divisible by 3 or 4 with EP).
     context_length: 196608
     quantization: "modelopt_fp4"
@@ -340,7 +341,7 @@ sglang_model_profiles:
     # PP=3 winner: triton MoE + triton attn → 77.4 tok/s at 8∥.
     moe_runner_backend: "triton"
     kv_cache_dtype: "fp8_e4m3"
-    mem_fraction_static: "0.80"  # PP uses ~46 GB weights/GPU, leaves ~82 GB for KV cache
+    mem_fraction_static: "0.70"
     # mem_fraction_static: "0.40"  # for speculative_enabled=true
     # triton attention: best 8∥ throughput on PP=3 (Test 9: 77.4 tok/s).
     # flashinfer attention also stable (Test 3: 72.8 at 8∥, 16.0 at 1∥).

@@ -72,3 +72,30 @@ All tests use: `tp=1, pp=4, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | 1∥ tok/s | Throughput with 1 sequential request (= per-request tok/s) |
 | 4∥ tok/s | Peak concurrent throughput at 4∥ (sum of per-request tok/s) |
 | 8∥ tok/s | Peak concurrent throughput at 8∥ (sum of per-request tok/s) |
+
+---
+
+## RoCE Transport Tests
+
+Manual tests with `nccl_transport=roce` (RDMA/RoCE via IBext over QSFP SR-IOV VFs). Same base config as socket matrix above.
+
+| # | nccl_transport | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | pp_async | cuda_graph_max_bs | Stability | 1∥ tok/s | 4∥ tok/s | 8∥ tok/s |
+|---|----------------|------------|-----------|----------|----------------|---------------|----------|-------------------|-----------|---------|---------|---------|
+| R1 | roce | triton | triton | fi_cutlass | false | true | 0 | 16 | OK | — | — | 50.8 |
+
+### R1 Detail (= socket test 5 equivalent, with RoCE)
+
+8∥ run: all 8 requests completed successfully.
+
+| Request | tok/s | TTFT | Total | Output tok | Finish |
+|---------|-------|------|-------|------------|--------|
+| 1 | 6.1 | 0.91s | 268.4s | 1645 | stop |
+| 2 | 6.7 | 0.91s | 307.4s | 2048 | length |
+| 3 | 6.0 | 1.50s | 223.9s | 1348 | stop |
+| 4 | 6.2 | 1.50s | 271.6s | 1674 | stop |
+| 5 | 6.4 | 1.51s | 293.9s | 1877 | stop |
+| 6 | 6.0 | 1.50s | 230.0s | 1386 | stop |
+| 7 | 6.7 | 0.30s | 307.0s | 2048 | length |
+| 8 | 6.7 | 0.91s | 307.4s | 2048 | length |
+
+Peak 8∥: 50.8 tok/s. Avg per-request: 6.3 tok/s. Wall time: 307.5s.
