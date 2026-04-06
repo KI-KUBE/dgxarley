@@ -2,7 +2,7 @@
 
 ## Status
 
-**Open upstream (vLLM only)** as of 2026-04-02. Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447).
+**Open upstream (vLLM only)** as of 2026-04-06. Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447). Present in SGLang v0.5.10 (2026-04-06).
 
 - vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, stale ~1 month (last activity 2026-03-05), not merged
 - vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch, open since 2026-03-29, author pinged for review 2026-03-29, still unreviewed
@@ -115,10 +115,10 @@ be solving a problem that doesn't need to exist.
 
 ## Additional Bug: EPLB crashes with Qwen3MoE and Qwen3.5MoE
 
-**Upstream status** as of 2026-04-02:
-- Qwen3.5: fixed via [PR #19767](https://github.com/sgl-project/sglang/pull/19767) (merged 2026-03-09)
+**Upstream status** as of 2026-04-06:
+- Qwen3.5: fixed via [PR #19767](https://github.com/sgl-project/sglang/pull/19767) (merged 2026-03-09, included in v0.5.10)
 - Qwen3: [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — closed without merge 2026-03-30 (CI failure), superseded by #21822
-- Qwen3: [PR #21822](https://github.com/sgl-project/sglang/pull/21822) — new fix opened 2026-03-26, addresses `AttributeError: 'LazyValue' object has no attribute 'keys'` in `eplb_manager.py` for Qwen3 MoE. Active discussion 2026-04-01/02: an alternative approach via `LazyValue.__getattr__` patch was proposed in comments (avoids modifying the model class). Open, not yet merged. (Duplicate [PR #21820](https://github.com/sgl-project/sglang/pull/21820) was closed same day in favour of #21822.)
+- Qwen3: [PR #21822](https://github.com/sgl-project/sglang/pull/21822) — new fix opened 2026-03-26, addresses `AttributeError: 'LazyValue' object has no attribute 'keys'` in `eplb_manager.py` for Qwen3 MoE. Code review 2026-04-04 by `Fridge003` and `Evgueni-Petrov-aka-espetrov`. Alternative `LazyValue.__getattr__` approach proposed (avoids modifying the model class). Open, not yet merged. (Duplicate [PR #21820](https://github.com/sgl-project/sglang/pull/21820) was closed same day in favour of #21822.) Not in v0.5.10
 
 When `--enable-eplb` is active with EP, the `EPLBManager` crashes after its first rebalance
 interval (default: 1000 forward passes):
@@ -161,8 +161,8 @@ which is acceptable.
 
 **Reported** as of 2026-03-28: [sgl-project/sglang#21602](https://github.com/sgl-project/sglang/issues/21602). Bug exists in SGLang `sglang/srt/layers/quantization/modelopt_quant.py`, class `ModelOptNvFp4FusedMoEMethod`.
 
-Two competing fix PRs have been filed (neither merged as of 2026-04-02):
-- [PR #20869](https://github.com/sgl-project/sglang/pull/20869) (2026-03-18) — broader fix: EP-slices input_scale, passes `num_local_experts` to `CutlassMoEParams`, extends SM120 support. No human review, stale ~2 weeks. Likely to be superseded by the #20963 modelopt refactoring (see below)
+Two competing fix PRs have been filed (neither merged as of 2026-04-06):
+- [PR #20869](https://github.com/sgl-project/sglang/pull/20869) (2026-03-18) — broader fix: EP-slices input_scale, passes `num_local_experts` to `CutlassMoEParams`, extends SM120 support. No human review, stale since 2026-03-18. Likely to be superseded by the #20963 modelopt refactoring (see below)
 - [PR #21630](https://github.com/sgl-project/sglang/pull/21630) (2026-03-29) — narrower fix: only the `else` branch (non-FlashInfer backends). Code updated 2026-03-29, no review yet
 
 Maintainer feedback on [#21602](https://github.com/sgl-project/sglang/issues/21602) (2026-03-30): maintainer `wenscarl` confirmed the bug is real but noted that `w13_input_scale` shape is model-dependent — some models (e.g. DSR1 NVFP4) require the full `num_experts` dimension. The fix needs to be model-aware rather than a blanket slice to `num_local_experts`. The broader modelopt refactoring ([PR #20963](https://github.com/sgl-project/sglang/pull/20963)) is likely the vehicle for this fix
@@ -233,7 +233,7 @@ Monkey-patched in `sglang_launch.sh` and `sglang_shard_launch.sh` (same string-r
 
 **Reported** as of 2026-03-28: [sgl-project/sglang#21603](https://github.com/sgl-project/sglang/issues/21603). Bug exists in SGLang `sglang/srt/model_loader/loader.py`, class `ModelOptModelLoader`.
 
-- Fix PR: [#21612](https://github.com/sgl-project/sglang/pull/21612) — "fix: fix sharded state for ModelOptModelLoader", opened 2026-03-28 with unit tests. Delegates to `ShardedStateLoader` when `load_format=sharded_state` and model is already quantized. Awaiting review as of 2026-04-05.
+- Fix PR: [#21612](https://github.com/sgl-project/sglang/pull/21612) — "fix: fix sharded state for ModelOptModelLoader", opened 2026-03-28 with unit tests. Delegates to `ShardedStateLoader` when `load_format=sharded_state` and model is already quantized. Awaiting review as of 2026-04-06 (no maintainer response)
 
 ### Affected Configuration
 
@@ -283,7 +283,7 @@ if model_config._is_already_quantized():
 
 ### Status
 
-**Unreported** as of 2026-04-02. Bug exists in SGLang v0.5.10rc0
+**Unreported** as of 2026-04-06. Bug exists in SGLang v0.5.10rc0 and v0.5.10
 `sglang/srt/layers/quantization/modelopt_quant.py`, method
 `_maybe_init_cutlass_moe_params()`, and
 `sglang/srt/layers/moe/cutlass_moe.py`, function `cutlass_moe_fp4()`.
@@ -383,11 +383,11 @@ However, the CUDA kernel-level issue cannot be patched. For NVFP4 + EP > 1, use
 ## Related Upstream Issues & PRs
 
 ### Directly addressing our bugs
-- vLLM [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — fix moe_wna16 qzeros EP (open, only bot review)
+- vLLM [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — fix moe_wna16 qzeros EP (open, stale since 2026-03-05, only bot review)
 - SGLang [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — fix EPLB Qwen3 missing `routed_experts_weights_of_layer` (closed without merge 2026-03-30, CI failure)
 - SGLang [PR #19767](https://github.com/sgl-project/sglang/pull/19767) — fix EPLB Qwen3.5 (merged 2026-03-09)
 - SGLang [#21602](https://github.com/sgl-project/sglang/issues/21602) — our report: NVFP4 input_scale not EP-aware
-  - Fix PR: [#20869](https://github.com/sgl-project/sglang/pull/20869) — broader fix incl. CutlassMoEParams + SM120 (open)
+  - Fix PR: [#20869](https://github.com/sgl-project/sglang/pull/20869) — broader fix incl. CutlassMoEParams + SM120 (open, stale since 2026-03-18, no human review)
   - Fix PR: [#21630](https://github.com/sgl-project/sglang/pull/21630) — narrower fix, else-branch only (open, 2026-03-29)
 - SGLang [#21603](https://github.com/sgl-project/sglang/issues/21603) — our report: ModelOptModelLoader doesn't support sharded_state
   - Fix PR: [#21612](https://github.com/sgl-project/sglang/pull/21612) — fix sharded state for ModelOptModelLoader (open, awaiting review)
@@ -400,5 +400,5 @@ However, the CUDA kernel-level issue cannot be patched. For NVFP4 + EP > 1, use
 - SGLang PR #17137 — non-Marlin WNA16MoE port (does not fix EP bug)
 - SGLang #14158 — update_weights_from_tensor for WNA16MoE (unrelated)
 - SGLang [PR #13715](https://github.com/sgl-project/sglang/pull/13715) — fix EPLB + FP4 weight tensor filtering (merged, different issue)
-- SGLang [PR #20963](https://github.com/sgl-project/sglang/pull/20963) — Nvidia modelopt refactoring (1/N). Appears stalled as of 2026-04-05 (reviewer `Edwardf0t1` asked for end-to-end verification 2026-03-31, author responded 2026-04-01, no activity since). Migrates the NVFP4 code as-is — was expected to be the vehicle through which EP-awareness fixes (#20869, #21630) would land, but progress is uncertain. Watch this PR for resolution of the NVFP4 input_scale and CutlassMoEParams bugs
-- SGLang [PR #21822](https://github.com/sgl-project/sglang/pull/21822) — new EPLB/Qwen3 fix (opened 2026-03-26, active discussion 2026-04-01/02). Addresses `LazyValue.keys()` AttributeError. Alternative `LazyValue.__getattr__` approach proposed in comments — open, not yet merged
+- SGLang [PR #20963](https://github.com/sgl-project/sglang/pull/20963) — Nvidia modelopt refactoring (1/N). Under active review: reviewer `Edwardf0t1` asked for end-to-end verification 2026-03-31, author `wenscarl` responded 2026-04-01. Not stalled but awaiting approval. Migrates the NVFP4 code as-is — expected vehicle for EP-awareness fixes (#20869, #21630). Watch this PR for resolution of the NVFP4 input_scale and CutlassMoEParams bugs
+- SGLang [PR #21822](https://github.com/sgl-project/sglang/pull/21822) — new EPLB/Qwen3 fix (opened 2026-03-26). Addresses `LazyValue.keys()` AttributeError. Code review 2026-04-04 by `Fridge003` and `Evgueni-Petrov-aka-espetrov`. Alternative `LazyValue.__getattr__` approach proposed — open, not yet merged

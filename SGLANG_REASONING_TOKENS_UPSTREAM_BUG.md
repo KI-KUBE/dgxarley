@@ -8,8 +8,8 @@
 - Fix PR: [#15562](https://github.com/sgl-project/sglang/pull/15562) — **merged 2026-04-04**. Re-tokenizes reasoning content at the API layer to compute `reasoning_tokens` and populates it into `UsageInfo`
 - Closed as duplicate of #15562: [#17938](https://github.com/sgl-project/sglang/pull/17938), [#17764](https://github.com/sgl-project/sglang/pull/17764), [#17156](https://github.com/sgl-project/sglang/pull/17156) — all closed 2026-04-04
 - Closed without merge: [#15875](https://github.com/sgl-project/sglang/pull/15875) — "fix(openai): include reasoning_tokens in streaming usage"
-- Not in v0.5.10rc0 (2026-03-28). Will be included in the next release after v0.5.10rc0
-- Our image: `0.5.10rc0` — bug still present in this image, fix requires next image rebuild
+- Not in v0.5.10rc0 (2026-03-28). **Included in v0.5.10 stable** (released 2026-04-06)
+- Our image: `0.5.10rc0` — bug still present in this image. Fix available in v0.5.10 stable
 
 ## Affected Configuration
 
@@ -54,8 +54,8 @@ stages, then surfaces it through `UsageInfo`. The PR has:
 
 ## Our Workaround
 
-None currently applied. The fix is now merged upstream — will be available in the next
-image rebuild after v0.5.10rc0.
+None currently applied. The fix is merged upstream and included in v0.5.10 stable
+(2026-04-06). Available on next image rebuild to v0.5.10+.
 
 ## Impact
 
