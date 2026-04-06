@@ -25,10 +25,10 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | # | nccl_transport | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | pp_async | cuda_graph_max_bs | Stability | 1∥ tok/s | 4∥ tok/s | 8∥ tok/s |
 |---|----------------|------------|-----------|----------|----------------|---------------|----------|-------------------|-----------|---------|---------|---------|
 | 1 | socket | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | **startup_crash** | — | — | — |
-| 2 | socket | triton | flashinfer | fi_cutlass | true | true | 0 | — | **startup_crash** | — | — | — |
-| 3 | socket | triton | flashinfer | fi_cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
+| 2 | socket | triton | flashinfer | fi_cutlass | true | true | 0 | — | **infer_error** | — | — | — |
+| 3 | socket | triton | flashinfer | fi_cutlass | false | false | 0 | 8 | **deploy_failed** | — | — | — |
 | 4 | socket | triton | triton | fi_cutlass | false | true | 0 | 8 | **startup_crash** | — | — | — |
-| 5 | socket | triton | triton | fi_cutlass | true | true | 0 | — | pending | — | — | — |
+| 5 | socket | triton | triton | fi_cutlass | true | true | 0 | — | **deploy_failed** | — | — | — |
 | 6 | socket | triton | triton | fi_cutlass | false | false | 0 | 8 | pending | — | — | — |
 | 7 | socket | triton | flashinfer | fi_cudnn | false | true | 0 | 8 | pending | — | — | — |
 | 8 | socket | triton | flashinfer | fi_cudnn | true | true | 0 | — | pending | — | — | — |
@@ -82,7 +82,7 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 ## Test Details
 
 > **Note:** `mem_fraction_static` varies per test batch (effective profile values):
-> - #1: `0.60` (1st run), `0.80` (2nd run), #2–3: `0.50`, #4: `0.50`, #13–18: `0.80`, #25–26: `0.80`
+> - #1: `0.60` (1st run), `0.80` (2nd run), #2: `0.80`, #3: `0.70`, #4: `0.50`, #5: `0.70`, #13–18: `0.80`, #25–26: `0.80`
 > All other parameters match the matrix header defaults unless noted.
 
 ### #1 — triton moe / flashinfer attn / fi_cutlass fp4 / cuda_graph
@@ -93,17 +93,19 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 
 ### #2 — triton moe / flashinfer attn / fi_cutlass fp4 / no-cuda-graph
 
-- **Outcome:** startup_crash
-- **Error:** Head + all 3 workers restarted (total=1 each)
-- **Time:** 2026-04-04 09:06–09:12 UTC
-- **mem_fraction_static:** 0.50
+- **Outcome:** infer_error — server started (stable), all requests returned errors
+- **Time:** 2026-04-04 09:34–09:42 UTC
+- **mem_fraction_static:** 0.80
+- n=1: 0/1 successful (1 error)
+- n=4: 0/4 successful (4 errors)
+- n=8: 0/8 successful (8 errors)
+- All requests: 0 output_tokens, null ttft, null tokens_per_sec
 
 ### #3 — triton moe / flashinfer attn / fi_cutlass fp4 / piecewise
 
-- **Outcome:** startup_crash
-- **Error:** Head + all 3 workers restarted (total=1 each)
-- **Time:** 2026-04-04 09:12–09:18 UTC
-- **mem_fraction_static:** 0.50
+- **Outcome:** deploy_failed (Ansible status: canceled)
+- **Time:** 2026-04-04 09:42:03–09:42:44 UTC
+- **mem_fraction_static:** 0.70
 
 ### #4 — triton moe / triton attn / fi_cutlass fp4 / cuda_graph
 
@@ -111,6 +113,12 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 - **Error:** Head + all 3 workers restarted (total=1 each)
 - **Time:** 2026-04-04 09:18–09:24 UTC
 - **mem_fraction_static:** 0.50
+
+### #5 — triton moe / triton attn / fi_cutlass fp4 / no-cuda-graph
+
+- **Outcome:** deploy_failed (Ansible status: canceled)
+- **Time:** 2026-04-04 09:42:44–09:42:49 UTC
+- **mem_fraction_static:** 0.70
 
 ### #13 — fi_cutlass moe / flashinfer attn / fi_cutlass fp4 / cuda_graph
 
