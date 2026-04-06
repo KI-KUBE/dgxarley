@@ -185,27 +185,84 @@ All tests use: `tp=4, pp=1, ep=4, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0
 
 - **All startup_crash.** Crashes within ~1–2 min (much faster than triton MoE), suggesting failure during FlashInfer MoE JIT initialization — before weight loading completes.
 - **Time range:** 2026-04-05 10:24–10:47 UTC
-- Every combination of flashinfer/triton attention × cutlass/fi_cutlass fp8_gemm × cuda_graph/no-cuda-graph/piecewise crashed.
+
+| # | Time (UTC) | Pods restarted |
+|---|-----------|---------------|
+| 13 | 10:24–10:26 | head + worker-1 + worker-2 + worker-3 |
+| 14 | 10:26–10:28 | head + worker-1 + worker-2 + worker-3 |
+| 15 | 10:28–10:29 | head + worker-1 + worker-2 + worker-3 |
+| 16 | 10:30–10:31 | **worker-3 only** |
+| 17 | 10:32–10:33 | head + worker-1 + worker-2 + worker-3 |
+| 18 | 10:34–10:35 | head + worker-1 + worker-2 + worker-3 |
+| 19 | 10:36–10:37 | head + worker-1 + worker-2 + worker-3 |
+| 20 | 10:38–10:39 | head + worker-1 + worker-2 + worker-3 |
+| 21 | 10:40–10:41 | head + worker-1 + worker-2 + worker-3 |
+| 22 | 10:42–10:43 | head + worker-1 + worker-2 + worker-3 |
+| 23 | 10:44–10:45 | head + worker-1 + worker-2 + worker-3 |
+| 24 | 10:46–10:47 | head + worker-1 + worker-2 + worker-3 |
 
 ### #25–36 — cutlass MoE / cutlass+fi_cutlass fp8_gemm (all configs)
 
-- **All startup_crash.** Same ~1–2 min rapid crash pattern as fi_cutlass MoE — crashes before weight loading completes. Head + all 3 workers restarted on every attempt.
+- **All startup_crash.** Same ~1–2 min rapid crash pattern as fi_cutlass MoE — crashes before weight loading completes.
 - **Time range:** 2026-04-05 10:48–11:11 UTC
-- Every combination of flashinfer/triton attention × cutlass/fi_cutlass fp8_gemm × cuda_graph/no-cuda-graph/piecewise crashed.
+
+| # | Time (UTC) | Pods restarted |
+|---|-----------|---------------|
+| 25 | 10:48–10:49 | head + worker-1 + worker-2 + worker-3 |
+| 26 | 10:50–10:51 | head + worker-1 + worker-2 + worker-3 |
+| 27 | 10:52–10:53 | head + worker-1 + worker-2 + worker-3 |
+| 28 | 10:54–10:55 | head + worker-1 + worker-2 + worker-3 |
+| 29 | 10:56–10:57 | head + worker-1 + worker-2 + worker-3 |
+| 30 | 10:58–10:59 | head + worker-1 + worker-2 + worker-3 |
+| 31 | 11:00–11:01 | head + worker-1 + worker-2 + worker-3 |
+| 32 | 11:02–11:03 | head + worker-1 + worker-2 + worker-3 |
+| 33 | 11:04–11:05 | head + worker-1 + worker-2 + worker-3 |
+| 34 | 11:06–11:07 | head + worker-1 + worker-2 + worker-3 |
+| 35 | 11:08–11:09 | head + worker-1 + worker-2 + worker-3 |
+| 36 | 11:10–11:11 | head + worker-1 + worker-2 + worker-3 |
 
 ### #37–42 — triton MoE / triton fp8_gemm (all configs)
 
 - **All startup_crash.** ~10 min per attempt — same slow-crash pattern as triton MoE with cutlass/fi_cutlass fp8_gemm (weight loading completes, crash during graph capture or init).
 - **Time range:** 2026-04-05 11:12–12:14 UTC
-- Every combination of flashinfer/triton attention × cuda_graph/no-cuda-graph/piecewise crashed.
+- **#42 outlier:** only head + worker-2 restarted (worker-1 and worker-3 did not restart).
+
+| # | Time (UTC) | Pods restarted |
+|---|-----------|---------------|
+| 37 | 11:12–11:22 | head + worker-1 + worker-2 + worker-3 |
+| 38 | 11:22–11:32 | head + worker-1 + worker-2 + worker-3 |
+| 39 | 11:33–11:42 | head + worker-1 + worker-2 + worker-3 |
+| 40 | 11:43–11:53 | head + worker-1 + worker-2 + worker-3 |
+| 41 | 11:53–12:03 | head + worker-1 + worker-2 + worker-3 |
+| 42 | 12:04–12:14 | **head + worker-2 only** |
 
 ### #43–48 — fi_cutlass MoE / triton fp8_gemm (all configs)
 
 - **All startup_crash.** ~1–2 min rapid crash pattern — FlashInfer MoE JIT failure before weight loading.
 - **Time range:** 2026-04-05 12:14–12:25 UTC
+- **#44 outlier:** only worker-2 restarted.
+
+| # | Time (UTC) | Pods restarted |
+|---|-----------|---------------|
+| 43 | 12:14–12:16 | head + worker-1 + worker-2 + worker-3 |
+| 44 | 12:16–12:17 | **worker-2 only** |
+| 45 | 12:18–12:19 | head + worker-1 + worker-2 + worker-3 |
+| 46 | 12:20–12:21 | head + worker-1 + worker-2 + worker-3 |
+| 47 | 12:22–12:23 | head + worker-1 + worker-2 + worker-3 |
+| 48 | 12:24–12:25 | head + worker-1 + worker-2 + worker-3 |
 
 ### #49–54 — cutlass MoE / triton fp8_gemm (all configs)
 
 - **All startup_crash.** ~1–2 min rapid crash — same as other cutlass/fi_cutlass MoE runs.
 - **Time range:** 2026-04-05 12:26–12:37 UTC
-- Full matrix complete (54/54).
+
+| # | Time (UTC) | Pods restarted |
+|---|-----------|---------------|
+| 49 | 12:26–12:27 | head + worker-1 + worker-2 + worker-3 |
+| 50 | 12:28–12:29 | head + worker-1 + worker-2 + worker-3 |
+| 51 | 12:30–12:31 | head + worker-1 + worker-2 + worker-3 |
+| 52 | 12:32–12:33 | head + worker-1 + worker-2 + worker-3 |
+| 53 | 12:34–12:35 | head + worker-1 + worker-2 + worker-3 |
+| 54 | 12:36–12:37 | head + worker-1 + worker-2 + worker-3 |
+
+Full matrix complete (54/54).
