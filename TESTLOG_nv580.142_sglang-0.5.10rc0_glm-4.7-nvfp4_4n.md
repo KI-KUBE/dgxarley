@@ -41,10 +41,10 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 | 17 | socket | fi_cutlass | triton | fi_cutlass | true | true | 0 | — | **bench_crash** | — | — | — |
 | 18 | socket | fi_cutlass | triton | fi_cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
 | 19 | socket | fi_cutlass | flashinfer | fi_cudnn | false | true | 0 | 8 | **bench_crash** | — | — | — |
-| 20 | socket | fi_cutlass | flashinfer | fi_cudnn | true | true | 0 | — | **bench_crash** | 7.95 | 20.96 | — |
+| 20 | socket | fi_cutlass | flashinfer | fi_cudnn | true | true | 0 | — | **bench_crash** | 7.95 | — | — |
 | 21 | socket | fi_cutlass | flashinfer | fi_cudnn | false | false | 0 | 8 | **startup_crash** | — | — | — |
 | 22 | socket | fi_cutlass | triton | fi_cudnn | false | true | 0 | 8 | **bench_crash** | — | — | — |
-| 23 | socket | fi_cutlass | triton | fi_cudnn | true | true | 0 | — | **STABLE** | 8.06 | 21.23 | 29.67 |
+| 23 | socket | fi_cutlass | triton | fi_cudnn | true | true | 0 | — | **STABLE** | 8.06 | 21.94 | 30.01 |
 | 24 | socket | fi_cutlass | triton | fi_cudnn | false | false | 0 | 8 | **startup_crash** | — | — | — |
 | 25 | socket | cutlass | flashinfer | fi_cutlass | false | true | 0 | 8 | **startup_crash** | — | — | — |
 | 26 | socket | cutlass | flashinfer | fi_cutlass | true | true | 0 | — | **infer_error** | — | — | — |
@@ -200,10 +200,10 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 
 ### #20 — fi_cutlass moe / flashinfer attn / fi_cudnn fp4 / no-cuda-graph
 
-- **Outcome:** bench_crash at n=8 — n=1 and n=4 successful, worker-3 crashed during n=8
-- **n=1:** **7.95 tok/s**, 3072 tokens (1572 think + 1550 content), TTFT 10.7s, finish=length
-- **n=4:** **4/4 success!** 5.27 tok/s avg, 20.96 tok/s aggregate, TTFT 2.8s avg
-- **n=8:** bench_crash (worker-3 restarted)
+- **Outcome:** bench_crash — n=1 successful, n=4 aborted (worker-3 crashed, total=1 restart)
+- **n=1:** **7.95 tok/s**, 2718 tokens, TTFT 11.3s, finish=stop
+- **n=4:** 0/4 — all requests aborted after ~9s (TTFT 2.4–3.2s, worker-3 restart mid-inference)
+- **n=8:** not reached (crashed during n=4)
 
 ### #21 — fi_cutlass moe / flashinfer attn / fi_cudnn fp4 / piecewise
 
@@ -216,9 +216,9 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 ### #23 — fi_cutlass moe / triton attn / fi_cudnn fp4 / no-cuda-graph
 
 - **Outcome:** **STABLE** — best configuration found! All concurrencies passed.
-- **n=1:** **8.06 tok/s**, TTFT 5.7s
-- **n=4:** **4/4 success**, 5.49 tok/s avg, **21.23 tok/s aggregate**, TTFT 2.9s
-- **n=8:** **8/8 success**, 3.75 tok/s avg, **29.67 tok/s aggregate**, TTFT 2.9s
+- **n=1:** **8.06 tok/s**, 3072 tokens, TTFT 5.7s, finish=length
+- **n=4:** **4/4 success**, 5.44–5.56 tok/s per-req, **21.94 tok/s peak**, TTFT 2.9s avg
+- **n=8:** **8/8 success**, 3.72–3.76 tok/s per-req, **30.01 tok/s peak**, TTFT 2.9s avg
 - **Key:** `flashinfer_cutlass` MoE + `triton` attention + `flashinfer_cudnn` FP4 GEMM + no cuda graph
 
 ### #24 — fi_cutlass moe / triton attn / fi_cudnn fp4 / piecewise
@@ -228,6 +228,7 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 ### #25–36 — cutlass MoE (all configs)
 
 - **All failed.** `cutlass` MoE backend (non-flashinfer) → startup_crash on cuda_graph/piecewise, infer_error (0 tokens) on no-cuda-graph. The `cutlass_moe_fp4` kernel is broken on SM121 regardless of attention or fp4_gemm backend.
+- **no-cuda-graph variant pattern** (#26, #29, #32, #35): n1 fails after ~50–60s (vs <0.5s for triton-MoE infer_error), n4/n8 fail after ~3s — suggests a synchronous JIT or kernel init attempt that eventually times out, not an immediate API rejection.
 
 ### #37 — #23 winner + MTP speculative decoding (NEXTN)
 
