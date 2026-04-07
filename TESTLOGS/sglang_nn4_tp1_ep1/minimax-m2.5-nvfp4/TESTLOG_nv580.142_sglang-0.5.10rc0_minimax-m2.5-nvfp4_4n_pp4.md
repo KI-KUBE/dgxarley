@@ -24,26 +24,26 @@ All tests use: `tp=1, pp=4, ep=1, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 
 | # | nccl_transport | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | pp_async | cuda_graph_max_bs | Stability | 1∥ tok/s | 4∥ tok/s | 8∥ tok/s |
 |---|----------------|------------|-----------|----------|----------------|---------------|----------|-------------------|-----------|---------|---------|---------|
-| 1 | socket | triton | flashinfer | fi_cutlass | false | true | 0 | 16 | *pending* | — | — | — |
-| 2 | socket | triton | flashinfer | fi_cutlass | true | true | 0 | — | *pending* | — | — | — |
-| 3 | socket | triton | flashinfer | fi_cutlass | false | false | 0 | 16 | *pending* | — | — | — |
-| 4 | socket | triton | flashinfer | fi_cutlass | false | true | 2 | 16 | *pending* | — | — | — |
-| 5 | socket | triton | triton | fi_cutlass | false | true | 0 | 16 | *pending* | — | — | — |
-| 6 | socket | triton | triton | fi_cutlass | true | true | 0 | — | *pending* | — | — | — |
-| 7 | socket | triton | triton | fi_cutlass | false | false | 0 | 16 | *pending* | — | — | — |
-| 8 | socket | triton | triton | fi_cutlass | false | true | 2 | 16 | *pending* | — | — | — |
-| 9 | socket | triton | flashinfer | fi_cudnn | false | true | 0 | 16 | *pending* | — | — | — |
-| 10 | socket | triton | flashinfer | fi_cudnn | true | true | 0 | — | *pending* | — | — | — |
-| 11 | socket | triton | flashinfer | fi_cudnn | false | false | 0 | 16 | *pending* | — | — | — |
-| 12 | socket | triton | flashinfer | fi_cudnn | false | true | 2 | 16 | *pending* | — | — | — |
-| 13 | socket | triton | triton | fi_cudnn | false | true | 0 | 16 | *pending* | — | — | — |
-| 14 | socket | triton | triton | fi_cudnn | true | true | 0 | — | *pending* | — | — | — |
-| 15 | socket | triton | triton | fi_cudnn | false | false | 0 | 16 | *pending* | — | — | — |
-| 16 | socket | triton | triton | fi_cudnn | false | true | 2 | 16 | *pending* | — | — | — |
-| 17 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 16 | *pending* | — | — | — |
-| 18 | socket | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | *pending* | — | — | — |
-| 19 | socket | fi_cutlass | flashinfer | fi_cutlass | false | false | 0 | 16 | *pending* | — | — | — |
-| 20 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 2 | 16 | *pending* | — | — | — |
+| 1 | socket | triton | flashinfer | fi_cutlass | false | true | 0 | 16 | OK | 16.2 | 39.3 | 61.2 |
+| 2 | socket | triton | flashinfer | fi_cutlass | true | true | 0 | — | OK | 5.5 | 42.4 | 63.9 |
+| 3 | socket | triton | flashinfer | fi_cutlass | false | false | 0 | 16 | OK | 14.9 | 42.5 | 56.8 |
+| 4 | socket | triton | flashinfer | fi_cutlass | false | true | 2 | 16 | OK | 15.9 | 36.9 | 50.0 |
+| 5 | socket | triton | triton | fi_cutlass | false | true | 0 | 16 | OK | 16.1 | 50.1 | 52.2 |
+| 6 | socket | triton | triton | fi_cutlass | true | true | 0 | — | OK | 7.1 | 43.5 | 53.5 |
+| 7 | socket | triton | triton | fi_cutlass | false | false | 0 | 16 | OK | 15.4 | 41.1 | 51.6 |
+| 8 | socket | triton | triton | fi_cutlass | false | true | 2 | 16 | OK | 15.9 | 41.7 | 59.5 |
+| 9 | socket | triton | flashinfer | fi_cudnn | false | true | 0 | 16 | OK | 16.0 | 38.1 | 48.9 |
+| 10 | socket | triton | flashinfer | fi_cudnn | true | true | 0 | — | OK | 5.9 | 42.1 | 52.9 |
+| 11 | socket | triton | flashinfer | fi_cudnn | false | false | 0 | 16 | OK | 16.0 | 39.6 | 49.0 |
+| 12 | socket | triton | flashinfer | fi_cudnn | false | true | 2 | 16 | OK | 15.8 | 36.6 | 59.8 |
+| 13 | socket | triton | triton | fi_cudnn | false | true | 0 | 16 | OK | 15.8 | 40.9 | 62.0 |
+| 14 | socket | triton | triton | fi_cudnn | true | true | 0 | — | OK | 5.3 | 42.7 | 56.9 |
+| 15 | socket | triton | triton | fi_cudnn | false | false | 0 | 16 | OK | 15.1 | 41.8 | 55.0 |
+| 16 | socket | triton | triton | fi_cudnn | false | true | 2 | 16 | OK | 16.0 | 35.9 | 59.3 |
+| 17 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 16 | CRASH | — | — | — |
+| 18 | socket | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | CRASH | — | — | — |
+| 19 | socket | fi_cutlass | flashinfer | fi_cutlass | false | false | 0 | 16 | CRASH | — | — | — |
+| 20 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 2 | 16 | CRASH | — | — | — |
 | 21 | socket | fi_cutlass | triton | fi_cutlass | false | true | 0 | 16 | *pending* | — | — | — |
 | 22 | socket | fi_cutlass | triton | fi_cutlass | true | true | 0 | — | *pending* | — | — | — |
 | 23 | socket | fi_cutlass | triton | fi_cutlass | false | false | 0 | 16 | *pending* | — | — | — |
@@ -99,3 +99,34 @@ Manual tests with `nccl_transport=roce` (RDMA/RoCE via IBext over QSFP SR-IOV VF
 | 8 | 6.7 | 0.91s | 307.4s | 2048 | length |
 
 Peak 8∥: 50.8 tok/s. Avg per-request: 6.3 tok/s. Wall time: 307.5s.
+
+---
+
+## Notes
+
+### fi_cutlass MoE crashes (tests 17–20)
+
+All four `moe_runner_backend=flashinfer_cutlass` tests crashed with worker restarts. The n1 request was aborted in each case (0 successful requests), and subsequent concurrency levels were not attempted. Crash pattern: worker pods restarted during or shortly after the first request.
+
+| Test | Error |
+|------|-------|
+| 17 | Worker-1 restart (1×) |
+| 18 | Worker-1 + Worker-2 restart (1× each) |
+| 19 | Worker-1 restart (1×) |
+| 20 | Worker-1 + Worker-2 + Worker-3 restart (1× each) |
+
+The `triton` MoE runner (tests 1–16) is stable across all configurations. `flashinfer_cutlass` MoE is broken on this model/version combo.
+
+### Eager mode (disable_cuda_graph=true) single-request penalty
+
+Tests 2, 6, 10, 14 (eager mode) show ~5–7 tok/s at 1∥ vs ~15–16 tok/s with CUDA graphs. At 8∥ they recover to competitive throughput (53–64 tok/s), suggesting the overhead is amortized under concurrency.
+
+### Best configurations (8∥ peak throughput)
+
+| Rank | Test | Config summary | 8∥ tok/s |
+|------|------|----------------|---------|
+| 1 | 2 | triton moe, flashinfer attn, fi_cutlass fp4, eager | 63.9 |
+| 2 | 13 | triton moe, triton attn, fi_cudnn fp4, cuda graph | 62.0 |
+| 3 | 1 | triton moe, flashinfer attn, fi_cutlass fp4, cuda graph | 61.2 |
+| 4 | 12 | triton moe, flashinfer attn, fi_cudnn fp4, pp-async-2 | 59.8 |
+| 5 | 8 | triton moe, triton attn, fi_cutlass fp4, pp-async-2 | 59.5 |
