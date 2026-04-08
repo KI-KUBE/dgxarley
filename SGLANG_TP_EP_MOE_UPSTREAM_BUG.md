@@ -2,7 +2,7 @@
 
 ## Status
 
-**Open upstream (vLLM only)** as of 2026-04-06. Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447). Present in SGLang v0.5.10 (2026-04-06).
+**Open upstream (vLLM only)** as of 2026-04-08. Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447). Present in SGLang v0.5.10 (2026-04-06). All referenced PRs re-verified 2026-04-08 — none merged since last update.
 
 - vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, stale ~1 month (last activity 2026-03-05), not merged
 - vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch, open since 2026-03-29, author pinged for review 2026-03-29, still unreviewed
