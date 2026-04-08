@@ -19,6 +19,9 @@ flannel-iface: "{{ k3s_flannel_iface }}"
 {% endif %}
 kubelet-arg:
   - "allowed-unsafe-sysctls=net.ipv4.*,net.ipv6.*"
+  - "image-gc-high-threshold={{ kubelet_image_gc_high_threshold }}"
+  - "image-gc-low-threshold={{ kubelet_image_gc_low_threshold }}"
+  - "minimum-image-ttl-duration={{ kubelet_image_minimum_gc_age }}"
 kube-proxy-arg:
   - "nodeport-addresses=127.0.0.0/8"
 {% if k3s_node_labels is defined %}
@@ -32,6 +35,10 @@ node-ip: "{{ k3s_node_ip }}"
 # bind-address: "{{ k3s_node_ip }}"
 node-external-ip: "{{ k3s_node_ip }}"
 # node-name: "{{ inventory_hostname }}"
+kubelet-arg:
+  - "image-gc-high-threshold={{ kubelet_image_gc_high_threshold }}"
+  - "image-gc-low-threshold={{ kubelet_image_gc_low_threshold }}"
+  - "minimum-image-ttl-duration={{ kubelet_image_minimum_gc_age }}"
 kube-proxy-arg:
   - "nodeport-addresses=127.0.0.0/8"
 {% if k3s_node_labels is defined %}

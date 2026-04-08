@@ -8,5 +8,10 @@ k3s_node_ip: "{{ ansible_facts.default_ipv4.address }}"
 
 kubeconfig_context_name: "admin@cluster"
 
+# Kubelet image garbage collection
+kubelet_image_gc_high_threshold: 95
+kubelet_image_gc_low_threshold: 90
+kubelet_image_minimum_gc_age: "24h"
+
 # HAProxy stats password (overridden by vault)
 haproxy_stats_password: "changeme"
