@@ -274,7 +274,7 @@ sglang_model_profiles:
     context_length: 262144
     kv_cache_dtype: "fp8_e4m3"
     # quantization: "auto"
-    mem_fraction_static: "0.70"
+    mem_fraction_static: "0.60"
     attention_backend: "triton"
     disable_deep_gemm: true
     fp8_gemm_runner_backend: "cutlass"
@@ -538,9 +538,13 @@ sglang_model_profiles:
     context_length: 196608  # model max 262144; conservative start
     quantization: "modelopt_fp4"
     trust_remote_code: true
-    # Untested on DGX Spark — values below are initial defaults, pending test matrix.
-    moe_runner_backend: "triton"
+    # triton MoE → cutlass_moe_fp4 fallback: crashes with device-side assert
+    # (nvfp4_blockwise_moe.cuh:78) during both CUDA graph capture AND eager inference.
+    # flashinfer_cutlass MoE is the only working backend (same as GLM-4.7 TP=4 EP=4).
+    moe_runner_backend: "flashinfer_cutlass"
     kv_cache_dtype: "fp8_e4m3"
+    # 0.80 OOMs on workers — flashinfer_cutlass MoE JIT for 512 experts needs
+    # significant extra VRAM beyond model weights. 0.60 leaves ~30 GB headroom.
     mem_fraction_static: "0.80"
     attention_backend: "flashinfer"
     fp4_gemm_backend: "flashinfer_cutlass"
@@ -601,8 +605,6 @@ sglang_model_profiles:
     recommended_sampling:
       temperature: 1.0
       top_p: 0.95
-
-
 # Speculative decoding — predicts multiple tokens per forward pass, then
 # verifies in one step. Increases throughput (up to ~60%) at the cost of
 # higher VRAM usage. Speedup diminishes at high concurrency.
@@ -621,6 +623,8 @@ sglang_model_profiles:
 #             checkpoint (--speculative-draft-model-path).
     fp4_gemm_backend: flashinfer_cutlass
     speculative_enabled: false
+
+
 sglang_speculative_enabled: "{{ sglang_model_profiles[sglang_model].speculative_enabled | default(false) }}"
 sglang_speculative_algo: "{{ sglang_model_profiles[sglang_model].speculative_algo | default('NEXTN') }}"
 sglang_speculative_num_steps: "{{ sglang_model_profiles[sglang_model].speculative_num_steps | default(3) }}"
@@ -1019,6 +1023,8 @@ hf_token: "hf_CHANGEME"
 hf_preload_models:
   - "nvidia/Qwen3.5-397B-A17B-NVFP4"
   - "Qwen/Qwen3-235B-A22B-FP8"
+  # https://huggingface.co/nvidia/Qwen3-235B-A22B-NVFP4
+  # https://huggingface.co/nvidia/Qwen3-235B-A22B-Instruct-2507-NVFP4
 #  - "zai-org/GLM-4.7-FP8"
 #  - "nvidia/GLM-4.7-NVFP4"
 #  - "nvidia/MiniMax-M2.5-NVFP4"
