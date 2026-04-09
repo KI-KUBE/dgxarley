@@ -151,3 +151,8 @@ All tests below are from the **re-run with `speculative_enabled: false`**.
 | **`fi_cutlass` fp4_gemm IMPROVED** | Test 17: n=1+n=4 now work (rc0: OOMKilled). `flashinfer_cutlass` FP4 GEMM survives with `jit_max_jobs=4`. |
 | **New best config** | Test 17: fi_cutlass MoE + triton attn + fi_cutlass fp4 + eager → 8.4 / 20.8 tok/s (n=1/n=4). n=8 unstable. |
 | **Speculative (NEXTN)** | Test 37: startup crash loop. Not viable on this model/version. |
+| **PP=4 also tested** | All 37 PP=4 configs fail at n=4+. See `TESTLOG_nv580.142_sglang-0.5.10_glm-4.7-nvfp4_4n_pp4.md`. |
+
+### Recommendation
+
+**Stay on v0.5.10rc0 for GLM-4.7.** The rc0 TP=4 EP=4 winner (test 23: fi_cutlass MoE + triton attn + fi_cudnn fp4 + eager → 8.06/21.94/30.01 tok/s) is the only config stable at n=1, n=4, and n=8 across all tested versions. v0.5.10 breaks it via the `fi_cudnn` regression, and no v0.5.10 config (TP=4 or PP=4) achieves full n=8 stability.
