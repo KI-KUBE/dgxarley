@@ -2,7 +2,7 @@
 
 ## Status
 
-**Unreported** as of 2026-04-06. Bug exists in SGLang v0.5.9, v0.5.10rc0, and v0.5.10.
+**Unreported** as of 2026-04-09. Bug exists in SGLang v0.5.9, v0.5.10rc0, v0.5.10, and v0.5.10.post1.
 
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`

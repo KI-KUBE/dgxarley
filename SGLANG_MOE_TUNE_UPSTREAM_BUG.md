@@ -7,8 +7,8 @@
 - Fix PR: [#20232](https://github.com/sgl-project/sglang/pull/20232) — "[fix] qwen3.5 fuse_moe_triton_tune bug", merged 2026-03-27 (commit `e2b8463c`)
 - File: `benchmark/kernels/fused_moe_triton/common_utils.py`, function `get_model_config()`
 - Transformers version: 5.3.0 (unchanged)
-- Included in: v0.5.10rc0 (tagged 2026-03-28, ~6h after merge) and v0.5.10 stable (2026-04-06). Not in v0.5.9 (2026-02-24).
-- Our previous image (`0.5.9-dev2-acab24a7`, 2026-03-11) predated the fix. Current image (`0.5.10rc0`) includes the fix — `sglang_tune_moe.sh` patch auto-skips (target string no longer found)
+- Included in: v0.5.10rc0 (tagged 2026-03-28, ~6h after merge), v0.5.10 stable (2026-04-06), and v0.5.10.post1 (2026-04-09). Not in v0.5.9 (2026-02-24).
+- Our previous image (`0.5.9-dev2-acab24a7`, 2026-03-11) predated the fix. Current image (`0.5.10`) includes the fix — `sglang_tune_moe.sh` patch auto-skips (target string no longer found)
 
 ## Affected Configuration
 
