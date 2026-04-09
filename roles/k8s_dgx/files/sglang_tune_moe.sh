@@ -138,13 +138,16 @@ p.write_text(src)
 echo "Scripts downloaded to ${workdir}"
 
 # 7. Run the tuning benchmark
+# --dtype auto: auto-detects from model config (FP8 via weight_block_size,
+# NVFP4 via config_groups/group_size, AWQ via quant config). Previously
+# hardcoded to fp8_w8a8 which generated wrong configs for NVFP4/AWQ models.
 echo "Starting MoE kernel tuning (this may take 30-90 minutes) ..."
 cd "$workdir"
 python3 tuning_fused_moe_triton.py \
   --model "$SGLANG_MODEL" \
   --tp-size "$TP" \
   --ep-size "$EP" \
-  --dtype fp8_w8a8 \
+  --dtype auto \
   --tune
 echo "Tuning complete."
 
