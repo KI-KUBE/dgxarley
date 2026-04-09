@@ -21,6 +21,18 @@ echo "=== SGLang MoE Triton Kernel Tuning ==="
 echo "Model: ${SGLANG_MODEL}"
 echo "TP: ${TP}, EP: ${EP}"
 
+# 0. Patch CUTLASS BlockScaledMmaOp to support SM121 for FP4 (NVIDIA/cutlass#2800).
+for mma_py in \
+  /usr/local/lib/python3.12/dist-packages/nvidia_cutlass_dsl/python_packages/cutlass/cute/nvgpu/tcgen05/mma.py \
+  /usr/local/lib/python3.12/dist-packages/flashinfer/data/cutlass/python/CuTeDSL/cutlass/cute/nvgpu/tcgen05/mma.py; do
+  if [ -f "$mma_py" ] && grep -q 'admissible_archs = \[' "$mma_py" 2>/dev/null; then
+    if ! grep -q 'sm_121a' "$mma_py" 2>/dev/null; then
+      sed -i 's/Arch\.sm_100a,/Arch.sm_100a, Arch.sm_120a, Arch.sm_121a,/' "$mma_py"
+      echo "Patched mma.py: added sm_120a + sm_121a to BlockScaledMmaOp.admissible_archs"
+    fi
+  fi
+done
+
 # 1. Install tools
 apt-get update -qq && apt-get install -y -qq rsync openssh-client curl >/dev/null 2>&1
 
@@ -150,15 +162,36 @@ if old_dist in src:
 else:
     print('WARNING: _distribute patch target not found')
 
+# 3) Auto-detect FP8 from quantization_config when --dtype auto
+# Per-channel FP8 models (quant_method='fp8' without weight_block_size)
+# aren't detected by --dtype auto: all use_* flags stay False, so the
+# tuned config filename omits dtype=fp8_w8a8 and SGLang can't find it.
+old_fp8 = '    per_channel_quant = args.per_channel_quant'
+new_fp8 = '''    per_channel_quant = args.per_channel_quant
+    # Auto-detect FP8 from model quantization_config when --dtype auto
+    if args.dtype == \"auto\":
+        from sglang.srt.utils.hf_transformers_utils import get_config as _get_cfg
+        _cfg = _get_cfg(args.model, trust_remote_code=True)
+        _qcfg = getattr(_cfg, \"quantization_config\", None)
+        if isinstance(_qcfg, dict) and _qcfg.get(\"quant_method\") == \"fp8\":
+            use_fp8_w8a8 = True'''
+if old_fp8 in src:
+    src = src.replace(old_fp8, new_fp8, 1)
+    print('Patched: auto-detect FP8 from quantization_config when --dtype auto')
+else:
+    print('WARNING: FP8 auto-detect patch target not found — upstream may handle this now')
+
 p.write_text(src)
 "
 
 echo "Scripts downloaded to ${workdir}"
 
 # 7. Run the tuning benchmark
-# --dtype auto: auto-detects from model config (FP8 via weight_block_size,
-# NVFP4 via config_groups/group_size, AWQ via quant config). Previously
-# hardcoded to fp8_w8a8 which generated wrong configs for NVFP4/AWQ models.
+# --dtype auto: relies on get_model_config() for block_shape detection, plus
+# Patch 3 in tuning_fused_moe_triton.py for FP8 auto-detection via
+# quantization_config.quant_method. Without Patch 3, per-channel FP8 models
+# (quant_method="fp8" without weight_block_size) are tuned as BF16 and the
+# config filename omits dtype=fp8_w8a8 — SGLang can't find it at runtime.
 echo "Starting MoE kernel tuning (this may take 30-90 minutes) ..."
 cd "$workdir"
 python3 tuning_fused_moe_triton.py \

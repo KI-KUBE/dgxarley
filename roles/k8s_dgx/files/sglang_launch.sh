@@ -137,6 +137,25 @@ done
 for pid in "${pids[@]}"; do wait "$pid"; done
 echo "All ${#peers[@]} QSFP peers reachable."
 
+# Patch CUTLASS BlockScaledMmaOp to support SM121 (DGX Spark GB10) for FP4 operations.
+# Upstream CUTLASS restricts FP4 tensor ops to sm_100a only (issue NVIDIA/cutlass#2800).
+# SM121 has native FP4 Tensor Core support but is not in admissible_archs → the JIT-compiled
+# nvfp4_blockwise_moe kernel falls back to an incompatible code path → device-side assert.
+# Fix: add sm_120a + sm_121a to admissible_archs in both CUTLASS DSL copies.
+# External validation: BTankut/dgx-spark-sglang-moe-configs achieved 356 TFLOPS NVFP4 on GB10.
+for mma_py in \
+  /usr/local/lib/python3.12/dist-packages/nvidia_cutlass_dsl/python_packages/cutlass/cute/nvgpu/tcgen05/mma.py \
+  /usr/local/lib/python3.12/dist-packages/flashinfer/data/cutlass/python/CuTeDSL/cutlass/cute/nvgpu/tcgen05/mma.py; do
+  if [ -f "$mma_py" ] && grep -q 'admissible_archs = \[' "$mma_py" 2>/dev/null; then
+    if ! grep -q 'sm_121a' "$mma_py" 2>/dev/null; then
+      sed -i 's/Arch\.sm_100a,/Arch.sm_100a, Arch.sm_120a, Arch.sm_121a,/' "$mma_py"
+      echo "Patched $(basename $(dirname $(dirname $(dirname "$mma_py"))))/mma.py: added sm_120a + sm_121a to BlockScaledMmaOp.admissible_archs"
+    else
+      echo "$(basename "$mma_py"): sm_121a already present"
+    fi
+  fi
+done
+
 # Version gate: warn if the container image changed — patches below may need review.
 # Dev builds report __version__=0.0.0 (no setuptools-scm), so we check the image
 # tag (injected as SGLANG_IMAGE env var by Ansible) instead of the Python version.

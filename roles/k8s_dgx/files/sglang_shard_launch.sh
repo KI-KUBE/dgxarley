@@ -17,6 +17,18 @@ for peer in "${peers[@]}"; do
   echo "QSFP peer ${peer} reachable."
 done
 
+# Patch CUTLASS BlockScaledMmaOp to support SM121 for FP4 operations (NVIDIA/cutlass#2800).
+for mma_py in \
+  /usr/local/lib/python3.12/dist-packages/nvidia_cutlass_dsl/python_packages/cutlass/cute/nvgpu/tcgen05/mma.py \
+  /usr/local/lib/python3.12/dist-packages/flashinfer/data/cutlass/python/CuTeDSL/cutlass/cute/nvgpu/tcgen05/mma.py; do
+  if [ -f "$mma_py" ] && grep -q 'admissible_archs = \[' "$mma_py" 2>/dev/null; then
+    if ! grep -q 'sm_121a' "$mma_py" 2>/dev/null; then
+      sed -i 's/Arch\.sm_100a,/Arch.sm_100a, Arch.sm_120a, Arch.sm_121a,/' "$mma_py"
+      echo "Patched mma.py: added sm_120a + sm_121a to BlockScaledMmaOp.admissible_archs"
+    fi
+  fi
+done
+
 # Version gate: warn if the container image changed — patches below may need review.
 # Dev builds report __version__=0.0.0 (no setuptools-scm), so we check the image
 # tag (injected as SGLANG_IMAGE env var by Ansible) instead of the Python version.
