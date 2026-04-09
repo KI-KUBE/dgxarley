@@ -93,6 +93,24 @@ if old in src:
     print('Patched common_utils.py: preserve architectures + quantization_config across text_config unwrap')
 else:
     print('WARNING: patch target not found in common_utils.py — upstream may have fixed this')
+
+# Patch 2: config_groups with group_size=None (channel-wise FP8) sets block_shape=[0, None]
+# instead of block_shape=None. This makes the tuning script crash with 'NoneType % int'.
+# Fix: only set block_shape if group_size is not None.
+src = p.read_text()
+old2 = '''        group_size = weights_config.get(\"group_size\")
+        block_shape = [0, group_size]
+        assert len(block_shape) == 2'''
+new2 = '''        group_size = weights_config.get(\"group_size\")
+        if group_size is not None:
+            block_shape = [0, group_size]
+            assert len(block_shape) == 2'''
+if old2 in src:
+    src = src.replace(old2, new2, 1)
+    p.write_text(src)
+    print('Patched common_utils.py: skip block_shape for channel-wise quant (group_size=None)')
+else:
+    print('WARNING: group_size patch target not found — upstream may have fixed this')
 "
 
 # Patch: replace Ray tqdm progress bar with print-based progress.
