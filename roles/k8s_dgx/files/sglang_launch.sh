@@ -58,42 +58,55 @@ else
   echo "SKIPPING GLM-5 specific patches..."
 fi
 
-# Patch Qwen3_5MoeConfig to convert dict sub_configs (transformers 5.5.0 bug).
-# Transformers 5.x auto-generates __init__ for PretrainedConfig subclasses with
-# sub_configs, bypassing the manual dict→config conversion in Qwen3_5Config.__init__.
-# Both vision_config and text_config arrive as raw dicts → AttributeError when accessing
-# attributes like .hidden_size or .layers_block_type. Fix: inject __post_init__ that
-# converts dict sub-configs to their proper config classes using Qwen3_5MoeConfig.sub_configs.
-QWEN35_CONFIG="/usr/local/lib/python3.12/dist-packages/sglang/srt/configs/qwen3_5.py"
-if grep -q 'class Qwen3_5MoeConfig' "$QWEN35_CONFIG" 2>/dev/null && ! grep -q '__post_init__' "$QWEN35_CONFIG" 2>/dev/null; then
-  python3 << 'PATCH_QWEN35_CONFIG_EOF'
-f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/configs/qwen3_5.py"
+# Patch SGLang get_config() to convert dict sub_configs after loading (transformers 5.5.0 bug).
+# Transformers 5.x auto-generates __init__ for PretrainedConfig subclasses with sub_configs,
+# bypassing dict→config conversion. from_pretrained() also bypasses __post_init__.
+# Both vision_config and text_config arrive as raw dicts → AttributeError on .hidden_size etc.
+# Fix: patch get_config() to convert dict sub-configs after loading for any config with sub_configs.
+HF_UTILS="/usr/local/lib/python3.12/dist-packages/sglang/srt/utils/hf_transformers_utils.py"
+if grep -q 'return config' "$HF_UTILS" 2>/dev/null && ! grep -q 'sub_configs dict fix' "$HF_UTILS" 2>/dev/null; then
+  python3 << 'PATCH_GET_CONFIG_EOF'
+f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/utils/hf_transformers_utils.py"
 with open(f) as fh:
     code = fh.read()
-# Append __post_init__ to Qwen3_5Config (inherited by Qwen3_5MoeConfig).
-# The auto-generated __init__ calls __post_init__ after setting all fields,
-# so we can convert dict sub-configs there.
-old = '''class Qwen3_5MoeVisionConfig(Qwen3_5VisionConfig):'''
-new = '''    # [patch] transformers 5.x sub_configs auto-init bypasses dict→config conversion.
-    # The auto-generated __init__ calls __post_init__ after setting fields via setattr,
-    # so dict sub-configs (vision_config, text_config) can be converted here.
-    def __post_init__(self, **kwargs):
-        for key, config_cls in self.sub_configs.items():
-            val = getattr(self, key, None)
-            if isinstance(val, dict):
-                setattr(self, key, config_cls(**val))
-        super().__post_init__(**kwargs)
+# Find the final "return config" in get_config() and add sub_configs conversion before it.
+# The function ends with:
+#     return config
+# We insert a conversion block just before.
+old = '''    if is_gguf:
+        if config.model_type not in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES:
+            raise RuntimeError(f"Can't get gguf config for {config.model_type}.")
+        model_type = MODEL_FOR_CAUSAL_LM_MAPPING_NAMES[config.model_type]
+        config.update({"architectures": [model_type]})
 
+    return config'''
+new = '''    if is_gguf:
+        if config.model_type not in MODEL_FOR_CAUSAL_LM_MAPPING_NAMES:
+            raise RuntimeError(f"Can't get gguf config for {config.model_type}.")
+        model_type = MODEL_FOR_CAUSAL_LM_MAPPING_NAMES[config.model_type]
+        config.update({"architectures": [model_type]})
 
-class Qwen3_5MoeVisionConfig(Qwen3_5VisionConfig):'''
+    # [patch] sub_configs dict fix — transformers 5.x from_pretrained() leaves sub-configs
+    # as raw dicts instead of converting to their declared config classes.
+    _sub_cfgs = getattr(config, "sub_configs", None)
+    if _sub_cfgs:
+        for _key, _cls in _sub_cfgs.items():
+            _val = getattr(config, _key, None)
+            if isinstance(_val, dict):
+                try:
+                    setattr(config, _key, _cls(**_val))
+                except Exception:
+                    pass  # non-critical: some sub-configs may not accept all dict keys
+
+    return config'''
 if old in code:
     code = code.replace(old, new, 1)
     with open(f, 'w') as fh:
         fh.write(code)
-    print("Patched Qwen3_5Config: added __post_init__ for dict sub_configs conversion")
+    print("Patched get_config(): sub_configs dict→config conversion after loading")
 else:
-    print("Qwen3_5Config: patch target not found or already patched")
-PATCH_QWEN35_CONFIG_EOF
+    print("get_config(): patch target not found (code changed?)")
+PATCH_GET_CONFIG_EOF
 fi
 
 # Prime ARP table on the QSFP link before NCCL tries to connect.
