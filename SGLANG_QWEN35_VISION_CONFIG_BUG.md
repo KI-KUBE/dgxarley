@@ -107,6 +107,6 @@ Reported for `AxionML/Qwen3.5-35B-A3B-NVFP4` on DGX Spark. Different root cause:
 
 ## Upstream references
 
-- Not yet reported (as of 2026-04-09)
+- Not yet reported (re-verified 2026-04-10: GitHub search for `sub_configs Qwen3_5` in sgl-project/sglang still returns no matching issues or PRs)
 - Related: transformers 5.x `PretrainedConfig.__init_subclass__` auto-init behavior
 - Related: sgl-project/sglang#20973 (different Qwen3.5 NVFP4 checkpoint, different bug)

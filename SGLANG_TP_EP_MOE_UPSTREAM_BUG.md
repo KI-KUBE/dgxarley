@@ -2,9 +2,9 @@
 
 ## Status
 
-**Open upstream (vLLM only)** as of 2026-04-09. Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447). Present in SGLang v0.5.10 (2026-04-06) and v0.5.10.post1 (2026-04-09, flashinfer bump only). EPLB Qwen3 fix (PR #21822) merged 2026-04-09; all other referenced PRs re-verified same day — none merged.
+**Open upstream (vLLM only)** as of 2026-04-10 (re-verified: no movement on any open PR since last check). Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447). Present in SGLang v0.5.10 (2026-04-06) and v0.5.10.post1 (2026-04-09, flashinfer bump only). EPLB Qwen3 fix (PR #21822) merged 2026-04-09; all other referenced PRs re-verified 2026-04-10 — none merged, none touched.
 
-- vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, stale ~1 month (last activity 2026-03-05), not merged
+- vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, stale ~5 weeks (last activity 2026-03-05), not merged
 - vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch, open since 2026-03-29, author pinged for review 2026-03-29, still unreviewed
 - SGLang: no upstream issue or PR filed
 
@@ -118,7 +118,7 @@ be solving a problem that doesn't need to exist.
 **Upstream status** as of 2026-04-06:
 - Qwen3.5: fixed via [PR #19767](https://github.com/sgl-project/sglang/pull/19767) (merged 2026-03-09, included in v0.5.10)
 - Qwen3: [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — closed without merge 2026-03-30 (CI failure), superseded by #21822
-- Qwen3: [PR #21822](https://github.com/sgl-project/sglang/pull/21822) — **merged 2026-04-09**. Addresses `AttributeError: 'LazyValue' object has no attribute 'keys'` in `eplb_manager.py` for Qwen3 MoE. (Duplicate [PR #21820](https://github.com/sgl-project/sglang/pull/21820) was closed same day in favour of #21822.) Not in v0.5.10 or v0.5.10.post1 — will be in next release
+- Qwen3: [PR #21822](https://github.com/sgl-project/sglang/pull/21822) — **merged 2026-04-09 at 07:13 UTC**. Addresses `AttributeError: 'LazyValue' object has no attribute 'keys'` in `eplb_manager.py` for Qwen3 MoE. (Duplicate [PR #21820](https://github.com/sgl-project/sglang/pull/21820) was closed same day in favour of #21822.) **Not in v0.5.10.post1**: that tag was cut on 2026-04-09 at 03:21 UTC — ~4h *before* #21822 was merged — so the EPLB fix misses post1 by a few hours and will only land in the next release after post1
 
 When `--enable-eplb` is active with EP, the `EPLBManager` crashes after its first rebalance
 interval (default: 1000 forward passes):
