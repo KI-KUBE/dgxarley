@@ -33,6 +33,9 @@ for mma_py in \
   fi
 done
 
+# NOTE: nvfp4_blockwise_moe.cuh SM121 tile fix not possible via runtime patch.
+# Requires SM121-specific sgl-kernel build. Use flashinfer_cutlass MoE for NVFP4.
+
 # 1. Install tools
 apt-get update -qq && apt-get install -y -qq rsync openssh-client curl >/dev/null 2>&1
 

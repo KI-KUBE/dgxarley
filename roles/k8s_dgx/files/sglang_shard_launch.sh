@@ -29,6 +29,9 @@ for mma_py in \
   fi
 done
 
+# NOTE: nvfp4_blockwise_moe.cuh SM121 tile fix not possible via runtime patch.
+# Requires SM121-specific sgl-kernel build. Use flashinfer_cutlass MoE for NVFP4.
+
 # Version gate: warn if the container image changed — patches below may need review.
 # Dev builds report __version__=0.0.0 (no setuptools-scm), so we check the image
 # tag (injected as SGLANG_IMAGE env var by Ansible) instead of the Python version.

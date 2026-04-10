@@ -156,6 +156,12 @@ for mma_py in \
   fi
 done
 
+# NOTE: nvfp4_blockwise_moe.cuh SM121 tile fix was attempted but cannot be solved
+# via runtime patching. The CUTLASS FP4 grouped GEMM kernel requires SM121-specific
+# sgl-kernel build with proper TMA tile shapes — not achievable by editing the .cuh
+# source at startup. See CUTLASS_NVFP4_SM121_PRD.md for full analysis.
+# For NVFP4 models on SM121: use flashinfer_cutlass MoE runner (avoids cutlass_moe_fp4).
+
 # Version gate: warn if the container image changed — patches below may need review.
 # Dev builds report __version__=0.0.0 (no setuptools-scm), so we check the image
 # tag (injected as SGLANG_IMAGE env var by Ansible) instead of the Python version.
