@@ -9,6 +9,46 @@
     state: present
     update_cache: true
 
+- name: Check if local id_podman.pub exists
+  ansible.builtin.stat:
+    path: "{{ lookup('env', 'HOME') }}/.ssh/id_podman.pub"
+  delegate_to: localhost
+  become: false
+  run_once: true
+  register: local_podman_pubkey
+
+- name: Inform user that id_podman.pub is missing locally
+  ansible.builtin.debug:
+    msg: "~/.ssh/id_podman.pub not found on control node — skipping podman SSH key authorization for root. Generate it with: ssh-keygen -t ed25519 -f ~/.ssh/id_podman -N ''"
+  when: not local_podman_pubkey.stat.exists
+  run_once: true
+
+- name: Ensure id_podman authorized key is present for root
+  ansible.builtin.authorized_key:
+    user: root
+    state: present
+    exclusive: false
+    key: "{{ lookup('file', lookup('env', 'HOME') + '/.ssh/id_podman.pub') }}"
+  when: local_podman_pubkey.stat.exists
+
+- name: configure default registries in /etc/containers/registries.conf
+  blockinfile:
+    path: /etc/containers/registries.conf
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+    marker: "# {mark} ANSIBLE MANAGED BLOCK - default registries"
+    block: |
+      [registries.search]
+      registries = ["docker.io"]
+
+      [registries.insecure]
+      registries = []
+
+      # Optional: Verhindert, dass Podman überhaupt nachfragt und einfach den ersten Treffer nimmt
+      unqualified-search-registries = ["docker.io"]
+
 - name: enable and start podman socket (system-level)
   systemd:
     name: podman.socket

@@ -77,11 +77,11 @@ BRANCH_NAME="sm121"
 RECIPE_NAME="sglang-0.5.10-sm121"
 IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.10-sm121"
 
-# Remote build host (spark2, arm64). Uses a registered podman connection
+# Remote build host (spark4, arm64). Uses a registered podman connection
 # with a dedicated unencrypted SSH key. The connection name is derived from
 # this value by stripping the user@ prefix so that `podman system connection
 # list` shows a clean "spark1" entry.
-REMOTE_HOST="${BUILD_SM121_REMOTE_HOST:-root@spark2.local}"
+REMOTE_HOST="${BUILD_SM121_REMOTE_HOST:-root@spark4.local}"
 PODMAN_CONNECTION="${BUILD_SM121_PODMAN_CONNECTION:-${REMOTE_HOST##*@}}"
 PODMAN_CONNECTION="${PODMAN_CONNECTION%%.*}"   # "spark1.local" -> "spark1"
 PODMAN_SSH_IDENTITY="${BUILD_SM121_SSH_IDENTITY:-${HOME}/.ssh/id_podman}"
@@ -144,7 +144,8 @@ preflight() {
     log "Preflight"
 
     local missing=0
-    for f in sgl-kernel-sm121.patch dockerfile-sm121.patch "${RECIPE_NAME}.recipe"; do
+    for f in sgl-kernel-sm121.patch dockerfile-sm121.patch \
+             build-image-sh-podman.patch "${RECIPE_NAME}.recipe"; do
         if [[ ! -f "${PATCHES_DIR}/${f}" ]]; then
             warn "Missing patch file: ${PATCHES_DIR}/${f}"
             missing=1
@@ -289,12 +290,26 @@ apply_patches() {
         || die "Dockerfile patch verification failed"
     echo "Dockerfile patched"
 
-    # 3. Drop in the recipe file. We parse it ourselves rather than relying
-    #    on scitrera's container-build/build-image.sh (which uses docker buildx,
-    #    unavailable in podman) — see run_build().
+    # 3. Drop in the recipe file. run_build() parses it inline and calls
+    #    `podman build` directly, bypassing container-build/build-image.sh
+    #    (which uses `docker buildx build` — podman has no buildx subcommand).
     install -m 0644 "${PATCHES_DIR}/${RECIPE_NAME}.recipe" \
         "container-recipes/${RECIPE_NAME}.recipe"
     echo "Installed container-recipes/${RECIPE_NAME}.recipe"
+
+    # 4. Defense-in-depth: also patch build-image.sh to replace
+    #    `docker buildx build` with `docker build`. Our run_build() bypasses
+    #    build-image.sh entirely, so this is not strictly required — but the
+    #    patched clone is then also usable for any other recipe via podman,
+    #    and re-runs of this script hard-reset the branch so there's no
+    #    accumulation cost.
+    echo "Applying build-image-sh-podman.patch..."
+    patch --dry-run -p1 < "${PATCHES_DIR}/build-image-sh-podman.patch" \
+        || die "build-image.sh patch dry-run failed — upstream build-image.sh drifted; regenerate build-image-sh-podman.patch"
+    patch -p1 < "${PATCHES_DIR}/build-image-sh-podman.patch"
+    grep -q '^BUILD_CMD=(docker build)$' container-build/build-image.sh \
+        || die "build-image.sh patch verification failed"
+    echo "build-image.sh patched"
 }
 
 # ============================================================================

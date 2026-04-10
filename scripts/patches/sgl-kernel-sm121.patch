@@ -1,32 +1,47 @@
 SM121 (DGX Spark GB10) shared memory fix for cutlass_moe_fp4 / nvfp4_blockwise_moe
 
 Problem:
-  SM121 has only 101 KB shared memory per block, while CUTLASS's
-  StageCountAutoCarveout computes stage count against the compile-time
-  SM-family maximum (228 KB for SM12x). The SM120 kernel path in
-  run_fp4_blockwise_scaled_group_mm_sm120() requests ~147 KB SMEM via
-  Pingpong schedule + auto stage carveout, which SM121 cannot satisfy.
-  Result: nvfp4_blockwise_moe.cuh:78 device-side assert whenever the
-  triton or cutlass MoE runner dispatches to cutlass_moe_fp4 for NVFP4.
+  Both SM120 (RTX 5090, RTX PRO 6000 Blackwell) and SM121 (DGX Spark GB10)
+  provide only 99 KiB (101376 bytes) of shared memory per thread block.
+  The 228 KiB figure that's often cited for "Blackwell" belongs to SM100
+  (B200), not SM12x — per CUTLASS maintainer @depaulmillz in
+  NVIDIA/cutlass#3144.
+
+  CUTLASS's run_fp4_blockwise_scaled_group_mm_sm120() path in
+  nvfp4_blockwise_moe.cuh uses Pingpong schedule + StageCountAutoCarveout,
+  which together request exactly 102400 bytes (100 KiB) of mainloop
+  SMEM — just 1 KiB over the 99 KiB device budget. The CUDA runtime then
+  fails with a device-side assert at line 78 whenever the triton or
+  cutlass MoE runner dispatches to cutlass_moe_fp4 for NVFP4 weights.
+
+  Confirmed trigger on DGX Spark: any NVFP4 model (Qwen3-235B-A22B-NVFP4,
+  GLM-4.7-NVFP4, Qwen3.5-397B-A17B-NVFP4, etc.) run with
+  moe_runner_backend=triton or =cutlass under SGLang v0.5.10.
 
 Fix:
   Force StageCount<1> (single-stage mainloop, no double buffering) and
   switch from KernelPtrArrayTmaWarpSpecializedPingpong to the non-pingpong
-  KernelPtrArrayTmaWarpSpecialized schedule. Combined, this cuts mainloop
-  SMEM from ~147 KB to ~74 KB and fits the 101 KB SM121 budget.
+  KernelPtrArrayTmaWarpSpecialized schedule. Pingpong duplicates mainloop
+  SMEM across two warp groups; removing pingpong eliminates that
+  duplication, and StageCount<1> removes any remaining multi-buffering.
+  Together they free well more than the 1 KiB needed to fit inside 99 KiB.
 
   The ThreadBlockShape<_128, _128, _128> is unchanged — TMA descriptor
   validation allows stage/schedule changes but rejects M/N reduction.
 
-Equivalent to the tile/stage change in TensorRT-LLM PR #12141
-(NVIDIA/TensorRT-LLM, merged 2026-03-18) which applied the same approach
-in TRT-LLM's fp4_gemm_template.h for SM121.
+  This is the same approach TensorRT-LLM merged in PR #12141 (2026-03-18)
+  for the analogous fp4_gemm_template.h path on SM121.
 
 Refs:
-  - https://github.com/NVIDIA/cutlass/issues/3144 (root cause)
-  - https://github.com/NVIDIA/TensorRT-LLM/pull/12141 (reference approach)
-  - https://github.com/sgl-project/sglang/pull/20012 (JIT migration: file moved
-    from sgl-kernel/csrc/moe/ to python/sglang/jit_kernel/csrc/moe/)
+  - https://github.com/NVIDIA/cutlass/issues/3144
+      Root cause. Contains the verbatim SMEM numbers above
+      (228 KiB SM100 vs 99 KiB SM120/121, 102400/101376 failure case).
+  - https://github.com/NVIDIA/TensorRT-LLM/pull/12141
+      Reference fix from NVIDIA maintainers — same StageCount<1> +
+      non-pingpong approach applied to the TRT-LLM FP4 GEMM path.
+  - https://github.com/sgl-project/sglang/pull/20012
+      JIT migration: the target file moved from sgl-kernel/csrc/moe/
+      to python/sglang/jit_kernel/csrc/moe/.
 
 Upstream source: sgl-project/sglang tag v0.5.10
 
@@ -37,8 +52,8 @@ Upstream source: sgl-project/sglang tag v0.5.10
    using ArchTag = cutlass::arch::Sm120;
    using OperatorClass = cutlass::arch::OpClassBlockScaledTensorOp;
 -  using StageCountType = cutlass::gemm::collective::StageCountAuto;
-+  // SM121 (DGX Spark GB10): only 101 KB SMEM vs 228 KB on SM120.
-+  // StageCount<1> halves mainloop SMEM from ~147 KB to ~74 KB.
++  // SM120/121 both have 99 KiB (101376 B) SMEM/block — not 228 KiB.
++  // Default Pingpong + auto-stages requests 100 KiB → 1 KiB over budget.
 +  using StageCountType = cutlass::gemm::collective::StageCount<1>;
    using ThreadBlockShape = Shape<_128, _128, _128>;
    // on the tile size

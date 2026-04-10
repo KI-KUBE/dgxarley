@@ -680,7 +680,7 @@ sglang_model_profiles:
     #   reduction on TP=4 NVFP4 to 3/1/4 if verification latency dominates).
     speculative_enabled: true
     speculative_algo: "EAGLE3"
-    speculative_draft_model_path: "nvidia/Qwen3-235B-A22B-Eagle3"
+    speculative_draft_model_path: "lmsys/Qwen3-235B-A22B-EAGLE3"
     # Force draft load without quantization. Without this override SGLang
     # inherits quantization=modelopt_fp4 from the target, routes the draft
     # through _load_modelopt_base_model → AutoModelForCausalLM.from_pretrained,
@@ -691,7 +691,7 @@ sglang_model_profiles:
     speculative_draft_model_quantization: "unquant"
     speculative_num_steps: 5
     speculative_eagle_topk: 8
-    speculative_num_draft_tokens: 16
+    speculative_num_draft_tokens: 32
   "zai-org/GLM-4.7-FP8":
     info_url: "https://huggingface.co/zai-org/GLM-4.7-FP8"
     # 358B/~58B-active MoE (160 experts, top-8, sigmoid routing), FP8 quantized (~358 GB).
@@ -751,6 +751,96 @@ sglang_model_profiles:
 #             checkpoint (--speculative-draft-model-path).
     fp4_gemm_backend: flashinfer_cutlass
     speculative_enabled: false
+  "google/gemma-4-31B-it":
+    info_url: "https://huggingface.co/google/gemma-4-31B-it"
+    # 30.7B dense, multimodal-capable (Gemma4ForConditionalGeneration ships
+    # with text + vision + audio heads; SGLang uses the text path).
+    # Architecture: 60 layers, hybrid attention with 5:1 sliding-to-full
+    # pattern (every 6th layer is full_attention, rest are sliding_window=1024).
+    # num_attention_heads=32, num_key_value_heads=16 (2:1 GQA), head_dim=256.
+    # Global layers use Unified Keys/Values (global_head_dim=512, num_global_kv_heads=4)
+    # + proportional RoPE (partial_rotary_factor=0.25) for memory-efficient long context.
+    # rope_theta: 10000 (sliding) / 1000000 (full). vocab_size: 262144.
+    # Context: 262144 native (256K, no YaRN extension needed).
+    # BF16 weights ~62 GB total → TP=4 gives ~15.5 GB/GPU; lots of KV-cache headroom.
+    # SGLang has day-one Gemma 4 support (per Google/LMSYS blog). Still new —
+    # Gemma4 backend path, sliding+full attention hybrid, and proportional RoPE
+    # may have edge cases on SM121 that need testing before production use.
+    # No MTP heads → no NEXTN. No public EAGLE3 draft exists for Gemma 4 yet.
+    nccl_transport: "socket"
+    tp_size: 4  # num_kv_heads=16 → 4 per GPU
+    context_length: 262144  # 256K native
+    quantization: ""  # native BF16
+    trust_remote_code: false  # official Google model, no custom code
+    kv_cache_dtype: "fp8_e4m3"  # sliding window dominates → large KV-savings
+    mem_fraction_static: "0.85"  # weights ~15.5 GB/GPU, lots of room
+    attention_backend: "flashinfer"  # needs sliding+full hybrid support
+    jit_max_jobs: 4
+    disable_piecewise_cuda_graph: false
+    # Start with CUDA graphs enabled (dense BF16 model, no NVFP4 MoE crashes).
+    # Disable if first startup hits unresolved Gemma4-specific graph issues.
+    disable_cuda_graph: false
+    cuda_graph_max_bs: 8
+    pp_async_batch_depth: 0
+    disable_deep_gemm: false
+    recommended_sampling:
+      # Gemma family defaults — verify against latest model card before production.
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+    speculative_enabled: false
+  "google/gemma-4-26B-A4B-it":
+    info_url: "https://huggingface.co/google/gemma-4-26B-A4B-it"
+    # 26B total / ~3.8B active MoE (top_k=8 of 128 experts per token),
+    # multimodal-capable. The "A4B" suffix denotes ~4B active params — Google's
+    # latency-optimized variant (lmarena ~1441 with only 3.8B active compute).
+    # Architecture: Gemma4ForConditionalGeneration with enable_moe_block=true.
+    # 30 layers, hybrid attention with 5:1 sliding-to-full pattern (sliding_window=1024).
+    # num_attention_heads=16, num_key_value_heads=8 (2:1 GQA), head_dim=256.
+    # Global layers: Unified K/V (global_head_dim=512, num_global_kv_heads=2)
+    # + proportional RoPE (partial_rotary_factor=0.25).
+    # MoE: num_experts=128, top_k_experts=8, moe_intermediate_size=704.
+    # rope_theta: 10000 (sliding) / 1000000 (full). vocab_size: 262144.
+    # Context: 262144 native (256K).
+    # BF16 weights ~52 GB total → TP=4 EP=4 → ~13 GB/GPU, huge headroom.
+    # Per-token compute is tiny (3.8B active) → expected very high tok/s.
+    # SGLang day-one support per Google/LMSYS blog. Still new — Gemma4 MoE
+    # path hasn't been stress-tested on SM121, may need tuning.
+    # No MTP, no public EAGLE3 draft.
+    nccl_transport: "socket"
+    tp_size: 4  # num_kv_heads=8 → 2 per GPU
+    context_length: 262144
+    quantization: ""  # native BF16
+    trust_remote_code: false
+    moe_runner_backend: "triton"  # BF16 MoE — no NVFP4 fallback crash path
+    kv_cache_dtype: "fp8_e4m3"
+    mem_fraction_static: "0.85"
+    attention_backend: "flashinfer"
+    jit_max_jobs: 4
+    disable_piecewise_cuda_graph: false
+    disable_cuda_graph: false
+    cuda_graph_max_bs: 8
+    pp_async_batch_depth: 0
+    disable_deep_gemm: false
+    num_experts: 128
+    # EP distributes 128 experts across nnodes (4 nodes → 32 experts/GPU).
+    # Auto-computed: if num_experts is divisible by nnodes, use ep_size=nnodes,
+    # else fall back to 1 (no EP). Same pattern as the other 128-expert profiles
+    # above. With only 3.8B active params per token, EP communication may be the
+    # bottleneck rather than compute — benchmark vs ep_size=1 (expert replication)
+    # before deciding what's faster at production concurrency.
+    ep_size: "{{ sglang_nnodes if (128 % (sglang_nnodes | int) == 0) else 1 }}"
+    # EPLB (Expert Parallel Load Balancer) disabled initially — Gemma 4 MoE
+    # routing is softmax top_k=8, and EPLB's rebalancing has been unstable on
+    # other similar MoE setups in this project. Enable later if load imbalance
+    # shows in expert_distribution_metrics.
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+    speculative_enabled: false
 
 
 sglang_speculative_enabled: "{{ sglang_model_profiles[sglang_model].speculative_enabled | default(false) }}"
@@ -790,6 +880,8 @@ sglang_model: "nvidia/Qwen3-235B-A22B-NVFP4"
 #sglang_model: "Qwen/Qwen3.5-122B-A10B-FP8"
 #sglang_model: "QuantTrio/Qwen3-235B-A22B-Thinking-2507-AWQ"
 #sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
+#sglang_model: "google/gemma-4-31B-it"        # 30.7B dense, multimodal, 256K ctx
+#sglang_model: "google/gemma-4-26B-A4B-it"    # 26B/3.8B-active MoE, multimodal, 256K ctx
 
 sglang_context_length: "{{ sglang_model_profiles[sglang_model].context_length }}"
 sglang_kv_cache_dtype: "{{ sglang_model_profiles[sglang_model].kv_cache_dtype }}"
@@ -1167,7 +1259,8 @@ hf_preload_models:
   - "lmsys/Qwen3-235B-A22B-EAGLE3"
   - "nvidia/Qwen3-235B-A22B-Eagle3"
   - "nvidia/Qwen3-235B-A22B-NVFP4"
-  - "Qwen/Qwen3.5-122B-A10B-FP8"
+  - "google/gemma-4-31B-it"
+  - "google/gemma-4-26B-A4B-it"
 #  - "nvidia/Qwen3-235B-A22B-NVFP4"
 #  - "Qwen/Qwen3-235B-A22B-FP8"
 #  - "nvidia/Qwen3.5-397B-A17B-NVFP4"

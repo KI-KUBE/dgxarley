@@ -14,7 +14,13 @@
 DOCKERFILE=Dockerfile.sglang-nightly
 TARGET=runtime
 
-BASE_IMAGE=scitrera/dgx-spark-pytorch-dev:2.11.0-v1-cu132
+# Upstream scitrera/cuda-containers sglang-0.5.10.recipe hardcodes
+# scitrera/dgx-spark-pytorch-dev:2.11.0-v1-cu132, which does NOT exist on
+# Docker Hub (newest published tag is 2.10.0-v2-cu131, 2026-02-13). All other
+# scitrera recipes in that repo (sglang-0.5.9-t4/t5, vllm-0.17.0-t4/t5)
+# correctly reference 2.10.0-v2-cu131, so this is upstream drift on the
+# 0.5.10 recipe specifically. We override with the newest existing tag.
+BASE_IMAGE=scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131
 
 FLASHINFER_VERSION=0.6.7.post3
 TRANSFORMERS_VERSION=5.5.3
