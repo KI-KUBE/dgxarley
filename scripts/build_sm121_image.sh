@@ -91,12 +91,22 @@ PODMAN_SSH_IDENTITY="${BUILD_SM121_SSH_IDENTITY:-${HOME}/.ssh/id_podman}"
 # (10%). MAX_JOBS is set from this ARG and propagates to sgl-kernel,
 # flashinfer, and any Python extension build that honors it.
 #
-# GB10 topology: 10 Cortex-X925 + 10 Cortex-A725, 128 GB unified memory.
-# CUTLASS template compiles can peak at ~5 GB per TU, so 16 parallel jobs
-# leave ~33 GB headroom over the 80 GB worst-case footprint — comfortable.
-# Push to 20 only if you've verified no other workload is running on the
-# build host (else OOM-kill risk on the heavy CUTLASS translation units).
-BUILD_JOBS="${BUILD_SM121_BUILD_JOBS:-16}"
+# GB10 topology: 10 Cortex-X925 + 10 Cortex-A725, 128 GB unified memory
+# (of which ~113 GiB is typically free on an otherwise-idle spark host).
+#
+# EMPIRICAL RESULT (2026-04-10): BUILD_JOBS=16 → OOM-killed during the
+# CUTLASS template instantiation phase of sgl-kernel. CUTLASS TU peaks are
+# heavier than the "~5 GB per TU" rule of thumb suggests — closer to
+# 7-10 GB when multiple heavy TUs hit template expansion simultaneously.
+# 16 × ~7 GB = ~112 GB → no margin for buffers/caches → OOM.
+#
+# 8 is the verified safe default on this hardware. If you want to push:
+#   - 10 should still fit (10 × 7 = 70 GB worst case, ~40 GB headroom)
+#   - 12 is the theoretical ceiling (12 × 7 = 84 GB, ~30 GB headroom)
+#   - 16+ has been confirmed to OOM-kill, don't try again without first
+#     reducing per-TU memory pressure (e.g. SGL_KERNEL_COMPILE_THREADS=1
+#     in the CMake args — which the Dockerfile already sets for nvcc).
+BUILD_JOBS="${BUILD_SM121_BUILD_JOBS:-8}"
 
 PUSH_IMAGE=1
 

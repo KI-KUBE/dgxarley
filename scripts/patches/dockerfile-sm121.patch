@@ -1,18 +1,28 @@
 Dockerfile integration for the SM121 sgl-kernel source patch.
 
-Two changes to container-build/Dockerfile.sglang-nightly:
+Two structural changes to container-build/Dockerfile.sglang-nightly:
 
 1. Add `patch` to the apt-get install list in the builder stage.
    The base image (scitrera/dgx-spark-pytorch-dev) does not ship the
    `patch` binary, and we need it to apply sgl-kernel-sm121.patch.
 
-2. After the SGLang clone and the SGLANG_VERSION sed step, before
-   `uv pip install ./python` installs the package into dist-packages,
-   COPY + apply patches/sgl-kernel-sm121.patch. The patched .cuh is
-   then picked up when the Python package is installed and later
-   JIT-compiled at runtime via nvrtc.
+2. MOVE the sglang Python package install (`uv pip install ./python`) and
+   the COPY + apply of sgl-kernel-sm121.patch to the END of the builder
+   stage, right before stages/directory_split2.sh runs.
 
-Idempotency: `patch --dry-run` runs before the real apply — if the
+   Why: our patch target `python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh`
+   is a JIT header (compiled at runtime via nvrtc, not during the Docker
+   build). It only needs to be present in the installed sglang Python
+   package -- the expensive `sgl-kernel` C++ build earlier in the Dockerfile
+   never reads it. By placing the patch LATE (after sgl-kernel build,
+   flashinfer install, transformers install etc.), iterating on the patch
+   content no longer invalidates those expensive layers. Rebuild after a
+   patch change drops from ~40-60 min to ~2-3 min.
+
+   This deletes the existing `uv pip install ./python` block near line 98
+   and re-inserts it (together with the patch COPY + apply) near line 188.
+
+Idempotency: `patch --dry-run` runs before the real apply -- if the
 upstream file drifts such that the hunks no longer match, the build
 fails immediately with a clear diagnostic instead of producing an
 unpatched image. `grep -q 'StageCount<1>'` after apply confirms the
@@ -32,15 +42,33 @@ carries this patch; see scripts/build_sm121_image.sh.
          wget \
          ccache \
          libcudnn9-cuda-13 \
-@@ -95,6 +96,18 @@
+@@ -95,10 +96,6 @@
  ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_SGLANG=${SGLANG_VERSION} \
      SETUPTOOLS_SCM_PRETEND_VERSION=${SGLANG_VERSION}
-
+ 
+-# Install sglang package (no deps, no build isolation since base has torch)
+-RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
+-    uv pip install --no-build-isolation --no-deps ./python
+-
+ # Copy any pre-built sgl-kernel wheels from build context (may be empty)
+ COPY wheel-cache/ /data/wheel-cache/
+ 
+@@ -185,6 +182,31 @@
+         uv pip install -U transformers --pre; \
+     fi
+ 
 +# SM121 (DGX Spark GB10) shared memory fix for cutlass_moe_fp4.
 +# Patches run_fp4_blockwise_scaled_group_mm_sm120() in the JIT-compiled
 +# nvfp4_blockwise_moe.cuh to use StageCount<1> + non-pingpong schedule,
-+# cutting mainloop SMEM from ~147 KB to ~74 KB (fits 101 KB SM121 budget).
-+# See patches/sgl-kernel-sm121.patch header for full root cause.
++# cutting mainloop SMEM from 102400 B (100 KiB) to below the 101376 B
++# (99 KiB) SM121 budget. See patches/sgl-kernel-sm121.patch header and
++# NVIDIA/cutlass#3144 for the verified SMEM numbers and root cause.
++#
++# Placed LATE in the builder stage (after sgl-kernel build + flashinfer +
++# transformers install) so that iterating on the patch content does not
++# invalidate the expensive sgl-kernel build layer. The .cuh is a JIT
++# header compiled via nvrtc at runtime, so it only needs to be present
++# in the installed sglang Python package, not in the sgl-kernel C++ build.
 +COPY patches/sgl-kernel-sm121.patch /tmp/sgl-kernel-sm121.patch
 +RUN set -e; cd /data/sglang && \
 +    patch --dry-run -p1 < /tmp/sgl-kernel-sm121.patch && \
@@ -48,6 +76,12 @@ carries this patch; see scripts/build_sm121_image.sh.
 +    grep -q 'StageCount<1>' python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh && \
 +    echo 'SM121 sgl-kernel patch applied successfully'
 +
- # Install sglang package (no deps, no build isolation since base has torch)
- RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
-     uv pip install --no-build-isolation --no-deps ./python
++# Install sglang package (no deps, no build isolation since base has torch).
++# Moved here from its original location (~line 98) so that the installed
++# dist-packages picks up the patched nvfp4_blockwise_moe.cuh above.
++RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
++    uv pip install --no-build-isolation --no-deps ./python
++
+ # Break up dist-packages into smaller layers to avoid hitting Docker layer size limits
+ COPY stages/directory_split2.sh /opt/directory_split2.sh
+ RUN chmod +x /opt/directory_split2.sh && \

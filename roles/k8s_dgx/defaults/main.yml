@@ -14,7 +14,9 @@ openwebui_namespace: "openwebui"
 #sglang_image: "scitrera/dgx-spark-sglang:0.5.10rc0"
 #sglang_image: "scitrera/dgx-spark-sglang:0.5.10"
 
-sglang_image: "scitrera/dgx-spark-sglang:0.5.10"
+# sglang_image: "scitrera/dgx-spark-sglang:0.5.10"
+
+sglang_image: "xomoxcc/dgx-spark-sglang:0.5.10-sm121"
 
 sglang_nnodes: 4
 
@@ -639,8 +641,8 @@ sglang_model_profiles:
     kv_cache_dtype: "fp8_e4m3"
     # ~18 GB/GPU weights → ~100 GB free → 0.80 leaves plenty for KV + JIT.
     # 128 experts (vs 512 for Qwen3.5) → much less JIT memory needed.
-    #mem_fraction_static: "0.80"
-    mem_fraction_static: "0.70"
+    # Test 17 winner value; do not lower without a new matrix run.
+    mem_fraction_static: "0.80"
     attention_backend: "triton"
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4
@@ -678,7 +680,14 @@ sglang_model_profiles:
     #   tune up in 0.02 steps.
     # Params from the LMSYS README launch example (tuned for TP=8 BF16; may need
     #   reduction on TP=4 NVFP4 to 3/1/4 if verification latency dominates).
-    speculative_enabled: true
+    # Empirical result (2026-04-10, n=4 matrix Test 37): EAGLE3 × NVFP4 target
+    # is NOT viable on SM121. NaN logprobs in the draft due to FP4→BF16 hidden-
+    # state distribution drift degenerate the tree, forcing the "ignore the
+    # token" recovery on most draft cycles. Measured: 2.3-3.4 tok/s/stream
+    # (~32% of baseline 8.65), 5.9 tok/s peak at n=4 (~17% of baseline 34.60).
+    # Parallelism collapses because NaN recovery breaks batched verify. Kept
+    # disabled unless/until an NVFP4-aware draft exists.
+    speculative_enabled: false
     speculative_algo: "EAGLE3"
     speculative_draft_model_path: "lmsys/Qwen3-235B-A22B-EAGLE3"
     # Force draft load without quantization. Without this override SGLang
