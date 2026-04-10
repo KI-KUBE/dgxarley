@@ -270,7 +270,7 @@ If one approach fails to compile, try the next. Approach 2a (StageCount<1>) has 
 The patch file `sgl-kernel-sm121.patch` is stored in `scitrera/cuda-containers/container-build/patches/` and referenced from a new Dockerfile variant as shown above. The actual build flow is automated by `scripts/build_sm121_image.sh` in this repo, which handles:
 - Local clone of `scitrera/cuda-containers` at `~/pythondev_workspace/cuda-containers`
 - Dispatch to an arm64 build host (spark1) via SSH (since the base image is aarch64)
-- Docker Hub push to `vroofoo/dgx-spark-sglang:0.5.10-sm121`
+- Docker Hub push to `xomoxcc/dgx-spark-sglang:0.5.10-sm121`
 
 See Phase 4 in `plans/squishy-napping-starlight.md` for the script structure. Manual invocation:
 
@@ -278,7 +278,7 @@ See Phase 4 in `plans/squishy-napping-starlight.md` for the script structure. Ma
 bash /home/thiess/pythondev_workspace/dgxarley/scripts/build_sm121_image.sh
 ```
 
-Resulting image: `vroofoo/dgx-spark-sglang:0.5.10-sm121`.
+Resulting image: `xomoxcc/dgx-spark-sglang:0.5.10-sm121`.
 
 ### Crash B fix — already shipped upstream
 

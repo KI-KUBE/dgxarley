@@ -1,0 +1,25 @@
+#
+# Custom recipe: scitrera/dgx-spark-sglang v0.5.10 with SM121 sgl-kernel patch.
+#
+# Differs from upstream container-recipes/sglang-0.5.10.recipe only in IMAGE_TAG.
+# The SM121 patch itself is applied via the Dockerfile diff in
+# dockerfile-sm121.patch (scripts/build_sm121_image.sh handles both).
+#
+# The Dockerfile picks up patches/sgl-kernel-sm121.patch from the build context;
+# the build script copies it into container-build/patches/ before invoking
+# build-image.sh.
+#
+# See CUTLASS_NVFP4_SM121_PRD.md for the full root cause + fix rationale.
+#
+DOCKERFILE=Dockerfile.sglang-nightly
+TARGET=runtime
+
+BASE_IMAGE=scitrera/dgx-spark-pytorch-dev:2.11.0-v1-cu132
+
+FLASHINFER_VERSION=0.6.7.post3
+TRANSFORMERS_VERSION=5.5.3
+
+SGLANG_VERSION=0.5.10
+SGLANG_REF="v0.5.10"
+
+IMAGE_TAG=xomoxcc/dgx-spark-sglang:0.5.10-sm121

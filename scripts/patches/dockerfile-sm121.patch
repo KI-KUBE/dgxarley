@@ -1,0 +1,53 @@
+Dockerfile integration for the SM121 sgl-kernel source patch.
+
+Two changes to container-build/Dockerfile.sglang-nightly:
+
+1. Add `patch` to the apt-get install list in the builder stage.
+   The base image (scitrera/dgx-spark-pytorch-dev) does not ship the
+   `patch` binary, and we need it to apply sgl-kernel-sm121.patch.
+
+2. After the SGLang clone and the SGLANG_VERSION sed step, before
+   `uv pip install ./python` installs the package into dist-packages,
+   COPY + apply patches/sgl-kernel-sm121.patch. The patched .cuh is
+   then picked up when the Python package is installed and later
+   JIT-compiled at runtime via nvrtc.
+
+Idempotency: `patch --dry-run` runs before the real apply — if the
+upstream file drifts such that the hunks no longer match, the build
+fails immediately with a clear diagnostic instead of producing an
+unpatched image. `grep -q 'StageCount<1>'` after apply confirms the
+replacement landed.
+
+Apply to: container-build/Dockerfile.sglang-nightly in the local
+clone of scitrera/cuda-containers. The sm121 branch in that clone
+carries this patch; see scripts/build_sm121_image.sh.
+
+--- a/container-build/Dockerfile.sglang-nightly
++++ b/container-build/Dockerfile.sglang-nightly
+@@ -30,6 +30,7 @@
+         python3-pip \
+         python3-dev \
+         git \
++        patch \
+         wget \
+         ccache \
+         libcudnn9-cuda-13 \
+@@ -95,6 +96,18 @@
+ ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_SGLANG=${SGLANG_VERSION} \
+     SETUPTOOLS_SCM_PRETEND_VERSION=${SGLANG_VERSION}
+
++# SM121 (DGX Spark GB10) shared memory fix for cutlass_moe_fp4.
++# Patches run_fp4_blockwise_scaled_group_mm_sm120() in the JIT-compiled
++# nvfp4_blockwise_moe.cuh to use StageCount<1> + non-pingpong schedule,
++# cutting mainloop SMEM from ~147 KB to ~74 KB (fits 101 KB SM121 budget).
++# See patches/sgl-kernel-sm121.patch header for full root cause.
++COPY patches/sgl-kernel-sm121.patch /tmp/sgl-kernel-sm121.patch
++RUN set -e; cd /data/sglang && \
++    patch --dry-run -p1 < /tmp/sgl-kernel-sm121.patch && \
++    patch -p1 < /tmp/sgl-kernel-sm121.patch && \
++    grep -q 'StageCount<1>' python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh && \
++    echo 'SM121 sgl-kernel patch applied successfully'
++
+ # Install sglang package (no deps, no build isolation since base has torch)
+ RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
+     uv pip install --no-build-isolation --no-deps ./python

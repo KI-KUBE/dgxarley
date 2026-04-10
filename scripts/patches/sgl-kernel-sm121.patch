@@ -1,0 +1,57 @@
+SM121 (DGX Spark GB10) shared memory fix for cutlass_moe_fp4 / nvfp4_blockwise_moe
+
+Problem:
+  SM121 has only 101 KB shared memory per block, while CUTLASS's
+  StageCountAutoCarveout computes stage count against the compile-time
+  SM-family maximum (228 KB for SM12x). The SM120 kernel path in
+  run_fp4_blockwise_scaled_group_mm_sm120() requests ~147 KB SMEM via
+  Pingpong schedule + auto stage carveout, which SM121 cannot satisfy.
+  Result: nvfp4_blockwise_moe.cuh:78 device-side assert whenever the
+  triton or cutlass MoE runner dispatches to cutlass_moe_fp4 for NVFP4.
+
+Fix:
+  Force StageCount<1> (single-stage mainloop, no double buffering) and
+  switch from KernelPtrArrayTmaWarpSpecializedPingpong to the non-pingpong
+  KernelPtrArrayTmaWarpSpecialized schedule. Combined, this cuts mainloop
+  SMEM from ~147 KB to ~74 KB and fits the 101 KB SM121 budget.
+
+  The ThreadBlockShape<_128, _128, _128> is unchanged — TMA descriptor
+  validation allows stage/schedule changes but rejects M/N reduction.
+
+Equivalent to the tile/stage change in TensorRT-LLM PR #12141
+(NVIDIA/TensorRT-LLM, merged 2026-03-18) which applied the same approach
+in TRT-LLM's fp4_gemm_template.h for SM121.
+
+Refs:
+  - https://github.com/NVIDIA/cutlass/issues/3144 (root cause)
+  - https://github.com/NVIDIA/TensorRT-LLM/pull/12141 (reference approach)
+  - https://github.com/sgl-project/sglang/pull/20012 (JIT migration: file moved
+    from sgl-kernel/csrc/moe/ to python/sglang/jit_kernel/csrc/moe/)
+
+Upstream source: sgl-project/sglang tag v0.5.10
+
+--- a/python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh
++++ b/python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh
+@@ -289,7 +289,9 @@
+   // Architecture definitions
+   using ArchTag = cutlass::arch::Sm120;
+   using OperatorClass = cutlass::arch::OpClassBlockScaledTensorOp;
+-  using StageCountType = cutlass::gemm::collective::StageCountAuto;
++  // SM121 (DGX Spark GB10): only 101 KB SMEM vs 228 KB on SM120.
++  // StageCount<1> halves mainloop SMEM from ~147 KB to ~74 KB.
++  using StageCountType = cutlass::gemm::collective::StageCount<1>;
+   using ThreadBlockShape = Shape<_128, _128, _128>;
+   // on the tile size
+
+@@ -327,9 +329,8 @@
+       ElementAccumulator,
+       ThreadBlockShape,
+       ClusterShape,
+-      cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
+-          sizeof(typename CollectiveEpilogue::SharedStorage))>,
+-      cutlass::gemm::KernelPtrArrayTmaWarpSpecializedPingpong>::CollectiveOp;
++      StageCountType,
++      cutlass::gemm::KernelPtrArrayTmaWarpSpecialized>::CollectiveOp;
+
+   using GemmKernel = cutlass::gemm::kernel::GemmUniversal<ProblemShape, CollectiveMainloop, CollectiveEpilogue>;
+
