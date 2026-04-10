@@ -4,13 +4,22 @@ set -e
 # Install ping for ARP priming (not included in sglang image)
 apt-get update -qq && apt-get install -y -qq tini iproute2 iputils-ping net-tools curl ethtool >/dev/null 2>&1
 
+# accelerate: required by SGLang's ModelOptModelLoader
+# (srt/model_loader/loader.py → _load_modelopt_base_model). Triggered by:
+#   - GLM-5-NVFP4 (modelopt base model load path)
+#   - EAGLE3/speculative decoding with a modelopt-quantized target model
+#     (e.g. nvidia/Qwen3-235B-A22B-NVFP4 + lmsys EAGLE3 draft) — the draft
+#     worker loads the target's embeddings via _load_modelopt_base_model
+#     and hits ImportError if accelerate is missing.
+# Upstream scitrera/dgx-spark-sglang image does NOT ship accelerate.
+if [[ "$SGLANG_MODEL" == *"GLM-5"* ]] || [ "$SGLANG_SPECULATIVE_ENABLED" = "true" ]; then
+  python3 -c "import accelerate" 2>/dev/null || pip install accelerate
+fi
+
 # GLM-5 specific: transformers upgrade + mem_get_info patch.
 # Only needed for glm_moe_dsa models — skip for MiniMax, Qwen, etc.
 if [[ "$SGLANG_MODEL" == *"GLM-5"* ]]; then
   echo "GLM-5 model detected — applying GLM-5 specific patches..."
-
-  # accelerate: required by ModelOptModelLoader for GLM-5-NVFP4.
-  python3 -c "import accelerate" 2>/dev/null || pip install accelerate
 
   # transformers ≥5.3.0: required for glm_moe_dsa model type.
   # Must also pull huggingface_hub >=1.3.0 (transformers 5.3.0 dependency).
@@ -572,6 +581,15 @@ if [ "$SGLANG_SPECULATIVE_ENABLED" = "true" ]; then
   # External draft model (EAGLE/EAGLE3): use speculative_draft_model_path from profile.
   if [ -n "$SGLANG_SPECULATIVE_DRAFT_MODEL_PATH" ]; then
     args+=(--speculative-draft-model-path "$SGLANG_SPECULATIVE_DRAFT_MODEL_PATH")
+  fi
+  # Draft model quantization override. By default SGLang inherits the target's
+  # quantization for the draft, which breaks when the target is modelopt-
+  # quantized (NVFP4) but the draft ships as plain BF16 (typical for external
+  # EAGLE3 drafts). Setting "unquant" forces the draft to load without
+  # quantization, bypassing the modelopt loader and its Qwen3MoE state-dict
+  # shape mismatch against the single-layer EAGLE3 checkpoint.
+  if [ -n "$SGLANG_SPECULATIVE_DRAFT_MODEL_QUANTIZATION" ]; then
+    args+=(--speculative-draft-model-quantization "$SGLANG_SPECULATIVE_DRAFT_MODEL_QUANTIZATION")
   fi
   # WORKAROUND (SGLang 0.5.9): sharded_state + speculative decoding crash.
   # The draft model's ModelRunner inherits load_format=sharded_state from

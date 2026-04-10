@@ -639,7 +639,8 @@ sglang_model_profiles:
     kv_cache_dtype: "fp8_e4m3"
     # ~18 GB/GPU weights → ~100 GB free → 0.80 leaves plenty for KV + JIT.
     # 128 experts (vs 512 for Qwen3.5) → much less JIT memory needed.
-    mem_fraction_static: "0.80"
+    #mem_fraction_static: "0.80"
+    mem_fraction_static: "0.70"
     attention_backend: "triton"
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4
@@ -658,7 +659,39 @@ sglang_model_profiles:
       temperature: 0.6
       top_p: 0.95
       top_k: 20
-    speculative_enabled: false
+    # EAGLE3 speculative decoding — experimental, toggle via speculative_enabled.
+    # Draft model: lmsys/Qwen3-235B-A22B-EAGLE3 (~0.3B, published by LMSYS via
+    # SpecForge). LMSYS benchmarks on H100/H200 TP=8 BF16 target: gsm8k 224 tok/s
+    # @ accept length 3.54; mtbench 241 tok/s @ accept length 3.02. Roughly 2.5-3x
+    # speedup vs baseline.
+    # ⚠ Unvalidated combinations on this setup — no published report covers:
+    #   - NVFP4 target × BF16 draft (tokenizer matches, dtype handoff untested)
+    #   - TP=4 vs published TP=8
+    #   - SM121 Blackwell / DGX Spark (LMSYS tested H100/H200, NVIDIA's variant
+    #     targets B200)
+    #   - SGLang v0.5.10 EAGLE3 + Qwen3 MoE + EP=4
+    # ⚠ SGLang issue #8870: EAGLE3 + CUDA graphs → "index out of bounds" in
+    #   flashinfer. Closed Dec 2025 as inactive, not fixed. The Test-17 winner
+    #   config already runs disable_cuda_graph: true, so this bug doesn't apply.
+    # ⚠ Enabling speculative may require lowering mem_fraction_static (0.80 →
+    #   ~0.72-0.75) to fit draft weights + hidden-state buffers. Start low and
+    #   tune up in 0.02 steps.
+    # Params from the LMSYS README launch example (tuned for TP=8 BF16; may need
+    #   reduction on TP=4 NVFP4 to 3/1/4 if verification latency dominates).
+    speculative_enabled: true
+    speculative_algo: "EAGLE3"
+    speculative_draft_model_path: "lmsys/Qwen3-235B-A22B-EAGLE3"
+    # Force draft load without quantization. Without this override SGLang
+    # inherits quantization=modelopt_fp4 from the target, routes the draft
+    # through _load_modelopt_base_model → AutoModelForCausalLM.from_pretrained,
+    # and tries to instantiate a full Qwen3MoE shell. The LMSYS EAGLE3 draft
+    # ships as plain BF16 with a single midlayer + draft_vocab_size=32000 →
+    # state-dict shape mismatch on lm_head ([32000,4096] vs [151936,4096])
+    # and missing layer weights. "unquant" bypasses the modelopt loader.
+    speculative_draft_model_quantization: "unquant"
+    speculative_num_steps: 5
+    speculative_eagle_topk: 8
+    speculative_num_draft_tokens: 32
   "zai-org/GLM-4.7-FP8":
     info_url: "https://huggingface.co/zai-org/GLM-4.7-FP8"
     # 358B/~58B-active MoE (160 experts, top-8, sigmoid routing), FP8 quantized (~358 GB).
@@ -728,6 +761,17 @@ sglang_speculative_num_draft_tokens: "{{ sglang_model_profiles[sglang_model].spe
 # Draft model path for EAGLE/EAGLE3. Empty = use model's own MTP heads (NEXTN).
 # For external draft models: set to the HF model ID (e.g. "togethercomputer/Aurora-Spec-Minimax-M2.5").
 sglang_speculative_draft_model_path: "{{ sglang_model_profiles[sglang_model].speculative_draft_model_path | default('') }}"
+# Quantization method for the draft model. By default SGLang inherits the
+# target model's quantization — which breaks when the target is modelopt-
+# quantized (e.g. NVFP4) but the draft ships as plain BF16 (the usual case
+# for external EAGLE3 drafts like lmsys/Qwen3-235B-A22B-EAGLE3). The draft
+# worker then routes through _load_modelopt_base_model and tries to
+# reinstantiate a full Qwen3MoE from a single-layer EAGLE3 checkpoint,
+# producing a state-dict shape mismatch on lm_head (32000 vs 151936) and
+# missing layer weights.
+# Set to "unquant" to force SGLang to load the draft without quantization.
+# Empty string (default) = inherit target quantization (SGLang's default).
+sglang_speculative_draft_model_quantization: "{{ sglang_model_profiles[sglang_model].speculative_draft_model_quantization | default('') }}"
 
 # Select the active model — parameters are pulled from sglang_model_profiles
 #sglang_model: "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
@@ -1120,6 +1164,8 @@ hf_token: "hf_CHANGEME"
 # HuggingFace model pre-download Job
 hf_preload_models:
   - "togethercomputer/Aurora-Spec-Minimax-M2.5"
+  - "lmsys/Qwen3-235B-A22B-EAGLE3"
+  - "nvidia/Qwen3-235B-A22B-Eagle3"
   - "nvidia/Qwen3-235B-A22B-NVFP4"
   - "Qwen/Qwen3.5-122B-A10B-FP8"
 #  - "nvidia/Qwen3-235B-A22B-NVFP4"
