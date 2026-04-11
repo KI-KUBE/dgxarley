@@ -28,13 +28,17 @@ Fix:
        before the failing one — helps narrow down which layer / MoE
        call asserts.
 
-  Gated at runtime by the env var `SGL_SM121_DEBUG_CUTLASS`. When
-  unset (default), the `static const bool _dgx_debug` is false on
-  first touch and the branch predictor folds the check away — near-
-  zero overhead in production. When set to any non-empty value, the
-  diagnostic fires on every sm120 GEMM call. No rebuild required to
-  toggle — just set the env var in the sglang pod (e.g. via
-  roles/k8s_dgx/files/sglang_launch.sh).
+  Gated at runtime by the env var `DGXARLEY_SM121_DEBUG`. When unset
+  (default), the `static const bool _dgx_debug` is false on first
+  touch and the branch predictor folds the check away — near-zero
+  overhead in production. When set to any value, the diagnostic fires
+  on every sm120 GEMM call. No rebuild required to toggle — just set
+  the env var in the sglang pod.
+
+  Previously named SGL_SM121_DEBUG_CUTLASS, renamed because sglang's
+  environ.py deprecation check iterates every SGL_* prefixed env var
+  at startup and emits a UserWarning, spamming the pod log. Prefixing
+  with DGXARLEY_ puts this var clearly outside sglang's namespace.
 
   Gated at BUILD time by `APPLY_SGL_KERNEL_SM121_DEBUG` build-arg
   (default 0, opt-in via `--sm121-debug` in build_sm121_image.sh).
@@ -73,10 +77,10 @@ Upstream source: sgl-project/sglang tag v0.5.10
 +  // stream sync immediately after launch, captures cudaGetLastError, and
 +  // prints a diagnostic to stderr tagged with the call site (sm120 path)
 +  // and the problem shape. Gated at runtime by env var so it can be
-+  // toggled without a rebuild: set SGL_SM121_DEBUG_CUTLASS=1 in the
-+  // pod env (e.g. via sglang_launch.sh).
++  // toggled without a rebuild: set DGXARLEY_SM121_DEBUG=1 in the pod env.
++  // DGXARLEY_ prefix avoids sglang's SGL_*/SGLANG_* deprecation spam.
 +  {
-+    static const bool _dgx_debug = (std::getenv("SGL_SM121_DEBUG_CUTLASS") != nullptr);
++    static const bool _dgx_debug = (std::getenv("DGXARLEY_SM121_DEBUG") != nullptr);
 +    if (_dgx_debug) {
 +      cudaError_t _sync_err = cudaStreamSynchronize(stream);
 +      cudaError_t _last_err = cudaGetLastError();

@@ -205,13 +205,28 @@ parallel_pull_flat() {
     for host in "${TARGETS[@]}"; do
         short="${host%%.*}"
         (
-            ssh "${SSH_OPTS[@]}" "root@${host}" \
-                "set -e; \
-                 k3s ctr -n k8s.io image pull --plain-http '${REGISTRY_IMAGE}'; \
-                 k3s ctr -n k8s.io image rm '${IMAGE}' >/dev/null 2>&1 || true; \
-                 k3s ctr -n k8s.io image tag '${REGISTRY_IMAGE}' '${IMAGE}'; \
-                 k3s ctr -n k8s.io image rm '${REGISTRY_IMAGE}' >/dev/null" \
-                2>&1 | sed "s/^/[${short}] /"
+            if [[ "${host}" == "${SOURCE}" ]]; then
+                # Source host fast-path: bypass the registry entirely. The
+                # image already exists in this host's podman store; pipe it
+                # directly into k3s containerd via save|import. Avoids
+                # loopback TCP, avoids HTTP/registry overhead, and (more
+                # importantly) frees the registry process to serve the
+                # other targets without self-contention. See function docs.
+                ssh "${SSH_OPTS[@]}" "root@${host}" \
+                    "set -e; \
+                     podman save --format docker-archive '${IMAGE}' \
+                       | k3s ctr -n k8s.io image import -; \
+                     k3s ctr -n k8s.io image ls -q | grep -qxF '${IMAGE}'" \
+                    2>&1 | sed "s/^/[${short}] /"
+            else
+                ssh "${SSH_OPTS[@]}" "root@${host}" \
+                    "set -e; \
+                     k3s ctr -n k8s.io image pull --plain-http '${REGISTRY_IMAGE}'; \
+                     k3s ctr -n k8s.io image rm '${IMAGE}' >/dev/null 2>&1 || true; \
+                     k3s ctr -n k8s.io image tag '${REGISTRY_IMAGE}' '${IMAGE}'; \
+                     k3s ctr -n k8s.io image rm '${REGISTRY_IMAGE}' >/dev/null" \
+                    2>&1 | sed "s/^/[${short}] /"
+            fi
         ) &
         pids+=($!)
     done
@@ -229,16 +244,54 @@ parallel_pull_tmux() {
 
     # Per-target driver scripts: avoid nested-quoting hell when shoving
     # commands into tmux "..." arguments. Each script ssh-es to its target,
-    # runs the ctr pipeline, writes its exit code to work_dir/${short}.rc,
-    # and prints a final banner so the pane tells you at a glance whether
-    # it succeeded. Shell vars are expanded NOW (at heredoc write time)
-    # except \${rc} which escapes to stay literal and is evaluated inside
-    # the generated script after ssh returns.
+    # runs either the source-host fast-path or a registry pull, writes its
+    # exit code to work_dir/${short}.rc, and prints a final banner so the
+    # pane tells you at a glance whether it succeeded. Shell vars are
+    # expanded NOW (at heredoc write time) except \${rc} which escapes to
+    # stay literal and is evaluated inside the generated script after ssh
+    # returns.
+    #
+    # Source-host fast-path: when host == SOURCE the image is already in
+    # this host's podman store, so we skip the registry roundtrip entirely
+    # and pipe `podman save` directly into `k3s ctr image import`. This
+    # avoids loopback TCP (slower than real QSFP on GB10 due to software
+    # TCP stack vs. Mellanox hardware offload), avoids HTTP framing/gzip
+    # re-stream overhead, and frees the registry process to service the
+    # 3 remote pulls without self-contention. Measured: spark4 pull via
+    # registry took ~340 s while spark1/2/3 finished in ~80 s; with the
+    # fast-path spark4 should come in at ~40-60 s.
     for host in "${TARGETS[@]}"; do
         short="${host%%.*}"
-        cat > "${work_dir}/${short}.sh" <<EOF
+        if [[ "${host}" == "${SOURCE}" ]]; then
+            cat > "${work_dir}/${short}.sh" <<EOF
 #!/usr/bin/env bash
 set -o pipefail
+echo "=== ${short}: source-host fast-path (podman save | k3s ctr image import) ==="
+ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "root@${host}" \\
+    "set -e; \\
+     podman save --format docker-archive '${IMAGE}' \\
+       | k3s ctr -n k8s.io image import -; \\
+     k3s ctr -n k8s.io image ls -q | grep -qxF '${IMAGE}' \\
+       || { echo 'ERROR: ${IMAGE} not in containerd after import' >&2; exit 1; }"
+rc=\$?
+echo "\${rc}" > "${work_dir}/${short}.rc"
+echo
+if [[ \${rc} -eq 0 ]]; then
+    echo "================================================================"
+    echo "  ${short}: OK (source fast-path — no registry roundtrip)"
+    echo "  detach with Ctrl+B then d once all 4 are done"
+    echo "================================================================"
+else
+    echo "################################################################"
+    echo "  ${short}: FAILED (rc=\${rc})"
+    echo "################################################################"
+fi
+EOF
+        else
+            cat > "${work_dir}/${short}.sh" <<EOF
+#!/usr/bin/env bash
+set -o pipefail
+echo "=== ${short}: registry pull from ${REGISTRY_HOST}:${REGISTRY_PORT} ==="
 ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new "root@${host}" \\
     "set -e; \\
      k3s ctr -n k8s.io image pull --plain-http '${REGISTRY_IMAGE}'; \\
@@ -258,6 +311,7 @@ else
     echo "################################################################"
 fi
 EOF
+        fi
         chmod +x "${work_dir}/${short}.sh"
     done
 
