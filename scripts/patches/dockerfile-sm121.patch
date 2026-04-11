@@ -2,16 +2,16 @@ Dockerfile integration for all dgxarley sgl-kernel patches.
 
 Structural changes to container-build/Dockerfile.sglang-nightly:
 
-1. Four new ARGs near the top of the builder stage:
+1. Five new ARGs near the top of the builder stage:
      APPLY_SGL_KERNEL_ARCH_PRUNE       default 1 — arch list prune
      APPLY_SGL_KERNEL_DISABLE_FA3      default 1 — FA3 disable
      APPLY_SGL_KERNEL_SKIP_SM90_TARGET default 1 — sm90 target skip
+     APPLY_SGL_KERNEL_SKIP_FLASHMLA    default 1 — flashmla_ops target skip
      APPLY_SGL_KERNEL_SM121_DEBUG      default 0 — sm121 gemm_op.run
                                                    post-launch error check
-   The first three are every-build optimizations and default to ON. The
-   fourth is a diagnostic for CUTLASS sm120 GEMM template iteration work
-   and stays OFF by default since it has a tiny (but nonzero) production
-   runtime cost when enabled via its env var.
+   The first four are every-build optimizations and default to ON. The
+   fifth is a diagnostic for CUTLASS sm120 GEMM template iteration work
+   and stays OFF by default.
 
 2. Add `patch` to the apt-get install list. The base image
    (scitrera/dgx-spark-pytorch-dev) does not ship the `patch` binary.
@@ -20,18 +20,18 @@ Structural changes to container-build/Dockerfile.sglang-nightly:
    from its original early position to the end of the builder stage,
    right before stages/directory_split2.sh runs.
 
-4. EARLY patch application for the sgl-kernel CMakeLists edits. These
-   three patches (arch-prune, disable-fa3, skip-sm90-target) MUST be
-   applied BEFORE the `uv build --wheel` of sgl-kernel.
+4. EARLY patch application for the sgl-kernel CMakeLists edits. Four
+   patches (arch-prune, disable-fa3, skip-sm90-target, skip-flashmla)
+   MUST be applied BEFORE the `uv build --wheel` of sgl-kernel because
+   they edit sgl-kernel/CMakeLists.txt which is read at CMake configure
+   time. Each independently gated by a build-arg.
 
-5. LATE patch application for sgl-kernel-sm121.patch (the JIT kernel
-   SMEM fix in nvfp4_blockwise_moe.cuh) AND the optional
+5. LATE patch application for sgl-kernel-sm121.patch + the optional
    sgl-kernel-sm121-debug.patch (post-launch error diagnostic). Both
-   target the same .cuh header and stack cleanly (patch auto-offsets
-   the debug hunk line numbers after the tile-shrink hunks land).
-   Placing these late keeps iteration fast — changing either patch
-   only invalidates the final layers, not the expensive sgl-kernel
-   wheel build.
+   target the JIT-compiled nvfp4_blockwise_moe.cuh header. Placing
+   these late keeps iteration fast — changing either patch only
+   invalidates the final layers, not the expensive sgl-kernel wheel
+   build.
 
 Idempotency: Every patch application is preceded by a dry-run so
 upstream drift fails immediately with a clear diagnostic instead of
@@ -54,14 +54,14 @@ carries this patch; see scripts/build_sm121_image.sh.
 +#   --no-arch-prune          sets APPLY_SGL_KERNEL_ARCH_PRUNE=0
 +#   --keep-fa3               sets APPLY_SGL_KERNEL_DISABLE_FA3=0
 +#   --keep-sm90-target       sets APPLY_SGL_KERNEL_SKIP_SM90_TARGET=0
++#   --keep-flashmla          sets APPLY_SGL_KERNEL_SKIP_FLASHMLA=0
 +#   --sm121-debug            sets APPLY_SGL_KERNEL_SM121_DEBUG=1
-+# The sm121-debug patch is OPT-IN (default 0) because it adds diagnostic
-+# code to the JIT kernel path that is only useful when iterating on the
-+# CUTLASS sm120 GEMM template. Runtime-toggled via SGL_SM121_DEBUG_CUTLASS
-+# env var on the pod.
++# sm121-debug is OPT-IN (default 0); all four optimization patches default
++# to ON. Runtime-toggled via SGL_SM121_DEBUG_CUTLASS env var on the pod.
 +ARG APPLY_SGL_KERNEL_ARCH_PRUNE=1
 +ARG APPLY_SGL_KERNEL_DISABLE_FA3=1
 +ARG APPLY_SGL_KERNEL_SKIP_SM90_TARGET=1
++ARG APPLY_SGL_KERNEL_SKIP_FLASHMLA=1
 +ARG APPLY_SGL_KERNEL_SM121_DEBUG=0
  ARG CUDA_ARCHITECTURES=121
  ARG TORCH_CUDA_ARCH_LIST="12.1a"
@@ -74,26 +74,27 @@ carries this patch; see scripts/build_sm121_image.sh.
          wget \
          ccache \
          libcudnn9-cuda-13 \
-@@ -95,9 +110,44 @@
+@@ -95,9 +110,53 @@
  ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_SGLANG=${SGLANG_VERSION} \
      SETUPTOOLS_SCM_PRETEND_VERSION=${SGLANG_VERSION}
  
 -# Install sglang package (no deps, no build isolation since base has torch)
 -RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
 -    uv pip install --no-build-isolation --no-deps ./python
-+# dgxarley: sgl-kernel source patches (arch prune + FA3 disable + sm90
-+# target skip). All three MUST be applied BEFORE the sgl-kernel wheel
-+# build below, because they edit sgl-kernel/CMakeLists.txt which is read
-+# at CMake configure time. Each patch is independently gated by a build-
-+# arg so any combination is valid.
++# dgxarley: sgl-kernel source patches (arch prune + FA3 disable +
++# sm90 target skip + flashmla skip). All four MUST be applied BEFORE
++# the sgl-kernel wheel build below, because they edit sgl-kernel/
++# CMakeLists.txt which is read at CMake configure time. Each patch is
++# independently gated by a build-arg so any combination is valid.
 +#
-+# Layer-cache consequence: changing ANY of these three patches invalidates
++# Layer-cache consequence: changing ANY of these patches invalidates
 +# this RUN layer and the sgl-kernel wheel build downstream. Unavoidable —
-+# these patches reshape CMake inputs. The late *-sm121.patch for the JIT
-+# header stays in a much later layer to preserve fast iteration there.
++# these patches reshape CMake inputs. The late *-sm121*.patches for
++# the JIT header stay in a much later layer for fast iteration.
 +COPY patches/sgl-kernel-arch-prune.patch /tmp/sgl-kernel-arch-prune.patch
 +COPY patches/sgl-kernel-disable-fa3.patch /tmp/sgl-kernel-disable-fa3.patch
 +COPY patches/sgl-kernel-skip-sm90-target.patch /tmp/sgl-kernel-skip-sm90-target.patch
++COPY patches/sgl-kernel-skip-flashmla.patch /tmp/sgl-kernel-skip-flashmla.patch
 +RUN set -e; cd /data/sglang; \
 +    if [ "${APPLY_SGL_KERNEL_ARCH_PRUNE}" = "1" ]; then \
 +        echo "=== Applying sgl-kernel-arch-prune.patch ==="; \
@@ -118,11 +119,19 @@ carries this patch; see scripts/build_sm121_image.sh.
 +        grep -q 'dgxarley sgl-kernel-skip-sm90-target.patch' sgl-kernel/CMakeLists.txt; \
 +    else \
 +        echo "=== Skipping sgl-kernel-skip-sm90-target.patch (APPLY_SGL_KERNEL_SKIP_SM90_TARGET=${APPLY_SGL_KERNEL_SKIP_SM90_TARGET}) ==="; \
++    fi; \
++    if [ "${APPLY_SGL_KERNEL_SKIP_FLASHMLA}" = "1" ]; then \
++        echo "=== Applying sgl-kernel-skip-flashmla.patch ==="; \
++        patch --dry-run -p1 < /tmp/sgl-kernel-skip-flashmla.patch; \
++        patch -p1 < /tmp/sgl-kernel-skip-flashmla.patch; \
++        grep -q 'dgxarley sgl-kernel-skip-flashmla.patch' sgl-kernel/CMakeLists.txt; \
++    else \
++        echo "=== Skipping sgl-kernel-skip-flashmla.patch (APPLY_SGL_KERNEL_SKIP_FLASHMLA=${APPLY_SGL_KERNEL_SKIP_FLASHMLA}) ==="; \
 +    fi
  
  # Copy any pre-built sgl-kernel wheels from build context (may be empty)
  COPY wheel-cache/ /data/wheel-cache/
-@@ -185,6 +235,46 @@
+@@ -185,6 +244,46 @@
          uv pip install -U transformers --pre; \
      fi
  

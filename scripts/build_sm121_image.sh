@@ -162,6 +162,7 @@ BASE_IMAGE_SOURCE=""
 APPLY_ARCH_PRUNE=1
 APPLY_DISABLE_FA3=1
 APPLY_SKIP_SM90_TARGET=1
+APPLY_SKIP_FLASHMLA=1
 
 # sm121-debug: opt-in diagnostic that adds a cudaStreamSynchronize +
 # cudaGetLastError check immediately after gemm_op.run() in
@@ -184,7 +185,8 @@ usage() {
 Usage: $(basename "$0") [--base xomoxcc|scitrera|<image>]
                         [--remote-host user@host] [--podman-connection NAME]
                         [--no-arch-prune] [--keep-fa3] [--keep-sm90-target]
-                        [--sm121-debug] [--no-push] [--help]
+                        [--keep-flashmla] [--sm121-debug]
+                        [--no-push] [--help]
 
 Builds ${IMAGE_TAG} on the remote build host via podman socket, copies
 the result back to this host, and pushes it from here.
@@ -216,6 +218,13 @@ Options:
                (i.e. common_ops_sm90_build target is dead-coded since
                GB10 always loads sgl_kernel/sm100/common_ops.*). Use this
                if you plan to run the wheel on an actual Hopper GPU.
+  --keep-flashmla
+               Skip sgl-kernel-skip-flashmla.patch. Default IS to apply
+               (i.e. the entire flashmla_ops target is dead-coded — its
+               ~25 TUs target sm_90a / sm_100a and none run on GB10).
+               Use this if you plan to run the wheel on Hopper/B200
+               silicon for MLA-based inference (DeepSeek-V3, Kimi K2,
+               etc.) — those models need the sm90 FlashMLA kernels.
   --sm121-debug
                Apply sgl-kernel-sm121-debug.patch on top of the primary
                sm121 patch. Default is NOT to apply. When applied, the
@@ -303,6 +312,10 @@ while [[ $# -gt 0 ]]; do
             APPLY_SKIP_SM90_TARGET=0
             shift
             ;;
+        --keep-flashmla)
+            APPLY_SKIP_FLASHMLA=0
+            shift
+            ;;
         --sm121-debug)
             APPLY_SM121_DEBUG=1
             shift
@@ -329,8 +342,9 @@ preflight() {
     local missing=0
     for f in sgl-kernel-sm121.patch sgl-kernel-sm121-debug.patch \
              sgl-kernel-arch-prune.patch sgl-kernel-disable-fa3.patch \
-             sgl-kernel-skip-sm90-target.patch dockerfile-sm121.patch \
-             build-image-sh-podman.patch "${RECIPE_NAME}.recipe"; do
+             sgl-kernel-skip-sm90-target.patch sgl-kernel-skip-flashmla.patch \
+             dockerfile-sm121.patch build-image-sh-podman.patch \
+             "${RECIPE_NAME}.recipe"; do
         if [[ ! -f "${PATCHES_DIR}/${f}" ]]; then
             warn "Missing patch file: ${PATCHES_DIR}/${f}"
             missing=1
@@ -575,7 +589,7 @@ apply_patches() {
     mkdir -p container-build/patches
     for p in sgl-kernel-sm121.patch sgl-kernel-sm121-debug.patch \
              sgl-kernel-arch-prune.patch sgl-kernel-disable-fa3.patch \
-             sgl-kernel-skip-sm90-target.patch; do
+             sgl-kernel-skip-sm90-target.patch sgl-kernel-skip-flashmla.patch; do
         install -m 0644 "${PATCHES_DIR}/${p}" "container-build/patches/${p}"
         echo "Installed container-build/patches/${p}"
     done
@@ -672,6 +686,7 @@ run_build() {
     echo "    arch-prune         = $([ ${APPLY_ARCH_PRUNE} -eq 1 ] && echo APPLY || echo skip)  (--no-arch-prune opts out)"
     echo "    disable-fa3        = $([ ${APPLY_DISABLE_FA3} -eq 1 ] && echo APPLY || echo skip)  (--keep-fa3 opts out)"
     echo "    skip-sm90-target   = $([ ${APPLY_SKIP_SM90_TARGET} -eq 1 ] && echo APPLY || echo skip)  (--keep-sm90-target opts out)"
+    echo "    skip-flashmla      = $([ ${APPLY_SKIP_FLASHMLA} -eq 1 ] && echo APPLY || echo skip)  (--keep-flashmla opts out)"
 
     # The build context is container-build/ (contains Dockerfile + patches/
     # subdir). Podman streams it to the remote build host over the socket;
@@ -689,6 +704,7 @@ run_build() {
         --build-arg "APPLY_SGL_KERNEL_ARCH_PRUNE=${APPLY_ARCH_PRUNE}" \
         --build-arg "APPLY_SGL_KERNEL_DISABLE_FA3=${APPLY_DISABLE_FA3}" \
         --build-arg "APPLY_SGL_KERNEL_SKIP_SM90_TARGET=${APPLY_SKIP_SM90_TARGET}" \
+        --build-arg "APPLY_SGL_KERNEL_SKIP_FLASHMLA=${APPLY_SKIP_FLASHMLA}" \
         --build-arg "APPLY_SGL_KERNEL_SM121_DEBUG=${APPLY_SM121_DEBUG}" \
         -t "${IMAGE_TAG}" \
         -t "docker.io/${IMAGE_TAG}" \
