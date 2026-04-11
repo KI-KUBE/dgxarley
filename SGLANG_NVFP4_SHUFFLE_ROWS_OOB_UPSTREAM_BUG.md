@@ -2,11 +2,31 @@
 
 ## Status
 
-**Fix verified end-to-end on 2026-04-11 18:24 UTC** on the 4-node GB10 cluster
-with Qwen3-235B-A22B-NVFP4, TP=4 EP=4, `moe_runner_backend=triton`. First
-successful run of the triton/cutlass NVFP4 MoE path on SM121 under EP — see
-"Verification" section below for the pod log excerpt showing both debug probes
-green.
+**Partial progress, semantic fix invalidated.** 2026-04-11 session outcome:
+
+- **Crash is fixed**: the device-side assert at `nvfp4_blockwise_moe.cuh:78`
+  no longer fires — `torch.empty → torch.zeros` on `a_map`/`c_map` in
+  `cutlass_moe_fp4` eliminates the immediate OOB.
+- **Output is garbage**: generated tokens are meaningless (repeated `!`
+  characters, Chinese junk chars) even though the pipeline no longer
+  crashes. The "non-local slots multiply by zero weights" hypothesis
+  behind `torch.zeros` is wrong — the fake-gathered row-0 values DO
+  contribute to the final output.
+- **Our `sgl-kernel-sm121.patch` was unnecessary**: an A/B test with
+  the vanilla upstream `scitrera/dgx-spark-sglang:0.5.10` image (no
+  sm121 CUTLASS patches) produced the same behavior — no cuh:78
+  crash, same garbage output. Auto-carveout on SM121 already picks
+  a valid stage count; CUTLASS#3144 either doesn't apply to this
+  kernel's tile shapes or was fixed at the CUTLASS level we're
+  pulling. The sm121 kernel patches remain in `scripts/patches/`
+  as documented defense-in-depth in case #3144 resurfaces for
+  other models or tile shapes.
+
+The `_shuffle_rows_torch` OOB itself is now fully explained and the
+surface fix works, but the semantic path needs a second layer of fix
+(topk_weights masking or c2/c_map scatter discipline) before the
+triton/cutlass MoE backend under EP produces correct outputs. That
+work is in progress — see "Open: semantic fix" below.
 
 **Unreported as a root-cause analysis** upstream, but adjacent work exists:
 
@@ -195,16 +215,63 @@ was coming from. The full chain:
 6. **Synthesis.** Combining all three: `a_map` is `torch.empty` (uninitialized),
    the kernel only writes slots for local experts, the -1 slots from
    the dispatcher remap leave matching positions in `a_map` as garbage,
-   and `index_select` then trips on the garbage. Fix: `torch.empty` →
-   `torch.zeros`. Zero is always a valid row index; the fake-gathered
-   rows for -1 slots get grouped-gemm'd into garbage outputs which then
-   multiply by the zeroed topk_weights for those slots and vanish in
-   the final reduction.
+   and `index_select` then trips on the garbage. Fix hypothesis:
+   `torch.empty` → `torch.zeros`. Zero is always a valid row index;
+   the fake-gathered rows for -1 slots should get grouped-gemm'd into
+   garbage outputs which multiply by the (assumed) zeroed topk_weights
+   for those slots and vanish in the final reduction.
 
-Our sm121 CUTLASS patch (StageCount<2> + Cooperative) remains correct and
-independently validated as a prerequisite — it just isn't the thing that
-was causing the observed cuh:78 symptom. It still protects against real
-SMEM budget overruns when the kernel does eventually run.
+7. **Crash gone, output garbage.** After deploying the `torch.zeros`
+   monkey-patch via `sglang_launch.sh` the cuh:78 assert stopped
+   firing, both debug probes went green (`sm120 pre-workspace clean`
+   + `sm120 post-launch OK`), and sglang served its first
+   `moe_runner_backend=triton` forward pass on SM121 with EP=4. But
+   the generated tokens were meaningless — repeated `!` characters
+   and Chinese filler like `豬`. The "non-local slots contribute zero"
+   assumption was wrong: either the dispatcher does NOT zero
+   topk_weights for -1 slots, or the fake output goes through the
+   c2/c_map scatter and pollutes a real output row. The crash fix
+   works at the surface level but is semantically incomplete.
+
+8. **Vanilla upstream A/B test invalidates the CUTLASS patch.** To
+   isolate whether our `sgl-kernel-sm121.patch` was ever necessary, we
+   switched the pod image from our custom `xomoxcc/dgx-spark-sglang:
+   0.5.10-sm121` to the upstream `scitrera/dgx-spark-sglang:0.5.10`.
+   Same python monkey-patches (ConfigMap-mounted sglang_launch.sh),
+   no sgl-kernel-level patches, no debug probes. Result: identical
+   behavior — no cuh:78 crash, same garbage output. This definitively
+   proves:
+
+   - `StageCountAutoCarveout` on SM121 already picks a valid stage
+     count for the Sm120 blockscaled CollectiveBuilder's default
+     Pingpong schedule. The 99 KiB SMEM budget (per CUTLASS#3144) is
+     respected automatically for the `<_128,_128,_128>` tile shape
+     and `<1,1,1>` cluster shape in this specific kernel.
+   - The earlier rejected "Cooperative alone with
+     StageCountAutoCarveout" attempt (see patch header of
+     `sgl-kernel-sm121.patch`, "Previous iterations that did NOT
+     work") was actually fine at the CUTLASS level — we rejected
+     it only because the cuh:78 crash persisted, not realizing the
+     crash came from the downstream Python OOB that would have hit
+     any stage-count configuration.
+   - CUTLASS#3144 may still apply to other kernels, tile shapes, or
+     build configurations — the SMEM budget fact is objective —
+     but for THIS kernel it does not. The `sgl-kernel-sm121.patch`
+     and the entire debug infrastructure around it stays in
+     `scripts/patches/` as documented defense-in-depth, but is not
+     required by the current deployment.
+
+The net outcome after steps 1-8: we chased a phantom CUTLASS issue
+for most of the session, and the actual bug was always purely in
+the Python code ~4 layers up the call stack. Our surface fix
+(`torch.zeros`) gets past the crash site but does not make the
+output semantically correct — that requires a second layer of
+investigation into how non-local slots propagate through the
+grouped GEMM and scatter-back. The scitrera A/B test means we also
+don't need a custom SGLang image for correctness; the build chain
+in `scripts/` remains operational for future SM121 work but
+the current production config can ship on the stock upstream
+image.
 
 ## Why this was previously misattributed to `cutlass_fp4_group_mm`
 
@@ -262,7 +329,12 @@ two Python-level bugs already documented in `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md`:
    tensors. Unlike (1) and (2), this one is in a JIT-kernel Python helper
    whose logic still assumes global-expert indexing.
 
-## The Fix
+## The Fix (surface level, incomplete)
+
+**Status: this eliminates the crash but produces garbage output. Do not ship
+as-is. See "Open: semantic fix" below.**
+
+
 
 The root cause is uninitialized memory, so the fix is trivial once you know
 where to look: replace `torch.empty` with `torch.zeros` for `a_map` and
@@ -354,9 +426,9 @@ Remove `CUDA_LAUNCH_BLOCKING=1` for normal operation once the torch.zeros
 monkey-patch is in place and verified — it carries significant overhead from
 serialized kernel launches.
 
-## Verification
+## Verification (crash elimination only, NOT end-to-end correctness)
 
-The first clean end-to-end run of the triton MoE backend on this cluster,
+The first clean run of the triton MoE backend **without** the cuh:78 crash,
 2026-04-11 18:24 UTC, after deploying the three sglang_launch.sh python
 monkey-patches (modelopt_quant.py EP input-scale slicing + num_local_experts,
 plus our new cutlass_moe.py a_map/c_map zero-init):
@@ -410,23 +482,78 @@ Config that produced these lines:
 - Backend: `moe_runner_backend=triton` (the previously-broken path).
   The `flashinfer_cutlass` winner config was not needed for this run.
 
-## Follow-ups
+## Open: semantic fix (Variante B — in progress)
+
+The `torch.zeros` patch gets past the crash but the output is garbage.
+This means at least one of the assumptions behind the "fake-gather row 0
+multiplies by zero weight and vanishes" story is wrong. Candidates to
+investigate in order:
+
+1. **`topk_weights` are NOT zeroed for -1 slots.** `StandardDispatcher`'s
+   `local_expert_mapping` may only remap `topk_ids` (global → local or
+   -1 sentinel) without touching the parallel `topk_weights` tensor.
+   If that is the case, non-local slots carry their original (non-zero)
+   softmax weights, and the fake row-0 gather contributes to the final
+   reduction with real weight. Verification path: read
+   `python/sglang/srt/layers/moe/token_dispatcher/standard.py` around
+   the `local_expert_mapping` call and see if it also masks
+   `topk_weights`.
+
+2. **`c2` is `torch.empty`.** Independently of `a_map`, the grouped-GEMM
+   OUTPUT tensor `c2` in `cutlass_moe_fp4` is also allocated with
+   `torch.empty` (line ~471 in v0.5.10). The GEMM only writes the
+   `expert_offsets[num_experts]`-sized active range; positions beyond
+   that remain uninitialized. The downstream
+   `apply_shuffle_mul_sum(c2, output, c_map, topk_weights)` then scatters
+   based on `c_map`, and since our fix zero-initialized `c_map`, the
+   non-written positions now all scatter into output row 0 — adding
+   garbage `c2` values multiplied by `topk_weights[non_local]`.
+   Candidate fix: also zero-init `c2` (and any other intermediate
+   tensors that the grouped GEMM only partially writes — `intermediate`,
+   `rep_a_fp4`, `rep_a_blockscale`).
+
+3. **The scatter direction is wrong for our padded layout.**
+   `apply_shuffle_mul_sum` may iterate `c2.size(0)` positions and
+   unconditionally scatter, not knowing that only the
+   `expert_offsets[-1]`-prefix is meaningful. Fix would be to pass an
+   explicit `valid_length` parameter or truncate `c2` before the
+   scatter.
+
+4. **A completely separate EP bug.** Possible that
+   `cutlass_moe_fp4`'s grouped GEMM has additional assumptions about
+   `a` being fully-replicated-for-routing rather than locally-sharded,
+   and our monkey-patches cover only two of several required changes.
+
+Next debug step: add a small print-probe after `prepare_moe_input` to
+inspect the actual `a_map`, `c_map`, `topk_weights` values on one rank
+for one batch, then trace which positions get written by the GEMM and
+which scatter path they take. If (2) turns out to be the issue, the
+fix is another one-line monkey-patch in `sglang_launch.sh`. If (1),
+the fix is a `topk_weights.masked_fill_(topk_ids == -1, 0)` injection
+before the `cutlass_moe_fp4` call.
+
+## Follow-ups (after the semantic fix lands)
 
 - Remove `CUDA_LAUNCH_BLOCKING=1` from the sglang ConfigMap env vars
-  now that the fix is validated — the serialized-kernel overhead was
-  needed only to pin the assert site during debugging.
-- Optional: submit a PR to `sgl-project/sglang` with the one-line
-  `torch.empty` → `torch.zeros` fix on top of the (still unmerged)
-  PR #20869 hunks. Rationale: the `cutlass_moe_fp4` codepath can stay
-  operational under EP instead of being permanently sidestepped by
-  SM120 auto-routing to `flashinfer_cutlass`, which matters for other
-  NVFP4 MoE models where `triton`/`cutlass` may have a latency edge
-  over `flashinfer_cutlass`.
-- Re-run the 4-node Qwen3-235B NVFP4 test matrix (`TESTLOGS/sglang_nn4
-  _tp4_ep4/qwen-3-235b-a22b-nvfp4/`) with the three monkey-patches
-  active to see whether the `triton` / `cutlass` backends now
-  outperform the `flashinfer_cutlass` winner (Test 17: 11.28 / 34.60 /
-  42.70 tok/s at n=1 / n=4 peak / n=8 peak).
-- Optional: remove the `sgl-kernel-sm121-debug.patch` compile-time
-  gate from routine builds once we trust the fix end-to-end. Keep it
-  in the tree for future sm121 kernel-level debugging.
+  once the semantic fix is validated — the serialized-kernel overhead
+  was needed only to pin the assert site during debugging. (Already
+  set back to `"0"` after the crash-fix verification.)
+- Submit a PR to `sgl-project/sglang` with the combined fix
+  (`torch.zeros` for `a_map`/`c_map`/`c2` + whatever masking is
+  needed) on top of the (still unmerged) PR #20869 hunks. Rationale:
+  keep `cutlass_moe_fp4` operational under EP instead of letting
+  upstream permanently sidestep it by auto-routing to
+  `flashinfer_cutlass`, which matters for NVFP4 MoE models where
+  `triton`/`cutlass` may have a latency edge.
+- Re-run the 4-node Qwen3-235B NVFP4 test matrix
+  (`TESTLOGS/sglang_nn4_tp4_ep4/qwen-3-235b-a22b-nvfp4/`) once
+  correct outputs are confirmed, to see whether the `triton` /
+  `cutlass` backends outperform the `flashinfer_cutlass` winner
+  (Test 17: 11.28 / 34.60 / 42.70 tok/s at n=1 / n=4 peak / n=8 peak).
+- The `sgl-kernel-sm121.patch`, `sgl-kernel-sm121-debug.patch`, and
+  all four `sgl-kernel-*.patch` build-time optimizations stay in
+  `scripts/patches/` as retained infrastructure. Not required by the
+  current deployment (vanilla upstream image handles SM121 correctly
+  for this tile shape), but re-usable if CUTLASS#3144 resurfaces for
+  other kernels or tile shapes, and the build+distribute chain in
+  `scripts/` is generic infrastructure beyond this specific session.
