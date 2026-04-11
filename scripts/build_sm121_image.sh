@@ -139,22 +139,29 @@ EFFECTIVE_BASE_IMAGE=""
 BASE_IMAGE_SOURCE=""
 
 # sgl-kernel source patch toggles. These map to build-args consumed by the
-# patched Dockerfile (APPLY_SGL_KERNEL_ARCH_PRUNE / APPLY_SGL_KERNEL_DISABLE_FA3)
-# and are applied conditionally inside the builder stage BEFORE the sgl-kernel
-# wheel build. The patch FILES themselves are always copied into the build
-# context by apply_patches() — only the in-container `patch` invocation is
-# gated, which keeps the build deterministic regardless of toggle state.
+# patched Dockerfile (APPLY_SGL_KERNEL_ARCH_PRUNE / APPLY_SGL_KERNEL_DISABLE_FA3
+# / APPLY_SGL_KERNEL_SKIP_SM90_TARGET) and are applied conditionally inside
+# the builder stage BEFORE the sgl-kernel wheel build. The patch FILES
+# themselves are always copied into the build context by apply_patches() —
+# only the in-container `patch` invocation is gated, which keeps the build
+# deterministic regardless of toggle state.
 #
-# Defaults:
-#   arch-prune  ON  — Low risk, high reward. Strips sm_90 + all non-sm_121a
-#                     Blackwell variants. No runtime behavior change on GB10.
-#   disable-fa3 OFF — Higher uncertainty. FA3 is Hopper-only and cannot run
-#                     on GB10 anyway, but disabling may theoretically break
-#                     sgl-kernel's Python __init__ if FA3 symbols are
-#                     unconditionally imported. Enable manually once
-#                     verified in a test build. Saves ~475 flash_fwd TUs.
+# All three default to ON. Disable switches:
+#   --no-arch-prune         Keep the upstream arch list. Needed only if
+#                           you plan to deploy the wheel on non-GB10
+#                           Blackwell / Hopper hardware.
+#   --keep-fa3              Keep FlashAttention-3 (Hopper-only) in the
+#                           build. Default skips it since is_fa3_supported()
+#                           returns False on GB10 anyway and __init__.py
+#                           never imports flash_attn unconditionally. See
+#                           patch header for the evidence chain.
+#   --keep-sm90-target      Keep the common_ops_sm90_build target. Default
+#                           skips it since load_utils._load_architecture_
+#                           specific_ops() on GB10 always loads from
+#                           sgl_kernel/sm100/, never sm90/.
 APPLY_ARCH_PRUNE=1
-APPLY_DISABLE_FA3=0
+APPLY_DISABLE_FA3=1
+APPLY_SKIP_SM90_TARGET=1
 
 # ============================================================================
 # Helpers
@@ -168,7 +175,7 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [--base xomoxcc|scitrera|<image>]
                         [--remote-host user@host] [--podman-connection NAME]
-                        [--no-arch-prune] [--disable-fa3]
+                        [--no-arch-prune] [--keep-fa3] [--keep-sm90-target]
                         [--no-push] [--help]
 
 Builds ${IMAGE_TAG} on the remote build host via podman socket, copies
@@ -190,14 +197,17 @@ Options:
                omitted, derived from --remote-host (strip user@ and domain).
   --no-arch-prune
                Skip sgl-kernel-arch-prune.patch. Default is to apply it.
-               Disable only if you need a build that runs on other
-               Blackwell SKUs besides GB10.
-  --disable-fa3
-               Apply sgl-kernel-disable-fa3.patch. Default is NOT to apply.
-               Skips ~475 flash-attention Hopper TUs (huge build-time
-               saving) but requires that sglang's Python import of
-               sgl_kernel still succeeds with FA3 symbols missing.
-               Verify in a test build before adopting as default.
+               Disable only if you need a build that runs on non-GB10
+               Blackwell / Hopper hardware.
+  --keep-fa3   Skip sgl-kernel-disable-fa3.patch. Default IS to apply
+               (i.e. FA3 is disabled by default since it is Hopper-only
+               and cannot run on GB10). Use this to keep FA3 symbols in
+               the build for testing on Hopper GPUs elsewhere.
+  --keep-sm90-target
+               Skip sgl-kernel-skip-sm90-target.patch. Default IS to apply
+               (i.e. common_ops_sm90_build target is dead-coded since
+               GB10 always loads sgl_kernel/sm100/common_ops.*). Use this
+               if you plan to run the wheel on an actual Hopper GPU.
   --no-push    Skip 'podman push' after build + scp.
   --help       Show this help.
 
@@ -269,8 +279,12 @@ while [[ $# -gt 0 ]]; do
             APPLY_ARCH_PRUNE=0
             shift
             ;;
-        --disable-fa3)
-            APPLY_DISABLE_FA3=1
+        --keep-fa3)
+            APPLY_DISABLE_FA3=0
+            shift
+            ;;
+        --keep-sm90-target)
+            APPLY_SKIP_SM90_TARGET=0
             shift
             ;;
         --help|-h) usage; exit 0 ;;
@@ -294,8 +308,9 @@ preflight() {
 
     local missing=0
     for f in sgl-kernel-sm121.patch sgl-kernel-arch-prune.patch \
-             sgl-kernel-disable-fa3.patch dockerfile-sm121.patch \
-             build-image-sh-podman.patch "${RECIPE_NAME}.recipe"; do
+             sgl-kernel-disable-fa3.patch sgl-kernel-skip-sm90-target.patch \
+             dockerfile-sm121.patch build-image-sh-podman.patch \
+             "${RECIPE_NAME}.recipe"; do
         if [[ ! -f "${PATCHES_DIR}/${f}" ]]; then
             warn "Missing patch file: ${PATCHES_DIR}/${f}"
             missing=1
@@ -538,7 +553,8 @@ apply_patches() {
     # APPLY_SGL_KERNEL_* build-args — we always copy the files so the
     # build context is deterministic regardless of toggle state.
     mkdir -p container-build/patches
-    for p in sgl-kernel-sm121.patch sgl-kernel-arch-prune.patch sgl-kernel-disable-fa3.patch; do
+    for p in sgl-kernel-sm121.patch sgl-kernel-arch-prune.patch \
+             sgl-kernel-disable-fa3.patch sgl-kernel-skip-sm90-target.patch; do
         install -m 0644 "${PATCHES_DIR}/${p}" "container-build/patches/${p}"
         echo "Installed container-build/patches/${p}"
     done
@@ -631,8 +647,9 @@ run_build() {
     echo "  BUILD_JOBS           = ${BUILD_JOBS} (overrides Dockerfile ARG default of 2)"
     echo "  sgl-kernel patches:"
     echo "    sm121 JIT kernel   = ALWAYS (late stage, cheap to re-apply)"
-    echo "    arch-prune         = $([ ${APPLY_ARCH_PRUNE} -eq 1 ] && echo APPLY || echo skip)  (--no-arch-prune toggles)"
-    echo "    disable-fa3        = $([ ${APPLY_DISABLE_FA3} -eq 1 ] && echo APPLY || echo skip)  (--disable-fa3 toggles)"
+    echo "    arch-prune         = $([ ${APPLY_ARCH_PRUNE} -eq 1 ] && echo APPLY || echo skip)  (--no-arch-prune opts out)"
+    echo "    disable-fa3        = $([ ${APPLY_DISABLE_FA3} -eq 1 ] && echo APPLY || echo skip)  (--keep-fa3 opts out)"
+    echo "    skip-sm90-target   = $([ ${APPLY_SKIP_SM90_TARGET} -eq 1 ] && echo APPLY || echo skip)  (--keep-sm90-target opts out)"
 
     # The build context is container-build/ (contains Dockerfile + patches/
     # subdir). Podman streams it to the remote build host over the socket;
@@ -649,6 +666,7 @@ run_build() {
         --build-arg "BUILD_JOBS=${BUILD_JOBS}" \
         --build-arg "APPLY_SGL_KERNEL_ARCH_PRUNE=${APPLY_ARCH_PRUNE}" \
         --build-arg "APPLY_SGL_KERNEL_DISABLE_FA3=${APPLY_DISABLE_FA3}" \
+        --build-arg "APPLY_SGL_KERNEL_SKIP_SM90_TARGET=${APPLY_SKIP_SM90_TARGET}" \
         -t "${IMAGE_TAG}" \
         -t "docker.io/${IMAGE_TAG}" \
         container-build/
