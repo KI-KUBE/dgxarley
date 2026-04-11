@@ -347,6 +347,15 @@ EP-awareness patch for `modelopt_quant.py`, but has not been merged.
 
 ### Deeper Issue: cutlass_fp4_group_mm CUDA kernel assert with EP
 
+> **Update 2026-04-11:** Re-running with `CUDA_LAUNCH_BLOCKING=1` (commit `bdc069e`)
+> showed that `nvfp4_blockwise_moe.cuh:78` is **not** the origin of the fault — it is
+> the first synchronizing kernel after an out-of-bounds `index_select` inside
+> `scaled_fp4_experts_quant` → `_shuffle_rows_torch`. The real root cause and
+> reproduction details are documented separately in
+> [`SGLANG_NVFP4_SHUFFLE_ROWS_OOB_UPSTREAM_BUG.md`](SGLANG_NVFP4_SHUFFLE_ROWS_OOB_UPSTREAM_BUG.md).
+> The section below is kept for historical context — the symptom is real, the
+> attribution to the CUTLASS C++ kernel is not.
+
 Even after fixing `CutlassMoEParams` to use `num_local_experts`, the underlying
 CUTLASS FP4 MoE GEMM kernel (`nvfp4_blockwise_moe.cuh:78`) triggers a device-side
 assert when called with EP-sliced expert tensors. This is a compiled C++/CUDA kernel

@@ -1,0 +1,349 @@
+# SGLang Upstream Bug: `cutlass_moe_fp4` `a_map` uninitialized-memory OOB under EP
+
+## Status
+
+**Unreported as a root-cause analysis**, but adjacent work exists upstream:
+
+- [PR #20869](https://github.com/sgl-project/sglang/pull/20869) ("fix(moe): support EP
+  for modelopt FP4 MoE weight processing") — **open, unmerged as of 2026-04-11**,
+  over a month after submission. Fixes the two earlier errors in the chain
+  (shape mismatch on input-scales, `num_experts != num_local_experts` assertion)
+  with Python-level changes to `modelopt_quant.py`, but **does not fix the
+  `_shuffle_rows_torch` OOB described here**. The PR author instead sidesteps
+  it by changing `server_args.py` to auto-route SM120 to the `flashinfer_cutlass`
+  backend, which bypasses `cutlass_moe_fp4` entirely.
+- [PR #21630](https://github.com/sgl-project/sglang/pull/21630) — narrower
+  overlapping fix for the same input-scale slicing, still unmerged.
+- [Issue #20011](https://github.com/sgl-project/sglang/issues/20011) — same
+  class of bug on 8×B200 + Kimi-K2-Thinking-NVFP4, surfacing as an IMA via
+  NCCL watchdog instead of the device-side assert.
+
+Bug exists in SGLang v0.5.10 (and v0.5.10.post1 by inspection — same code path).
+
+The final root cause (uninitialized `torch.empty` on `a_map`) was identified
+during our sm121 CUTLASS SMEM debug session on 2026-04-11 after chasing it
+through three wrong suspects — see "The ordeal" below.
+
+Files:
+- `sglang/jit_kernel/nvfp4.py`, function `scaled_fp4_experts_quant` (calls `_shuffle_rows_torch` at line ~300)
+- `sglang/jit_kernel/nvfp4.py`, function `_shuffle_rows_torch` at line 257 (performs the OOB `index_select`)
+- Called from `sglang/srt/layers/moe/cutlass_moe.py`, `cutlass_moe_fp4` line ~451
+- Called from `sglang/srt/layers/quantization/modelopt_quant.py`, `ModelOptNvFp4FusedMoEMethod.apply` line ~2027
+
+This is the actual root cause of the device-side assert previously observed at
+`sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh:78` (documented in
+`SGLANG_TP_EP_MOE_UPSTREAM_BUG.md`, section "Deeper Issue: cutlass_fp4_group_mm CUDA kernel assert with EP").
+With `CUDA_LAUNCH_BLOCKING=1` the crash surfaces one kernel earlier, inside
+`scaled_fp4_experts_quant`, before the FP4 group-GEMM is ever launched — so the
+CUTLASS kernel itself is not necessarily broken, it was just the first synchronous
+point after an out-of-bounds `index_select` on a preceding stream.
+
+## Affected Configuration
+
+- Quantization: `modelopt_fp4` (NVFP4-quantized MoE models)
+- Expert Parallelism: `ep_size > 1`
+- MoE runner backend: `triton` (which falls back to `cutlass_moe_fp4` for NVFP4) — also `cutlass` direct, same code path
+- Tested with: `nvidia/Qwen3-235B-A22B-NVFP4` (128 experts), TP=4, EP=4, `scitrera/dgx-spark-sglang:0.5.10`, SM121 (GB10)
+
+The `flashinfer_cutlass` MoE runner backend takes a different code path
+(`flashinfer` fused MoE) and is **not affected** — it does not go through
+`cutlass_moe_fp4` → `scaled_fp4_experts_quant`.
+
+## The Bug
+
+`cutlass_moe_fp4` quantizes the routed hidden states per expert by calling
+`scaled_fp4_experts_quant`, which internally builds a `dst2src_map` (= `a_map`)
+and shuffles the input rows to group tokens by destination expert:
+
+```python
+# sglang/jit_kernel/nvfp4.py, _shuffle_rows_torch (line 257)
+output = input_tensor.index_select(0, dst2src_map.to(dtype=torch.int64))
+```
+
+The actual root cause is a **pure Python-level uninitialized-memory bug**:
+
+```python
+# sglang/srt/layers/moe/cutlass_moe.py, cutlass_moe_fp4 (lines 436-437)
+a_map = torch.empty((topk_ids.numel()), dtype=torch.int32, device=device)
+c_map = torch.empty((topk_ids.numel()), dtype=torch.int32, device=device)
+prepare_moe_input(topk_ids, ..., a_map, c_map, params.num_experts, ...)
+```
+
+Under EP > 1, `StandardDispatcher` remaps `topk_ids` from global expert IDs
+(0..127 for Qwen3-235B, 0..255 for MiniMax-M2.5) to local IDs [0..num_local_experts-1]
+with **-1 sentinels** for experts that belong to other EP ranks.
+
+`prepare_moe_input` dispatches a CUDA kernel `compute_arg_sorts` that iterates
+`blockIdx.x` over `[0, num_experts)` and, for each block, scans the flat
+`topk_ids` looking for entries equal to its own `expert_id`. When it finds
+one, it atomically increments an offset counter and writes
+`a_map[slot] = i / topk` (the source row index in the local token tensor `a`).
+
+The critical observation: **there is no block for `expert_id = -1`**. Slots
+in `a_map` whose corresponding `topk_ids[i]` is -1 are therefore **never
+written**. They retain whatever `torch.empty` allocated — uninitialized GPU
+memory, i.e. garbage.
+
+Downstream, `_shuffle_rows_torch` does `input_tensor.index_select(0, a_map)`
+on the **full** `a_map` (including the garbage slots), and the garbage values
+trip torch's CUDA `vectorized_gather_kernel` bounds check:
+
+```
+/build/pytorch/aten/src/ATen/native/cuda/IndexKernelUtils.cu:16:
+    vectorized_gather_kernel: block: [..], thread: [..]
+    Assertion `ind >=0 && ind < ind_dim_size
+        && "vectorized gather kernel index out of bounds"` failed.
+```
+
+(Thousands of such lines in the log — one per thread in the failing launches.)
+
+## The ordeal (how we got here)
+
+This bug cost an entire afternoon of debugging across three wrong suspects,
+mainly because every layer of the failure chain lied about where the crash
+was coming from. The full chain:
+
+1. **First suspect: our sm121 CUTLASS SMEM-budget patch.** The initial symptom
+   was a RuntimeError at `nvfp4_blockwise_moe.cuh:78` during the first forward
+   pass of any NVFP4 MoE model. Our `sgl-kernel-sm121.patch` (StageCount<2> +
+   Cooperative schedule) targets exactly that kernel, so it was the obvious
+   suspect. We tried alternate tile shapes (<_128,_64,_128>, <_64,_128,_128>) —
+   all of those failed CUTLASS template deduction at compile time
+   ([`cute/atom/copy_traits_sm90_tma.hpp:744`](https://github.com/NVIDIA/cutlass/blob/main/include/cute/atom/copy_traits_sm90_tma.hpp),
+   TMA SLayout static_assert). So we left the patch at its working config and
+   looked elsewhere.
+
+2. **Second suspect: upstream kernel before our CUTLASS GEMM.** We built
+   `sgl-kernel-sm121-debug.patch` which inserts two diagnostic probes in
+   `run_fp4_blockwise_scaled_group_mm_sm120()`:
+
+   - An **entry probe** right after `const cudaStream_t stream = ...` and
+     BEFORE `get_cached_workspace()`, calling `cudaStreamSynchronize` +
+     `cudaGetLastError`. If the stream is already in error state at entry,
+     some kernel launched BEFORE this function was called must have asserted.
+   - A **post-launch probe** immediately after `gemm_op.run()` returns.
+
+   Both probes are gated on `DGXARLEY_SM121_DEBUG` env var (runtime), and the
+   whole patch is opt-in via `APPLY_SGL_KERNEL_SM121_DEBUG=1` build-arg. After
+   one rebuild + redeploy we saw:
+
+   ```
+   [dgxarley sm121-debug] sm120 PRE-WORKSPACE stream error:
+   sync=710 (device-side assert triggered) last=710 (device-side assert triggered)
+   -- UPSTREAM kernel asserted, not our cutlass GEMM
+   ```
+
+   on both TP0/EP0 and TP2/EP2 — deterministic, all ranks, every forward pass.
+   This definitively proved our CUTLASS GEMM is never even reached: some
+   kernel launched BEFORE `run_fp4_blockwise_scaled_group_mm_sm120()` is the
+   one asserting, and the `cuh:78` line is just the next `cudaMallocAsync`
+   sync-point that happens to surface it.
+
+3. **Third suspect: the real one — `_shuffle_rows_torch`'s `index_select`.**
+   We added `CUDA_LAUNCH_BLOCKING=1` to the sglang pod env (via the
+   ConfigMap in `roles/k8s_dgx/tasks/sglang.yml`), forcing every CUDA kernel
+   launch to be synchronous so asserts surface at their actual launch site
+   instead of at the next sync. That gave the real traceback:
+
+   ```
+   File ".../cutlass_moe.py", line 451, in cutlass_moe_fp4
+       rep_a_fp4, rep_a_blockscale = scaled_fp4_experts_quant(...)
+   File ".../jit_kernel/nvfp4.py", line 300, in scaled_fp4_experts_quant
+       input_tensor = _shuffle_rows_torch(...)
+   File ".../jit_kernel/nvfp4.py", line 257, in _shuffle_rows_torch
+       output = input_tensor.index_select(0, dst2src_map.to(dtype=torch.int64))
+   torch.AcceleratorError: CUDA error: device-side assert triggered
+   ```
+
+   Plus thousands of lines of:
+
+   ```
+   /build/pytorch/aten/src/ATen/native/cuda/IndexKernelUtils.cu:16:
+   vectorized_gather_kernel: Assertion
+   `ind >= 0 && ind < ind_dim_size` failed
+   ```
+
+   spread across many blocks and threads — **systemic**, not an edge case.
+
+4. **Wrong root-cause hypothesis.** Initial theory: `params.num_experts`
+   is passed as global (128) but the weights are local (32), so
+   `prepare_moe_input` builds offsets over 128 buckets and something in
+   the output references slots that don't exist in the local `a` tensor.
+   This turned out to be half-right — the num_experts mismatch is a bug
+   (fixed by PR #20869 hunks 1+2), but it is NOT the cause of the `a_map`
+   OOB. The real cause is one layer deeper.
+
+5. **Three parallel upstream-analysis agents** dissected the full code
+   path in a single afternoon: (a) the native
+   `sgl-kernel/csrc/moe/prepare_moe_input.cu` kernel source, (b) the
+   Python call site in `cutlass_moe.py` + `modelopt_quant.py` including
+   how `StandardDispatcher` remaps `topk_ids`, and (c) a GitHub search
+   for existing upstream issues/PRs. Agent (a) revealed the
+   `compute_arg_sorts` kernel has no `ep_rank` parameter and writes
+   `a_map[slot] = i / topk` **only** where `topk_ids[i] == expert_id`.
+   Agent (c) found PR #20869, whose description explicitly documents the
+   same "topk_ids=-1 for non-local experts" failure mode as error #4 —
+   and admits it is sidestepped by flashinfer_cutlass auto-routing
+   rather than fixed in-place.
+
+6. **Synthesis.** Combining all three: `a_map` is `torch.empty` (uninitialized),
+   the kernel only writes slots for local experts, the -1 slots from
+   the dispatcher remap leave matching positions in `a_map` as garbage,
+   and `index_select` then trips on the garbage. Fix: `torch.empty` →
+   `torch.zeros`. Zero is always a valid row index; the fake-gathered
+   rows for -1 slots get grouped-gemm'd into garbage outputs which then
+   multiply by the zeroed topk_weights for those slots and vanish in
+   the final reduction.
+
+Our sm121 CUTLASS patch (StageCount<2> + Cooperative) remains correct and
+independently validated as a prerequisite — it just isn't the thing that
+was causing the observed cuh:78 symptom. It still protects against real
+SMEM budget overruns when the kernel does eventually run.
+
+## Why this was previously misattributed to `cutlass_fp4_group_mm`
+
+Without `CUDA_LAUNCH_BLOCKING=1`, the async OOB `index_select` does not fault
+synchronously. The CUDA context is poisoned, and the **next** kernel launch that
+synchronizes — `cutlass_fp4_group_mm` inside `nvfp4_blockwise_moe.cuh` — is the
+one that surfaces the error to the host, giving the misleading traceback:
+
+```
+File ".../sglang/jit_kernel/nvfp4.py", line 504, in _cutlass_fp4_group_mm_custom_op
+    module.cutlass_fp4_group_mm(
+RuntimeError: Runtime check failed at .../nvfp4_blockwise_moe.cuh:78:
+    CUDA error: device-side assert triggered
+```
+
+The CUTLASS C++ kernel at `nvfp4_blockwise_moe.cuh:78` is a `TORCH_CHECK` that
+happens to be the first synchronization point after the bad stream — it is
+**not** the origin of the fault. Re-running with
+`CUDA_LAUNCH_BLOCKING=1` (set in our Ansible playbook via commit `bdc069e`,
+2026-04-11) pins the fault to the preceding `index_select` in
+`_shuffle_rows_torch`.
+
+## Traceback (with `CUDA_LAUNCH_BLOCKING=1`)
+
+```
+[2026-04-11 17:45:51 TP2 EP2] Scheduler hit an exception: Traceback (most recent call last):
+  ...
+  File ".../sglang/srt/layers/quantization/modelopt_quant.py", line 2027, in apply
+    output = cutlass_moe_fp4(
+  File ".../sglang/srt/layers/moe/cutlass_moe.py", line 451, in cutlass_moe_fp4
+    rep_a_fp4, rep_a_blockscale = scaled_fp4_experts_quant(
+  File ".../sglang/jit_kernel/nvfp4.py", line 300, in scaled_fp4_experts_quant
+    input_tensor = _shuffle_rows_torch(
+  File ".../sglang/jit_kernel/nvfp4.py", line 257, in _shuffle_rows_torch
+    output = input_tensor.index_select(0, dst2src_map.to(dtype=torch.int64))
+torch.AcceleratorError: CUDA error: device-side assert triggered
+```
+
+(Config: `nvidia/Qwen3-235B-A22B-NVFP4`, TP=4, EP=4, `moe_runner_backend=triton`
+→ falls back to `cutlass_moe_fp4`, NCCL socket transport, 4 × GB10/SM121.)
+
+## Relationship to the other two `modelopt_quant`/CUTLASS EP bugs
+
+This bug is the **third** problem in the same EP/NVFP4 code path, downstream of
+two Python-level bugs already documented in `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md`:
+
+1. `CutlassMoEParams(num_experts=layer.num_experts, ...)` — should be
+   `num_local_experts`. Monkey-patched at container startup.
+2. `ModelOptNvFp4FusedMoEMethod.process_weights_after_loading` else-branch
+   doesn't EP-slice `w13_input_scale` / `w2_input_scale`. Monkey-patched at
+   container startup. (See also upstream issue #21602 and PRs #20869 / #21630.)
+3. **This bug.** After the two Python patches are applied, `scaled_fp4_experts_quant`
+   still produces an OOB `dst2src_map` under EP because the expert-offset /
+   row-mapping logic inside this helper was not updated for EP-local row
+   tensors. Unlike (1) and (2), this one is in a JIT-kernel Python helper
+   whose logic still assumes global-expert indexing.
+
+## The Fix
+
+The root cause is uninitialized memory, so the fix is trivial once you know
+where to look: replace `torch.empty` with `torch.zeros` for `a_map` and
+`c_map` in `cutlass_moe_fp4` (lines 436-437 in v0.5.10).
+
+```python
+# sglang/srt/layers/moe/cutlass_moe.py, cutlass_moe_fp4 lines 436-437
+# WAS:
+a_map = torch.empty((topk_ids.numel()), dtype=torch.int32, device=device)
+c_map = torch.empty((topk_ids.numel()), dtype=torch.int32, device=device)
+# NOW:
+a_map = torch.zeros((topk_ids.numel()), dtype=torch.int32, device=device)
+c_map = torch.zeros((topk_ids.numel()), dtype=torch.int32, device=device)
+```
+
+Why this works:
+
+- Zero is always a valid row index into `a` on every rank that receives
+  tokens (i.e. `a.size(0) > 0`).
+- `prepare_moe_input` still only writes the slots for local experts. The
+  `-1` slots now read as 0 instead of garbage, so `a.index_select(0, a_map)`
+  no longer OOBs.
+- Non-local slots fake-gather row 0 of `a`, get grouped-gemm'd with fake
+  FP4 quantization, and then combine with `topk_weights`. The dispatcher
+  already zeros the topk_weights for -1 slots, so the fake outputs
+  multiply by zero and vanish in the final reduction.
+- Cost: a few CUDA multiply-by-zero cycles per non-local slot. No
+  semantic change.
+- No-op when `ep_size=1` (dispatcher doesn't write -1 sentinels in that
+  case, so every slot is written by `compute_arg_sorts` regardless of
+  `empty` vs `zeros`).
+
+This is a strictly simpler and more direct fix than what upstream PR #20869
+does — the PR touches `modelopt_quant.py` to pass `num_local_experts` and
+slice input scales (both necessary, both already monkey-patched by us at
+container start — see `roles/k8s_dgx/files/sglang_launch.sh`), but then
+gives up on `cutlass_moe_fp4` and instead changes `server_args.py` to
+auto-route SM120 to `flashinfer_cutlass`. The PR author acknowledges that
+the `cutlass_moe_fp4` codepath remains broken; our one-line `torch.empty`
+→ `torch.zeros` change is the first actual fix we are aware of.
+
+## Our Workaround
+
+Applied as a Python monkey-patch at container startup via
+`roles/k8s_dgx/files/sglang_launch.sh` (same mechanism as the two earlier
+`modelopt_quant.py` EP fixes already in that script):
+
+```python
+# Patch cutlass_moe.py: a_map/c_map zero-init for EP shuffle_rows OOB
+old = '''    num_topk = topk_ids.shape[1]
+    device = a.device
+    a_map = torch.empty((topk_ids.numel()), dtype=torch.int32, device=device)
+    c_map = torch.empty((topk_ids.numel()), dtype=torch.int32, device=device)'''
+new = '''    num_topk = topk_ids.shape[1]
+    device = a.device
+    a_map = torch.zeros((topk_ids.numel()), dtype=torch.int32, device=device)
+    c_map = torch.zeros((topk_ids.numel()), dtype=torch.int32, device=device)'''
+```
+
+The patch is discriminated from the unrelated FP8 `torch.empty` call at
+`cutlass_moe.py:145-146` (inside `cutlass_fused_experts_fp8`, not affected
+by this bug) by the surrounding `num_topk = topk_ids.shape[1]` context
+line, which only exists in `cutlass_moe_fp4`.
+
+With this patch applied, `moe_runner_backend: "triton"` and
+`moe_runner_backend: "cutlass"` should both work under EP > 1 for
+NVFP4 models. Until it is verified end-to-end on the GB10 cluster, the
+previous workaround — `moe_runner_backend: "flashinfer_cutlass"` — remains
+the safe choice and matches the 4-node Qwen3-235B NVFP4 test matrix
+winner (`TESTLOGS/sglang_nn4_tp4_ep4/qwen-3-235b-a22b-nvfp4/`).
+
+## Reproduction
+
+1. Deploy an NVFP4 MoE model with EP > 1 on SGLang v0.5.10 (SM121/Blackwell):
+   ```yaml
+   moe_runner_backend: "triton"          # or "cutlass"
+   fp4_gemm_backend: "flashinfer_cutlass"
+   quantization: "modelopt_fp4"
+   tp_size: 4
+   ep_size: 4
+   ```
+2. Set `CUDA_LAUNCH_BLOCKING=1` in the worker environment to surface the real
+   crash location (otherwise it appears at `nvfp4_blockwise_moe.cuh:78`).
+3. Send any inference request. The scheduler crashes during the first
+   `forward_extend` of the first layer that dispatches routed experts,
+   with the traceback shown above.
+
+Remove `CUDA_LAUNCH_BLOCKING=1` for normal operation once the workaround
+(`moe_runner_backend: "flashinfer_cutlass"`) is in place — it carries
+significant overhead from serialized kernel launches.
