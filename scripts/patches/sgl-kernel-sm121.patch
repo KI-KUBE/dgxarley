@@ -8,13 +8,16 @@ Problem:
   NVIDIA/cutlass#3144.
 
   CUTLASS's run_fp4_blockwise_scaled_group_mm_sm120() path in
-  nvfp4_blockwise_moe.cuh uses the Pingpong ptr-array schedule with
-  ThreadBlockShape<_128, _128, _128>. Together with StageCountAutoCarveout
-  this requests mainloop SMEM that exceeds the 99 KiB device budget.
-  The CUDA runtime then triggers a device-side assert inside the kernel
-  launch path, which surfaces in userspace as a "device-side assert
-  triggered" at nvfp4_blockwise_moe.cuh:78 (the next cudaMallocAsync
-  sync-point on the stream, NOT the root cause line).
+  nvfp4_blockwise_moe.cuh uses `StageCountAutoCarveout` to pick the
+  number of mainloop pipeline stages. Auto-carveout internally assumes
+  the SM100 228 KiB budget and picks ~6 stages. With the default
+  Pingpong schedule that duplicates mainloop buffers across two math
+  warp groups, total SMEM requested becomes >100 KiB, 1+ KiB over the
+  99 KiB device budget. The CUDA runtime then triggers a device-side
+  assert inside the kernel launch path, which surfaces in userspace as
+  a "device-side assert triggered" at nvfp4_blockwise_moe.cuh:78 (the
+  next cudaMallocAsync sync-point on the stream, NOT the root cause
+  line).
 
   Confirmed trigger on DGX Spark: any NVFP4 model (Qwen3-235B-A22B-NVFP4,
   GLM-4.7-NVFP4, Qwen3.5-397B-A17B-NVFP4, etc.) run with
@@ -24,22 +27,42 @@ Problem:
 Fix:
   Two independent edits, both required.
 
-  1. ThreadBlockShape N halved from 128 to 64.
-     Shape<_128, _128, _128> → Shape<_128, _64, _128>.
-     The mainloop SMEM for the B-operand is proportional to N, so halving
-     N roughly halves the B footprint. This is the *load-bearing* change
-     that makes the total SMEM fit within 99 KiB. Cost: more tiles per
-     problem → slightly more kernel launches (single-digit % overhead
-     expected on typical Qwen3 MoE shapes).
+  1. Override auto-carveout with an explicit StageCount<2>.
+     StageCountAutoCarveout<sizeof(epilogue::SharedStorage)>
+       -> StageCount<2>
 
-  2. Ptr-array schedule Pingpong → Cooperative.
-     KernelPtrArrayTmaWarpSpecializedPingpong →
+     This is the *load-bearing* change that makes the total SMEM fit
+     within 99 KiB. Mainloop SMEM scales linearly with the number of
+     pipeline stages, so forcing 2 stages instead of the auto-picked 6
+     cuts mainloop SMEM to roughly 1/3.
+
+     2 is the minimum valid stage count for warp-specialized kernels:
+     the producer warp TMAs into one stage while the consumer warp
+     groups compute on the other. With StageCount<2> the pipeline is
+     still double-buffered, we just get less producer-consumer overlap
+     than at 6 stages. For NVFP4 GB10 where the bottleneck is SMEM not
+     TMA bandwidth, this is acceptable.
+
+     ThreadBlockShape is kept at <_128, _128, _128>. Earlier iterations
+     of this patch tried halving N (Shape<_128, _64, _128>) and halving
+     M (Shape<_64, _128, _128>) — BOTH failed CUTLASS template
+     deduction at compile time. The Sm120 block-scaled CollectiveBuilder's
+     SLayout atoms, MMA permutation (cute::C<128> baked in), and scale-
+     factor TMA descriptors are all co-designed for a fixed 128x128x128
+     tile; any deviation breaks TMA's "CTA_Tile and SLayout top-level
+     size equivalence" static_assert at cute/atom/copy_traits_sm90_tma.hpp:744.
+     Tile shrink is fundamentally incompatible with this pipeline.
+
+  2. Ptr-array schedule Pingpong -> Cooperative.
+     KernelPtrArrayTmaWarpSpecializedPingpong ->
      KernelPtrArrayTmaWarpSpecializedCooperative.
 
      Cooperative runs both math warp groups on the SAME output tile
      (split along M); they share mainloop buffers. Pingpong runs the
-     groups on DIFFERENT tiles concurrently, which requires more
-     peak SMEM for the concurrent buffering.
+     groups on DIFFERENT tiles concurrently, which requires doubled
+     peak SMEM for the concurrent buffering. Combined with hunk 1's
+     stage reduction this gives a further ~2x cut of the effective
+     per-block mainloop footprint.
 
      The Sm120 block-scaled CollectiveBuilder at
      cutlass/gemm/collective/builders/sm120_blockscaled_mma_builder.inl:72
@@ -47,23 +70,24 @@ Fix:
      ArchTag=Sm120 + OpClassBlockScaledTensorOp, so Cooperative is a
      drop-in replacement — no other template parameter needs to change.
 
-     Earlier iterations of this patch tried Cooperative alone (without
-     the tile-N halving) and still failed at runtime. The schedule swap
-     is NECESSARY but NOT SUFFICIENT on GB10's 99 KiB budget; the tile
-     shrink in hunk 1 is what decisively brings the footprint under the
-     budget.
+Previous iterations of this patch that did NOT work:
+  - StageCount<1> alone: SFINAE reject (min 2 stages for warp-specialized)
+  - KernelPtrArrayTmaWarpSpecialized (no suffix): symbol does not exist
+    in CUTLASS; only Pingpong/Cooperative variants are defined
+  - Cooperative alone with default StageCountAutoCarveout: compiles,
+    but runtime device-side assert at line 78 (SMEM still over budget
+    because auto-carveout keeps picking ~6 stages under the wrong
+    228 KiB budget assumption)
+  - Cooperative + Shape<_128, _64, _128> (tile shrink in N): compile
+    fails with "TMA requires CTA_Tile and SLayout top-level size
+    equivalence" at line 744 — Sm120 blockscaled SLayout expects
+    fixed N=128
+  - Cooperative + Shape<_64, _128, _128> (tile shrink in M): same
+    class of failure, the Sm120 blockscaled MMA permutation bakes
+    in cute::C<128> for the M dimension
 
-  StageCountAutoCarveout is kept unchanged. With the smaller tile +
-  Cooperative's lower buffering, the automatic stage count calculation
-  picks a valid pipelining depth from the remaining SMEM budget without
-  any manual override.
-
-  An earlier broken variant used StageCount<1> or StageCount<2> with
-  a schedule tag `KernelPtrArrayTmaWarpSpecialized` that does not
-  exist in CUTLASS — only the Pingpong and Cooperative suffixed
-  variants are defined. That variant failed CUTLASS SFINAE with 17
-  cascading "incomplete type" errors on every GemmKernel reference
-  downstream. The correct fix is the schedule swap + tile shrink.
+The final working combination is Cooperative + StageCount<2> at the
+original <_128, _128, _128> tile shape.
 
   This follows the same general approach TensorRT-LLM merged in PR #12141
   (2026-03-18) for the analogous fp4_gemm_template.h path on SM121, though
@@ -83,32 +107,24 @@ Upstream source: sgl-project/sglang tag v0.5.10
 
 --- a/python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh
 +++ b/python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh
-@@ -290,7 +290,13 @@
-   using ArchTag = cutlass::arch::Sm120;
-   using OperatorClass = cutlass::arch::OpClassBlockScaledTensorOp;
-   using StageCountType = cutlass::gemm::collective::StageCountAuto;
--  using ThreadBlockShape = Shape<_128, _128, _128>;
-+  // dgxarley sgl-kernel-sm121.patch: ThreadBlockShape N halved from 128 to 64.
-+  // The Cooperative schedule swap alone (hunk 2 below) was not enough to bring
-+  // the mainloop SMEM footprint under SM121's 99 KiB budget — the CollectiveBuilder
-+  // still exceeded it. Halving the N dimension cuts the B-operand SMEM in half
-+  // which is comfortably below the budget. Tradeoff: more tiles per problem and
-+  // slightly more kernel launches. See patch header and CUTLASS#3144.
-+  using ThreadBlockShape = Shape<_128, _64, _128>;
-   // on the tile size
-
-   using ClusterShape = Shape<_1, _1, _1>;
-@@ -329,7 +335,13 @@
+@@ -327,9 +327,17 @@
+       ElementAccumulator,
+       ThreadBlockShape,
        ClusterShape,
-       cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
-           sizeof(typename CollectiveEpilogue::SharedStorage))>,
+-      cutlass::gemm::collective::StageCountAutoCarveout<static_cast<int>(
+-          sizeof(typename CollectiveEpilogue::SharedStorage))>,
 -      cutlass::gemm::KernelPtrArrayTmaWarpSpecializedPingpong>::CollectiveOp;
-+      // SM120/121 have 99 KiB SMEM/block — not 228 KiB like SM100 (see
-+      // CUTLASS#3144). Pingpong duplicates mainloop buffers across its
-+      // two persistent math warp groups. Cooperative lets both groups
-+      // share buffers on the same tile. This alone is insufficient on
-+      // GB10 — see the ThreadBlockShape hunk above which halves the
-+      // tile N dimension to bring total SMEM decisively under budget.
++      // dgxarley sgl-kernel-sm121.patch: force StageCount<2> instead of
++      // StageCountAutoCarveout. Auto-carveout internally assumes SM100's
++      // 228 KiB SMEM budget and picks ~6 stages, which on SM120/121 with
++      // only 99 KiB per block overflows by ~1 KiB. StageCount<2> is the
++      // minimum for warp-specialized (producer + consumer pipelining) and
++      // cuts mainloop SMEM by ~3x. See patch header + CUTLASS#3144.
++      cutlass::gemm::collective::StageCount<2>,
++      // Cooperative instead of Pingpong: both math warp groups share one
++      // tile + buffers (M-split), halving peak mainloop SMEM vs. Pingpong
++      // which runs groups on different tiles concurrently.
 +      cutlass::gemm::KernelPtrArrayTmaWarpSpecializedCooperative>::CollectiveOp;
-
+ 
    using GemmKernel = cutlass::gemm::kernel::GemmUniversal<ProblemShape, CollectiveMainloop, CollectiveEpilogue>;
+ 

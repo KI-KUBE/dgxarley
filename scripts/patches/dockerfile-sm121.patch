@@ -157,7 +157,7 @@ carries this patch; see scripts/build_sm121_image.sh.
 +    patch --dry-run -p1 < /tmp/sgl-kernel-sm121.patch && \
 +    patch -p1 < /tmp/sgl-kernel-sm121.patch && \
 +    grep -q 'KernelPtrArrayTmaWarpSpecializedCooperative' python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh && \
-+    grep -q 'Shape<_128, _64, _128>' python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh && \
++    grep -q 'collective::StageCount<2>' python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh && \
 +    echo 'SM121 sgl-kernel patch applied successfully'; \
 +    if [ "${APPLY_SGL_KERNEL_SM121_DEBUG}" = "1" ]; then \
 +        echo "=== Applying sgl-kernel-sm121-debug.patch ==="; \
