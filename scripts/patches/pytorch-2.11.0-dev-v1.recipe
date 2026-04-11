@@ -1,0 +1,39 @@
+#
+# Custom pytorch dev base recipe: xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132
+#
+# Purpose: build the CUDA 13.2 + PyTorch 2.11.0 base image that scitrera's
+# sglang-0.5.10.recipe references as BASE_IMAGE, but which scitrera has NOT
+# yet published to Docker Hub (the recipe is in their repo since 2026-04-08
+# but depends on an unpublished NCCL fork and wasn't built+pushed by the
+# maintainer). See reference_sm121_build_base_regression memory for context.
+#
+# This is a verbatim copy of scitrera's pytorch-2.11.0-dev-v1.recipe EXCEPT:
+# 1. NCCL_VERSION: "2.29.XX" placeholder (scitrera draft) -> "2.29.7-1"
+#    (resolved from the actual zyang-dev/nccl dgxspark-3node-ring branch
+#    at makefiles/version.mk: MAJOR=2, MINOR=29, PATCH=7, PKG_REVISION=1).
+# 2. IMAGE_TAG: "scitrera/dgx-spark-pytorch-dev:..." -> "xomoxcc/..."
+#    Uses our namespace to avoid colliding with any future upstream build.
+#
+# Upstream reference (do not modify their file; this is our local copy):
+#   https://github.com/scitrera/cuda-containers/blob/main/container-recipes/pytorch-2.11.0-dev-v1.recipe
+#
+DOCKERFILE=Dockerfile.base
+TARGET=pytorch_builder
+
+CUDA_VERSION=13.2.0
+CUDA_SHORT=132
+
+NCCL_VERSION=2.29.7-1
+NCCL_REF=dgxspark-3node-ring
+NCCL_REPO=https://github.com/zyang-dev/nccl.git
+
+BUILD_JOBS=8
+
+TORCH_CUDA_ARCH_LIST=12.1a
+NVCC_GENCODE=-gencode=arch=compute_121,code=sm_121
+
+TORCH_VERSION=2.11.0
+TORCH_AUDIO_VERSION=2.11.0
+TORCH_VISION_VERSION=0.26.0
+
+IMAGE_TAG=xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132

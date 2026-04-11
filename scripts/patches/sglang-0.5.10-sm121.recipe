@@ -14,13 +14,25 @@
 DOCKERFILE=Dockerfile.sglang-nightly
 TARGET=runtime
 
-# Upstream scitrera/cuda-containers sglang-0.5.10.recipe hardcodes
-# scitrera/dgx-spark-pytorch-dev:2.11.0-v1-cu132, which does NOT exist on
-# Docker Hub (newest published tag is 2.10.0-v2-cu131, 2026-02-13). All other
-# scitrera recipes in that repo (sglang-0.5.9-t4/t5, vllm-0.17.0-t4/t5)
-# correctly reference 2.10.0-v2-cu131, so this is upstream drift on the
-# 0.5.10 recipe specifically. We override with the newest existing tag.
-BASE_IMAGE=scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131
+# Upstream scitrera/cuda-containers sglang-0.5.10.recipe references
+# scitrera/dgx-spark-pytorch-dev:2.11.0-v1-cu132, which scitrera committed
+# a recipe for on 2026-04-08 but never built+published to Docker Hub (their
+# main-dir recipes are built manually by the maintainer, no CI; the 2.11
+# recipe additionally depends on an unreleased NCCL fork from zyang-dev).
+#
+# To avoid the ~45% perf regression of the 2.10 fallback (see
+# reference_sm121_build_base_regression memory: torch 2.10/cuda 13.1 vs
+# torch 2.11/cuda 13.2 in nvcc codegen + cuBLAS/cuDNN), we build the 2.11
+# base image ourselves via scripts/build_pytorch_base_image.sh and tag it
+# under our namespace. That build consumes the same recipe but with NCCL
+# version resolved to 2.29.7-1 (from zyang-dev/nccl dgxspark-3node-ring
+# makefiles/version.mk).
+#
+# Prerequisite: run scripts/build_pytorch_base_image.sh BEFORE
+# build_sm121_image.sh on the build host. The result is kept in spark4's
+# local podman store — not pushed to Docker Hub — so the sglang build
+# finds it by name without a pull attempt.
+BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132
 
 FLASHINFER_VERSION=0.6.7.post3
 TRANSFORMERS_VERSION=5.5.3

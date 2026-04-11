@@ -93,6 +93,27 @@
       - tmux
       - nvme-cli
       - nvtop
+      - pv
+      - chrpath
+      - cifs-utils
+      - cmake
+      - cmake-data
+      - docker-ce-cli
+      - fping
+      - iperf
+      - libelf-dev
+      - libltdl-dev
+      - libzstd-dev
+      - lsscsi
+      - pm-utils
+      - powercap-utils
+      - rasdaemon
+      - ssh
+      - swig
+      - vlan
+      - openssh-server
+      - openssh-client
+
     state: present
     update_cache: true
   tags:

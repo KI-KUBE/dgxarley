@@ -263,6 +263,75 @@ EOF
 }
 
 # ============================================================================
+# Verify the pytorch dev base image is present in the remote podman store
+# ============================================================================
+#
+# Our sglang-0.5.10-sm121.recipe references
+#   BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132
+# which is NOT on Docker Hub — it's built locally via
+# scripts/build_pytorch_base_image.sh and kept in spark4's podman store.
+# If the sglang build runs before the base image exists, podman will try
+# to pull from docker.io and fail with a 404 after a long retry cycle.
+# Fail fast here instead with a clear diagnostic pointing at the fix.
+
+ensure_base_image_present() {
+    local recipe_file="${PATCHES_DIR}/${RECIPE_NAME}.recipe"
+    [[ -f "${recipe_file}" ]] || return 0   # recipe check is in preflight, skip here
+
+    # Extract the BASE_IMAGE value from the recipe.
+    local base_image
+    base_image="$(grep -E '^BASE_IMAGE=' "${recipe_file}" | head -1 | cut -d= -f2-)"
+    [[ -n "${base_image}" ]] || return 0    # no base image declared, nothing to check
+
+    log "Verifying base image '${base_image}' is present on '${PODMAN_CONNECTION}'"
+
+    # Check both short-name and docker.io/ FQN forms. build_pytorch_base_image.sh
+    # tags with both, but a hand-built image or earlier script version might
+    # only have one. Either is acceptable for the downstream Dockerfile's
+    # FROM resolution.
+    if podman --connection "${PODMAN_CONNECTION}" image exists "docker.io/${base_image}" 2>/dev/null; then
+        echo "Base image found on ${PODMAN_CONNECTION} as docker.io/${base_image}"
+        return 0
+    fi
+    if podman --connection "${PODMAN_CONNECTION}" image exists "${base_image}" 2>/dev/null; then
+        warn "Base image exists as short name only ('${base_image}'), not as docker.io/${base_image}."
+        warn "The Dockerfile FROM step may normalize to docker.io/... and fail to find it."
+        warn "Recommend retagging: podman --connection ${PODMAN_CONNECTION} tag ${base_image} docker.io/${base_image}"
+        return 0
+    fi
+
+    # Not found locally. If it's an xomoxcc-namespace image, that's the one
+    # we build ourselves via build_pytorch_base_image.sh — fail with a
+    # specific diagnostic. If it's a scitrera/ or other public image, let
+    # podman attempt a normal pull during the build (will 404 fast enough).
+    case "${base_image}" in
+        xomoxcc/dgx-spark-pytorch-dev:*)
+            cat >&2 <<EOF
+
+ERROR: Base image '${base_image}' is not present in the podman store on
+${PODMAN_CONNECTION} and will not be pullable from Docker Hub (it's only
+built locally).
+
+Build it first:
+  bash ${SCRIPT_DIR}/build_pytorch_base_image.sh
+
+That build takes approximately 3-5 hours (cold) or 30-60 min (with warm
+ccache from a prior run). It produces the CUDA 13.2 + PyTorch 2.11 base
+that this sglang build depends on.
+
+See scripts/patches/sglang-0.5.10-sm121.recipe for the full rationale,
+and the reference_sm121_build_base_regression memory for context on why
+we build our own base instead of using the scitrera upstream.
+EOF
+            exit 1
+            ;;
+        *)
+            warn "Base image '${base_image}' not found locally. podman will attempt to pull from Docker Hub during the build."
+            ;;
+    esac
+}
+
+# ============================================================================
 # cuda-containers clone + branch management (runs on x86)
 # ============================================================================
 
@@ -399,12 +468,13 @@ run_build() {
         --build-arg "SGLANG_REF=${R_SGLANG_REF}" \
         --build-arg "BUILD_JOBS=${BUILD_JOBS}" \
         -t "${IMAGE_TAG}" \
+        -t "docker.io/${IMAGE_TAG}" \
         container-build/
 
-    if ! podman --connection "${PODMAN_CONNECTION}" image inspect "${IMAGE_TAG}" >/dev/null 2>&1; then
-        die "Build finished but ${IMAGE_TAG} not present in remote image store — check podman build output above"
+    if ! podman --connection "${PODMAN_CONNECTION}" image exists "docker.io/${IMAGE_TAG}"; then
+        die "Build finished but docker.io/${IMAGE_TAG} not present in remote image store — check podman build output above"
     fi
-    echo "Remote build complete: ${IMAGE_TAG}"
+    echo "Remote build complete: ${IMAGE_TAG} (also tagged as docker.io/${IMAGE_TAG})"
 }
 
 # ============================================================================
@@ -412,18 +482,55 @@ run_build() {
 # ============================================================================
 
 transfer_image_from_remote() {
-    log "Copying ${IMAGE_TAG} from ${PODMAN_CONNECTION} to local image store"
+    log "Copying docker.io/${IMAGE_TAG} from ${PODMAN_CONNECTION} to local image store"
 
-    # If an older local copy exists, remove it first so scp doesn't silently
-    # keep stale layers around.
+    # If an older local copy exists under any of the possible tags, remove
+    # it first so the save→load pipeline doesn't silently keep stale layers
+    # around. `localhost/` is included because `podman load` of a short-name
+    # RepoTag normalizes the reference to `localhost/...` — that tag would
+    # otherwise linger across runs and keep old image layers dangling.
     podman image rm "${IMAGE_TAG}" 2>/dev/null || true
+    podman image rm "docker.io/${IMAGE_TAG}" 2>/dev/null || true
+    podman image rm "localhost/${IMAGE_TAG}" 2>/dev/null || true
 
-    podman image scp "${PODMAN_CONNECTION}::${IMAGE_TAG}" \
-        || die "podman image scp failed"
+    # Stream save → load so pv can show progress. Use the docker.io/ FQN
+    # so the loaded image lands under the same name the downstream tools
+    # (containerd, ansible, k3s) expect.
+    local size
+    size=$(podman --connection "${PODMAN_CONNECTION}" image inspect \
+            --format '{{.Size}}' "docker.io/${IMAGE_TAG}" 2>/dev/null || echo "")
 
-    podman image inspect "${IMAGE_TAG}" >/dev/null \
-        || die "Image not present locally after scp — check podman output"
-    echo "Image transferred: ${IMAGE_TAG}"
+    if command -v pv >/dev/null 2>&1; then
+        local pv_args=(-ptebar)
+        [[ -n "${size}" ]] && pv_args+=(-s "${size}")
+        set -o pipefail
+        podman --connection "${PODMAN_CONNECTION}" image save "docker.io/${IMAGE_TAG}" \
+            | pv "${pv_args[@]}" \
+            | podman image load \
+            || die "streamed image transfer failed"
+    else
+        set -o pipefail
+        podman --connection "${PODMAN_CONNECTION}" image save "docker.io/${IMAGE_TAG}" \
+            | podman image load \
+            || die "streamed image transfer failed"
+    fi
+
+    # `podman image save docker.io/${IMAGE_TAG} | podman image load` does NOT
+    # preserve the `docker.io/` prefix on the receiving side: podman's loader
+    # strips the registry component and re-applies the short name, which then
+    # gets normalized to `localhost/${IMAGE_TAG}`. Retag unconditionally so
+    # downstream `podman push docker.io/${IMAGE_TAG}` finds the image. `podman
+    # tag` atomically moves the target tag, so this is safe even if the tag
+    # already points elsewhere from a prior run.
+    if podman image exists "localhost/${IMAGE_TAG}"; then
+        podman tag "localhost/${IMAGE_TAG}" "docker.io/${IMAGE_TAG}"
+    elif podman image exists "${IMAGE_TAG}"; then
+        podman tag "${IMAGE_TAG}" "docker.io/${IMAGE_TAG}"
+    fi
+
+    podman image inspect "docker.io/${IMAGE_TAG}" >/dev/null \
+        || die "Image not present locally after transfer — check podman output"
+    echo "Image transferred: docker.io/${IMAGE_TAG}"
 }
 
 # ============================================================================
@@ -436,7 +543,7 @@ run_push() {
         return
     fi
 
-    log "Pushing ${IMAGE_TAG} to Docker Hub from x86"
+    log "Pushing docker.io/${IMAGE_TAG} to Docker Hub from x86"
 
     # Podman looks for auth in $REGISTRY_AUTH_FILE or $XDG_RUNTIME_DIR/containers/auth.json
     # (rootless) or /run/containers/<uid>/auth.json. Do a soft check against
@@ -453,8 +560,8 @@ run_push() {
         die "Registry authentication missing"
     fi
 
-    podman push "${IMAGE_TAG}"
-    echo "Image pushed: ${IMAGE_TAG}"
+    podman push "docker.io/${IMAGE_TAG}"
+    echo "Image pushed: docker.io/${IMAGE_TAG}"
 }
 
 # ============================================================================
@@ -515,6 +622,7 @@ EOF
 main() {
     preflight
     ensure_podman_connection
+    ensure_base_image_present
     prepare_cuda_containers
     apply_patches
     run_build

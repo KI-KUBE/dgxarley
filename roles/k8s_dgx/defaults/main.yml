@@ -637,7 +637,8 @@ sglang_model_profiles:
     #     in this kernel family on SM121 (Tests 15, 18).
     #   attention_backend=triton — flashinfer attn also works (Tests 13/14),
     #     but triton attn gave ~3% better peak at n=4/n=8 in the winner row.
-    moe_runner_backend: "flashinfer_cutlass"
+    # moe_runner_backend: "flashinfer_cutlass"
+    moe_runner_backend: "triton"    # ← war: flashinfer_cutlass
     kv_cache_dtype: "fp8_e4m3"
     # ~18 GB/GPU weights → ~100 GB free → 0.80 leaves plenty for KV + JIT.
     # 128 experts (vs 512 for Qwen3.5) → much less JIT memory needed.
