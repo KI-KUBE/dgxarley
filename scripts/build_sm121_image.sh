@@ -81,9 +81,12 @@ IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.10-sm121"
 # with a dedicated unencrypted SSH key. The connection name is derived from
 # this value by stripping the user@ prefix so that `podman system connection
 # list` shows a clean "spark4" entry.
+#
+# Both can also be set by flags (--remote-host / --podman-connection); the
+# derivation of the connection name from the host happens after argparse
+# so that a late --remote-host override propagates.
 REMOTE_HOST="${BUILD_SM121_REMOTE_HOST:-root@spark4.local}"
-PODMAN_CONNECTION="${BUILD_SM121_PODMAN_CONNECTION:-${REMOTE_HOST##*@}}"
-PODMAN_CONNECTION="${PODMAN_CONNECTION%%.*}"   # "spark4.local" -> "spark4"
+PODMAN_CONNECTION="${BUILD_SM121_PODMAN_CONNECTION:-}"
 PODMAN_SSH_IDENTITY="${BUILD_SM121_SSH_IDENTITY:-${HOME}/.ssh/id_podman}"
 
 # Build-time parallelism. scitrera's Dockerfile.sglang-nightly defaults to
@@ -110,6 +113,31 @@ BUILD_JOBS="${BUILD_SM121_BUILD_JOBS:-8}"
 
 PUSH_IMAGE=1
 
+# Base image selection. The recipe ships with a default BASE_IMAGE
+# (currently our custom xomoxcc 2.11/cu132 build); --base lets you swap
+# it at build time without editing the recipe. Supported aliases:
+#
+#   xomoxcc   xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132
+#             Our locally-built 2.11/cu132 base (scripts/build_pytorch_base_image.sh).
+#             Only present on spark4's podman store — never published.
+#             This is the recipe default and what you want for performance.
+#
+#   scitrera  scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131
+#             scitrera's published upstream base. Pulled from Docker Hub.
+#             Produces a working build but ~45% slower end-to-end due to
+#             the torch 2.10/cu131 vs 2.11/cu132 codegen regression (see
+#             reference_sm121_build_base_regression memory). Use only for
+#             fallback / A/B comparison, not production.
+#
+# Any other --base VALUE is passed through verbatim as the BASE_IMAGE.
+# BUILD_SM121_BASE_IMAGE env var overrides --base for scripting.
+BASE_XOMOXCC_IMAGE="xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132"
+BASE_SCITRERA_IMAGE="scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131"
+BASE_IMAGE_ALIAS=""
+BASE_IMAGE_OVERRIDE="${BUILD_SM121_BASE_IMAGE:-}"
+EFFECTIVE_BASE_IMAGE=""
+BASE_IMAGE_SOURCE=""
+
 # ============================================================================
 # Helpers
 # ============================================================================
@@ -120,12 +148,27 @@ die()  { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--no-push] [--help]
+Usage: $(basename "$0") [--base xomoxcc|scitrera|<image>]
+                        [--remote-host user@host] [--podman-connection NAME]
+                        [--no-push] [--help]
 
-Builds ${IMAGE_TAG} on spark4 via remote podman socket, copies the result
-back to this host, and pushes it from here.
+Builds ${IMAGE_TAG} on the remote build host via podman socket, copies
+the result back to this host, and pushes it from here.
 
 Options:
+  --base VALUE Select the PyTorch dev base image this build sits on:
+                 xomoxcc   ${BASE_XOMOXCC_IMAGE}
+                           (recipe default; locally-built 2.11/cu132; fast path)
+                 scitrera  ${BASE_SCITRERA_IMAGE}
+                           (upstream published; 2.10/cu131; ~45% slower)
+                 <image>   arbitrary image reference, passed verbatim.
+               Omitted → recipe default is used.
+  --remote-host user@host
+               Remote arm64 build host reachable via SSH + podman socket.
+               Default: ${REMOTE_HOST}
+  --podman-connection NAME
+               Registered podman connection name to use (or create). If
+               omitted, derived from --remote-host (strip user@ and domain).
   --no-push    Skip 'podman push' after build + scp.
   --help       Show this help.
 
@@ -133,7 +176,8 @@ Environment overrides:
   BUILD_SM121_REMOTE_HOST        user@host for spark4 SSH.
                                  Default: ${REMOTE_HOST}
   BUILD_SM121_PODMAN_CONNECTION  Registered podman connection name.
-                                 Default: derived from REMOTE_HOST (${PODMAN_CONNECTION})
+                                 Default: derived from --remote-host
+                                 (strip user@ and domain suffix).
   BUILD_SM121_SSH_IDENTITY       Unencrypted SSH private key for podman.
                                  Default: ${PODMAN_SSH_IDENTITY}
   BUILD_SM121_CC_DIR             Local cuda-containers clone path (on x86).
@@ -144,6 +188,9 @@ Environment overrides:
                                  on GB10's 20-core CPU. Push higher if more
                                  memory headroom is available.
                                  Default: ${BUILD_JOBS}
+  BUILD_SM121_BASE_IMAGE         Direct BASE_IMAGE override. Wins over --base
+                                 and over the recipe default. Use for
+                                 scripting when --base aliases are too coarse.
 
 The entire script runs on the x86 control host. spark4 is used purely as
 a remote podman build runner — it holds no credentials, no clone, and no
@@ -159,10 +206,47 @@ EOF
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --no-push) PUSH_IMAGE=0; shift ;;
+        --base)
+            shift
+            [[ $# -gt 0 ]] || die "--base requires an argument (xomoxcc|scitrera|<image>)"
+            BASE_IMAGE_ALIAS="$1"
+            shift
+            ;;
+        --base=*)
+            BASE_IMAGE_ALIAS="${1#--base=}"
+            shift
+            ;;
+        --remote-host)
+            shift
+            [[ $# -gt 0 ]] || die "--remote-host requires an argument (user@host)"
+            REMOTE_HOST="$1"
+            shift
+            ;;
+        --remote-host=*)
+            REMOTE_HOST="${1#--remote-host=}"
+            shift
+            ;;
+        --podman-connection)
+            shift
+            [[ $# -gt 0 ]] || die "--podman-connection requires an argument"
+            PODMAN_CONNECTION="$1"
+            shift
+            ;;
+        --podman-connection=*)
+            PODMAN_CONNECTION="${1#--podman-connection=}"
+            shift
+            ;;
         --help|-h) usage; exit 0 ;;
         *)         die "Unknown argument: $1 (use --help)" ;;
     esac
 done
+
+# Derive the podman connection name from REMOTE_HOST if the user didn't
+# set it explicitly. "root@spark4.local" -> "spark4".
+if [[ -z "${PODMAN_CONNECTION}" ]]; then
+    PODMAN_CONNECTION="${REMOTE_HOST##*@}"
+    PODMAN_CONNECTION="${PODMAN_CONNECTION%%.*}"
+fi
 
 # ============================================================================
 # Preflight
@@ -274,16 +358,56 @@ EOF
 # to pull from docker.io and fail with a 404 after a long retry cycle.
 # Fail fast here instead with a clear diagnostic pointing at the fix.
 
-ensure_base_image_present() {
+resolve_base_image() {
+    # Resolves the effective BASE_IMAGE. Order of precedence:
+    #   1. BUILD_SM121_BASE_IMAGE env var (highest — scripting override)
+    #   2. --base <value> CLI flag (xomoxcc/scitrera alias or verbatim image)
+    #   3. Recipe default (lowest)
+    # Fills the globals EFFECTIVE_BASE_IMAGE and BASE_IMAGE_SOURCE.
+    if [[ -n "${EFFECTIVE_BASE_IMAGE}" ]]; then
+        return 0   # already resolved
+    fi
+
+    if [[ -n "${BASE_IMAGE_OVERRIDE}" ]]; then
+        EFFECTIVE_BASE_IMAGE="${BASE_IMAGE_OVERRIDE}"
+        BASE_IMAGE_SOURCE="BUILD_SM121_BASE_IMAGE env"
+        return 0
+    fi
+
+    case "${BASE_IMAGE_ALIAS}" in
+        xomoxcc)
+            EFFECTIVE_BASE_IMAGE="${BASE_XOMOXCC_IMAGE}"
+            BASE_IMAGE_SOURCE="--base xomoxcc"
+            return 0
+            ;;
+        scitrera)
+            EFFECTIVE_BASE_IMAGE="${BASE_SCITRERA_IMAGE}"
+            BASE_IMAGE_SOURCE="--base scitrera"
+            return 0
+            ;;
+        "")
+            ;;   # fall through to recipe default
+        *)
+            EFFECTIVE_BASE_IMAGE="${BASE_IMAGE_ALIAS}"
+            BASE_IMAGE_SOURCE="--base (verbatim)"
+            return 0
+            ;;
+    esac
+
+    # Fall-through: no override, use recipe default.
     local recipe_file="${PATCHES_DIR}/${RECIPE_NAME}.recipe"
-    [[ -f "${recipe_file}" ]] || return 0   # recipe check is in preflight, skip here
+    if [[ -f "${recipe_file}" ]]; then
+        EFFECTIVE_BASE_IMAGE="$(grep -E '^BASE_IMAGE=' "${recipe_file}" | head -1 | cut -d= -f2-)"
+        BASE_IMAGE_SOURCE="recipe default"
+    fi
+}
 
-    # Extract the BASE_IMAGE value from the recipe.
-    local base_image
-    base_image="$(grep -E '^BASE_IMAGE=' "${recipe_file}" | head -1 | cut -d= -f2-)"
-    [[ -n "${base_image}" ]] || return 0    # no base image declared, nothing to check
+ensure_base_image_present() {
+    resolve_base_image
+    local base_image="${EFFECTIVE_BASE_IMAGE}"
+    [[ -n "${base_image}" ]] || return 0   # no base image declared, nothing to check
 
-    log "Verifying base image '${base_image}' is present on '${PODMAN_CONNECTION}'"
+    log "Verifying base image '${base_image}' is present on '${PODMAN_CONNECTION}' (from ${BASE_IMAGE_SOURCE})"
 
     # Check both short-name and docker.io/ FQN forms. build_pytorch_base_image.sh
     # tags with both, but a hand-built image or earlier script version might
@@ -444,10 +568,18 @@ run_build() {
         die "Recipe IMAGE_TAG (${R_IMAGE_TAG}) does not match script IMAGE_TAG (${IMAGE_TAG})"
     fi
 
+    # Resolve the effective BASE_IMAGE once (may already be populated from
+    # ensure_base_image_present). If nothing overrode the recipe, fall back
+    # to the recipe's BASE_IMAGE value so the --build-arg is always set.
+    resolve_base_image
+    local effective_base_image="${EFFECTIVE_BASE_IMAGE:-${R_BASE_IMAGE}}"
+    local effective_base_source="${BASE_IMAGE_SOURCE:-recipe default}"
+
     echo "Recipe values:"
     echo "  DOCKERFILE           = ${R_DOCKERFILE}"
     echo "  TARGET               = ${R_TARGET}"
-    echo "  BASE_IMAGE           = ${R_BASE_IMAGE}"
+    echo "  BASE_IMAGE (recipe)  = ${R_BASE_IMAGE}"
+    echo "  BASE_IMAGE (in use)  = ${effective_base_image}  [${effective_base_source}]"
     echo "  FLASHINFER_VERSION   = ${R_FLASHINFER_VERSION}"
     echo "  TRANSFORMERS_VERSION = ${R_TRANSFORMERS_VERSION}"
     echo "  SGLANG_VERSION       = ${R_SGLANG_VERSION}"
@@ -456,12 +588,13 @@ run_build() {
     echo "  BUILD_JOBS           = ${BUILD_JOBS} (overrides Dockerfile ARG default of 2)"
 
     # The build context is container-build/ (contains Dockerfile + patches/
-    # subdir). Podman streams it to spark4 over the socket; the build runs
-    # natively on arm64 and the result lands in spark4's local image store.
+    # subdir). Podman streams it to the remote build host over the socket;
+    # the build runs natively on arm64 and the result lands in the remote
+    # host's local image store.
     podman --connection "${PODMAN_CONNECTION}" build \
         -f "container-build/${R_DOCKERFILE}" \
         --target "${R_TARGET}" \
-        --build-arg "BASE_IMAGE=${R_BASE_IMAGE}" \
+        --build-arg "BASE_IMAGE=${effective_base_image}" \
         --build-arg "FLASHINFER_VERSION=${R_FLASHINFER_VERSION}" \
         --build-arg "TRANSFORMERS_VERSION=${R_TRANSFORMERS_VERSION}" \
         --build-arg "SGLANG_VERSION=${R_SGLANG_VERSION}" \
