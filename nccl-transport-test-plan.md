@@ -39,6 +39,29 @@ Both are ~2.1 GB/s → NCCL is falling back to TCP socket in the RoCE test.
 from missing PFC/DCBX lossless Ethernet config, no GPU Direct RDMA (GDR),
 and default NCCL tuning parameters.
 
+### SGLang inference benchmark: RoCE vs Socket (2026-04-12 ~16:30)
+
+Model: nvidia/Qwen3-235B-A22B-NVFP4, EP=4, TP=4, flashinfer_cutlass,
+scitrera/dgx-spark-sglang:0.5.10, n=4 concurrent, max_tokens=2048.
+
+| Metric | Test 17 Winner (Socket) | RoCE (new) | Speedup |
+|--------|------------------------|------------|---------|
+| Peak (sum tok/s) | 34.6 | **65.2** | **1.88×** |
+| Aggregate tok/s | 31.0 | **65.4** | **2.1×** |
+| Per-request tok/s | 8.65 | **16.3** | **1.88×** |
+| Avg TTFT | 2.14s | **0.92s** | **2.3×** |
+| Wall time (n=4) | 345s | **125s** | **2.8×** |
+
+Nearly 2× throughput and 2.3× lower TTFT from two changes:
+1. NCCL transport Socket → RoCE (9.78 GB/s vs 2.12 GB/s bus bandwidth)
+2. Removed `CUDA_LAUNCH_BLOCKING="0"` from ConfigMap (was still serializing
+   kernel launches despite the "0" value — CUDA checks env var presence,
+   not value)
+
+The Test 17 winner (34.6 tok/s) was the previous all-time best for this
+model on this cluster. The new RoCE config replaces it as the production
+baseline.
+
 ### Root causes identified
 
 Two independent prerequisites for NCCL RoCE over SR-IOV VFs in K8s:
