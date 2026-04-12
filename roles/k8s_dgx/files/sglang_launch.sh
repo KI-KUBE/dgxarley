@@ -448,31 +448,47 @@ if grep -q 'num_experts=layer.num_experts,  # global num experts' "$MODELOPT_QUA
   echo "Patched modelopt_quant.py: CutlassMoEParams uses num_local_experts for EP"
 fi
 
-# Patch cutlass_moe.py: cutlass_moe_fp4 allocates a_map / c_map with
-# torch.empty (uninitialized memory). Under EP>1 the dispatcher replaces
-# non-local expert IDs in topk_ids with -1. prepare_moe_input's
-# compute_arg_sorts iterates blockIdx.x over [0, num_experts) and only
-# writes a_map[slot] / c_map[slot] where topk_ids[i] matches some
-# expert_id — the -1 entries match no block and leave those slots
-# UNINITIALIZED. Downstream `a.index_select(0, a_map)` in
-# _shuffle_rows_torch then reads garbage as row indices and trips torch's
-# vectorized_gather_kernel bounds check, which surfaces as the
-# device-side assert at nvfp4_blockwise_moe.cuh:78 (via the next
-# cudaMallocAsync sync point). Fix: zero-init. Zero is always a valid
-# row index into `a` — non-local slots fake-gather row 0, get
-# grouped-gemm'd with fake FP4 quantization, and combine with
-# topk_weights that the dispatcher already zeros for -1 slots, so the
-# fake outputs multiply by zero and don't contribute to the reduction.
+# Patch cutlass_moe.py: cutlass_moe_fp4 EP correctness fix. Two independent
+# bugs in the same function, both triggered by `topk_ids == -1` non-local
+# sentinels that `StandardDispatcher.local_expert_mapping` writes under EP>1.
 #
-# This is the third EP-related bug in cutlass_moe_fp4 (after the two
-# modelopt_quant.py monkey-patches above). Upstream PR #20869 sidesteps
-# it by auto-routing SM120 to flashinfer_cutlass rather than fixing the
-# codepath; this monkey-patch is the first real fix we're aware of. See
-# SGLANG_NVFP4_SHUFFLE_ROWS_OOB_UPSTREAM_BUG.md for the full debug ordeal
-# (debug-probe stream-error distinction, CUDA_LAUNCH_BLOCKING=1 trace).
+# BUG 1: a_map / c_map allocated with torch.empty (uninitialized). The native
+# kernel prepare_moe_input.compute_arg_sorts iterates blockIdx.x over
+# [0, num_experts) and only writes a_map[slot] / c_map[slot] where
+# topk_ids[i] == blockIdx.x. The -1 entries match no block and leave those
+# slots with torch.empty garbage. Downstream a.index_select(0, a_map) in
+# _shuffle_rows_torch reads the garbage as row indices and trips torch's
+# vectorized_gather_kernel bounds check — surfaces as device-side assert at
+# nvfp4_blockwise_moe.cuh:78 (via next cudaMallocAsync sync point).
+# Fix 1: zero-init. Zero is always a valid row index into `a`.
+#
+# BUG 2: topk_weights are NOT zeroed for -1 slots. Fix 1 alone eliminates the
+# crash but produces garbage output. The dispatcher remaps topk_ids to local
+# IDs + -1 sentinels, but leaves topk_weights carrying the original softmax
+# weights. After the grouped GEMM path, shuffle_rows(c2, c_map, ...) at
+# line 493 finds c_map[slot] == 0 for non-local slots (from our Fix 1
+# zero-init) and reads c2[0] — the first ACTIVE expert's output for the
+# first local token — into those slots. The non-local slots then go into
+# `c2 * topk_weights.view(m, num_topk, 1)` carrying real-but-wrong finite
+# values multiplied by real (non-zero) weights, and `sum(dim=1)` aggregates
+# them into the output alongside the correct local-slot contributions.
+# Fix 2: mask topk_weights where topk_ids < 0 at the start of
+# cutlass_moe_fp4 — a .masked_fill before any math runs propagates through
+# both the `apply_router_weight_on_input=False` path (line 496 final
+# multiply) and the `=True` path (weights baked into input earlier).
+#
+# Two separate PATCH_*_EOF blocks so each patch's grep guard runs
+# independently and failure of one doesn't prevent the other.
+#
+# Upstream PR #20869 is the adjacent work but only fixes the first two bugs
+# in this chain (input-scale slicing + num_local_experts for CutlassMoEParams);
+# it then sidesteps the third+fourth bugs here by auto-routing SM120 to
+# flashinfer_cutlass. Our monkey-patches are the first real fix for the
+# cutlass_moe_fp4 codepath under EP that we are aware of. See
+# SGLANG_NVFP4_SHUFFLE_ROWS_OOB_UPSTREAM_BUG.md for the full debug ordeal.
 CUTLASS_MOE="/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/moe/cutlass_moe.py"
 if grep -q 'a_map = torch.empty((topk_ids.numel())' "$CUTLASS_MOE" 2>/dev/null; then
-  python3 << 'PATCH_CUTLASS_MOE_EOF'
+  python3 << 'PATCH_CUTLASS_MOE_ZEROINIT_EOF'
 import sys
 f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/moe/cutlass_moe.py"
 with open(f) as fh:
@@ -488,12 +504,18 @@ old = '''    num_topk = topk_ids.shape[1]
     c_map = torch.empty((topk_ids.numel()), dtype=torch.int32, device=device)'''
 new = '''    num_topk = topk_ids.shape[1]
     device = a.device
+    # EP-aware: mask topk_weights where topk_ids == -1 (non-local sentinels
+    # from StandardDispatcher.local_expert_mapping). Without this, non-local
+    # slots carry real softmax weights into the final c2 * topk_weights
+    # multiply and pollute the output reduction with the wrong expert's
+    # values (see Fix 2 in the patch header).
+    topk_weights = topk_weights.masked_fill(topk_ids < 0, 0)
     # EP-aware: zero-init instead of torch.empty. prepare_moe_input only
-    # writes slots for non-(-1) topk_ids; under EP the dispatcher sets
-    # non-local expert slots to -1 which leaves them uninitialized, and
-    # the downstream a.index_select(0, a_map) trips torch's bounds check.
-    # Zero is always a valid row index; the fake-gathered rows multiply
-    # by zero topk_weights and don't contribute to the final reduction.
+    # writes slots for non-(-1) topk_ids; -1 entries leave slots as garbage
+    # and the downstream a.index_select(0, a_map) trips torch's bounds
+    # check. Zero is a valid row index into `a`; the fake-gathered rows
+    # then multiply by our newly-masked (zero) topk_weights above and
+    # vanish in the reduction (see Fix 1 in the patch header).
     a_map = torch.zeros((topk_ids.numel()), dtype=torch.int32, device=device)
     c_map = torch.zeros((topk_ids.numel()), dtype=torch.int32, device=device)'''
 if old not in code:
@@ -502,8 +524,8 @@ if old not in code:
 code = code.replace(old, new, 1)
 with open(f, 'w') as fh:
     fh.write(code)
-print("Patched cutlass_moe.py: a_map/c_map zero-init for EP shuffle_rows OOB")
-PATCH_CUTLASS_MOE_EOF
+print("Patched cutlass_moe.py: a_map/c_map zero-init + topk_weights mask for EP")
+PATCH_CUTLASS_MOE_ZEROINIT_EOF
 fi
 
 # Patch ModelOptModelLoader to support load_format=sharded_state (SGLang 0.5.9 bug).
