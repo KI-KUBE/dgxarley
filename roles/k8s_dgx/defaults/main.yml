@@ -1232,6 +1232,12 @@ qsfp_sriov_assignments:
     vf: 7
     server_ip: "10.10.10.241"
     client_ip: "10.10.10.242"
+    # Extended for 4-node NCCL test (reuses VF 7, same subnet).
+    # server_ip = rank 0 (spark1), client_ip = rank 1 (spark2).
+    head_ip: "10.10.10.241"
+    worker_ip1: "10.10.10.242"
+    worker_ip2: "10.10.10.243"
+    worker_ip3: "10.10.10.244"
 
 nccl_bootstrap_port: 50000
 nccl_socket_ifname: "net1"

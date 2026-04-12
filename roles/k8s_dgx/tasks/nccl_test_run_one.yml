@@ -22,7 +22,7 @@
       {%- elif _transport_name == 'socket' -%}
       {
         "host_network": false,
-        "master_addr": "{{ _sglang_qsfp_ips[0] }}",
+        "master_addr": "{{ qsfp_sriov_assignments.iperf_test.head_ip }}",
         "nccl_env": {
           "NCCL_SOCKET_IFNAME": "{{ nccl_socket_ifname }}",
           "NCCL_NET": "Socket",
@@ -32,10 +32,10 @@
       {%- elif _transport_name == 'roce' -%}
       {
         "host_network": false,
-        "master_addr": "{{ _sglang_qsfp_ips[0] }}",
+        "master_addr": "{{ qsfp_sriov_assignments.iperf_test.head_ip }}",
         "nccl_env": {
           "NCCL_SOCKET_IFNAME": "{{ nccl_socket_ifname }}",
-          "NCCL_IB_HCA": "{{ _sglang_nccl_env_roce.NCCL_IB_HCA | default('') }}",
+          "NCCL_IB_HCA": "roce{{ qsfp_sriov_vf_prefix | regex_replace('^en', '') }}v{{ qsfp_sriov_assignments.iperf_test.vf }}",
           "NCCL_IB_GID_INDEX": "{{ _sglang_nccl_env_roce.NCCL_IB_GID_INDEX | default('3') }}",
           "NCCL_IB_MERGE_NICS": "{{ _sglang_nccl_env_roce.NCCL_IB_MERGE_NICS | default('0') }}"
         }

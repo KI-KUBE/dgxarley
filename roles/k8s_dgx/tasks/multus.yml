@@ -134,4 +134,4 @@
               "type": "static"
             }
           }
-  loop: "{{ [sglang_namespace, vllm_namespace] | product(range(0, qsfp_sriov_numvfs | default(4) | int)) | list }}"
+  loop: "{{ [sglang_namespace, vllm_namespace] | product(range(0, qsfp_sriov_numvfs | default(8) | int)) | list }}"
