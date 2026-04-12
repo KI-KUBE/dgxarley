@@ -3,6 +3,8 @@
 traefik_internal_allowlist:
   - "192.168.123.0/24"
   - "192.168.124.0/24"
+  - "{{ cluster_cidr }}"
+  - "{{ service_cidr }}"
 
 sglang_namespace: "sglang"
 vllm_namespace: "vllm"
