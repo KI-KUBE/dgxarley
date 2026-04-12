@@ -1,0 +1,132 @@
+---
+# Inner loop: deploy + run + collect one NCCL transport variant.
+# Called from nccl_test.yml with _transport_name = host|socket|roce.
+#
+# Pattern: deploy rank 0 first (tcp init_method listener), wait until
+# Running, then deploy ranks 1-3. Wait for rank 0 to complete (or fail),
+# then fetch logs and clean up.
+
+- name: "{{ _transport_name }}: set transport config"
+  ansible.builtin.set_fact:
+    _tc: >-
+      {%- if _transport_name == 'host' -%}
+      {
+        "host_network": true,
+        "master_addr": "{{ qsfp_ip_spark1 }}",
+        "nccl_env": {
+          "NCCL_SOCKET_IFNAME": "enP2p1s0f0np0",
+          "HOST_NETWORK_MODE": "1"
+        }
+      }
+      {%- elif _transport_name == 'socket' -%}
+      {
+        "host_network": false,
+        "master_addr": "{{ _sglang_qsfp_ips[0] }}",
+        "nccl_env": {
+          "NCCL_SOCKET_IFNAME": "{{ nccl_socket_ifname }}",
+          "NCCL_NET": "Socket",
+          "NCCL_IB_DISABLE": "1"
+        }
+      }
+      {%- elif _transport_name == 'roce' -%}
+      {
+        "host_network": false,
+        "master_addr": "{{ _sglang_qsfp_ips[0] }}",
+        "nccl_env": {
+          "NCCL_SOCKET_IFNAME": "{{ nccl_socket_ifname }}",
+          "NCCL_IB_HCA": "{{ _sglang_nccl_env_roce.NCCL_IB_HCA | default('') }}",
+          "NCCL_IB_GID_INDEX": "{{ _sglang_nccl_env_roce.NCCL_IB_GID_INDEX | default('3') }}",
+          "NCCL_IB_MERGE_NICS": "{{ _sglang_nccl_env_roce.NCCL_IB_MERGE_NICS | default('0') }}"
+        }
+      }
+      {%- endif -%}
+
+# Multus annotation depends on transport + rank. host-network gets none.
+# socket/roce use the same NADs as sglang (PF-mode or SR-IOV VF).
+- name: "{{ _transport_name }}: build per-rank pod annotations"
+  ansible.builtin.set_fact:
+    _nccl_annotations:
+      - "{{ {} if (_tc | from_json).host_network else
+            ({'k8s.v1.cni.cncf.io/networks':
+              ('[{\"name\":\"qsfp-vf' ~ qsfp_sriov_assignments.sglang.vf ~ '\",\"ips\":[\"' ~ _sglang_qsfp_ips[0] ~ '/24\"]}]')
+              if qsfp_sriov_enabled | default(false)
+              else 'qsfp-direct'} | combine({'k8s.v1.cni.cncf.io/networks':
+              ('[{\"name\":\"qsfp-vf' ~ qsfp_sriov_assignments.sglang.vf ~ '\",\"ips\":[\"' ~ _sglang_qsfp_ips[0] ~ '/24\"]}]')
+              if qsfp_sriov_enabled | default(false)
+              else 'qsfp-direct'}))
+         }}"
+
+# This is getting too complex with Jinja2 inline. Let me use a simpler approach.
+
+- name: "{{ _transport_name }}: clean up previous pods"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Pod
+    namespace: "{{ sglang_namespace }}"
+    name: "nccl-test-{{ _transport_name }}-rank{{ item }}"
+  loop: [0, 1, 2, 3]
+  loop_control:
+    label: "rank{{ item }}"
+
+- name: "{{ _transport_name }}: wait for pods to terminate"
+  ansible.builtin.pause:
+    seconds: 5
+
+- name: "{{ _transport_name }}: deploy rank 0 (spark1)"
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'nccl_test_pod.yml.j2') }}"
+  vars:
+    nccl_rank: 0
+    nccl_spark_id: 1
+
+- name: "{{ _transport_name }}: wait for rank 0 Running"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    name: "nccl-test-{{ _transport_name }}-rank0"
+    namespace: "{{ sglang_namespace }}"
+  register: _nccl_r0
+  until: >
+    _nccl_r0.resources | length > 0 and
+    _nccl_r0.resources[0].status.phase == 'Running'
+  retries: 60
+  delay: 5
+
+- name: "{{ _transport_name }}: deploy ranks 1-3"
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('template', 'nccl_test_pod.yml.j2') }}"
+  vars:
+    nccl_rank: "{{ item }}"
+    nccl_spark_id: "{{ item + 1 }}"
+  loop: [1, 2, 3]
+  loop_control:
+    label: "rank{{ item }} (spark{{ item + 1 }})"
+
+- name: "{{ _transport_name }}: wait for rank 0 to finish (5 min timeout)"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    name: "nccl-test-{{ _transport_name }}-rank0"
+    namespace: "{{ sglang_namespace }}"
+  register: _nccl_r0_done
+  until: >
+    _nccl_r0_done.resources | length > 0 and
+    _nccl_r0_done.resources[0].status.phase in ['Succeeded', 'Failed']
+  retries: 60
+  delay: 5
+
+- name: "{{ _transport_name }}: fetch rank 0 logs"
+  ansible.builtin.command:
+    cmd: >-
+      kubectl --context=ht@dgxarley -n {{ sglang_namespace }}
+      logs nccl-test-{{ _transport_name }}-rank0
+  register: _nccl_log
+  ignore_errors: true
+  become: false
+
+- name: "{{ _transport_name }}: results"
+  ansible.builtin.debug:
+    msg: "{{ _nccl_log.stdout_lines | default(['(no output — check pod logs manually)']) }}"

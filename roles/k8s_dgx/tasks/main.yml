@@ -77,7 +77,13 @@
   ansible.builtin.import_tasks: qsfp_iperf_test.yml
   tags: qsfp_iperf
 
-- name: QSFP SR-IOV NCCL all_reduce benchmark
+- name: NCCL connectivity + bandwidth test (host/socket/roce)
+  ansible.builtin.import_tasks: nccl_test.yml
+  tags:
+    - nccl_test
+    - never
+
+- name: QSFP SR-IOV NCCL all_reduce benchmark (legacy 2-node)
   ansible.builtin.import_tasks: qsfp_nccl_test.yml
   tags:
     - qsfp_nccl

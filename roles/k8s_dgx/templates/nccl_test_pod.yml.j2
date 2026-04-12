@@ -1,0 +1,79 @@
+---
+{# NCCL test pod template — one pod per (transport, rank) combination.
+   Variables from caller:
+     _transport_name  — host|socket|roce
+     _tc              — JSON string with transport config (parsed below)
+     nccl_rank        — 0..3
+     nccl_spark_id    — 1..4 (node selector)
+#}
+{% set tc = _tc | from_json %}
+{% set rank = nccl_rank | int %}
+{% set spark = nccl_spark_id | int %}
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "nccl-test-{{ _transport_name }}-rank{{ rank }}"
+  namespace: "{{ sglang_namespace }}"
+  labels:
+    app: "nccl-test-{{ _transport_name }}"
+    nccl-test-rank: "{{ rank }}"
+{% if not tc.host_network %}
+  annotations:
+{% if qsfp_sriov_enabled | default(false) %}
+    k8s.v1.cni.cncf.io/networks: '[{"name":"qsfp-vf{{ qsfp_sriov_assignments.sglang.vf }}","ips":["{{ _sglang_qsfp_ips[rank] }}/24"]}]'
+{% elif rank == 0 %}
+    k8s.v1.cni.cncf.io/networks: qsfp-direct
+{% else %}
+    k8s.v1.cni.cncf.io/networks: "qsfp-direct-worker{{ rank }}"
+{% endif %}
+{% endif %}
+spec:
+{% if tc.host_network %}
+  hostNetwork: true
+{% endif %}
+  hostIPC: true
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 10
+  nodeSelector:
+    spark-id: "{{ spark }}"
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+  containers:
+    - name: nccl-test
+      image: "{{ sglang_image }}"
+      command: ["python3", "/scripts/nccl_test.py"]
+      env:
+        - name: RANK
+          value: "{{ rank }}"
+        - name: WORLD_SIZE
+          value: "4"
+        - name: MASTER_ADDR
+          value: "{{ tc.master_addr }}"
+        - name: MASTER_PORT
+          value: "29500"
+{% for k, v in tc.nccl_env.items() %}
+{% if v %}
+        - name: "{{ k }}"
+          value: "{{ v }}"
+{% endif %}
+{% endfor %}
+      resources:
+        limits:
+          nvidia.com/gpu: "1"
+      volumeMounts:
+        - name: test-script
+          mountPath: /scripts
+          readOnly: true
+        - name: shm
+          mountPath: /dev/shm
+  volumes:
+    - name: test-script
+      configMap:
+        name: nccl-test-script
+        defaultMode: 0755
+    - name: shm
+      emptyDir:
+        medium: Memory
+        sizeLimit: 16Gi

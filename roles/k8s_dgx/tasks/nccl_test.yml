@@ -1,0 +1,49 @@
+---
+# NCCL connectivity + bandwidth test across all 4 DGX Spark nodes.
+#
+# Three transport variants deployed as separate sets of 4 K8s Pods:
+#   host    — hostNetwork:true, NCCL over host's QSFP PF (enP2p1s0f0np0)
+#   socket  — Multus QSFP secondary NIC (net1), NCCL_NET=Socket
+#   roce    — Multus QSFP SR-IOV VF, NCCL over RoCE/IB verbs
+#             (requires qsfp_sriov_enabled=true, skipped otherwise)
+#
+# Usage:
+#   ansible-playbook k8s_dgx.yml --tags nccl_test                           # all variants
+#   ansible-playbook k8s_dgx.yml --tags nccl_test -e nccl_test_transport=socket  # one only
+#   ansible-playbook k8s_dgx.yml --tags nccl_test -e nccl_test_transport=host
+#   ansible-playbook k8s_dgx.yml --tags nccl_test -e nccl_test_transport=roce
+#
+# After completion, rank 0 logs contain the bandwidth table:
+#   kubectl --context=ht@dgxarley -n {{ sglang_namespace }} logs nccl-test-<variant>-rank0
+
+- name: Create NCCL test script ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    apply: true
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: nccl-test-script
+        namespace: "{{ sglang_namespace }}"
+      data:
+        nccl_test.py: "{{ lookup('file', 'nccl_test.py') }}"
+  tags: [nccl_test]
+
+- name: Determine which transports to test
+  ansible.builtin.set_fact:
+    _nccl_test_run_list: >-
+      {{ [nccl_test_transport] if nccl_test_transport is defined
+         else (['host', 'socket', 'roce'] if qsfp_sriov_enabled | default(false)
+               else ['host', 'socket']) }}
+  tags: [nccl_test]
+
+# ── Run each transport variant sequentially ──────────────────────────
+- name: "NCCL test: {{ _transport_name }}"
+  ansible.builtin.include_tasks:
+    file: nccl_test_run_one.yml
+  loop: "{{ _nccl_test_run_list }}"
+  loop_control:
+    loop_var: _transport_name
+    label: "{{ _transport_name }}"
+  tags: [nccl_test]
