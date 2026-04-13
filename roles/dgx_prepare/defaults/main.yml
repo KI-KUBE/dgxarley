@@ -19,6 +19,11 @@ qsfp_dcbx_roce_tc: 3
 
 memlock_limit: "unlimited"
 stack_limit: 67108864
+
+# CPU idle management: when true, disable all C-states via cpupower (legacy
+# NCCL-socket-era tuning). Default false — kernel idle governor handles C-states,
+# which is fine since NCCL bulk traffic runs over RoCE and bypasses the CPU.
+disablecpuidlemanagement: false
 nvidia_cdi_output: "/etc/cdi/nvidia.yaml"
 # Check latest: curl -s https://api.github.com/repos/containernetworking/plugins/releases/latest | jq -r .tag_name
 cni_plugins_version: "1.9.1"

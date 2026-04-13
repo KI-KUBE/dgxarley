@@ -7,10 +7,12 @@
     state: present
     update_cache: false
 
+# ---- disablecpuidlemanagement=true: force all CPU idle states off ----
 - name: Disable CPU idle states immediately
   ansible.builtin.command:
     cmd: cpupower idle-set -D 0
   changed_when: true
+  when: disablecpuidlemanagement | bool
 
 - name: Deploy cpupower-idle-disable systemd service
   ansible.builtin.template:
@@ -20,9 +22,33 @@
     group: root
     mode: "0644"
   notify: systemctl daemon-reload
+  when: disablecpuidlemanagement | bool
 
 - name: Enable cpupower-idle-disable service
   ansible.builtin.systemd:
     name: cpupower-idle-disable.service
     enabled: true
     state: started
+  when: disablecpuidlemanagement | bool
+
+# ---- disablecpuidlemanagement=false (default): restore kernel idle management ----
+- name: Disable cpupower-idle-disable service
+  ansible.builtin.systemd:
+    name: cpupower-idle-disable.service
+    enabled: false
+    state: stopped
+  failed_when: false
+  when: not (disablecpuidlemanagement | bool)
+
+- name: Remove cpupower-idle-disable unit file
+  ansible.builtin.file:
+    path: /etc/systemd/system/cpupower-idle-disable.service
+    state: absent
+  notify: systemctl daemon-reload
+  when: not (disablecpuidlemanagement | bool)
+
+- name: Re-enable all CPU idle states immediately
+  ansible.builtin.command:
+    cmd: cpupower idle-set -E
+  changed_when: true
+  when: not (disablecpuidlemanagement | bool)
