@@ -67,15 +67,12 @@ All tests use: `tp=4, pp=1, ep=4, nccl_transport=roce, quantization=modelopt_fp4
 | 19 | roce | fi_cutlass | fi | fi_cudnn | false | true | **FAIL** (head crash @ n=4) | 19.54 | — | — |
 | 20 | roce | fi_cutlass | fi | fi_cudnn | true | true | **FAIL** (head crash @ n=1) | — | — | — |
 | 21 | roce | fi_cutlass | fi | fi_cudnn | false | false | **FAIL** (bench_crash @ n=1) | — | — | — |
-| 19 | roce | fi_cutlass | fi | fi_cudnn | false | true | pending | — | — | — |
-| 20 | roce | fi_cutlass | fi | fi_cudnn | true | true | pending | — | — | — |
-| 21 | roce | fi_cutlass | fi | fi_cudnn | false | false | pending | — | — | — |
-| 22 | roce | fi_cutlass | triton | fi_cudnn | false | true | pending | — | — | — |
-| 23 | roce | fi_cutlass | triton | fi_cudnn | true | true | pending | — | — | — |
-| 24 | roce | fi_cutlass | triton | fi_cudnn | false | false | pending | — | — | — |
-| 25 | roce | cutlass | fi | fi_cutlass | false | true | pending | — | — | — |
-| 26 | roce | cutlass | fi | fi_cutlass | true | true | pending | — | — | — |
-| 27 | roce | cutlass | fi | fi_cutlass | false | false | pending | — | — | — |
+| 22 | roce | fi_cutlass | triton | fi_cudnn | false | true | **FAIL** (bench_crash @ n=4) | 19.75 | — | — |
+| 23 | roce | fi_cutlass | triton | fi_cudnn | true | true | **FAIL** (bench_crash @ n=1) | — | — | — |
+| 24 | roce | fi_cutlass | triton | fi_cudnn | false | false | **FAIL** (bench_crash @ n=1) | — | — | — |
+| 25 | roce | cutlass | fi | fi_cutlass | false | true | **STABLE** | 20.26 | 64.5 | 93.4 |
+| 26 | roce | cutlass | fi | fi_cutlass | true | true | **FAIL** (repetition @ n=4) | 12.32 | ~~rep~~ | — |
+| 27 | roce | cutlass | fi | fi_cutlass | false | false | **STABLE** | 20.12 | 61.9 | 93.6 |
 | 28 | roce | cutlass | triton | fi_cutlass | false | true | pending | — | — | — |
 | 29 | roce | cutlass | triton | fi_cutlass | true | true | pending | — | — | — |
 | 30 | roce | cutlass | triton | fi_cutlass | false | false | pending | — | — | — |
@@ -299,12 +296,74 @@ First fi_cutlass MoE row to swap the fp4 GEMM backend from `flashinfer_cutlass` 
 
 **Pattern across Tests 13–19** (6 fi_cutlass MoE rows): every single row produces a clean coherent n=1 response (~19 tok/s, real verified content), then the next concurrency level kills the rank that gets the unlucky token distribution. The fault is concentration-dependent — single-stream decode is fine, parallel decode at n≥4 is fatal.
 
-### Tests 20-21 — `fi_cutlass` MoE + `fi` attn + `fi_cudnn` fp4 (eager / piecewise) — **FAIL** (escalating crash latency)
+### Tests 20-22 — `fi_cutlass` MoE + `fi_cudnn` fp4 (all 3 graph-mode permutations × 2 attention backends) — **FAIL**
 
-- **Test 20** (eager mode): **all 13 requests failed** — n=1 produced `error` status with 509 think_tokens and 0 output tokens, then n=4 and n=8 piled into the dead head. Head pod died via the NCCL watchdog (`ProcessGroupNCCL.cpp:2119 ... CUDA error: an illegal instruction was encountered`). **First fi_cutlass MoE row to fail at n=1** — every previous fi_cutlass row had at least delivered one clean n=1 response before crashing. Eager mode is therefore even more fragile than the graph-capture modes for this fault, presumably because eager re-launches the buggy kernel on every step instead of replaying a captured DAG.
-- **Test 21** (piecewise on): n=1 aborted with 1071 think_tokens and 0 output tokens, `worker-1` died with the same `torch.AcceleratorError`.
+- **Test 20** (fi attn, eager): **all 13 requests "failed"** — but the bench-pod streamed output captured in Loki shows the n=1 request was producing **real coherent content** for ~40 seconds (CAP-theorem brief: Brewer/Gilbert-Lynch derivation, PACELC explanation, ZooKeeper/etcd/Cassandra/DynamoDB/Spanner/CockroachDB examples, distributed-systems-architect persona — verified). The HEAD pod died mid-stream via the NCCL watchdog (`ProcessGroupNCCL.cpp:2119 ... CUDA error: an illegal instruction was encountered`), the client got `aiohttp.TransferEncodingError: 400, message='Not enough data to satisfy transfer length header.'`, and the harness logged `status=error`. Then n=4 and n=8 piled into the dead head, all also `error` with 0 ot. **No garbage** — it's a hard crash mid-coherent-stream, just the first fi_cutlass MoE row where even the brief n=1 window doesn't get to finish. Eager mode is more fragile than graph modes here, presumably because eager re-launches the buggy kernel on every step.
+- **Test 21** (fi attn, piecewise on): n=1 aborted with `external abort (pod failure)` after 1071 think_tokens. Loki shows the streamed thinking was **coherent** (DNS resolution process for a frontend dev, "Staff Infrastructure Engineer" persona, structured walk through browser cache → stub resolver → recursive → root/TLD/auth, plus Anycast/DNSSEC/DoH/DoQ/CDN sections — verified). `worker-1` died with the usual `torch.AcceleratorError`.
+- **Test 22** (triton attn, graphs on, piecewise off): n=1 cleanly delivered at **19.75 tok/s** with 1406 think_tokens and 3072 ot, status `done`. Loki content verification: real Transformer-architecture deep dive (deep-learning-researcher persona, RoPE / Flash Attention / MoE coverage, full structured plan + body — verified, 0 `!!!!!` lines). n=4 then aborted instantly: all 4 requests at only 257–289 think_tokens with 0 ot — barely past the prompt header before `worker-2` died with the same `torch.AcceleratorError`. n=8 never ran.
 
-These add nothing new diagnostically — they confirm that eager mode + fi_cutlass MoE is the worst combination, while piecewise graph mode behaves like regular graph mode (single n=1 then dies). The fault remains uniformly present across **9 consecutive fi_cutlass MoE rows (Tests 13–21)** regardless of any sub-backend or graph mode permutation.
+**No garbage in any of the streamed outputs** (verified via Loki bench-pod log retrieval). These confirm the same pattern as Tests 13–19: real coherent content streams cleanly until the offending kernel happens to fire on some rank, at which point that pod dies and the request gets cut. Eager mode + fi_cutlass MoE is the worst combination because the kernel fires earlier (within the first response), while graph modes typically allow at least one full n=1 response before dying.
+
+### Test 23 — `fi_cutlass` MoE + `triton` attn + `fi_cudnn` fp4, **eager** — **FAIL** (bench_crash @ n=1)
+
+- n=1: 6.46 peak, status `aborted`, 324 think_tokens, 0 ot. `worker-3` died with `[E ProcessGroupNCCL.cpp:2119] Process group watchdog thread terminated with exception: CUDA error: an illegal instruction was encountered`.
+- Loki content verification: real coherent TCP-vs-UDP brief (Senior Network Engineer persona, HOL blocking, QUIC, "Big Four" structured outline) was streaming when the worker died. 0 `!!!!!!` lines. **No garbage.**
+
+This is the second eager-mode fi_cutlass-MoE row (Test 20 was the first with `fi` attention) that fails before n=1 can finish — confirms again that eager mode kills the rank earlier than graph modes do, regardless of attention backend.
+
+The fault remains uniformly present across **11 consecutive fi_cutlass MoE rows (Tests 13–23)** regardless of any sub-backend or graph mode permutation.
+
+### Test 24 — `fi_cutlass` MoE + `triton` attn + `fi_cudnn` fp4, piecewise on — **FAIL** (bench_crash @ n=1)
+
+Last fi_cutlass MoE row in the matrix. Same crash signature: n=1 streamed coherent content for 1224 think_tokens before `worker-1` died with `torch.AcceleratorError: CUDA error: an illegal instruction was encountered`. **12 of 12 fi_cutlass MoE rows crashed** — uniformly broken at EP=4 on SM121 across every backend/mode permutation in the matrix.
+
+### Test 25 — `cutlass` direct MoE + `fi` attn + `fi_cutlass` fp4 (graphs on, piecewise off) — **STABLE** (major positive surprise)
+
+Header expectation: cutlass-direct MoE goes through the same `cutlass_moe_fp4` codepath as triton MoE → expected to fail same way as fi_cutlass MoE region. **Wrong** — Test 25 is the first stable EP=4 row in the cutlass-MoE block:
+
+- n=1: **20.26** tok/s, status `done`, 1368 think_tokens, 2816 ot, ttft 6.84 s
+- n=4: **64.54** peak (16.13 per-request, ttft 0.85 s), 4/4 done, varied tt 1117–1295
+- n=8: **93.39** peak (11.67 per-request, ttft 1.07 s), 8/8 done, varied tt 1033–1603 — **clean output verified** via Loki bench-pod log (diverse coherent topics: quantum physics for kids, GitOps, Anycast/BGP DDoS resilience, etc., 0 `!!!!!` lines over the entire n=8 window)
+
+**Comparison to the EP=1 winner** (Test 28 from the prior `ep1` matrix: `cutlass`/`triton`/`fi_cutlass`/graphs on, 21.5 / 67.8 / 102.0 tok/s):
+
+| Concurrency | EP=1 winner | EP=4 Test 25 | Delta |
+|-------------|------------:|-------------:|------:|
+| n=1         |        21.5 |        20.26 | -5.8% |
+| n=4         |        67.8 |         64.5 | -4.9% |
+| n=8         |       102.0 |         93.4 | -8.4% |
+
+Functionally equivalent, slightly slower per token due to EP overhead. **First viable EP=4 path for the 397B in this matrix.** Note this is the cutlass-direct MoE backend going through `cutlass_moe_fp4` — *exactly* the codepath the header notes flagged as broken — but with CUDA graphs ON, the captured graph apparently freezes a working kernel variant. The buggy version of the kernel only fires in eager mode (see Test 26 below for the proof).
+
+### Test 26 — `cutlass` direct MoE + `fi` attn + `fi_cutlass` fp4, **eager** — **FAIL** (`repetition` @ n=4) — *new failure mode caught by guard*
+
+Test 26 is the first matrix row to surface a **garbage failure mode that previously slipped through as fake-success** in the older eager-mode runs (Tests 2/5/8/11). The bench harness's repetition guard caught it cleanly:
+
+- n=1: 12.32 peak, status `done`, 1015 think_tokens, 2682 ot, ttft 70.79 s — single-stream eager mode survived (long ttft is the JIT warmup penalty typical of eager).
+- n=4: all 4 requests started with **coherent thinking content** (real bash disk-monitor brief with `*Self-Correction during drafting*: Wait, if the disk is *so* full that we can't write the state file, the script might fail. We should write state to /var/run or /tmp...*`) — verified in Loki — then **collapsed mid-token into `Let's!!!!!!!!!!!!!!`**. The repetition guard fired with `trigger=SUFFIX_LOOP, repetitions=4` on a 30-character pattern. All 4 streams aborted with status `repetition`. Bench wrote `failed_requests=4`.
+- n=8: never ran (test failed early).
+
+This is **the same failure mode** as Tests 2/5/8/11 (triton MoE + eager) — the model collapses onto a single token after some real thinking — but caught automatically this time instead of slipping through as fake-success.
+
+**Major win for the diagnostic infrastructure**: the bench harness now correctly classifies eager-mode garbage as a `repetition` failure with diagnostic payload (`trigger`, `repetitions`, `pattern_text`), instead of recording a bogus 142–156 tok/s "STABLE" winner. The hand-discovered garbage cases (Tests 2/5/8/11) would now be caught automatically.
+
+#### **Finding from Test 25 + Test 26 paired comparison** *(the cutlass-direct MoE codepath story)*
+
+Tests 25 and 26 are the same backend stack — `cutlass`-direct MoE / `fi` attn / `fi_cutlass` fp4 — differing only in CUDA-graph mode. Side-by-side, they lock in a clean mechanistic finding:
+
+- **Test 25** (graphs ON): **STABLE** at 93.4 tok/s n=8 peak. Graph capture froze a working kernel variant — every replay fires the same good kernel.
+- **Test 26** (eager): **FAIL** with `Let's!!!!!!!` loop caught by the repetition guard. Per-step re-dispatch lets the buggy `cutlass_moe_fp4` path fire and the model collapses onto a single token.
+
+**Cutlass-direct MoE goes through the same buggy `cutlass_moe_fp4` combine path as triton MoE** — exactly as the header hypothesis predicted. The reason it doesn't crash in graph mode is that CUDA graph capture happens to lock in a kernel variant that doesn't trigger the SM121 corruption, and the captured DAG just keeps replaying that variant on every forward pass. As soon as the dispatch logic is allowed to pick its own path per step (eager mode), it hits the unpatched fault and the model collapses onto a single token (`!`).
+
+This explains the entire eager-mode garbage cluster cleanly:
+- Triton MoE in eager mode (Tests 2/5/8/11) → garbage
+- Cutlass-direct MoE in eager mode (Test 26) → garbage
+- Both go through `cutlass_moe_fp4`, both have the same `apply_shuffle_mul_sum` combine bug, both produce the same `!`-loop signature
+
+And it explains why the existing monkey-patches in `sglang_launch.sh` (`a_map/c_map` zero-init + `topk_weights.masked_fill`) *almost* work but not completely: they prevent the crash, they let CUDA graph capture pick a working variant, but they don't fix the actual numerical math of the combine kernel — so eager mode still rolls the dice on every step and loses.
+
+**Practical implication for the model profile**: eager mode is unusable for any backend that pipes through `cutlass_moe_fp4` (= every triton/cutlass MoE row). CUDA graphs ON is non-optional. The cutlass-direct + graphs ON config (Test 25) is the recommended EP=4 setting; we now have empirical evidence that it works.
 
 ### Interim summary after 19 rows (matrix resume run, Test 20 in progress)
 
@@ -331,6 +390,8 @@ These add nothing new diagnostically — they confirm that eager mode + fi_cutla
 | 19 | fi_cutlass | fi     | fi_cudnn   | on (piecewise off)  | —         | **head_crash** (n=4)    |
 | 20 | fi_cutlass | fi     | fi_cudnn   | **eager**           | —         | **head_crash** (n=1)    |
 | 21 | fi_cutlass | fi     | fi_cudnn   | on (piecewise on)   | —         | **bench_crash** (n=1)   |
+| 22 | fi_cutlass | triton | fi_cudnn   | on (piecewise off)  | —         | **bench_crash** (n=4)   |
+| 23 | fi_cutlass | triton | fi_cudnn   | **eager**           | —         | **bench_crash** (n=1)   |
 
 **Patterns confirmed across all triton-MoE rows (Tests 1–12):**
 - **Eager mode (`disable_cuda_graph=true`) is always broken.** 4 of 4 eager rows produced batched-garbage output. The bogus high "throughput" comes from the model collapsing onto a single token and ripping through `max_tokens` at ~17–18 tok/s per request × N parallel.
@@ -364,18 +425,18 @@ Out-of-band single deploy (not part of the matrix run), aimed at answering wheth
 
 **Run config** (identical to Test 13 except for the allgather disable + launch blocking):
 
-| Setting | Value |
-|---|---|
-| moe_runner_backend | flashinfer_cutlass |
-| attention_backend | flashinfer |
-| fp4_gemm_backend | flashinfer_cutlass |
-| disable_cuda_graph | false |
-| disable_piecewise_cuda_graph | true |
-| cuda_graph_max_bs | 8 |
-| ep_size | 4 |
-| tp_size | 4 |
-| **disable_flashinfer_cutlass_moe_fp4_allgather** | **true** (new) |
-| **CUDA_LAUNCH_BLOCKING** | **1** (env) |
+| Setting                                          | Value                |
+|--------------------------------------------------|----------------------|
+| moe_runner_backend                               | flashinfer_cutlass   |
+| attention_backend                                | flashinfer           |
+| fp4_gemm_backend                                 | flashinfer_cutlass   |
+| disable_cuda_graph                               | false                |
+| disable_piecewise_cuda_graph                     | true                 |
+| cuda_graph_max_bs                                | 8                    |
+| ep_size                                          | 4                    |
+| tp_size                                          | 4                    |
+| **disable_flashinfer_cutlass_moe_fp4_allgather** | **true** (new)       |
+| **CUDA_LAUNCH_BLOCKING**                         | **1** (env)          |
 
 **Plumbing verified end-to-end**:
 - ConfigMap `sglang-config` contains `CUDA_LAUNCH_BLOCKING: "1"` and `SGLANG_DISABLE_FLASHINFER_CUTLASS_MOE_FP4_ALLGATHER: "true"` (kubectl get cm).
@@ -383,12 +444,12 @@ Out-of-band single deploy (not part of the matrix run), aimed at answering wheth
 
 **Timeline** (from Loki retrieval, pods already cleaned up):
 
-| Event | Time | Δ from deploy |
-|---|---|---|
-| Deploy (head + 3 workers) | 11:20:34 | — |
-| Worker-2 weight load end | 11:27:08 | +6:34 (383 s) |
-| Worker-2 NCCL init complete | 11:27:59 | +7:25 |
-| **Worker-2 scheduler exception** | **11:30:26** | **+9:52** |
+| Event                            | Time         | Δ from deploy   |
+|----------------------------------|--------------|-----------------|
+| Deploy (head + 3 workers)        | 11:20:34     | —               |
+| Worker-2 weight load end         | 11:27:08     | +6:34 (383 s)   |
+| Worker-2 NCCL init complete      | 11:27:59     | +7:25           |
+| **Worker-2 scheduler exception** | **11:30:26** | **+9:52**       |
 
 Worker-2 (TP2 EP2) ran cleanly through model load, NCCL rendezvous, CUDA graph capture, and into sustained decode for roughly 2–3 minutes before hitting the fault. Same crash-after-warmup latency pattern as Test 13.
 
@@ -430,3 +491,9 @@ torch.AcceleratorError: CUDA error: an illegal instruction was encountered
 - **Recommended**: roll the profile back to Test 3 config (`triton` MoE / `fi` attn / `fi_cutlass` fp4 / graphs on + piecewise on / EP=4). Best stable EP=4 pathway in this matrix at **98.5 tok/s n=8 peak**, only 3.4% below the EP=1 winner and verified coherent in pod stdout.
 - **Safest**: go back to EP=1 + `cutlass` direct MoE, the established pre-matrix winner at **102.0 tok/s n=8**. Costs nothing in throughput and avoids the whole EP-combine bug family.
 - **Upstream path**: file a sglang / flashinfer issue against 0.5.10 with the stack trace, the `disable_flashinfer_cutlass_moe_fp4_allgather=true` non-fix, and the SM121 GB10 hardware context. The repro is deterministic (EP=4 + fi_cutlass MoE always crashes within ~10 min of sustained decode), which should make it actionable upstream.
+
+---
+
+### Test 25 — n=8 inter-node traffic
+
+![Test 25 n=8 inter-node traffic](../../../media/Bildschirmfoto_2026-04-13_15-34-44.png)
