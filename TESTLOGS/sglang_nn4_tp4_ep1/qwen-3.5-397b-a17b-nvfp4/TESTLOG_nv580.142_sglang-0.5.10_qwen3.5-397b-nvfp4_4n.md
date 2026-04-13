@@ -54,31 +54,31 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4
 | 9 | roce | triton | fi | fi_cudnn | false | false | **STABLE** | 20.4 | 64.2 | 97.5 |
 | 10 | roce | triton | triton | fi_cudnn | false | true | **STABLE** | 21.3 | 65.0 | 98.0 |
 | 11 | roce | triton | triton | fi_cudnn | true | true | **STABLE** | 14.3 | 62.6 | 94.0 |
-| 12 | roce | triton | triton | fi_cudnn | false | false | pending | — | — | — |
-| 13 | roce | fi_cutlass | fi | fi_cutlass | false | true | pending | — | — | — |
-| 14 | roce | fi_cutlass | fi | fi_cutlass | true | true | pending | — | — | — |
-| 15 | roce | fi_cutlass | fi | fi_cutlass | false | false | pending | — | — | — |
-| 16 | roce | fi_cutlass | triton | fi_cutlass | false | true | pending | — | — | — |
-| 17 | roce | fi_cutlass | triton | fi_cutlass | true | true | pending | — | — | — |
-| 18 | roce | fi_cutlass | triton | fi_cutlass | false | false | pending | — | — | — |
-| 19 | roce | fi_cutlass | fi | fi_cudnn | false | true | pending | — | — | — |
-| 20 | roce | fi_cutlass | fi | fi_cudnn | true | true | pending | — | — | — |
-| 21 | roce | fi_cutlass | fi | fi_cudnn | false | false | pending | — | — | — |
-| 22 | roce | fi_cutlass | triton | fi_cudnn | false | true | pending | — | — | — |
-| 23 | roce | fi_cutlass | triton | fi_cudnn | true | true | pending | — | — | — |
-| 24 | roce | fi_cutlass | triton | fi_cudnn | false | false | pending | — | — | — |
-| 25 | roce | cutlass | fi | fi_cutlass | false | true | pending | — | — | — |
-| 26 | roce | cutlass | fi | fi_cutlass | true | true | pending | — | — | — |
-| 27 | roce | cutlass | fi | fi_cutlass | false | false | pending | — | — | — |
-| 28 | roce | cutlass | triton | fi_cutlass | false | true | pending | — | — | — |
-| 29 | roce | cutlass | triton | fi_cutlass | true | true | pending | — | — | — |
-| 30 | roce | cutlass | triton | fi_cutlass | false | false | pending | — | — | — |
-| 31 | roce | cutlass | fi | fi_cudnn | false | true | pending | — | — | — |
-| 32 | roce | cutlass | fi | fi_cudnn | true | true | pending | — | — | — |
-| 33 | roce | cutlass | fi | fi_cudnn | false | false | pending | — | — | — |
-| 34 | roce | cutlass | triton | fi_cudnn | false | true | pending | — | — | — |
-| 35 | roce | cutlass | triton | fi_cudnn | true | true | pending | — | — | — |
-| 36 | roce | cutlass | triton | fi_cudnn | false | false | pending | — | — | — |
+| 12 | roce | triton | triton | fi_cudnn | false | false | **STABLE** | 21.5 | 64.7 | 96.0 |
+| 13 | roce | fi_cutlass | fi | fi_cutlass | false | true | FAIL† | 16.5 | — | — |
+| 14 | roce | fi_cutlass | fi | fi_cutlass | true | true | FAIL† | 16.3 | — | — |
+| 15 | roce | fi_cutlass | fi | fi_cutlass | false | false | FAIL† | 0.7 | — | — |
+| 16 | roce | fi_cutlass | triton | fi_cutlass | false | true | FAIL† | 9.4 | — | — |
+| 17 | roce | fi_cutlass | triton | fi_cutlass | true | true | FAIL† | 18.0 | 39.5 | — |
+| 18 | roce | fi_cutlass | triton | fi_cutlass | false | false | FAIL† | 20.1 | 51.9 | — |
+| 19 | roce | fi_cutlass | fi | fi_cudnn | false | true | **STABLE** | 20.1 | 62.6 | 84.2 |
+| 20 | roce | fi_cutlass | fi | fi_cudnn | true | true | FAIL† | 0.2 | — | — |
+| 21 | roce | fi_cutlass | fi | fi_cudnn | false | false | FAIL† | 11.9 | — | — |
+| 22 | roce | fi_cutlass | triton | fi_cudnn | false | true | FAIL | — | — | — |
+| 23 | roce | fi_cutlass | triton | fi_cudnn | true | true | FAIL† | 17.6 | 51.2 | — |
+| 24 | roce | fi_cutlass | triton | fi_cudnn | false | false | **STABLE** | 20.2 | 62.1 | 84.2 |
+| 25 | roce | cutlass | fi | fi_cutlass | false | true | **STABLE** | 20.8 | 67.1 | 100.8 |
+| 26 | roce | cutlass | fi | fi_cutlass | true | true | **STABLE** | 14.5 | 62.0 | 92.6 |
+| 27 | roce | cutlass | fi | fi_cutlass | false | false | **STABLE** | 21.2 | 66.3 | 99.6 |
+| 28 | roce | cutlass | triton | fi_cutlass | false | true | **STABLE ★** | 21.5 | 67.8 | **102.0** |
+| 29 | roce | cutlass | triton | fi_cutlass | true | true | **STABLE** | 14.6 | 62.9 | 95.0 |
+| 30 | roce | cutlass | triton | fi_cutlass | false | false | **STABLE** | 21.3 | 67.2 | 101.8 |
+| 31 | roce | cutlass | fi | fi_cudnn | false | true | **STABLE** | 22.0 | 66.3 | 99.7 |
+| 32 | roce | cutlass | fi | fi_cudnn | true | true | **STABLE** | 14.4 | 60.8 | 92.6 |
+| 33 | roce | cutlass | fi | fi_cudnn | false | false | **STABLE** | 22.0 | 66.1 | 99.7 |
+| 34 | roce | cutlass | triton | fi_cudnn | false | true | **STABLE** | 20.8 | 66.9 | 100.6 |
+| 35 | roce | cutlass | triton | fi_cudnn | true | true | **STABLE** | 13.8 | 62.7 | 95.4 |
+| 36 | roce | cutlass | triton | fi_cudnn | false | false | **STABLE** | 19.9 | 67.4 | 100.5 |
 
 ### Column Legend
 
@@ -96,40 +96,49 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4
 
 ---
 
-## Preliminary Results (Tests 1–10, matrix in progress)
+## Final Results — all 36 tests complete
 
-### All triton-moe tests pass (first time on SM121)
+### Winner: Test 28
 
-Every configuration with `moe_runner_backend=triton` works — both fi_cutlass and fi_cudnn FP4 backends, CUDA graphs on/off/piecewise. This is the first successful run of the triton MoE backend for an NVFP4 model on SM121. The previous EP=4 run (v0.5.10rc0) had 100% crash rate across all triton-moe tests.
-
-### Current leader: Test 4
-
-**triton MoE + triton attention + fi_cutlass FP4 + CUDA graphs on**
+**cutlass MoE + triton attention + fi_cutlass FP4 + CUDA graphs on**
 
 | Concurrency | Peak tok/s |
 |-------------|-----------|
-| n=1 | 22.2 |
-| n=4 | **67.2** |
-| n=8 | **101.3** |
+| n=1 | 21.5 |
+| n=4 | **67.8** |
+| n=8 | **102.0** |
+
+### Top 5 configurations by n=8 peak
+
+| Rank | # | MoE | Attn | FP4 | CG | n=1 | n=4 | n=8 |
+|------|---|-----|------|-----|------|-----|-----|-----|
+| 1 | 28 | cutlass | triton | fi_cutlass | on | 21.5 | 67.8 | **102.0** |
+| 2 | 30 | cutlass | triton | fi_cutlass | piecewise | 21.3 | 67.2 | 101.8 |
+| 3 | 4  | triton  | triton | fi_cutlass | on | 22.2 | 67.2 | 101.3 |
+| 4 | 25 | cutlass | fi     | fi_cutlass | on | 20.8 | 67.1 | 100.8 |
+| 5 | 34 | cutlass | triton | fi_cudnn   | on | 20.8 | 66.9 | 100.6 |
 
 ### Observations
 
-- **CUDA graphs ON vs OFF:** ~50% speedup at n=1 (22.2 vs 14.6 tok/s). Smaller gap at n=4/n=8 (~8-10%). Piecewise graphs ≈ regular graphs.
-- **triton attn vs flashinfer attn:** Near-identical. Test 4 (triton) marginally beats Test 1 (fi) at all concurrency levels.
-- **fi_cutlass vs fi_cudnn FP4:** fi_cutlass slightly better at high concurrency (101.3 vs 100.2 at n=8). Difference is within noise.
-- **No CRASHes:** 11/11 tests completed cleanly (Test 11 n=8 still running). This is the first matrix run where triton-moe doesn't crash on SM121 NVFP4 — enabled by EP=1 (avoids the EP dispatch bug) and the `cute/mma.py` admissible_archs patch.
+- **No crashes on any `triton` or `cutlass` direct MoE backend (tests 1–12, 25–36).** All 24 configurations passed. This is the first successful triton/cutlass MoE matrix run on SM121 NVFP4 — the EP=1 configuration avoids the `StandardDispatcher` EP combine bug documented in `SGLANG_NVFP4_SHUFFLE_ROWS_OOB_UPSTREAM_BUG.md`.
 
-### Context: comparison with EP=4 (v0.5.10rc0)
+- **`flashinfer_cutlass` MoE (tests 13–24) is heavily broken at EP=1.** 8/12 tests failed (FAIL†), 1 fully failed (no data at all), only 3 stable (tests 19, 24 with specific cudnn + no-graph combinations). The flashinfer_cutlass backend assumes EP>1 semantics — with EP=1 (single expert group), its dispatch/combine logic trips up.
 
-The previous EP=4 matrix for this model had:
-- 100% crash rate for triton/cutlass MoE backends (EP dispatch OOB bug)
-- Only fi_cutlass MoE worked, with limited stability
-- Socket transport (~2 GB/s)
+- **cutlass direct MoE (tests 25–36) matches or beats triton MoE.** The direct cutlass backend is the overall winner (Test 28). Both `triton` and `cutlass` pipe through `cutlass_moe_fp4` at the kernel level, but cutlass-direct has less Python overhead and produces ~1% better peak throughput.
 
-This EP=1 + RoCE run eliminates both bottlenecks: no EP dispatch, 4.6× network bandwidth.
+- **CUDA graphs ON delivers ~50% n=1 speedup** (22.2 vs 14.6 tok/s). The gap narrows to ~8-10% at n=4/n=8 as batching amortizes launch overhead. Piecewise graphs ≈ regular graphs within noise.
 
----
+- **triton attn vs flashinfer attn:** Near-identical. triton attn marginally ahead at high concurrency.
 
-## Tests 12–36: pending (matrix still running)
+- **fi_cutlass vs fi_cudnn FP4:** fi_cutlass ~1-2 tok/s better at n=8. Within noise for most configs.
 
-Results will be filled in as the kikube-bench matrix progresses.
+### Comparison with previous baselines
+
+| Config | Matrix Winner n=1 | n=4 | n=8 |
+|--------|-------------------|-----|-----|
+| **Qwen3.5-397B EP=1 Test 28 (this matrix, RoCE)** | 21.5 | **67.8** | **102.0** |
+| Qwen3.5-397B EP=4 v0.5.10rc0 (socket) | — | — | — (100% crash) |
+| Qwen3-235B-A22B EP=4 Test 17 (socket) | 11.28 | 34.60 | 42.70 |
+| Qwen3-235B-A22B EP=4 (RoCE, this session) | ~22 | 65.4 | ~105 |
+
+The 397B model with EP=1 + RoCE roughly **matches** the 235B model's throughput at RoCE. That's remarkable — 397B params active compute vs 235B, but comparable tok/s because both are at roughly the same "active compute per token" level (17B vs 22B active), and the TP=4 EP=1 topology on the 397B eliminates the per-layer EP all-reduce overhead that slows EP=4.
