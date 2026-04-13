@@ -61,9 +61,9 @@ All tests use: `tp=4, pp=1, ep=4, nccl_transport=roce, quantization=modelopt_fp4
 | 13 | roce | fi_cutlass | fi | fi_cutlass | false | true | **FAIL** (bench_crash @ n=8) | 19.61 | — | — |
 | 14 | roce | fi_cutlass | fi | fi_cutlass | true | true | **FAIL** (bench_crash @ n=4) | — | — | — |
 | 15 | roce | fi_cutlass | fi | fi_cutlass | false | false | **FAIL** (bench_crash @ n=1) | — | — | — |
-| 16 | roce | fi_cutlass | triton | fi_cutlass | false | true | pending | — | — | — |
-| 17 | roce | fi_cutlass | triton | fi_cutlass | true | true | pending | — | — | — |
-| 18 | roce | fi_cutlass | triton | fi_cutlass | false | false | pending | — | — | — |
+| 16 | roce | fi_cutlass | triton | fi_cutlass | false | true | **FAIL** (bench_crash @ n=4) | 19.32 | — | — |
+| 17 | roce | fi_cutlass | triton | fi_cutlass | true | true | **FAIL** (bench_crash @ n=1) | — | — | — |
+| 18 | roce | fi_cutlass | triton | fi_cutlass | false | false | aborted (matrix run stopped) | — | — | — |
 | 19 | roce | fi_cutlass | fi | fi_cudnn | false | true | pending | — | — | — |
 | 20 | roce | fi_cutlass | fi | fi_cudnn | true | true | pending | — | — | — |
 | 21 | roce | fi_cutlass | fi | fi_cudnn | false | false | pending | — | — | — |
@@ -262,11 +262,20 @@ Recommended follow-up before re-running this region:
 2. Check whether `flashinfer_cutlass` ships sm_120a/sm_121a cubins for the MoE kernel, or if it's PTX-JIT'd at runtime (PTX path is the likely culprit on SM121).
 3. Run with `CUDA_LAUNCH_BLOCKING=1` to get a precise kernel name in the stack trace instead of the async report.
 
-### Test 16 — `fi_cutlass` MoE + **`triton` attn** + `fi_cutlass` fp4 — pending startup
+### Tests 16-17 — `fi_cutlass` MoE + **`triton` attn** + `fi_cutlass` fp4 — **bench_crash** (same `illegal instruction`)
 
-Bench harness has redeployed SGLang for Test 16; head pod still waiting for readiness as of last check.
+- **Test 16** (graphs on, piecewise off): n=1 completed cleanly at 19.32 tok/s with one full coherent response (1369 think_tokens, 3072 ot, status `done`). n=4 started, all 4 requests aborted at 0 ttft with very low think-token estimates (304–323) — the worker died very early, before the thinking phase even completed. `worker-1` log: `torch.AcceleratorError: CUDA error: an illegal instruction was encountered`.
+- **Test 17** (eager): never completed n=1. Single request aborted with `tt_est=19, ot=0`. `worker-2` log shows the error coming up through Triton instead of CUDA runtime: `RuntimeError: Triton Error [CUDA]: an illegal instruction was encountered`. Same underlying fault, different first sync point — eager mode hits Triton kernel sync before the next D2H copy.
 
-### Interim summary after 15 rows
+These confirm the fault is **not** sensitive to the attention backend (Tests 13/14/15 used `flashinfer` attn, Tests 16/17 use `triton` attn — same crash). Five consecutive fi_cutlass MoE rows have crashed (13/14/15/16/17), with the crash point ranging from "after 2 minutes of clean decode at n=4" to "before the first response token at n=1". The pattern is consistent with a stochastic numerical edge case in the fi_cutlass MoE forward kernel that always triggers eventually but at a rate that scales with how much compute happens — n=1 with simple prompts can survive longer than n=4 with thinking-heavy prompts.
+
+### Test 18 — `fi_cutlass` MoE + `triton` attn + `fi_cutlass` fp4, piecewise on — **aborted (matrix run stopped)**
+
+Test 18 started its SGLang deployment at 13:06:16 (head + 3 worker logs were created), but the matrix-bench control pod was terminated before any benchmark results were written. The MATRIX_SUMMARY ends at 17 cases. SGLang pods in the cluster are now in a fresh state, suggesting an out-of-band redeploy after the matrix run was killed.
+
+Tests 19–36 were never run.
+
+### Interim summary after 17 rows (matrix run stopped during Test 18)
 
 | #  | MoE        | Attn   | fp4 GEMM   | Graph mode          | n=8 peak  | Status                  |
 |----|------------|--------|------------|---------------------|-----------|-------------------------|
@@ -285,12 +294,96 @@ Bench harness has redeployed SGLang for Test 16; head pod still waiting for read
 | 13 | fi_cutlass | fi     | fi_cutlass | on (piecewise off)  | —         | **bench_crash** (n=8)   |
 | 14 | fi_cutlass | fi     | fi_cutlass | **eager**           | —         | **bench_crash** (n=4)   |
 | 15 | fi_cutlass | fi     | fi_cutlass | on (piecewise on)   | —         | **bench_crash** (n=1)   |
+| 16 | fi_cutlass | triton | fi_cutlass | on (piecewise off)  | —         | **bench_crash** (n=4)   |
+| 17 | fi_cutlass | triton | fi_cutlass | **eager**           | —         | **bench_crash** (n=1)   |
 
 **Patterns confirmed across all triton-MoE rows (Tests 1–12):**
 - **Eager mode (`disable_cuda_graph=true`) is always broken.** 4 of 4 eager rows produced batched-garbage output. The bogus high "throughput" comes from the model collapsing onto a single token and ripping through `max_tokens` at ~17–18 tok/s per request × N parallel.
 - **CUDA graph modes (on or piecewise on) are always stable.** All 8 graph-on rows produced coherent outputs verified in pod stdout.
 - **Sub-backend choice (fi vs triton attn, fi_cutlass vs fi_cudnn fp4) is essentially neutral** — all stable rows land in a tight 91–98.5 tok/s band at n=8, within ~8% of each other. The single best is **Test 3** (`triton` MoE / `fi` attn / `fi_cutlass` fp4 / piecewise graphs on) at **98.5 tok/s n=8 peak** — still 3.4% below the EP=1 winner (102.0 tok/s).
 
-**fi_cutlass MoE region (Tests 13–15) is broadly broken** — three consecutive rows crashed worker pods, at n=8 / n=4 / n=1 respectively. Different worker each time (worker-2, worker-1, worker-2), so it's not a node-affinity or VF-pinning issue. The hypothesis from the header — that fi_cutlass MoE would be the "winner region at EP=4" with its own EP all-to-all routing — is now strongly contradicted on this image. Tests 16–24 (the rest of the fi_cutlass MoE block) are very likely going to keep crashing; the matrix will burn ~3 minutes of redeploy + ~10 minutes of ansible startup per test before each crash. Worth looking at `kubectl logs --previous` on a crashed worker before the matrix completes to identify the actual fault (cuDNN assert? CUTLASS assert? OOM? NCCL timeout?).
+**fi_cutlass MoE region (Tests 13–17) is uniformly broken** — five consecutive rows crashed worker pods with the same `cudaErrorIllegalInstruction` fault. Crashes hit different workers (worker-1 and worker-2 in roughly equal measure), so it's not a node-affinity, VF-pinning, or single-bad-GPU issue. Crashes are independent of attention backend (fi or triton, same fault) and graph mode (graphs on, eager, or piecewise — all same fault). Crash latency varies: n=1 with simple prompts can run cleanly for 19+ tok/s for a full response (Test 13/16 n=1), while n=4 with thinking-heavy prompts can crash in seconds (Tests 16/17). The hypothesis from the header — that fi_cutlass MoE would be the "winner region at EP=4" with its own EP all-to-all routing — is now **strongly contradicted** on this image. The matrix run was stopped during Test 18 (rows 18–36 never executed). Diagnostic next step: re-run with `disable_flashinfer_cutlass_moe_fp4_allgather=True` (now plumbed through ansible defaults / sglang.yml / sglang_launch.sh / model profile) to take the fi_cutlass-specific allgather out of the loop.
 
 Results will continue to be filled in as the kikube-bench matrix progresses.
+
+---
+
+## Follow-up diagnostic — Test 13 config + `disable_flashinfer_cutlass_moe_fp4_allgather=true` + `CUDA_LAUNCH_BLOCKING=1`
+
+Out-of-band single deploy (not part of the matrix run), aimed at answering whether the `--disable-flashinfer-cutlass-moe-fp4-allgather` switch fixes the SM121 `cudaErrorIllegalInstruction` crash in the fi_cutlass MoE region, and whether `CUDA_LAUNCH_BLOCKING=1` gives us a precise offending kernel name in the stack trace.
+
+**Plumbing added to the repo for this run:**
+- `roles/k8s_dgx/defaults/main.yml` — new var `sglang_disable_flashinfer_cutlass_moe_fp4_allgather` (default `false`)
+- `roles/k8s_dgx/tasks/sglang.yml` — new env `SGLANG_DISABLE_FLASHINFER_CUTLASS_MOE_FP4_ALLGATHER` in the sglang ConfigMap
+- `roles/k8s_dgx/files/sglang_launch.sh` — new args block appending `--disable-flashinfer-cutlass-moe-fp4-allgather` when the env is `true`
+- `roles/k8s_dgx/model_profiles/nvidia-qwen3.5-397b-a17b-nvfp4.yml` — `disable_flashinfer_cutlass_moe_fp4_allgather: true`
+- `tasks/sglang.yml` — `CUDA_LAUNCH_BLOCKING: "1"` re-added to the ConfigMap env block
+
+**Run config** (identical to Test 13 except for the allgather disable + launch blocking):
+
+| Setting | Value |
+|---|---|
+| moe_runner_backend | flashinfer_cutlass |
+| attention_backend | flashinfer |
+| fp4_gemm_backend | flashinfer_cutlass |
+| disable_cuda_graph | false |
+| disable_piecewise_cuda_graph | true |
+| cuda_graph_max_bs | 8 |
+| ep_size | 4 |
+| tp_size | 4 |
+| **disable_flashinfer_cutlass_moe_fp4_allgather** | **true** (new) |
+| **CUDA_LAUNCH_BLOCKING** | **1** (env) |
+
+**Plumbing verified end-to-end**:
+- ConfigMap `sglang-config` contains `CUDA_LAUNCH_BLOCKING: "1"` and `SGLANG_DISABLE_FLASHINFER_CUTLASS_MOE_FP4_ALLGATHER: "true"` (kubectl get cm).
+- Head pod `server_args=ServerArgs(..., disable_flashinfer_cutlass_moe_fp4_allgather=True, ...)` confirmed in log — the flag reached SGLang's arg parser.
+
+**Timeline** (from Loki retrieval, pods already cleaned up):
+
+| Event | Time | Δ from deploy |
+|---|---|---|
+| Deploy (head + 3 workers) | 11:20:34 | — |
+| Worker-2 weight load end | 11:27:08 | +6:34 (383 s) |
+| Worker-2 NCCL init complete | 11:27:59 | +7:25 |
+| **Worker-2 scheduler exception** | **11:30:26** | **+9:52** |
+
+Worker-2 (TP2 EP2) ran cleanly through model load, NCCL rendezvous, CUDA graph capture, and into sustained decode for roughly 2–3 minutes before hitting the fault. Same crash-after-warmup latency pattern as Test 13.
+
+**Stack trace** (new, more specific than Tests 13–17):
+
+```
+[2026-04-13 11:30:26 TP2 EP2] Scheduler hit an exception: Traceback (most recent call last):
+  File "sglang/srt/managers/scheduler.py", line 1319, in event_loop_normal
+    result = self.run_batch(batch)
+  File "sglang/srt/managers/scheduler.py", line 2724, in run_batch
+    batch_result = self.model_worker.forward_batch_generation(
+  File "sglang/srt/managers/tp_worker.py", line 469, in forward_batch_generation
+    out = self.model_runner.forward(
+  File "sglang/srt/model_executor/model_runner.py", line 2739, in forward
+    output = self._forward_raw(
+  File "sglang/srt/model_executor/model_runner.py", line 2804, in _forward_raw
+    ret = self.graph_runner.replay(
+  File "sglang/srt/model_executor/cuda_graph_runner.py", line 1161, in replay
+    self.graphs[graph_key].replay()
+  File "torch/cuda/graphs.py", line 139, in replay
+    super().replay()
+torch.AcceleratorError: CUDA error: an illegal instruction was encountered
+```
+
+**Key observations:**
+
+1. **The `disable_flashinfer_cutlass_moe_fp4_allgather=true` flag does NOT fix the crash.** Same `cudaErrorIllegalInstruction`, ~3 min into sustained decode, on worker-2. The fi_cutlass MoE region remains uniformly broken at EP=4 on SM121.
+
+2. **But the flag DID move the crash-surface.** Tests 13–17 surfaced the fault at either `next_token_ids.tolist()` (D2H sync after decode) or the NCCL watchdog's CUDA-event query. This run surfaces it **directly at the CUDA graph replay boundary** (`graphs[graph_key].replay() → torch/cuda/graphs.py:139 super().replay()`). This is meaningful: the bad kernel is inside the captured forward graph, the allgather codepath that was taking the blame previously is actually clean, and whatever remains of the fi_cutlass MoE forward is where the real fault lives.
+
+3. **`CUDA_LAUNCH_BLOCKING=1` did not help sharpen the stack.** CUDA graph replay is `cudaGraphLaunch`, which submits the entire captured DAG as a single unit to the device scheduler — launch-blocking serializes individual `cudaLaunchKernel` calls but has no effect on graph submission. The first sync-able failure point inside a captured graph is the replay return, which is exactly where we see it. To get a per-kernel kernel name, we would need to either disable CUDA graphs entirely (but we know eager mode on fi_cutlass MoE also crashes — Test 14) or rebuild the image with `TORCH_USE_CUDA_DSA=1` for device-side assertions (not feasible with the upstream `scitrera/dgx-spark-sglang:0.5.10` image).
+
+4. **Head pod was unaffected during the sustained period** — only TP2 EP2 (worker-2) triggered. The fault is rank-local and non-deterministic: in Test 13 it was also worker-2 (different pod instance), in Test 14 it was worker-1, in Test 15 worker-2 again, in Test 16 worker-1, in Test 17 worker-2. No node-affinity or VF-pinning correlation; looks like a data-dependent numerical edge case that eventually fires on whichever rank happens to process the triggering token distribution first.
+
+**Conclusion.** Two diagnostic switches (the allgather disable and launch blocking) have been exhausted without fixing or narrowing the fault any further. The fi_cutlass MoE forward kernel has an SM121-specific illegal instruction inside the captured CUDA graph, and the upstream `scitrera/dgx-spark-sglang:0.5.10` image does not give us a cleaner handle to isolate which kernel.
+
+**Practical fallback paths:**
+
+- **Recommended**: roll the profile back to Test 3 config (`triton` MoE / `fi` attn / `fi_cutlass` fp4 / graphs on + piecewise on / EP=4). Best stable EP=4 pathway in this matrix at **98.5 tok/s n=8 peak**, only 3.4% below the EP=1 winner and verified coherent in pod stdout.
+- **Safest**: go back to EP=1 + `cutlass` direct MoE, the established pre-matrix winner at **102.0 tok/s n=8**. Costs nothing in throughput and avoids the whole EP-combine bug family.
+- **Upstream path**: file a sglang / flashinfer issue against 0.5.10 with the stack trace, the `disable_flashinfer_cutlass_moe_fp4_allgather=true` non-fix, and the SM121 GB10 hardware context. The repro is deterministic (EP=4 + fi_cutlass MoE always crashes within ~10 min of sustained decode), which should make it actionable upstream.
