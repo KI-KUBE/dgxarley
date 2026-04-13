@@ -46,12 +46,12 @@ All tests use: `tp=4, pp=1, ep=4, nccl_transport=roce, quantization=modelopt_fp4
 
 | # | nccl | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | Status | n=1 tok/s | n=4 peak | n=8 peak |
 |---|------|------------|-----------|----------|----------------|---------------|--------|-----------|----------|----------|
-| 1 | roce | triton | fi | fi_cutlass | false | true | **STABLE** | 20.65 | 64.1 | 94.43 |
-| 2 | roce | triton | fi | fi_cutlass | true | true | pending | — | — | — |
-| 3 | roce | triton | fi | fi_cutlass | false | false | pending | — | — | — |
-| 4 | roce | triton | triton | fi_cutlass | false | true | pending | — | — | — |
-| 5 | roce | triton | triton | fi_cutlass | true | true | pending | — | — | — |
-| 6 | roce | triton | triton | fi_cutlass | false | false | pending | — | — | — |
+| 1 | roce | triton | fi | fi_cutlass | false | true | **STABLE** | 20.65 | 64.4 | 96.1 |
+| 2 | roce | triton | fi | fi_cutlass | true | true | **FAIL†** (garbage @ n=8) | 13.16 | 75.4 | ~~156.4~~ |
+| 3 | roce | triton | fi | fi_cutlass | false | false | **STABLE** | 21.43 | 65.7 | 98.5 |
+| 4 | roce | triton | triton | fi_cutlass | false | true | **STABLE** | 19.37 | 61.2 | 93.2 |
+| 5 | roce | triton | triton | fi_cutlass | true | true | **FAIL** (garbage all levels) | ~~8.56~~ | ~~62.6~~ | ~~142.8~~ |
+| 6 | roce | triton | triton | fi_cutlass | false | false | running | 19.6 | 58.6 | — |
 | 7 | roce | triton | fi | fi_cudnn | false | true | pending | — | — | — |
 | 8 | roce | triton | fi | fi_cudnn | true | true | pending | — | — | — |
 | 9 | roce | triton | fi | fi_cudnn | false | false | pending | — | — | — |
@@ -129,11 +129,70 @@ Target for EP=4: match or exceed 102.0 tok/s at n=8. EP=4 has better GEMM effici
 ### Test 1 — `triton` MoE + `fi` attn + `fi_cutlass` fp4 (CUDA graphs on, piecewise off) — **STABLE** (surprise)
 
 - n=1: 20.65 tok/s (ttft 2.80 s)
-- n=4: 64.1 agg (16.1 per-request, ttft 0.85 s)
-- n=8: 94.43 agg (12.02 per-request, ttft 1.15 s), 8/8 successful, 24,153 tokens in 255.78 s
+- n=4: 64.4 peak (16.1 per-request, ttft 0.85 s)
+- n=8: 96.1 peak (12.02 per-request, ttft 1.15 s), 8/8 successful, 24,153 tokens in 255.78 s
 
 Contrary to the expected "triton MoE crashes or garbage" prediction, this row is stable at EP=4. The `cutlass_moe_fp4` EP combine monkey-patches (`a_map/c_map` zero-init + `topk_weights` mask) are holding. Output quality not yet spot-checked — a passing bench only means no exceptions, not correct generations.
 
-At n=8 this is still ~7% below the EP=1 winner (102.0 tok/s). More rows pending.
+At n=8 this is ~6% below the EP=1 winner (102.0 tok/s).
+
+### Test 2 — `triton` MoE + `fi` attn + `fi_cutlass` fp4, **CUDA graphs disabled** (eager, piecewise off) — **FAIL†** (garbage output at n=8)
+
+- n=1: 13.16 tok/s (ttft 65.18 s) — **coherent output verified** (proper quantum-entanglement explanation)
+- n=4: 75.4 peak (18.86 per-request, ttft 0.81 s) — **coherent output verified** (proper network-engineering content)
+- n=8: ~~156.4~~ peak — **GARBAGE**: all 8 requests produced `Here!!!!!!!!!!!...` (the literal token `!` repeated for 3072 tokens). Bench harness reported 8/8 "successful" because every request hit `finish_reason=length` and max_tokens — no exception, no empty content.
+
+The apparent "eager beats graphs by 63% at n=8" result is bogus: at n=8 the MoE dispatch degenerates into a single-token repetition loop, which runs ~3× faster than real decoding because no real work is done per step. The n=1 and n=4 runs were **real** (verified in pod stdout via `kubectl logs`), but something in the batching / EP-combine path at batch size 8 under eager mode breaks the output distribution and pins every logit onto `!`.
+
+**Hypothesis (unverified):** this matches the `StandardDispatcher` / `apply_shuffle_mul_sum` EP combine bug from the header notes: the `a_map/c_map` zero-init + `topk_weights.masked_fill` patches suppress the crash but do not actually fix the combine math — at higher batch sizes (n≥8) the numerical corruption *may* become catastrophic and the model collapses onto a single token. At n≤4 the corruption *may* be small enough that the model still produces usable text (but quality may be subtly degraded — not yet measured). Needs confirmation: (1) verify failure reproduces at n=8, (2) check if disabling piecewise or re-enabling CUDA graphs changes the threshold, (3) compare logits/prob distributions at n=4 vs n=8 to see if the collapse is truly concurrency-triggered rather than some other stateful effect.
+
+Detection note: the kikube-bench harness currently accepts any `finish_reason ∈ {stop, length}` as success. To flag this failure automatically we need an output-quality check — see the follow-up section below.
+
+### Test 3 — `triton` MoE + `fi` attn + `fi_cutlass` fp4, piecewise CUDA graphs **on** (graphs on, piecewise on) — **STABLE**
+
+- n=1: 21.43 tok/s (ttft 0.71 s) — **coherent output verified** (CTO encryption strategy brief, proper structure)
+- n=4: 65.69 peak (16.42 per-request, ttft 0.82 s), wall 187.1 s — **coherent output verified** (TCP vs UDP explanation, proper markdown table, convoy analogy)
+- n=8: 98.5 peak (12.31 per-request, ttft 1.14 s), 8/8 successful, wall 249.65 s — **coherent output verified** (real thinking content about bash disk-alert scripts, stateful alert flooding, coreutils trade-offs)
+
+Test 3 tracks Test 1 very closely across all three concurrency levels (n=1 21.4 vs 20.7, n=4 65.7 vs 64.4, n=8 98.5 vs 96.1). Enabling piecewise CUDA graphs on top of regular graphs gives a ~2.4% bump at n=8 but otherwise changes nothing — the combined-graphs path is stable.
+
+**This refines the hypothesis from Test 2:** the n=8 garbage collapse is **not** purely batch-size-driven. Both Test 1 (CUDA graphs on, piecewise off) and Test 3 (CUDA graphs on, piecewise on) handle n=8 cleanly. Only Test 2 (`disable_cuda_graph=true`, eager mode) corrupts at n=8. So the trigger is the interaction between **eager execution and batch size ≥ 8** on the `cutlass_moe_fp4` combine path — CUDA graph capture appears to serialize or pin the EP dispatch in a way that the monkey-patches can cope with, while eager mode re-dispatches per step and hits the unpatched numerical path at batch 8. Needs further verification before calling it confirmed.
+
+### Test 4 — `triton` MoE + **`triton` attn** + `fi_cutlass` fp4 (CUDA graphs on, piecewise off) — **STABLE**
+
+- n=1: 19.37 tok/s (ttft 1.64 s)
+- n=4: 61.23 peak (15.31 per-request, ttft 0.81 s), think_tokens vary 1115–1981 across requests
+- n=8: 93.20 peak (11.65 per-request, ttft 1.17 s), 8/8 successful, think_tokens vary 1087–1615 — **coherent output verified** (real architecture-review, arena-allocation, partition re-alerting content)
+
+Switching attention backend from `flashinfer` (Test 1) to `triton` costs roughly 3% at each concurrency level (19.4 vs 20.7, 61.2 vs 64.4, 93.2 vs 96.1). Not a meaningful difference — triton attention is slightly slower but fully functional.
+
+### Test 5 — `triton` MoE + `triton` attn + `fi_cutlass` fp4, **CUDA graphs disabled** (eager, piecewise off) — **FAIL** (garbage at every concurrency level)
+
+- n=1: 8.56 tok/s (ttft 56.78 s), 996 output tokens, fr=stop — **DEGRADED**: thinking starts coherent (Monty Hall setup, Bayesian enumeration) then collapses mid-thinking into garbled LaTeX fragments (`*ft  and accred\`, `\ \text\ {1\ }`, `\1\*\10-12`) before emitting the end-of-thinking tag and stopping with only ~48 content tokens.
+- n=4: ~~62.58~~ peak — **GARBAGE**: all 4 responses contain `!!!!!!!!!!!` runs visible in pod stdout.
+- n=8: ~~142.80~~ peak — **GARBAGE**: all 8 requests produced identical stats (`tps=17.85, think_tokens_est=771`, `output_tokens=3072`, fr=length) — textbook batched-garbage signature. Pod stdout shows `Here's a thinking!!!!!!!!` for every request.
+
+This is the second confirmed eager-mode failure (Test 2 was the first, same backend stack with `flashinfer` attention). Both eager-mode rows on the triton MoE path are corrupt. The Test 2 hypothesis now tightens: **eager mode (`disable_cuda_graph=true`) on the `cutlass_moe_fp4` combine path produces output corruption at all concurrency levels**, not just n=8 — Test 2 n=1/n=4 looked clean only because the prompts happened to be simple enough that the corruption didn't accumulate before a natural stop; Test 5 shows the same path can also break n=1 when the thinking phase runs long. The n=8 case is the worst because everything collapses onto a single token, giving the highest aggregate tps and fooling the bench harness into reporting a speed-up.
+
+### Test 6 — `triton` MoE + `triton` attn + `fi_cutlass` fp4, piecewise CUDA graphs on (graphs on, piecewise on) — partial, n=8 running
+
+- n=1: ~19.6 peak (ttft 0.74 s), wall 156.7 s — **coherent output verified** (REST API design, nested vs flat URLs, architecture rationale)
+- n=4: ~58.6 peak (15.2 per-request, ttft 0.96 s), wall 201.2 s — **output verified clean** (no `!!!!` patterns in pod stdout)
+- n=8: started 2026-04-13 10:15 UTC, still running
+
+Tracks Test 4 closely at n=1/n=4 (19.6 vs 19.4, 58.6 vs 61.2). Piecewise adds a very small cost at n=4 here. Expecting n=8 to land around 93 tok/s similarly to Tests 1/3/4 if the CUDA-graph-on rows remain the stable regime.
+
+### Interim summary after 6 rows
+
+| MoE | Attn | Graph mode | n=8 peak | Status |
+|-----|------|-----------|----------|--------|
+| triton | fi | on (piecewise off) | 96.1 | STABLE (Test 1) |
+| triton | fi | **eager** | ~~156.4~~ | **FAIL** (Test 2) |
+| triton | fi | on (piecewise on) | 98.5 | STABLE (Test 3) |
+| triton | triton | on (piecewise off) | 93.2 | STABLE (Test 4) |
+| triton | triton | **eager** | ~~142.8~~ | **FAIL** (Test 5) |
+| triton | triton | on (piecewise on) | pending | pending (Test 6) |
+
+Clear pattern on the triton MoE path: **eager mode always corrupts, graph modes are always stable**. Attention backend choice (fi vs triton) costs ~3% but is otherwise neutral. Best n=8 peak so far is Test 3 at 98.5 tok/s — still short of the EP=1 winner (102.0 tok/s).
 
 Results will continue to be filled in as the kikube-bench matrix progresses.
