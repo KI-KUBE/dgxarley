@@ -51,7 +51,7 @@ All tests use: `tp=4, pp=1, ep=4, nccl_transport=roce, quantization=modelopt_fp4
 | 3 | roce | triton | fi | fi_cutlass | false | false | **STABLE** | 21.43 | 65.7 | 98.5 |
 | 4 | roce | triton | triton | fi_cutlass | false | true | **STABLE** | 19.37 | 61.2 | 93.2 |
 | 5 | roce | triton | triton | fi_cutlass | true | true | **FAIL** (garbage all levels) | ~~8.56~~ | ~~62.6~~ | ~~142.8~~ |
-| 6 | roce | triton | triton | fi_cutlass | false | false | running | 19.6 | 58.6 | — |
+| 6 | roce | triton | triton | fi_cutlass | false | false | **STABLE** | 19.61 | 60.7 | 91.0 |
 | 7 | roce | triton | fi | fi_cudnn | false | true | pending | — | — | — |
 | 8 | roce | triton | fi | fi_cudnn | true | true | pending | — | — | — |
 | 9 | roce | triton | fi | fi_cudnn | false | false | pending | — | — | — |
@@ -174,24 +174,24 @@ Switching attention backend from `flashinfer` (Test 1) to `triton` costs roughly
 
 This is the second confirmed eager-mode failure (Test 2 was the first, same backend stack with `flashinfer` attention). Both eager-mode rows on the triton MoE path are corrupt. The Test 2 hypothesis now tightens: **eager mode (`disable_cuda_graph=true`) on the `cutlass_moe_fp4` combine path produces output corruption at all concurrency levels**, not just n=8 — Test 2 n=1/n=4 looked clean only because the prompts happened to be simple enough that the corruption didn't accumulate before a natural stop; Test 5 shows the same path can also break n=1 when the thinking phase runs long. The n=8 case is the worst because everything collapses onto a single token, giving the highest aggregate tps and fooling the bench harness into reporting a speed-up.
 
-### Test 6 — `triton` MoE + `triton` attn + `fi_cutlass` fp4, piecewise CUDA graphs on (graphs on, piecewise on) — partial, n=8 running
+### Test 6 — `triton` MoE + `triton` attn + `fi_cutlass` fp4, piecewise CUDA graphs on (graphs on, piecewise on) — **STABLE**
 
-- n=1: ~19.6 peak (ttft 0.74 s), wall 156.7 s — **coherent output verified** (REST API design, nested vs flat URLs, architecture rationale)
-- n=4: ~58.6 peak (15.2 per-request, ttft 0.96 s), wall 201.2 s — **output verified clean** (no `!!!!` patterns in pod stdout)
-- n=8: started 2026-04-13 10:15 UTC, still running
+- n=1: 19.61 tok/s (ttft 0.74 s), wall 156.7 s — **coherent output verified** (REST API design, nested vs flat URLs, architecture rationale)
+- n=4: 60.66 peak (15.17 per-request, ttft 0.96 s), wall 201.2 s, think_tokens vary 1185–1533 — **output verified clean**
+- n=8: 90.97 peak (11.37 per-request, ttft 1.15 s), 8/8 successful, think_tokens vary 1161–1708 — **coherent output verified** (Transformer/GPU utilization content, constructor code, no `!!!!` pattern anywhere in pod stdout)
 
-Tracks Test 4 closely at n=1/n=4 (19.6 vs 19.4, 58.6 vs 61.2). Piecewise adds a very small cost at n=4 here. Expecting n=8 to land around 93 tok/s similarly to Tests 1/3/4 if the CUDA-graph-on rows remain the stable regime.
+Tracks Test 4 closely across all levels (19.6 vs 19.4, 60.7 vs 61.2, 91.0 vs 93.2). Piecewise graphs add no measurable benefit on the triton-attn path here. Worst n=8 peak of the triton-attn stable rows (vs 93.2 for Test 4), though the difference is within noise.
 
 ### Interim summary after 6 rows
 
-| MoE | Attn | Graph mode | n=8 peak | Status |
-|-----|------|-----------|----------|--------|
-| triton | fi | on (piecewise off) | 96.1 | STABLE (Test 1) |
-| triton | fi | **eager** | ~~156.4~~ | **FAIL** (Test 2) |
-| triton | fi | on (piecewise on) | 98.5 | STABLE (Test 3) |
-| triton | triton | on (piecewise off) | 93.2 | STABLE (Test 4) |
-| triton | triton | **eager** | ~~142.8~~ | **FAIL** (Test 5) |
-| triton | triton | on (piecewise on) | pending | pending (Test 6) |
+| MoE    | Attn   | Graph mode          | n=8 peak   | Status            |
+|--------|--------|---------------------|------------|-------------------|
+| triton | fi     | on (piecewise off)  | 96.1       | STABLE (Test 1)   |
+| triton | fi     | **eager**           | ~~156.4~~  | **FAIL** (Test 2) |
+| triton | fi     | on (piecewise on)   | 98.5       | STABLE (Test 3)   |
+| triton | triton | on (piecewise off)  | 93.2       | STABLE (Test 4)   |
+| triton | triton | **eager**           | ~~142.8~~  | **FAIL** (Test 5) |
+| triton | triton | on (piecewise on)   | 91.0       | STABLE (Test 6)   |
 
 Clear pattern on the triton MoE path: **eager mode always corrupts, graph modes are always stable**. Attention backend choice (fi vs triton) costs ~3% but is otherwise neutral. Best n=8 peak so far is Test 3 at 98.5 tok/s — still short of the EP=1 winner (102.0 tok/s).
 
