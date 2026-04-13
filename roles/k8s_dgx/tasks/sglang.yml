@@ -72,6 +72,7 @@
         SGLANG_DISABLE_CUDA_GRAPH: "{{ sglang_disable_cuda_graph | string | lower }}"
         TQDM_POSITION: "-1"
         SGLANG_DISABLE_PIECEWISE_CUDA_GRAPH: "{{ sglang_disable_piecewise_cuda_graph | string | lower }}"
+        SGLANG_DISABLE_FLASHINFER_CUTLASS_MOE_FP4_ALLGATHER: "{{ sglang_disable_flashinfer_cutlass_moe_fp4_allgather | string | lower }}"
         SGLANG_SERVED_MODEL_NAME: "{{ sglang_served_model_name }}"
         SGLANG_CHAT_TEMPLATE_KWARGS: "{{ sglang_chat_template_kwargs | to_json }}"
         SGLANG_EP: "{{ sglang_ep | string }}"
@@ -115,6 +116,7 @@
         # then "0" — but "0" may still enable serialization on some CUDA
         # runtimes that check env-var presence, not value). Re-add with "1"
         # only when debugging device-side asserts; see sglkernel-fix.md.
+        # CUDA_LAUNCH_BLOCKING: "1"
         NCCL_SOCKET_IFNAME: "{{ nccl_socket_ifname }}"
         # NCCL transport: controlled by sglang_nccl_transport (roce/socket).
         # With apply: true, the ConfigMap is fully replaced — keys from the

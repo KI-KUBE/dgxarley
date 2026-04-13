@@ -55,8 +55,9 @@ sglang_speculative_draft_model_quantization: "{{ sglang_model_profiles[sglang_mo
 #sglang_model: "Qwen/Qwen3.5-35B-A3B-FP8"
 #sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
 
-sglang_model: "nvidia/Qwen3-235B-A22B-NVFP4"
-#sglang_model: "zai-org/GLM-4.7-FP8"
+sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
+# sglang_model: "nvidia/Qwen3-235B-A22B-NVFP4"
+# sglang_model: "zai-org/GLM-4.7-FP8"
 
 # sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
 # sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
@@ -107,6 +108,11 @@ sglang_disable_cuda_graph: "{{ sglang_model_profiles[sglang_model].disable_cuda_
 # Disable piecewise CUDA graph capture (--disable-piecewise-cuda-graph).
 # Needed for NVFP4+EP models where capture OOMs on the all-reduce buffers.
 sglang_disable_piecewise_cuda_graph: "{{ sglang_model_profiles[sglang_model].disable_piecewise_cuda_graph | default(false) }}"
+# Disable the flashinfer_cutlass MoE FP4 allgather path
+# (--disable-flashinfer-cutlass-moe-fp4-allgather). Diagnostic switch for the
+# cudaErrorIllegalInstruction crashes seen on SM121 with moe_runner_backend=
+# flashinfer_cutlass at EP>1 (see Tests 13–15 in the EP=4 NVFP4 test log).
+sglang_disable_flashinfer_cutlass_moe_fp4_allgather: "{{ sglang_model_profiles[sglang_model].disable_flashinfer_cutlass_moe_fp4_allgather | default(false) }}"
 
 # Served model name for the OpenAI-compatible API. When load_format is
 # sharded_state, the model path becomes the shard directory — this overrides
