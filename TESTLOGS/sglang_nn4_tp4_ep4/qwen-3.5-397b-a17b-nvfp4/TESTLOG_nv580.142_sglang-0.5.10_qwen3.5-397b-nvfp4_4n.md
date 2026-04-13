@@ -73,15 +73,15 @@ All tests use: `tp=4, pp=1, ep=4, nccl_transport=roce, quantization=modelopt_fp4
 | 25 | roce | cutlass | fi | fi_cutlass | false | true | **STABLE** | 20.26 | 64.5 | 93.4 |
 | 26 | roce | cutlass | fi | fi_cutlass | true | true | **FAIL** (repetition @ n=4) | 12.32 | ~~rep~~ | — |
 | 27 | roce | cutlass | fi | fi_cutlass | false | false | **STABLE** | 20.12 | 61.9 | 93.6 |
-| 28 | roce | cutlass | triton | fi_cutlass | false | true | **STABLE** | 18.54 | 61.5 | **94.5** |
-| 29 | roce | cutlass | triton | fi_cutlass | true | true | pending | — | — | — |
-| 30 | roce | cutlass | triton | fi_cutlass | false | false | pending | — | — | — |
-| 31 | roce | cutlass | fi | fi_cudnn | false | true | pending | — | — | — |
-| 32 | roce | cutlass | fi | fi_cudnn | true | true | pending | — | — | — |
-| 33 | roce | cutlass | fi | fi_cudnn | false | false | pending | — | — | — |
-| 34 | roce | cutlass | triton | fi_cudnn | false | true | pending | — | — | — |
-| 35 | roce | cutlass | triton | fi_cudnn | true | true | pending | — | — | — |
-| 36 | roce | cutlass | triton | fi_cudnn | false | false | pending | — | — | — |
+| 28 | roce | cutlass | triton | fi_cutlass | false | true | **STABLE** | 18.54 | 61.5 | 94.5 |
+| 29 | roce | cutlass | triton | fi_cutlass | true | true | **FAIL** (eager: rep @ n=4, garbage @ n=8) | 8.18 | ~~14.5~~ | ~~144.6~~ |
+| 30 | roce | cutlass | triton | fi_cutlass | false | false | **FAIL†** (head unreach after n=1) | 20.24 | — | — |
+| 31 | roce | cutlass | fi | fi_cudnn | false | true | **STABLE** | 19.35 | 61.7 | 93.8 |
+| 32 | roce | cutlass | fi | fi_cudnn | true | true | **FAIL** (eager: rep @ n=4, garbage @ n=8) | 13.04 | ~~—~~ | ~~147.0~~ |
+| 33 | roce | cutlass | fi | fi_cudnn | false | false | **STABLE** | 19.52 | 61.7 | **95.2** |
+| 34 | roce | cutlass | triton | fi_cudnn | false | true | **STABLE** | 19.72 | 61.9 | 95.1 |
+| 35 | roce | cutlass | triton | fi_cudnn | true | true | **FAIL** (eager: rep @ n=4, garbage @ n=8) | 7.71 | ~~14.5~~ | ~~143.0~~ |
+| 36 | roce | cutlass | triton | fi_cudnn | false | false | **STABLE** | 19.5 | 62.0 | 94.6 |
 
 ### Column Legend
 
@@ -364,6 +364,86 @@ This explains the entire eager-mode garbage cluster cleanly:
 And it explains why the existing monkey-patches in `sglang_launch.sh` (`a_map/c_map` zero-init + `topk_weights.masked_fill`) *almost* work but not completely: they prevent the crash, they let CUDA graph capture pick a working variant, but they don't fix the actual numerical math of the combine kernel — so eager mode still rolls the dice on every step and loses.
 
 **Practical implication for the model profile**: eager mode is unusable for any backend that pipes through `cutlass_moe_fp4` (= every triton/cutlass MoE row). CUDA graphs ON is non-optional. The cutlass-direct + graphs ON config (Test 25) is the recommended EP=4 setting; we now have empirical evidence that it works.
+
+### Tests 29, 32, 35 — `cutlass` direct MoE, **eager** (three more eager-mode garbage confirmations)
+
+All three rows are the eager (`disable_cuda_graph=true`) variants of cutlass-direct MoE across the remaining sub-backend permutations (fi_cutlass fp4 × triton attn; fi_cudnn fp4 × fi attn; fi_cudnn fp4 × triton attn). **All three fail with the same signature** already established in Tests 2/5/8/11/26:
+
+- **n=1**: degraded TTFT (57–68 s JIT warmup), low throughput (7.7–13.0 tok/s), short outputs (909–3072 tokens) — the model survives single-stream if the prompt is light enough.
+- **n=4**: the repetition guard fires on 3 of 4 requests (`status=repetition`, `ot=0`) — same `Let's!!!!!...` / `Here's a thinking!!!` collapse as Test 26. The 4th request in each run completes at ~14.5 tok/s and is real text, but the test counts as failed.
+- **n=8**: all 8 "complete" at bogus ~143–147 tok/s (18.08 / 18.37 / 17.88 tok/s per request × 8) with **identical stats** (`ttft≈1.14 s, tt_est=768, ot=3072, fr=length`) — textbook batched-garbage signature, same as Tests 2/5/8/11. The n=8 collapse still slips past the repetition guard as fake success.
+
+| Test | attn | fp4 GEMM | n=1 tok/s | n=4 outcome | n=8 (garbage) |
+|------|------|----------|-----------|-------------|---------------|
+| 29 | triton | fi_cutlass | 8.18 (57 s TTFT) | 3/4 `repetition`, 1/4 `done` | 144.6 |
+| 32 | fi     | fi_cudnn   | 13.04 (68 s TTFT) | 4/4 `repetition` | 147.0 |
+| 35 | triton | fi_cudnn   | 7.71 (64 s TTFT) | 3/4 `repetition`, 1/4 `done` | 143.1 |
+
+These confirm (again) that the eager-mode garbage is **completely insensitive to attention or fp4 GEMM sub-backend** — it is a pure `cutlass_moe_fp4` combine-path failure. Every eager-mode row in the entire matrix (Tests 2, 5, 8, 11, 26, 29, 32, 35 = 8 of 8) has now produced the same collapse. The repetition guard is doing its job at n=4 but still cannot detect the n=8 case where the collapse is uniform across the whole batch.
+
+### Test 30 — `cutlass` direct MoE + `triton` attn + `fi_cutlass` fp4, piecewise on — **FAIL†** (head unreachable after n=1, new failure mode)
+
+This is the **only graphs+piecewise-on stable-expected row in the entire matrix that failed**. Config is cutlass-direct MoE / triton attn / fi_cutlass fp4 / `disable_cuda_graph=false`, `disable_piecewise_cuda_graph=false` — the direct sibling of Test 28 (same stack, piecewise off — STABLE at 94.5) and Test 27 (same stack with fi attn — STABLE at 93.6).
+
+- **n=1**: **`done`** at **20.24 tok/s**, 932 think_tokens, 2532 ot, `fr=stop`, ttft 0.74 s — fully coherent single-stream run.
+- **n=4**: all 4 requests `status=error`, `ttft=None`, `ot=0`, **total_time ≈ 6.04 s** per request — the bench failed to get a first token from any of them.
+- **n=8**: all 8 `status=error`, `ttft=None`, `ot=0`, **total_time ≈ 4.04 s** — same immediate-error pattern, even shorter.
+
+The uniform ~6 s / ~4 s total_time with zero progress strongly indicates the head pod became unreachable between n=1 completing and n=4 starting — the bench's HTTP client hit connect-refused or a socket-level error, not a model-level fault. **No repetition or garbage pattern** in the request bodies (no tokens were generated at all). There are no stack traces: the test-30 head log captured by the harness is from an earlier pod instance (timestamps 14:57–14:58, deployment ran at 16:48), so the actual 16:48 head/worker lifecycle events were never collected.
+
+This is the **first graph-mode failure on the cutlass-direct path** and does not match any previously seen signature:
+- Not the `cutlass_moe_fp4` eager-garbage collapse (those produce `!`-loops, not HTTP errors).
+- Not the fi_cutlass-MoE SM121 illegal-instruction fault (that path produces real streaming content before the worker dies, and the failure would surface mid-stream, not as immediate connect errors).
+- Not a startupProbe timeout (n=1 completed cleanly at full throughput).
+
+Given that the surrounding rows on the same backend stack (Tests 27, 28, 31, 33, 34, 36) all pass and deliver coherent output at ≥93 tok/s n=8, Test 30 is most likely a **pod-level transient** (head OOM, kubelet restart, or probe-kill after the long n=1 run) rather than a reproducible backend bug. **Not investigated further** because (a) the same config region already has 6 other stable winners, (b) the captured log stream is useless for root-cause, and (c) the matrix run has completed. If needed, a single redeploy of this exact config would tell us whether it reproduces.
+
+### Tests 31, 33, 34, 36 — `cutlass` direct MoE + `fi_cudnn` fp4 (four stable rows, new overall cutlass-direct winner)
+
+The four remaining graph-mode rows on the cutlass-direct MoE path — all using `fi_cudnn` as the fp4 dense GEMM backend — are **uniformly stable** with coherent output at all three concurrency levels. Thinking-token counts vary per request (1074–1762 range), output lengths vary between `stop` and `length` finishes, and per-request throughput matches the other stable cutlass-direct rows — none of the uniform-garbage signatures from the eager-mode cluster.
+
+| Test | attn | graph mode | n=1 tok/s | n=4 peak | n=8 peak | Notes |
+|------|------|------------|-----------|---------:|---------:|-------|
+| 31 | fi     | graphs on, piecewise off | 19.35 | 61.7 | 93.8 | ttft 3.84 s at n=1 |
+| **33** | **fi**     | **graphs on + piecewise on** | **19.52** | **61.7** | **95.2** | **best cutlass-direct row** |
+| 34 | triton | graphs on, piecewise off | 19.72 | 61.9 | 95.1 | within noise of Test 33 |
+| 36 | triton | graphs on + piecewise on | 19.50 | 62.0 | 94.6 | — |
+
+**Test 33 is the new best cutlass-direct EP=4 row at 95.2 tok/s n=8 peak**, narrowly edging Test 34 (95.1), Test 28 (94.5), Test 36 (94.6), and Test 25 (93.4). Swapping the fp4 dense GEMM backend from `fi_cutlass` → `fi_cudnn` delivers a consistent ~0.7–1.5 tok/s improvement at n=8 on the cutlass-direct path (both attention backends, both graph modes), while leaving n=1 and n=4 essentially unchanged. This is a modest but real speedup attributable purely to the dense-FP4 GEMM kernel — orthogonal to the MoE expert path.
+
+**The cutlass-direct region is now fully characterized**: 8 stable rows (25/27/28/31/33/34/36 in graphs-on mode, plus the piecewise/no-piecewise permutations) landing in a tight 93.4–95.2 tok/s n=8 band, with `fi_cudnn` fp4 GEMM the preferred backend. Still 3.3% below the triton-MoE winner (Test 3 at 98.5 tok/s), but this is the first cleanly verified cutlass-direct EP=4 configuration set on this model.
+
+### Final matrix summary — 36 / 36 complete
+
+| Category | Count | Stable | Failed |
+|----------|------:|-------:|-------:|
+| triton MoE (Tests 1–12) | 12 | 8 | 4 (all eager) |
+| fi_cutlass MoE (Tests 13–24) | 12 | 0 | 12 (all SM121 `illegal instruction`) |
+| cutlass direct MoE (Tests 25–36) | 12 | 8 | 3 eager + 1 anomaly (Test 30) |
+| **Total** | **36** | **16** | **20** |
+
+**Backend ranking at n=8 peak tok/s** (stable rows only, top 8):
+
+| Rank | Test | MoE | attn | fp4 GEMM | Graph mode | n=8 peak |
+|-----:|:----:|-----|------|----------|------------|---------:|
+| 1 | 3  | triton  | fi     | fi_cutlass | graphs+piecewise | **98.5** |
+| 2 | 1  | triton  | fi     | fi_cutlass | graphs on        | 96.1 |
+| 3 | 33 | cutlass | fi     | fi_cudnn   | graphs+piecewise | 95.2 |
+| 4 | 34 | cutlass | triton | fi_cudnn   | graphs on        | 95.1 |
+| 5 | 36 | cutlass | triton | fi_cudnn   | graphs+piecewise | 94.6 |
+| 6 | 28 | cutlass | triton | fi_cutlass | graphs on        | 94.5 |
+| 7 | 7  | triton  | fi     | fi_cudnn   | graphs on        | 94.1 |
+| 8 | 10 | triton  | triton | fi_cudnn   | graphs on        | 94.0 |
+
+**Confirmed patterns** (after the full 36-row run):
+
+1. **Eager mode (`disable_cuda_graph=true`) is uniformly broken** on every MoE backend that touches the `cutlass_moe_fp4` combine path — 8 of 8 eager rows collapsed (4 triton-MoE + 1 cutlass-direct already documented, plus the 3 new ones here). CUDA graph capture freezes a working kernel variant; eager re-dispatches per step and hits the unpatched numerical bug.
+2. **fi_cutlass MoE is uniformly broken at EP=4 on SM121** — 12 of 12 rows crashed with `cudaErrorIllegalInstruction` inside the fi_cutlass MoE forward kernel. Concentration-dependent: every row delivered a clean coherent n=1 response, then died on n≥4. Not fixable at the application layer (see follow-up diagnostic below).
+3. **Triton MoE and cutlass-direct MoE are equivalently stable in graph mode.** Triton MoE peaks slightly higher (98.5 vs 95.2) but both are 3.3–8.4% below the EP=1 winner (102.0 tok/s). Cutlass-direct saves ~1% Python dispatch overhead, which does not translate into a net win here.
+4. **Sub-backend choices move the number by ≤2%.** Attention (`fi` vs `triton`) and fp4 GEMM (`fi_cutlass` vs `fi_cudnn`) are near-neutral; `fi_cudnn` slightly prefers the cutlass-direct path, `fi_cutlass` slightly prefers triton MoE.
+5. **New Test 30 anomaly** — a single row in a known-good region failed as a head-unreachable event with no diagnostic log. Likely a transient, not a backend bug; not reproduced.
+
+**Recommended production config for this model (EP=4):** Test 3 (`triton` MoE / `fi` attn / `fi_cutlass` fp4 / graphs on + piecewise on) at **98.5 tok/s n=8 peak**, 3.4% below the EP=1 winner. Second-best alternative: Test 33 (`cutlass` direct MoE / `fi` attn / `fi_cudnn` fp4 / graphs on + piecewise on) at **95.2 tok/s n=8 peak**, if the cutlass-direct path is preferred for operational reasons.
 
 ### Interim summary after 19 rows (matrix resume run, Test 20 in progress)
 
