@@ -48,7 +48,7 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4
 | # | nccl | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | Status | n=1 tok/s | n=4 peak | n=8 peak |
 |---|------|------------|-----------|----------|----------------|---------------|--------|-----------|----------|----------|
 | 1 | roce | triton | fi | fi_cutlass | false | true | **STABLE** | 14.58 | 40.41 | 59.83 |
-| 2 | roce | triton | fi | fi_cutlass | true | true | *running* | — | — | — |
+| 2 | roce | triton | fi | fi_cutlass | true | true | *running* | 10.82 | 37.88 | — |
 | 3 | roce | triton | fi | fi_cutlass | false | false | *pending* | — | — | — |
 | 4 | roce | triton | triton | fi_cutlass | false | true | *pending* | — | — | — |
 | 5 | roce | triton | triton | fi_cutlass | true | true | *pending* | — | — | — |
@@ -103,7 +103,7 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4
 
 ## Results
 
-_Run in progress — 1/37 complete (Test 2 currently running as of 2026-04-14)._
+_Run in progress — 1/37 complete, Test 2 mid-run (n=1 and n=4 done, n=8 pending) as of 2026-04-14._
 
 ### Test 1 — triton MoE + flashinfer attn + fi_cutlass FP4, CUDA graphs on
 
