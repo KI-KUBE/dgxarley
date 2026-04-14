@@ -1,0 +1,378 @@
+#!/usr/bin/env bash
+#
+# build_cudnn_image.sh — Build xomoxcc/dgx-spark-sglang:0.5.10-cudnn.
+#
+# Stacks nvidia-cudnn-cu12 + nvidia-cudnn-frontend Python wheels on top
+# of scitrera/dgx-spark-sglang:0.5.10 (or any other compatible base image
+# — override via BUILD_CUDNN_BASE_IMAGE) so that SGLang's fi_cudnn FP4
+# GEMM backend (fp4_gemm_backend=flashinfer_cudnn) becomes usable.
+#
+# Base image choice: we deliberately build on the upstream scitrera image,
+# not on xomoxcc/dgx-spark-sglang:0.5.10-sm121. The sm121 CUTLASS MoE
+# patch is irrelevant for the current matrix workloads (the GLM-4.7-NVFP4
+# EP=1 sweep proved triton + cutlass-direct MoE are stable on SM121
+# without the patch, because EP=1 avoids the shared-memory / EP-assert
+# crash), and the sm121 image carries a ~45% perf regression vs upstream
+# (see reference_sm121_build_base_regression memory: forced fallback to
+# torch 2.10/cu13.1 instead of upstream's torch 2.11/cu13.2). Building on
+# scitrera keeps the upstream perf profile and only adds the cuDNN layer.
+#
+# Why this exists
+# ---------------
+# flashinfer 0.4.x ships a runtime cuDNN availability check in the
+# _is_problem_size_supported wrapper for the cudnn FP4 GEMM requirement.
+# If libcudnn isn't loadable, the check raises:
+#   flashinfer/gemm/gemm_base.py:_check_cudnn_availability
+#   RuntimeError: cuDNN is not available. Please install cuDNN to use
+#   FP8 GEMM functions. You can install it with:
+#     pip install nvidia-cudnn-cu12 nvidia-cudnn-frontend
+# scitrera/dgx-spark-sglang:0.5.10 ships flashinfer without these wheels,
+# so every matrix row that selects fp4_gemm_backend=flashinfer_cudnn
+# crashes (CG-on → startup_crash during warmup forward; eager →
+# bench_crash at first request). See the GLM-4.7-NVFP4 EP=1 testlog for
+# the full picture.
+#
+# This Dockerfile is intentionally tiny — one pip install layer plus a
+# post-install smoke test that invokes the same _check_cudnn_availability
+# function so the build fails fast if the wheels don't actually make
+# flashinfer happy.
+#
+# Workflow
+# --------
+# 1. Preflight: verify Dockerfile + podman + SSH identity.
+# 2. Ensure a registered podman connection to the arm64 build host
+#    (spark4). Reuses the same connection name as build_sm121_image.sh.
+# 3. podman build via the remote socket — the Dockerfile is just
+#    FROM + RUN pip install, so the build context is essentially empty
+#    and the build time is dominated by the pip download itself.
+# 4. Optionally transfer the image back to x86 and push to Docker Hub.
+#
+# Build time: ~5-10 min cold (pip downloads ~700 MB of cuDNN wheels).
+# Re-runs reuse the cached pip layer.
+#
+# Prerequisites: same as build_sm121_image.sh — unencrypted SSH key at
+# ~/.ssh/id_podman, podman on both ends, podman.socket enabled on
+# spark4 as root. See that script's header for the full setup walkthrough.
+#
+
+set -euo pipefail
+
+# ============================================================================
+# Configuration
+# ============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PATCHES_DIR="${SCRIPT_DIR}/patches"
+
+DOCKERFILE="${PATCHES_DIR}/sglang-0.5.10-cudnn.Dockerfile"
+
+BASE_IMAGE="${BUILD_CUDNN_BASE_IMAGE:-scitrera/dgx-spark-sglang:0.5.10}"
+IMAGE_TAG="${BUILD_CUDNN_IMAGE_TAG:-xomoxcc/dgx-spark-sglang:0.5.10-cudnn}"
+
+# Remote build host. Defaults match build_sm121_image.sh / build_pytorch_base_image.sh
+# so the same registered podman connection can be reused.
+REMOTE_HOST="${BUILD_CUDNN_REMOTE_HOST:-root@spark4.local}"
+PODMAN_CONNECTION="${BUILD_CUDNN_PODMAN_CONNECTION:-${REMOTE_HOST##*@}}"
+PODMAN_CONNECTION="${PODMAN_CONNECTION%%.*}"
+PODMAN_SSH_IDENTITY="${BUILD_CUDNN_SSH_IDENTITY:-${HOME}/.ssh/id_podman}"
+
+# Docker Hub push. ON by default to match build_sm121_image.sh's behavior —
+# pass --no-push to keep the image local on spark4 only. Push uses the x86
+# host's pre-configured registry credentials after streaming the image back
+# from the remote build host.
+PUSH_IMAGE=1
+
+# ============================================================================
+# Helpers
+# ============================================================================
+
+log()  { printf '\n\033[1;34m=== %s ===\033[0m\n' "$*"; }
+warn() { printf '\033[1;33mWARN: %s\033[0m\n' "$*" >&2; }
+die()  { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
+
+usage() {
+    cat <<EOF
+Usage: $(basename "$0") [--no-push] [--help]
+
+Builds ${IMAGE_TAG} on spark4 via remote podman socket. Adds
+nvidia-cudnn-cu12 + nvidia-cudnn-frontend wheels on top of
+${BASE_IMAGE}. Expected duration: ~5-10 min cold.
+
+Options:
+  --no-push    Keep the image only in spark4's local podman store
+               (skip the scp+push steps). Useful for iteration.
+  --help       Show this help.
+
+Environment overrides:
+  BUILD_CUDNN_BASE_IMAGE         FROM image for the Dockerfile.
+                                 Default: ${BASE_IMAGE}
+  BUILD_CUDNN_IMAGE_TAG          Output tag for the built image.
+                                 Default: ${IMAGE_TAG}
+  BUILD_CUDNN_REMOTE_HOST        user@host for spark4 SSH.
+                                 Default: ${REMOTE_HOST}
+  BUILD_CUDNN_PODMAN_CONNECTION  Registered podman connection name.
+                                 Default: derived from REMOTE_HOST (${PODMAN_CONNECTION})
+  BUILD_CUDNN_SSH_IDENTITY       Unencrypted SSH private key for podman.
+                                 Default: ${PODMAN_SSH_IDENTITY}
+EOF
+}
+
+# ============================================================================
+# Argument parsing
+# ============================================================================
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --no-push) PUSH_IMAGE=0; shift ;;
+        --help|-h) usage; exit 0 ;;
+        *)         die "Unknown argument: $1 (use --help)" ;;
+    esac
+done
+
+# ============================================================================
+# Preflight
+# ============================================================================
+
+preflight() {
+    log "Preflight"
+
+    [[ -f "${DOCKERFILE}" ]] || die "Dockerfile not found: ${DOCKERFILE}"
+
+    command -v podman >/dev/null || die "Required tool not found: podman"
+
+    if [[ ! -f "${PODMAN_SSH_IDENTITY}" ]]; then
+        cat >&2 <<EOF
+
+ERROR: SSH identity '${PODMAN_SSH_IDENTITY}' not found.
+
+Create it with:
+  ssh-keygen -t ed25519 -f ${PODMAN_SSH_IDENTITY} -N ""
+  ssh-copy-id -i ${PODMAN_SSH_IDENTITY} ${REMOTE_HOST}
+EOF
+        exit 1
+    fi
+
+    echo "Dockerfile present, tools available, SSH identity found"
+    echo "BASE_IMAGE = ${BASE_IMAGE}"
+    echo "IMAGE_TAG  = ${IMAGE_TAG}"
+}
+
+# ============================================================================
+# Podman connection to the remote build host
+# (same logic as build_sm121_image.sh / build_pytorch_base_image.sh)
+# ============================================================================
+
+ensure_podman_connection() {
+    log "Ensuring podman connection '${PODMAN_CONNECTION}' → ${REMOTE_HOST}"
+
+    if podman system connection list --format '{{.Name}}' | grep -qxF "${PODMAN_CONNECTION}"; then
+        echo "Connection '${PODMAN_CONNECTION}' already registered"
+    else
+        echo "Registering new podman connection..."
+        local remote_uid
+        remote_uid="$(ssh -i "${PODMAN_SSH_IDENTITY}" -o BatchMode=yes -o ConnectTimeout=5 \
+            "${REMOTE_HOST}" id -u 2>/dev/null)" \
+            || die "SSH to ${REMOTE_HOST} failed — verify the key is authorized"
+
+        local sock_path
+        if [[ "${remote_uid}" == "0" ]]; then
+            sock_path="/run/podman/podman.sock"
+        else
+            sock_path="/run/user/${remote_uid}/podman/podman.sock"
+        fi
+
+        podman system connection add "${PODMAN_CONNECTION}" \
+            "ssh://${REMOTE_HOST}${sock_path}" \
+            --identity "${PODMAN_SSH_IDENTITY}" \
+            || die "Failed to register podman connection '${PODMAN_CONNECTION}'"
+    fi
+
+    echo "Validating connection..."
+    if ! podman --connection "${PODMAN_CONNECTION}" info >/dev/null 2>&1; then
+        die "Podman connection '${PODMAN_CONNECTION}' is not responding. On ${REMOTE_HOST} check: systemctl status podman.socket"
+    fi
+
+    local remote_arch
+    remote_arch="$(podman --connection "${PODMAN_CONNECTION}" info --format '{{.Host.Arch}}')"
+    if [[ "${remote_arch}" != "arm64" && "${remote_arch}" != "aarch64" ]]; then
+        die "Remote host is ${remote_arch}, expected arm64/aarch64"
+    fi
+    echo "Remote podman is reachable (arch=${remote_arch})"
+}
+
+# ============================================================================
+# Verify the base image is available on the remote host
+# ============================================================================
+
+ensure_base_image() {
+    log "Checking for base image ${BASE_IMAGE} on ${PODMAN_CONNECTION}"
+
+    # Try a few name variants since podman may store images under short or
+    # FQN forms depending on how they were pulled/built.
+    for candidate in "${BASE_IMAGE}" "docker.io/${BASE_IMAGE}" "localhost/${BASE_IMAGE}"; do
+        if podman --connection "${PODMAN_CONNECTION}" image exists "${candidate}" 2>/dev/null; then
+            echo "Found base image: ${candidate}"
+            return 0
+        fi
+    done
+
+    echo "Base image not present locally on ${PODMAN_CONNECTION}; attempting to pull..."
+    if podman --connection "${PODMAN_CONNECTION}" pull "${BASE_IMAGE}" 2>/dev/null; then
+        echo "Pulled ${BASE_IMAGE}"
+        return 0
+    fi
+
+    die "Base image ${BASE_IMAGE} not found on ${PODMAN_CONNECTION} and could not be pulled. If this is a local-only image (e.g. the sm121 image built with --no-push), run build_sm121_image.sh first or pass BUILD_CUDNN_BASE_IMAGE=scitrera/dgx-spark-sglang:0.5.10 to build on top of the upstream image instead."
+}
+
+# ============================================================================
+# Build via remote podman socket
+# ============================================================================
+
+run_build() {
+    log "Building ${IMAGE_TAG} on '${PODMAN_CONNECTION}' (~5-10 min cold)"
+
+    # The build context is just the Dockerfile — copy it into a temp dir so
+    # we don't accidentally upload the whole scripts/ tree as context.
+    local ctx_dir
+    ctx_dir="$(mktemp -d)"
+    trap 'rm -rf "${ctx_dir}"' RETURN
+    cp "${DOCKERFILE}" "${ctx_dir}/Dockerfile"
+
+    # Tag with BOTH the short name and the docker.io/ fully-qualified name.
+    # Reason: same as in build_pytorch_base_image.sh — podman stores images
+    # built with short `-t` arguments under `localhost/` by default, which
+    # breaks downstream `FROM` resolution that normalizes to `docker.io/`.
+    podman --connection "${PODMAN_CONNECTION}" build \
+        -f "${ctx_dir}/Dockerfile" \
+        --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
+        -t "${IMAGE_TAG}" \
+        -t "docker.io/${IMAGE_TAG}" \
+        "${ctx_dir}"
+
+    if ! podman --connection "${PODMAN_CONNECTION}" image exists "docker.io/${IMAGE_TAG}"; then
+        die "Build finished but docker.io/${IMAGE_TAG} not present in remote image store"
+    fi
+    echo "Remote build complete: ${IMAGE_TAG} (also tagged as docker.io/${IMAGE_TAG})"
+}
+
+# ============================================================================
+# Transfer image from remote to local (only when pushing)
+# ============================================================================
+
+transfer_image_from_remote() {
+    if (( PUSH_IMAGE == 0 )); then
+        log "Skipping image scp (--no-push)"
+        return
+    fi
+
+    log "Copying docker.io/${IMAGE_TAG} from ${PODMAN_CONNECTION} to local image store"
+
+    # Remove any older local copy under either tag so the scp doesn't silently
+    # keep stale layers around.
+    podman image rm "${IMAGE_TAG}" 2>/dev/null || true
+    podman image rm "docker.io/${IMAGE_TAG}" 2>/dev/null || true
+
+    local size
+    size=$(podman --connection "${PODMAN_CONNECTION}" image inspect \
+            --format '{{.Size}}' "docker.io/${IMAGE_TAG}" 2>/dev/null || echo "")
+
+    if command -v pv >/dev/null 2>&1; then
+        local pv_args=(-ptebar)
+        [[ -n "${size}" ]] && pv_args+=(-s "${size}")
+        set -o pipefail
+        podman --connection "${PODMAN_CONNECTION}" image save "docker.io/${IMAGE_TAG}" \
+            | pv "${pv_args[@]}" \
+            | podman image load \
+            || die "streamed image transfer failed"
+    else
+        set -o pipefail
+        podman --connection "${PODMAN_CONNECTION}" image save "docker.io/${IMAGE_TAG}" \
+            | podman image load \
+            || die "streamed image transfer failed"
+    fi
+
+    podman image inspect "docker.io/${IMAGE_TAG}" >/dev/null \
+        || die "Image not present locally after transfer"
+    echo "Image transferred to local store: docker.io/${IMAGE_TAG}"
+}
+
+# ============================================================================
+# Push to Docker Hub (only when pushing, runs on x86)
+# ============================================================================
+
+run_push() {
+    if (( PUSH_IMAGE == 0 )); then
+        log "Skipping push (--no-push)"
+        return
+    fi
+
+    log "Pushing docker.io/${IMAGE_TAG} to Docker Hub from x86"
+
+    local auth_file="${REGISTRY_AUTH_FILE:-${XDG_RUNTIME_DIR:-/run}/containers/auth.json}"
+    if [[ ! -f "${auth_file}" ]]; then
+        auth_file="${HOME}/.docker/config.json"
+    fi
+    if [[ ! -f "${auth_file}" ]]; then
+        warn "No registry auth file found (checked \$REGISTRY_AUTH_FILE and ~/.docker/config.json)"
+        echo "Run 'podman login docker.io -u xomoxcc' on this host, then re-run with --push."
+        die "Registry authentication missing"
+    fi
+
+    podman push "docker.io/${IMAGE_TAG}"
+    echo "Image pushed: docker.io/${IMAGE_TAG}"
+}
+
+# ============================================================================
+# Next steps
+# ============================================================================
+
+print_next_steps() {
+    cat <<EOF
+
+$(log "cuDNN image build complete")
+
+Image: ${IMAGE_TAG}
+Base:  ${BASE_IMAGE}
+
+Verify on the build host:
+  podman --connection ${PODMAN_CONNECTION} image inspect ${IMAGE_TAG} \\
+      --format '{{.Created}}  size={{.Size}}'
+
+Quick fi_cudnn sanity check (run inside the image on any spark):
+  podman run --rm ${IMAGE_TAG} python3 -c \\
+      "from flashinfer.gemm.gemm_base import _check_cudnn_availability; \\
+       _check_cudnn_availability(); print('cuDNN OK')"
+
+Next steps:
+
+1. Distribute to all 4 sparks:
+     bash scripts/distrsm121image.sh ${IMAGE_TAG}
+   (or adapt to your distribution mechanism — ctr import / skopeo copy / etc.)
+
+2. Point the matrix test runs at the new image by editing
+   matrixtest_matrices/sglang_nn4_tp4_ep1/glm-4.7-nvfp4/*.yaml:
+     image: "${IMAGE_TAG}"
+
+3. Re-run the fi_cudnn rows of the matrix (tests 7-12, 19-24, 31-36 for
+   the GLM-4.7 EP=1 sweep) to find out whether fi_cudnn actually beats
+   fi_cutlass at FP4 GEMM on GLM-4.7 once cuDNN is available.
+
+EOF
+}
+
+# ============================================================================
+# Main
+# ============================================================================
+
+main() {
+    preflight
+    ensure_podman_connection
+    ensure_base_image
+    run_build
+    transfer_image_from_remote
+    run_push
+    print_next_steps
+}
+
+main "$@"

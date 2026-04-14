@@ -122,7 +122,13 @@ All 7 STABLE configurations (Tests 1, 2, 4, 5, 25, 26, 28, 29) land within ±2% 
 
 **Three hard rules for GLM-4.7-NVFP4 at EP=1 on v0.5.10 / SM121:**
 
-1. **`fp4_gemm_backend=flashinfer_cutlass` is mandatory.** `fi_cudnn` is completely broken (0/10 STABLE): 4 eager variants → bench_crash (0 successful requests across n=1+n=4+n=8), 6 CG-on / piecewise variants → startup_crash. This matches the v0.5.10 rc0 → release regression already documented for GLM-4.7 at EP=4 — so it's not an EP=1 artifact, it's a model+release issue, `fi_cudnn` should be considered unusable for GLM-4.7-NVFP4 on v0.5.10 until the upstream regression is fixed.
+1. **`fp4_gemm_backend=flashinfer_cutlass` is mandatory in the current image** — but the reason is a **missing dependency, not a code bug**. Every `fi_cudnn` failure (0/10 STABLE, mix of startup_crash / bench_crash) comes from flashinfer's cuDNN availability check throwing at first FP4 GEMM call:
+    ```
+    flashinfer/gemm/gemm_base.py:1666 _check_cudnn_availability
+    RuntimeError: cuDNN is not available. Please install cuDNN to use FP8 GEMM functions.
+    You can install it with: pip install nvidia-cudnn-cu12 nvidia-cudnn-frontend
+    ```
+    The `scitrera/dgx-spark-sglang:0.5.10` image ships flashinfer without the `nvidia-cudnn-cu12` + `nvidia-cudnn-frontend` wheels. CG-on variants die during startup (warmup forward pass hits the check); eager variants survive startup because the first forward happens at bench time, then every request errors out → bench_crash. **Fix is not a code patch, it's adding the cuDNN wheels to the image.** Whether `fi_cudnn` would actually outperform `fi_cutlass` on GLM-4.7 at EP=1 is therefore unknown from this matrix — needs a re-run once cuDNN is installed. The rc0 → release regression noted in the EP=4 testlog is likely the same missing-dep issue, not a real upstream regression.
 
 2. **`disable_piecewise_cuda_graph=true` is mandatory.** Every `piecewise=false` variant (Tests 3, 6, 15, 18, 21, 24, 27, 30, 33, 36*) crashes at startup regardless of MoE runner / attention backend / fp4_gemm backend. 0/8 STABLE (\*Test 36 still pending but certain). The piecewise graph capture path has a hard failure on GLM-4.7 at EP=1 — likely the same graph-capture regression that's been seen across the SM121 matrix for other models when `disable_piecewise_cuda_graph: false` is forced.
 
