@@ -1,3 +1,4 @@
+---
 # Model profile: nvidia/GLM-4.7-NVFP4
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 _model_profile:
@@ -19,7 +20,7 @@ _model_profile:
     # model_type=glm4_moe is in transformers 4.57.6 — no upgrade needed (unlike GLM-5).
     nccl_transport: "roce"
     tp_size: 4  # num_kv_heads=8 → TP=4 works (2 KV heads/GPU). EP=4 from nnodes.
-    context_length: 196608  # model max 202752; leave headroom
+    context_length: 202752  # model max 202752; leave headroom
     #chunked_prefill_size: 131072  # NVIDIA model card recommendation
     quantization: "modelopt_fp4"
     trust_remote_code: true
