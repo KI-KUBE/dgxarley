@@ -48,9 +48,9 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4
 | # | nccl | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | Status | n=1 tok/s | n=4 peak | n=8 peak |
 |---|------|------------|-----------|----------|----------------|---------------|--------|-----------|----------|----------|
 | 1 | roce | triton | fi | fi_cutlass | false | true | **STABLE** | 14.58 | 40.41 | 59.83 |
-| 2 | roce | triton | fi | fi_cutlass | true | true | *running* | 10.82 | 37.88 | — |
-| 3 | roce | triton | fi | fi_cutlass | false | false | *pending* | — | — | — |
-| 4 | roce | triton | triton | fi_cutlass | false | true | *pending* | — | — | — |
+| 2 | roce | triton | fi | fi_cutlass | true | true | **STABLE** | 10.82 | 37.88 | 59.18 |
+| 3 | roce | triton | fi | fi_cutlass | false | false | **startup_crash** | — | — | — |
+| 4 | roce | triton | triton | fi_cutlass | false | true | *running* | 14.28 | 40.11 | — |
 | 5 | roce | triton | triton | fi_cutlass | true | true | *pending* | — | — | — |
 | 6 | roce | triton | triton | fi_cutlass | false | false | *pending* | — | — | — |
 | 7 | roce | triton | fi | fi_cudnn | false | true | *pending* | — | — | — |
@@ -103,13 +103,25 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4
 
 ## Results
 
-_Run in progress — 1/37 complete, Test 2 mid-run (n=1 and n=4 done, n=8 pending) as of 2026-04-14._
+_Run in progress — 3/37 complete, Test 4 mid-run (n=1 and n=4 done, n=8 pending) as of 2026-04-14._
 
 ### Test 1 — triton MoE + flashinfer attn + fi_cutlass FP4, CUDA graphs on
 
-- **STABLE** — all three concurrencies passed (n=1/n=4/n=8 with 0 failed requests).
+- **STABLE** — all three concurrencies passed (0 failed requests).
 - Peak tok/s: **14.58 / 40.41 / 59.83** (n=1/n=4/n=8, sum of per-request tok/s).
 - Per-request at n=8: 8× ~7.48 tok/s (very even distribution).
 - TTFT: 0.63s (n=1), 1.28s (n=4 p50), 1.38s (n=8 p50).
 - First successful `triton` MoE run on GLM-4.7-NVFP4 at EP=1 — confirms the EP=1 topology avoids the `cutlass_moe_fp4` shared-memory / EP-assertion crashes that blocked all triton/cutlass MoE configs at EP=4.
+
+### Test 2 — triton MoE + flashinfer attn + fi_cutlass FP4, eager (no CUDA graphs)
+
+- **STABLE** — all three concurrencies passed.
+- Peak tok/s: **10.82 / 37.88 / 59.18** (n=1/n=4/n=8).
+- Eager costs ~26% at n=1 vs Test 1 (CG on), ~6% at n=4, and is within noise at n=8 — batching amortizes CUDA graph launch overhead.
+- Noteworthy: unlike Qwen3.5-397B at EP=1, eager does **not** trigger `!`-token collapse here — the `cutlass_moe_fp4` eager-mode bug documented in CLAUDE.md applies specifically to the Qwen3.5-397B path. GLM-4.7 with `triton` MoE at EP=1 is stable in both eager and CG modes.
+
+### Test 3 — triton MoE + flashinfer attn + fi_cutlass FP4, piecewise CUDA graphs
+
+- **startup_crash** — worker-1 restarted once during startup, bench never began.
+- This is the first failure of the run; the `piecewise` variant has been unstable on several earlier SM121 matrices but the exact root cause here still needs to be confirmed from the head/worker logs.
 
