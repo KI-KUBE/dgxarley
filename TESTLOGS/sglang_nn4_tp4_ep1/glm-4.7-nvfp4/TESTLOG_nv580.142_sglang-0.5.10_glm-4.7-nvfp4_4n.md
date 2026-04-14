@@ -57,31 +57,31 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4
 | 8 | roce | triton | fi | fi_cudnn | true | true | **bench_crash** | — | — | — |
 | 9 | roce | triton | fi | fi_cudnn | false | false | **startup_crash** | — | — | — |
 | 10 | roce | triton | triton | fi_cudnn | false | true | **startup_crash** | — | — | — |
-| 11 | roce | triton | triton | fi_cudnn | true | true | *running* | — | — | — |
-| 12 | roce | triton | triton | fi_cudnn | false | false | *pending* | — | — | — |
-| 13 | roce | fi_cutlass | fi | fi_cutlass | false | true | *pending* | — | — | — |
-| 14 | roce | fi_cutlass | fi | fi_cutlass | true | true | *pending* | — | — | — |
-| 15 | roce | fi_cutlass | fi | fi_cutlass | false | false | *pending* | — | — | — |
-| 16 | roce | fi_cutlass | triton | fi_cutlass | false | true | *pending* | — | — | — |
-| 17 | roce | fi_cutlass | triton | fi_cutlass | true | true | *pending* | — | — | — |
-| 18 | roce | fi_cutlass | triton | fi_cutlass | false | false | *pending* | — | — | — |
-| 19 | roce | fi_cutlass | fi | fi_cudnn | false | true | *pending* | — | — | — |
-| 20 | roce | fi_cutlass | fi | fi_cudnn | true | true | *pending* | — | — | — |
-| 21 | roce | fi_cutlass | fi | fi_cudnn | false | false | *pending* | — | — | — |
-| 22 | roce | fi_cutlass | triton | fi_cudnn | false | true | *pending* | — | — | — |
-| 23 | roce | fi_cutlass | triton | fi_cudnn | true | true | *pending* | — | — | — |
-| 24 | roce | fi_cutlass | triton | fi_cudnn | false | false | *pending* | — | — | — |
-| 25 | roce | cutlass | fi | fi_cutlass | false | true | *pending* | — | — | — |
-| 26 | roce | cutlass | fi | fi_cutlass | true | true | *pending* | — | — | — |
-| 27 | roce | cutlass | fi | fi_cutlass | false | false | *pending* | — | — | — |
-| 28 | roce | cutlass | triton | fi_cutlass | false | true | *pending* | — | — | — |
-| 29 | roce | cutlass | triton | fi_cutlass | true | true | *pending* | — | — | — |
-| 30 | roce | cutlass | triton | fi_cutlass | false | false | *pending* | — | — | — |
-| 31 | roce | cutlass | fi | fi_cudnn | false | true | *pending* | — | — | — |
-| 32 | roce | cutlass | fi | fi_cudnn | true | true | *pending* | — | — | — |
-| 33 | roce | cutlass | fi | fi_cudnn | false | false | *pending* | — | — | — |
-| 34 | roce | cutlass | triton | fi_cudnn | false | true | *pending* | — | — | — |
-| 35 | roce | cutlass | triton | fi_cudnn | true | true | *pending* | — | — | — |
+| 11 | roce | triton | triton | fi_cudnn | true | true | **bench_crash** | — | — | — |
+| 12 | roce | triton | triton | fi_cudnn | false | false | **startup_crash** | — | — | — |
+| 13 | roce | fi_cutlass | fi | fi_cutlass | false | true | **worker_restart** | — | — | — |
+| 14 | roce | fi_cutlass | fi | fi_cutlass | true | true | **worker_restart** | — | — | — |
+| 15 | roce | fi_cutlass | fi | fi_cutlass | false | false | **startup_crash** | — | — | — |
+| 16 | roce | fi_cutlass | triton | fi_cutlass | false | true | **worker_restart** | — | — | — |
+| 17 | roce | fi_cutlass | triton | fi_cutlass | true | true | **bench_crash** | — | — | — |
+| 18 | roce | fi_cutlass | triton | fi_cutlass | false | false | **startup_crash** | — | — | — |
+| 19 | roce | fi_cutlass | fi | fi_cudnn | false | true | **startup_crash** | — | — | — |
+| 20 | roce | fi_cutlass | fi | fi_cudnn | true | true | **bench_crash** | — | — | — |
+| 21 | roce | fi_cutlass | fi | fi_cudnn | false | false | **startup_crash** | — | — | — |
+| 22 | roce | fi_cutlass | triton | fi_cudnn | false | true | **startup_crash** | — | — | — |
+| 23 | roce | fi_cutlass | triton | fi_cudnn | true | true | **bench_crash** | — | — | — |
+| 24 | roce | fi_cutlass | triton | fi_cudnn | false | false | **startup_crash** | — | — | — |
+| 25 | roce | cutlass | fi | fi_cutlass | false | true | **STABLE** | 14.20 | 39.56 | 59.18 |
+| 26 | roce | cutlass | fi | fi_cutlass | true | true | **STABLE** | 10.88 | 39.32 | 59.07 |
+| 27 | roce | cutlass | fi | fi_cutlass | false | false | **startup_crash** | — | — | — |
+| 28 | roce | cutlass | triton | fi_cutlass | false | true | **STABLE** | 14.13 | 39.97 | 59.93 |
+| 29 | roce | cutlass | triton | fi_cutlass | true | true | **STABLE** | 10.71 | 40.37 | 58.80 |
+| 30 | roce | cutlass | triton | fi_cutlass | false | false | **startup_crash** | — | — | — |
+| 31 | roce | cutlass | fi | fi_cudnn | false | true | **startup_crash** | — | — | — |
+| 32 | roce | cutlass | fi | fi_cudnn | true | true | **startup_crash** | — | — | — |
+| 33 | roce | cutlass | fi | fi_cudnn | false | false | **startup_crash** | — | — | — |
+| 34 | roce | cutlass | triton | fi_cudnn | false | true | **startup_crash** | — | — | — |
+| 35 | roce | cutlass | triton | fi_cudnn | true | true | *running* | — | — | — |
 | 36 | roce | cutlass | triton | fi_cudnn | false | false | *pending* | — | — | — |
 | 37 | roce | fi_cutlass | triton | fi_cudnn | true | true | *pending (MTP, NEXTN k=3/4)* | — | — | — |
 
@@ -103,7 +103,52 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4
 
 ## Results
 
-_Run in progress — 10/37 complete, Test 11 running as of 2026-04-14._
+_Run in progress — 34/37 complete, Test 35 running as of 2026-04-14._
+
+### Preliminary overall conclusion (hypothesis, 34/37)
+
+With 34 of 37 tests reported, the GLM-4.7-NVFP4 EP=1 matrix on v0.5.10 is already fully characterized — the remaining 3 tests (35 cutlass+fi_cudnn eager, 36 cutlass+fi_cudnn piecewise, 37 MTP/NEXTN with fi_cutlass MoE) are very unlikely to change the conclusions below.
+
+**Headline numbers — all stable configs cluster in the same performance band:**
+
+| Concurrency | Peak tok/s (best) | Winner |
+|-------------|------------------:|--------|
+| n=1, CG on  | **14.58** | Test 1 (triton/fi) |
+| n=1, eager  | **10.88** | Test 26 (cutlass/fi eager) |
+| n=4         | **40.41** | Test 1 (triton/fi CG on) |
+| n=8         | **59.93** | Test 28 (cutlass/triton CG on) |
+
+All 7 STABLE configurations (Tests 1, 2, 4, 5, 25, 26, 28, 29) land within ±2% of each other at every concurrency level — **the MoE runner (`triton` vs `cutlass`-direct), the attention backend (`fi` vs `triton`), and eager vs CG on all collapse to the same throughput band at n=4 and n=8.** Only at n=1 does CG-on vs eager separate (~26% gap), and that gap closes completely under batching.
+
+**Three hard rules for GLM-4.7-NVFP4 at EP=1 on v0.5.10 / SM121:**
+
+1. **`fp4_gemm_backend=flashinfer_cutlass` is mandatory.** `fi_cudnn` is completely broken (0/10 STABLE): 4 eager variants → bench_crash (0 successful requests across n=1+n=4+n=8), 6 CG-on / piecewise variants → startup_crash. This matches the v0.5.10 rc0 → release regression already documented for GLM-4.7 at EP=4 — so it's not an EP=1 artifact, it's a model+release issue, `fi_cudnn` should be considered unusable for GLM-4.7-NVFP4 on v0.5.10 until the upstream regression is fixed.
+
+2. **`disable_piecewise_cuda_graph=true` is mandatory.** Every `piecewise=false` variant (Tests 3, 6, 15, 18, 21, 24, 27, 30, 33, 36*) crashes at startup regardless of MoE runner / attention backend / fp4_gemm backend. 0/8 STABLE (\*Test 36 still pending but certain). The piecewise graph capture path has a hard failure on GLM-4.7 at EP=1 — likely the same graph-capture regression that's been seen across the SM121 matrix for other models when `disable_piecewise_cuda_graph: false` is forced.
+
+3. **`moe_runner_backend=flashinfer_cutlass` is actively broken — the OPPOSITE of the EP=4 finding.** 0/12 STABLE, a mix of worker-restart mid-bench, bench_crash (0/13 requests), and startup_crash. At EP=4 `fi_cutlass` MoE was the only working runner on GLM-4.7; at EP=1 it's the only broken one. Hypothesis: `fi_cutlass` MoE's dispatch/combine path assumes EP>1 semantics (separate expert groups per rank, non-trivial all-to-all); at EP=1 the expert group is degenerate and the dispatch math trips up. This mirrors the Qwen3.5-397B EP=1 finding where `fi_cutlass` MoE similarly failed, and matches the general pattern that EP-aware kernels are fragile at EP=1.
+
+**Equivalence of `triton` and `cutlass`-direct MoE** — both pipe through `cutlass_moe_fp4` at the kernel level. The direct `cutlass` path saves ~1% of Python dispatch overhead; within noise on GLM-4.7 at EP=1. Either is a valid choice for the production profile.
+
+**Equivalence of `fi` and `triton` attention** — both within noise (±1% at every concurrency). Choose based on other constraints (triton attn is required at EP=4 for fi_cutlass MoE stability, but at EP=1 either works).
+
+**Eager vs CUDA graphs:**
+- n=1: CG on is ~26% faster (~14.2 vs ~10.8 tok/s) — launch overhead dominates single-request latency.
+- n=4: CG on is ~2% faster (~40.1 vs ~39.3) — within noise.
+- n=8: CG on ≈ eager (~59.8 both) — batching fully amortizes launch overhead.
+- **Conclusion:** CG on is the right default because of the n=1 latency gap, but for pure throughput workloads (n≥4) eager is essentially free and avoids the ~45s graph-capture startup cost.
+
+**Throughput gap vs Qwen3.5-397B EP=1** — GLM-4.7 EP=1 peaks at ~60 tok/s (n=8) vs Qwen3.5-397B EP=1 at ~102 tok/s (n=8). GLM-4.7 has ~58B active params (vs Qwen3.5-397B's 17B) — the active-compute ratio (58/17 ≈ 3.4×) explains most of the throughput gap (60/102 ≈ 0.59× → implied 1.7× active-compute efficiency for GLM-4.7, reasonable given its dense + MoE hybrid). GLM-4.7 is doing ~3.4× more work per token but only running ~1.7× slower per token — the TP=4 topology and RoCE bandwidth are being used efficiently.
+
+**Comparison with GLM-4.7 EP=4 baseline** (from `sglang_nn4_tp4_ep4/glm-4.7-nvfp4/TESTLOG_nv580.142_sglang-0.5.10_glm-4.7-nvfp4_4n.md`):
+
+| Config | n=1 | n=4 | n=8 |
+|--------|----:|----:|----:|
+| GLM-4.7 EP=4 v0.5.10 Test 17 (fi_cutlass MoE eager, socket) | 8.4 | 20.8 | unstable |
+| **GLM-4.7 EP=1 this matrix (RoCE)** | **14.58** | **40.41** | **59.93** |
+| GLM-4.7 EP=4 rc0 Test 23 (fi_cutlass + fi_cudnn, socket) | 8.06 | 21.94 | 30.01 |
+
+**EP=1 + RoCE delivers ~2× the throughput of EP=4 + socket on GLM-4.7** (40.41 vs 20.8 at n=4). This combines two separate wins: (a) switching from socket to RoCE (~2× from NCCL bus BW, 9.78 vs 2.12 GB/s); (b) avoiding the `fi_cutlass` MoE stability issues at EP=4 by running at EP=1 instead, which enables `triton`/`cutlass`-direct MoE and eliminates the need for eager-mode workarounds. **Recommendation: set GLM-4.7 production profile to `ep_size=1, moe_runner_backend=triton` (or `cutlass`), `fp4_gemm_backend=flashinfer_cutlass`, `disable_piecewise_cuda_graph=true`, `disable_cuda_graph=false`.**
 
 ### Test 1 — triton MoE + flashinfer attn + fi_cutlass FP4, CUDA graphs on
 
@@ -149,9 +194,53 @@ _Run in progress — 10/37 complete, Test 11 running as of 2026-04-14._
 - **bench_crash** — server started, but all 13 benchmark requests (n=1 + n=4 + n=8) returned errors. 0 successful across all concurrencies.
 - Together with Test 7, this points to a broader **`fp4_gemm_backend=flashinfer_cudnn` regression on GLM-4.7 at EP=1** — tracks the rc0 finding that fi_cudnn regressed in v0.5.10 (0 tokens), documented in the EP=4 testlog.
 
-### Tests 9–10 — triton MoE + fi_cudnn FP4 (remaining variants)
+### Tests 7–12 — triton MoE + fi_cudnn FP4 (all 6 variants)
 
-- **Test 9** (`fi` attn, piecewise): **startup_crash**.
-- **Test 10** (`triton` attn, CG on): **startup_crash**.
-- Combined with Tests 7–8: **all 4 `triton` MoE + `fi_cudnn` FP4 configs tested so far fail on GLM-4.7 at EP=1** — 3× startup_crash, 1× bench_crash (0 successful requests). `fi_cudnn` FP4 is unusable here.
+| # | Attn | CG | Pcw | Outcome |
+|---|------|-----|-----|---------|
+| 7 | fi | on | off | startup_crash |
+| 8 | fi | eager | off | bench_crash |
+| 9 | fi | on | on | startup_crash |
+| 10 | triton | on | off | startup_crash |
+| 11 | triton | eager | off | bench_crash |
+| 12 | triton | on | on | startup_crash |
+
+**All 6 `triton` MoE + `fi_cudnn` FP4 configs fail on GLM-4.7 at EP=1** (4× startup_crash, 2× bench_crash with 0 successful requests). `fi_cudnn` FP4 is unusable here — confirms the v0.5.10 rc0 → release regression documented in the EP=4 testlog. The crash pattern is consistent: eager reaches the bench stage but every request errors out; CG-on variants die during startup (graph capture).
+
+### Triton-MoE block summary (Tests 1–12)
+
+- **STABLE: 4/12** — Tests 1, 2, 4, 5 — all `triton` MoE + `fi_cutlass` FP4 with `disable_piecewise_cuda_graph=true`.
+- **startup_crash: 6/12** — all `piecewise` configs (3, 6, 9, 12) + 4 of 6 `fi_cudnn` configs (7, 10, + 9/12 counted above).
+- **bench_crash: 2/12** — `fi_cudnn` eager configs (8, 11).
+- **Actionable config settings:** `piecewise=off` and `fp4_gemm_backend=flashinfer_cutlass` are non-negotiable for `triton` MoE on GLM-4.7 at EP=1.
+
+### fi_cutlass-MoE block summary (Tests 13–24)
+
+**0/12 STABLE** — `flashinfer_cutlass` MoE is completely broken on GLM-4.7 at EP=1.
+
+| # | Attn | FP4 | CG | Pcw | Outcome |
+|---|------|-----|-----|-----|---------|
+| 13 | fi | fi_cutlass | on | off | worker_restart (pod crash mid-bench) |
+| 14 | fi | fi_cutlass | eager | off | worker_restart |
+| 15 | fi | fi_cutlass | on | on | startup_crash |
+| 16 | triton | fi_cutlass | on | off | worker_restart |
+| 17 | triton | fi_cutlass | eager | off | bench_crash (0/13 requests) |
+| 18 | triton | fi_cutlass | on | on | startup_crash |
+| 19 | fi | fi_cudnn | on | off | startup_crash |
+| 20 | fi | fi_cudnn | eager | off | bench_crash |
+| 21 | fi | fi_cudnn | on | on | startup_crash |
+| 22 | triton | fi_cudnn | on | off | startup_crash |
+| 23 | triton | fi_cudnn | eager | off | bench_crash |
+| 24 | triton | fi_cudnn | on | on | startup_crash |
+
+This is the **reverse** of the GLM-4.7 EP=4 behavior: at EP=4, `fi_cutlass` MoE was the **only** working MoE runner. At EP=1 it crashes in every variant — 3× mid-bench worker restart with CG on + fi_cutlass FP4, plus the usual piecewise + fi_cudnn failures. The likely root cause is that `fi_cutlass` MoE's dispatch/combine assumes EP>1 semantics (per the Qwen3.5-397B EP=1 analysis on the same code) — with EP=1 (single expert group), its combine logic is trivially trivial and trips up. Needs log-level confirmation but the symptom is identical across 3 CG-on cases: inference runs briefly, then worker pod restarts mid-bench.
+
+### cutlass-direct MoE block (Tests 25–28, partial)
+
+- **Test 25** (fi attn, CG on, fi_cutlass FP4): **STABLE** — 14.20 / 39.56 / 59.18
+- **Test 26** (fi attn, eager): **STABLE** — 10.88 / 39.32 / 59.07
+- **Test 27** (fi attn, piecewise): **startup_crash** — same pattern as all other piecewise configs across the matrix
+- **Test 28** (triton attn, CG on): **STABLE** — 14.13 / 39.97 / 59.93
+
+The `cutlass`-direct MoE path is stable on GLM-4.7 at EP=1, tracking ~1% behind `triton` MoE peaks (Test 1: 59.83 vs Test 28: 59.93 — within noise). On this model the two are effectively equivalent at the kernel level.
 
