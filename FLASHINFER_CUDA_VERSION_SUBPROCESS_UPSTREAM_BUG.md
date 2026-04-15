@@ -1,10 +1,23 @@
-# Flashinfer Upstream Bug: `get_cuda_version()` subprocess.Popen fails inside torch.compile/dynamo trace
+# Flashinfer Upstream Bug: FP4 quantization lazy init breaks under torch.compile/dynamo
+
+Two related failure modes in `flashinfer.quantization.fp4_quantization`'s lazy
+initialization path, both hit when sglang's piecewise CUDA graph capture runs
+`torch.compile` over a forward that reaches `fp4_quantize`:
+
+1. **subprocess spawn** for `nvcc --version` from inside a dynamo trace.
+2. **`pathlib.Path.exists()` → `os.stat`** from inside a dynamo trace
+   (dynamo marks `posix.stat` as a skipped builtin).
+
+Both come from the same underlying design issue: flashinfer's FP4 JIT build
+chain is lazily triggered on the first `fp4_quantize()` call, and if that
+first call is inside a traced forward, the build-time filesystem/subprocess
+operations blow up dynamo.
 
 ## Status
 
-**Workaround applied.** 2026-04-15 session outcome:
+**Both workarounds applied.** 2026-04-15 session outcome:
 
-- **Root cause identified**: `flashinfer.jit.cpp_ext.get_cuda_version()` calls
+- **Issue 1 root cause**: `flashinfer.jit.cpp_ext.get_cuda_version()` calls
   `subprocess.check_output([nvcc, "--version"])` on its first invocation (it's
   `@functools.cache`-decorated, so only once per process). When that first
   invocation is reached from inside a `torch.compile` / dynamo trace context,
@@ -13,15 +26,37 @@
   cannot handle `Popen.__init__`'s internal fork/threading machinery, and the
   child process dies with sigquit. The sglang launcher observes the child
   failure and restarts the pod → `startup_crash`.
-- **Runtime fix in `sglang_launch.sh`**: short-circuit `get_cuda_version()` to
+- **Issue 1 fix in `sglang_launch.sh`**: short-circuit `get_cuda_version()` to
   return `Version(torch.version.cuda)` directly (which is always populated on
   our CUDA-built PyTorch and matches what `nvcc --version` reports for the same
   install). The subprocess path remains as an untaken fallback for PyTorch
   builds without CUDA support. Idempotent, grep-guarded, and the marker
   `_fi_cuda_ver_subprocess_bypass_` prevents double application.
+- **Issue 2 root cause** (uncovered after Issue 1 was fixed): with the
+  subprocess call removed, the next call in the JIT chain is
+  `JitSpec.build_and_load()` → `self.is_aot` → `self.aot_path.exists()` →
+  `pathlib.Path.stat()` → `os.stat()` → `posix.stat`. Dynamo marks `posix.stat`
+  as a skipped builtin and raises
+  `torch._dynamo.exc.Unsupported: Attempted to call function marked as skipped`.
+  The failure now gets caught by sglang's piecewise CUDA graph runner as
+  `Piecewise CUDA Graph failed with error: ...`, which is less violent than
+  the sigquit from Issue 1 but still aborts the test.
+- **Issue 2 fix in `sglang_launch.sh`**: patch
+  `flashinfer/quantization/fp4_quantization.py` at image startup to:
+  1. Wrap `get_fp4_quantization_module` in `functools.cache` so the
+     `build_and_load()` chain runs at most once per process.
+  2. Append an import-time pre-warm that calls
+     `get_fp4_quantization_module(f"{sm_major}{sm_minor}")` once, during
+     normal Python import (always outside any dynamo trace). This populates
+     the cache with the built module.
+  When sglang later re-enters `fp4_quantize()` from inside a dynamo-traced
+  forward, the wrapped function returns the cached module instantly, with no
+  `build_and_load`, no `is_aot`, no stat, no subprocess. Idempotent via the
+  marker `_fi_fp4_cache_and_prewarm_`.
 - **Not reported upstream yet** — needs a minimal repro (`torch.compile` + any
-  flashinfer FP4 quant call from inside the traced region is enough). Adjacent
-  issues exist but none match this exact failure mode. See "Upstream status".
+  flashinfer FP4 quant call from inside the traced region is enough, for both
+  issues). Adjacent issues exist but none match these exact failure modes.
+  See "Upstream status".
 
 Bug exists in flashinfer **0.6.7.post3** (the version shipped in
 `scitrera/dgx-spark-sglang:0.5.10`) and is structurally present in all
@@ -49,7 +84,7 @@ uses a different backend module that was already compiled.
 Our monkey-patch removes the subprocess path entirely, so it doesn't matter
 when or from where `get_cuda_version()` is called.
 
-## Symptom
+## Symptom (Issue 1: subprocess from dynamo trace)
 
 Observed on GLM-4.7-NVFP4 at EP=1 on 4× DGX Spark (SM121/GB10) with
 `fp4_gemm_backend=flashinfer_cudnn`, `disable_piecewise_cuda_graph=false`,
@@ -99,6 +134,63 @@ The two tells:
    this hint, so it was involved in the failure.
 
 Final line is the sglang launcher observing the child process died.
+
+## Symptom (Issue 2: posix.stat during is_aot check)
+
+After the Issue 1 subprocess patch was applied, the same test configuration
+re-ran and died with a different error during `piecewise_cuda_graph_runner.warmup_compile`.
+Verbatim stack from `sglang-head-56cc54b554-l8vmd`:
+
+```
+Compiling num tokens (num_tokens=8192):   0%|          | 0/58 [00:00<?, ?it/s]/usr/local/lib/python3.12/dist-packages/torch/_dynamo/variables/functions.py:2082: UserWarning: Dynamo does not know how to trace the builtin `posix.stat.`
+[2026-04-15 08:10:01 TP0] Piecewise CUDA Graph failed with error: Attempted to call function marked as skipped
+  Explanation: Dynamo does not know how to trace the builtin `posix.stat.` This function is either a Python builtin (e.g. _warnings.warn) or a third-party C/C++ Python extension (perhaps created with pybind).
+  ...
+  Developer debug context: module: posix, qualname: stat, skip reason: <missing reason>
+  For more details about this graph break, please visit: https://meta-pytorch.github.io/compile-graph-break-site/gb/gb0007.html
+
+from user code:
+   File "/usr/local/lib/python3.12/dist-packages/sglang/srt/models/glm4_moe.py", line 1069, in forward
+     hidden_states, residual = layer(
+   File "/usr/local/lib/python3.12/dist-packages/sglang/srt/models/glm4_moe.py", line 907, in forward
+     hidden_states = self.mlp(
+   File "/usr/local/lib/python3.12/dist-packages/sglang/srt/models/glm4_moe.py", line 174, in forward
+     gate_up, _ = self.gate_up_proj(x)
+   File "/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/linear.py", line 460, in forward
+     output_parallel = self.quant_method.apply(self, input_, bias)
+   File "/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/quantization/modelopt_quant.py", line 1482, in apply
+     x_fp4, x_scale_interleaved = fp4_quantize(x, layer.input_scale_inv)
+   File "/usr/local/lib/python3.12/dist-packages/flashinfer/quantization/fp4_quantization.py", line 700, in fp4_quantize
+     x_q, sf = get_fp4_quantization_module(f"{major}{minor}").fp4_quantize_sm100(
+   File "/usr/local/lib/python3.12/dist-packages/torch/_dynamo/polyfills/__init__.py", line 392, in getattr_and_trace
+     return fn(*args[2:], **kwargs)
+   File "/usr/local/lib/python3.12/dist-packages/flashinfer/quantization/fp4_quantization.py", line 170, in get_fp4_quantization_module
+     module = backend_modules[backend]().build_and_load()
+   File "/usr/local/lib/python3.12/dist-packages/flashinfer/jit/core.py", line 310, in build_and_load
+     if self.is_aot:
+   File "/usr/local/lib/python3.12/dist-packages/flashinfer/jit/core.py", line 261, in is_aot
+     return self.aot_path.exists()
+   File "/usr/lib/python3.12/pathlib.py", line 862, in exists
+     self.stat(follow_symlinks=follow_symlinks)
+   File "/usr/lib/python3.12/pathlib.py", line 842, in stat
+     return os.stat(self, follow_symlinks=follow_symlinks)
+
+torch._dynamo.exc.Unsupported: Attempted to call function marked as skipped
+```
+
+Same call site (`fp4_quantize` → `get_fp4_quantization_module` →
+`build_and_load`), same traced context (`piecewise_cuda_graph_runner.warmup_compile`
+→ sglang's `compile.py:192 trampoline` → `torch._dynamo.eval_frame`), but
+this time dynamo chokes on `os.stat` (via `pathlib.Path.exists`) instead of
+`subprocess.check_output`. Without the Issue 1 subprocess patch, execution
+wouldn't even reach this code path — Issue 2 was latent underneath Issue 1.
+
+This failure mode is caught more gracefully than Issue 1: sglang's piecewise
+CUDA graph runner catches the `torch._dynamo.exc.Unsupported` exception and
+prints the helpful `To work around this error, add --disable-piecewise-cuda-graph`
+hint before the scheduler process exits. The outcome is still
+`startup_crash` (the whole worker goes down), but no sigquit / pod restart
+loop.
 
 ## Root cause
 
@@ -170,11 +262,17 @@ Workaround for the repro (same as our fix): pre-warm the cache by calling
 call `flashinfer.jit.cpp_ext.get_cuda_version()` at module-import time before
 any compiled function runs.
 
-## Our workaround
+## Our workarounds
 
-`sglang_launch.sh` contains a startup-time patch that rewrites the body of
-`get_cuda_version()` to return `Version(torch.version.cuda)` directly, leaving
-the original subprocess path as a never-taken fallback. Key properties:
+`sglang_launch.sh` contains two startup-time patches, both applied at pod
+startup before `python3 -m sglang.launch_server` is invoked. Together they
+remove flashinfer's JIT build chain from any dynamo-traced code path.
+
+### Patch 1 — `get_cuda_version` subprocess bypass
+
+Rewrites the body of `flashinfer/jit/cpp_ext.py:get_cuda_version()` to return
+`Version(torch.version.cuda)` directly, leaving the original subprocess path
+as a never-taken fallback. Key properties:
 
 - **Source file**: `/usr/local/lib/python3.12/dist-packages/flashinfer/jit/cpp_ext.py`
 - **Marker**: `# [patch] _fi_cuda_ver_subprocess_bypass_` — idempotent check
@@ -188,16 +286,15 @@ the original subprocess path as a never-taken fallback. Key properties:
   version bump that adds more validation — as long as the signature comment
   doesn't move, the new code just runs *before* the old code.
 
-See the patch block in `sglang_launch.sh` (look for
-`PATCH_FI_CUDA_VER_EOF`). Patched file contents, conceptually:
+See the patch block in `sglang_launch.sh` (look for `PATCH_FI_CUDA_VER_EOF`).
+Patched file contents, conceptually:
 
 ```python
 @functools.cache
 def get_cuda_version() -> Version:
     # [patch] _fi_cuda_ver_subprocess_bypass_
     # Short-circuit with torch.version.cuda to avoid spawning a `nvcc --version`
-    # subprocess from inside a torch.compile/dynamo trace context. See the
-    # sglang_launch.sh header block above this patch for the full rationale.
+    # subprocess from inside a torch.compile/dynamo trace context.
     if torch.version.cuda is not None:
         return Version(torch.version.cuda)
     # Try to query nvcc for CUDA version; if nvcc is unavailable, fall back to torch.version.cuda
@@ -207,6 +304,74 @@ def get_cuda_version() -> Version:
 
 `is_cuda_version_at_least()` is unchanged — it still calls `get_cuda_version()`
 by module-global name lookup, so the patched version takes effect automatically.
+
+### Patch 2 — `get_fp4_quantization_module` cache + import-time pre-warm
+
+Appends an idempotent block to the end of
+`flashinfer/quantization/fp4_quantization.py` that:
+
+1. Wraps `get_fp4_quantization_module` in `functools.cache`. The call site
+   inside `fp4_quantize()` uses module-global name lookup, so the wrapped
+   version takes effect automatically.
+2. Runs `get_fp4_quantization_module(f"{sm_major}{sm_minor}")` once, at
+   module import time, to force the `build_and_load()` chain to execute.
+   Module imports are never inside a dynamo trace, so the full JIT build
+   runs normally — compile-time nvcc invocation, `is_aot` stat check, disk
+   I/O, everything.
+3. Populates the `functools.cache` with the built backend module object as
+   a side effect. From here on, every call to
+   `get_fp4_quantization_module(sm)` in this process returns the cached
+   object instantly, with no further filesystem or subprocess work.
+
+Properties:
+
+- **Source file**: `/usr/local/lib/python3.12/dist-packages/flashinfer/quantization/fp4_quantization.py`
+- **Marker**: `# [patch] _fi_fp4_cache_and_prewarm_`
+- **Grep guard**: checks for the marker (already-patched) AND for
+  `def get_fp4_quantization_module(` (pattern still exists). Silently skips
+  with a warning if either check fails.
+- **Safe-fail pre-warm**: if CUDA is unavailable at import time, or the
+  `get_fp4_quantization_module()` call raises, the patch logs a stderr
+  warning and continues — the wrapping of the function still takes effect,
+  so lazy init can still happen on first call (same as upstream behavior).
+
+See the patch block in `sglang_launch.sh` (look for `PATCH_FI_FP4_PREWARM_EOF`).
+Conceptually, the appended block looks like:
+
+```python
+import functools as _sglang_functools
+if not hasattr(get_fp4_quantization_module, "__wrapped__"):
+    get_fp4_quantization_module = _sglang_functools.cache(get_fp4_quantization_module)
+
+def _sglang_prewarm_fp4_quantization_module():
+    try:
+        import torch as _t
+        if not _t.cuda.is_available():
+            return
+        _p = _t.cuda.get_device_properties(0)
+        get_fp4_quantization_module(f"{_p.major}{_p.minor}")
+    except Exception as _e:
+        import sys as _sys
+        print(f"[fp4_quantization prewarm] skipped: {_e}", file=_sys.stderr)
+
+_sglang_prewarm_fp4_quantization_module()
+del _sglang_prewarm_fp4_quantization_module
+```
+
+### Why both patches are needed
+
+Without Patch 1, Patch 2's pre-warm call (`get_fp4_quantization_module(sm)`)
+fails at import time with the `subprocess.check_output` crash — the Python
+module import can run subprocess fine, but flashinfer's build chain calls
+`is_cuda_version_at_least` which goes through `get_cuda_version` →
+`subprocess.check_output`. Wait, that's actually FINE during import because
+we're not in a dynamo trace. But Patch 1 is still needed because sglang's
+forward eventually re-calls `is_cuda_version_at_least` *again* via some
+other path, and that re-call IS in a dynamo trace. So Patch 1 prevents any
+call to `get_cuda_version` from ever running subprocess, and Patch 2 prevents
+any call to `get_fp4_quantization_module` from ever doing disk I/O after the
+first pre-warm. Together they fully decouple flashinfer's lazy init from
+dynamo tracing.
 
 ## Upstream status
 
@@ -279,9 +444,15 @@ the patched `sglang_launch.sh` on all 4 sparks (re-deploy via
 
 ## Files
 
-- `roles/k8s_dgx/files/sglang_launch.sh` — runtime monkey-patch (look for
-  the `PATCH_FI_CUDA_VER_EOF` heredoc, ~line 175).
-- `/usr/local/lib/python3.12/dist-packages/flashinfer/jit/cpp_ext.py` — patch
-  target (inside the running container).
+- `roles/k8s_dgx/files/sglang_launch.sh` — both runtime monkey-patches
+  (`PATCH_FI_CUDA_VER_EOF` for Issue 1, `PATCH_FI_FP4_PREWARM_EOF` for
+  Issue 2). Both live in the flashinfer-patch block around line ~175.
+- `/usr/local/lib/python3.12/dist-packages/flashinfer/jit/cpp_ext.py` —
+  Issue 1 patch target (`get_cuda_version` function body).
 - `/usr/local/lib/python3.12/dist-packages/flashinfer/quantization/fp4_quantization.py`
-  — the call site that triggers the JIT build at first forward pass.
+  — Issue 2 patch target (append block at end-of-file). Also the call site
+  where `fp4_quantize` / `get_fp4_quantization_module` are defined.
+- `/usr/local/lib/python3.12/dist-packages/flashinfer/jit/core.py` — where
+  `JitSpec.build_and_load` and `JitSpec.is_aot` live. Not directly patched,
+  but their behavior is neutralized by Patch 2's cache (they never run again
+  after the pre-warm).

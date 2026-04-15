@@ -232,6 +232,91 @@ else:
             print("flashinfer/jit/cpp_ext.py: get_cuda_version target pattern not found, skipping")
 PATCH_FI_CUDA_VER_EOF
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Patch flashinfer.quantization.fp4_quantization: cache + pre-warm the FP4 JIT
+# backend modules at import time.
+#
+# Symptom (GLM-4.7-NVFP4 EP=1, piecewise CUDA graphs + fi_cudnn FP4), after
+# the subprocess patch above is already applied:
+#   sglang/srt/compilation/compile.py:183 _ensure_compiled
+#   → torch._dynamo.eval_frame.py compile_wrapper
+#   → flashinfer/quantization/fp4_quantization.py:170 build_and_load
+#   → flashinfer/jit/core.py:310  if self.is_aot:
+#   → flashinfer/jit/core.py:261  return self.aot_path.exists()
+#   → pathlib.py  os.stat(...)
+#   → torch._dynamo.exc.Unsupported: Attempted to call function marked as skipped
+#     (module: posix, qualname: stat)
+#
+# Why: sglang's piecewise CUDA graph capture runs warmup_compile() which uses
+# torch.compile to trace the forward function. The trace goes through
+# flashinfer's `fp4_quantize` which ends up calling `get_fp4_quantization_module`
+# → `JitSpec.build_and_load` → `is_aot` → `pathlib.Path.exists` → `os.stat`.
+# Dynamo marks `posix.stat` as a "skipped builtin" and raises Unsupported.
+#
+# Fix: short-circuit the whole lazy-init chain by pre-warming the module at
+# import time, BEFORE any dynamo tracing starts, and cache the result so
+# subsequent calls from inside a trace just return the cached module object.
+#
+# 1) Wrap `get_fp4_quantization_module` in functools.cache so the JIT
+#    backend's `build_and_load()` is only called once per process.
+# 2) At the end of fp4_quantization.py's import, call
+#    `get_fp4_quantization_module(current_sm)` once to force the build. This
+#    happens during normal Python import, which is always outside any
+#    dynamo trace, so stat/subprocess/etc. all work normally.
+#
+# When sglang later calls `fp4_quantize(...)` from inside a dynamo-traced
+# forward, the cached return value is used — `build_and_load`, `is_aot`,
+# and all file-system operations are skipped.
+# ─────────────────────────────────────────────────────────────────────────────
+python3 - <<'PATCH_FI_FP4_PREWARM_EOF'
+import pathlib
+p = pathlib.Path("/usr/local/lib/python3.12/dist-packages/flashinfer/quantization/fp4_quantization.py")
+if not p.exists():
+    print("flashinfer/quantization/fp4_quantization.py: not found, skipping")
+else:
+    src = p.read_text()
+    marker = "# [patch] _fi_fp4_cache_and_prewarm_"
+    if marker in src:
+        print("flashinfer/quantization/fp4_quantization.py: already patched, skipping")
+    elif "def get_fp4_quantization_module(" not in src:
+        print("flashinfer/quantization/fp4_quantization.py: get_fp4_quantization_module not found, skipping")
+    else:
+        append_block = """
+
+# {MARKER}
+# Appended by sglang_launch.sh runtime patch. Wraps get_fp4_quantization_module
+# in functools.cache and pre-warms it with the current GPU's SM compute
+# capability at module import time. This keeps the flashinfer FP4 JIT build
+# chain out of any torch.compile/dynamo trace context — subsequent calls
+# from inside sglang's piecewise CUDA graph capture just return the cached
+# backend module without triggering stat/subprocess/etc. See
+# FLASHINFER_CUDA_VERSION_SUBPROCESS_UPSTREAM_BUG.md for the full rationale.
+import functools as _sglang_functools
+if not hasattr(get_fp4_quantization_module, "__wrapped__"):
+    get_fp4_quantization_module = _sglang_functools.cache(get_fp4_quantization_module)
+
+def _sglang_prewarm_fp4_quantization_module():
+    try:
+        import torch as _t
+        if not _t.cuda.is_available():
+            return
+        _p = _t.cuda.get_device_properties(0)
+        # flashinfer's fp4_quantize builds the backend key as f"{major}{minor}".
+        # On SM121/GB10 that's "121"; upstream has a "120f" feature-variant
+        # alias that flashinfer's registry translates to. Either way, calling
+        # get_fp4_quantization_module once here triggers the full build.
+        get_fp4_quantization_module(f"{_p.major}{_p.minor}")
+    except Exception as _e:
+        import sys as _sys
+        print(f"[fp4_quantization prewarm] skipped: {_e}", file=_sys.stderr)
+
+_sglang_prewarm_fp4_quantization_module()
+del _sglang_prewarm_fp4_quantization_module
+""".replace("{MARKER}", marker)
+        p.write_text(src + append_block)
+        print("Patched flashinfer/quantization/fp4_quantization.py: cache + prewarm fp4 quant module")
+PATCH_FI_FP4_PREWARM_EOF
+
 # Version gate: warn if the container image changed — patches below may need review.
 # Dev builds report __version__=0.0.0 (no setuptools-scm), so we check the image
 # tag (injected as SGLANG_IMAGE env var by Ansible) instead of the Python version.
