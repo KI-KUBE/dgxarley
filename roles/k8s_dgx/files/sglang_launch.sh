@@ -233,79 +233,80 @@ else:
 PATCH_FI_CUDA_VER_EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Patch flashinfer.quantization.fp4_quantization: eliminate the JIT lookup
-# from fp4_quantize()'s hot path so it survives a dynamo/torch.compile trace.
+# Patch flashinfer.quantization.fp4_quantization: keep dynamo out of the
+# FP4 quantize codepath entirely by adding `@torch.compiler.disable` to
+# `fp4_quantize`.
 #
-# Symptom (GLM-4.7-NVFP4 EP=1, piecewise CUDA graphs):
+# Symptom chain (GLM-4.7-NVFP4 EP=1, piecewise CUDA graphs):
 #   sglang/srt/compilation/compile.py:183 _ensure_compiled
-#   → torch._dynamo.eval_frame.py compile_wrapper
+#   → torch._dynamo compile_wrapper
+#   → sglang/.../modelopt_quant.py:1482 fp4_quantize(x, layer.input_scale_inv)
 #   → flashinfer/quantization/fp4_quantization.py:700 fp4_quantize
-#   → get_fp4_quantization_module(f"{major}{minor}")
-#   → flashinfer/jit/core.py:310  if self.is_aot:
-#   → flashinfer/jit/core.py:261  return self.aot_path.exists()
-#   → pathlib.py  os.stat(...)
-#   → torch._dynamo.exc.Unsupported: Attempted to call function marked as skipped
-#     (module: posix, qualname: stat)  →  Piecewise CUDA Graph failed.
 #
-# Why the previous "functools.cache + prewarm" approach didn't work:
-# `get_fp4_quantization_module` is ALREADY `@functools.cache` upstream. But
-# dynamo's `polyfills.getattr_and_trace` (triggered by the `.fp4_quantize_sm100`
-# attribute access on the call result) INLINES the wrapped function's body and
-# re-traces it from scratch every time — bypassing the cache entirely. So
-# `build_and_load` → `is_aot` → `Path.exists` → `os.stat` is re-walked inside
-# the trace and hits the skipped-builtin wall.
+# From there dynamo hits a whole family of un-traceable things:
+#   (a) get_fp4_quantization_module → JitSpec.is_aot → Path.exists → os.stat
+#       → "Attempted to call function marked as skipped: posix.stat"
+#   (b) fp4_quantize_sm100 (line 222) → `module.fp4_quantize(...)` is a
+#       torch.autograd.Function → "Unsupported method call: Function.__call__"
+#   (c) likely more further in.
 #
-# Fix: remove the lookup from the traced region. Pre-resolve the module into
-# a plain module-level constant at import time (`_SGLANG_FP4_MOD`), then sed
-# fp4_quantize() to use that constant directly instead of calling
-# `get_fp4_quantization_module(f"{major}{minor}")`. Dynamo traces a plain
-# global attribute access, which is safe — no function inlining, no stat.
+# Whack-a-mole fixes (functools.cache wrapping, pre-resolving the module
+# into a module-level constant to eliminate the lookup, etc.) each unblock
+# one layer and then hit the next. The correct fix is to keep dynamo out
+# of this entire subtree: `@torch.compiler.disable` causes dynamo to
+# graph-break at the fp4_quantize call site and run the FP4 path in eager
+# mode. Piecewise CUDA graph capture still happens around it — only the
+# fp4_quantize region is excluded.
+#
+# Perf cost: one graph break per fp4_quantize call site per layer. The
+# piecewise compiler handles this natively.
 # ─────────────────────────────────────────────────────────────────────────────
-python3 - <<'PATCH_FI_FP4_PREWARM_EOF'
+python3 - <<'PATCH_FI_FP4_DISABLE_EOF'
 import pathlib
 p = pathlib.Path("/usr/local/lib/python3.12/dist-packages/flashinfer/quantization/fp4_quantization.py")
 if not p.exists():
     print("flashinfer/quantization/fp4_quantization.py: not found, skipping")
 else:
     src = p.read_text()
-    marker = "# [patch] _fi_fp4_prewarm_const_"
-    hot_call = 'get_fp4_quantization_module(f"{major}{minor}").fp4_quantize_sm100('
-    hot_replacement = '_SGLANG_FP4_MOD.fp4_quantize_sm100('
-    if marker in src:
-        print("flashinfer/quantization/fp4_quantization.py: already patched, skipping")
-    elif hot_call not in src:
-        print(f"flashinfer/quantization/fp4_quantization.py: hot-path pattern not found, skipping")
-    else:
-        src = src.replace(hot_call, hot_replacement)
-        append_block = """
-
-# {MARKER}
-# Appended by sglang_launch.sh runtime patch. Pre-resolves the FP4 JIT backend
-# module for the current GPU's SM compute capability into a plain module-level
-# constant `_SGLANG_FP4_MOD`. The hot-path call inside fp4_quantize() was
-# rewritten to reference this constant directly instead of calling
-# `get_fp4_quantization_module(f"{major}{minor}")`, which dynamo would
-# otherwise inline and re-trace — triggering build_and_load → is_aot →
-# pathlib.Path.exists → os.stat (a dynamo-skipped builtin) and breaking
-# piecewise CUDA graph capture. See sglang_launch.sh header for full rationale.
-_SGLANG_FP4_MOD = None
-try:
-    import torch as _sglang_t
-    if _sglang_t.cuda.is_available():
-        _sglang_maj, _sglang_min = _sglang_t.cuda.get_device_capability(0)
-        _SGLANG_FP4_MOD = get_fp4_quantization_module(f"{_sglang_maj}{_sglang_min}")
-        import sys as _sglang_sys
-        print(
-            f"[fp4_quantization prewarm] resolved _SGLANG_FP4_MOD for sm{_sglang_maj}{_sglang_min}",
-            file=_sglang_sys.stderr,
+    marker = "# [patch] _fi_fp4_compiler_disable_"
+    # Undo a stale remnant from the previous constant-inlining approach,
+    # which rewrote the hot-path call inside fp4_quantize to use
+    # `_SGLANG_FP4_MOD` instead of `get_fp4_quantization_module(...)`.
+    stale_const_call = "_SGLANG_FP4_MOD.fp4_quantize_sm100("
+    if stale_const_call in src:
+        src = src.replace(
+            stale_const_call,
+            'get_fp4_quantization_module(f"{major}{minor}").fp4_quantize_sm100(',
         )
-except Exception as _sglang_e:
-    import sys as _sglang_sys
-    print(f"[fp4_quantization prewarm] failed: {_sglang_e}", file=_sglang_sys.stderr)
-""".replace("{MARKER}", marker)
+    # Strip any prior append_block from the previous patch revision so the
+    # file stays clean on repeated launches.
+    for old_marker in (
+        "# [patch] _fi_fp4_cache_and_prewarm_",
+        "# [patch] _fi_fp4_prewarm_const_",
+    ):
+        idx = src.find("\n\n# " + old_marker)
+        if idx != -1:
+            src = src[:idx].rstrip() + "\n"
+    # Now apply the real fix: decorate fp4_quantize with @torch.compiler.disable.
+    needle = "@flashinfer_api\ndef fp4_quantize(\n"
+    replacement = "@torch.compiler.disable\n@flashinfer_api\ndef fp4_quantize(\n"
+    if marker in src:
+        print("flashinfer/quantization/fp4_quantization.py: already patched (compiler.disable), writing back only cleanup")
+        p.write_text(src)
+    elif needle not in src:
+        print("flashinfer/quantization/fp4_quantization.py: @flashinfer_api/def fp4_quantize pattern not found, skipping")
+    else:
+        src = src.replace(needle, replacement, 1)
+        append_block = (
+            "\n\n"
+            "# " + marker + "\n"
+            "# Appended by sglang_launch.sh runtime patch. The real fix is the\n"
+            "# `@torch.compiler.disable` decorator added above fp4_quantize();\n"
+            "# this marker only exists so the idempotency check can detect a prior run.\n"
+        )
         p.write_text(src + append_block)
-        print("Patched flashinfer/quantization/fp4_quantization.py: hot-path _SGLANG_FP4_MOD constant")
-PATCH_FI_FP4_PREWARM_EOF
+        print("Patched flashinfer/quantization/fp4_quantization.py: @torch.compiler.disable on fp4_quantize")
+PATCH_FI_FP4_DISABLE_EOF
 
 # Version gate: warn if the container image changed — patches below may need review.
 # Dev builds report __version__=0.0.0 (no setuptools-scm), so we check the image
