@@ -171,6 +171,67 @@ done
 # source at startup. See CUTLASS_NVFP4_SM121_PRD.md for full analysis.
 # For NVFP4 models on SM121: use flashinfer_cutlass MoE runner (avoids cutlass_moe_fp4).
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Patch flashinfer.jit.cpp_ext.get_cuda_version: avoid subprocess from inside a
+# torch.compile/dynamo trace.
+#
+# Symptom (GLM-4.7-NVFP4 EP=1, piecewise CUDA graphs + fi_cudnn FP4):
+#   flashinfer/quantization/fp4_quantization.py:170 build_and_load()
+#   → gen_fp4_quantization_sm120f_module
+#   → flashinfer/jit/cpp_ext.py:91 is_cuda_version_at_least("12.8")
+#   → cpp_ext.py:73 subprocess.check_output([nvcc, "--version"])
+#   → subprocess/threading.Lock() under torch/_dynamo/polyfills:392 getattr_and_trace
+#   → child process sigquit → pod restart → startup_crash
+#
+# Why: the JIT build is triggered on the first forward pass, which for piecewise
+# CUDA graphs happens inside a torch.compile trace. Dynamo can't polyfill
+# subprocess.Popen (it does fork/threading internals), so the call blows up even
+# though nvcc is present and works fine from a normal shell.
+#
+# Fix: short-circuit get_cuda_version() with torch.version.cuda, which is always
+# available at import time and matches what nvcc reports for the same install.
+# The original function already had this as a fallback path on exception — we
+# just promote it to run first. This keeps the subprocess path as the fallback
+# for pytorch builds without a CUDA version (none of ours).
+# ─────────────────────────────────────────────────────────────────────────────
+python3 - <<'PATCH_FI_CUDA_VER_EOF'
+import pathlib
+p = pathlib.Path("/usr/local/lib/python3.12/dist-packages/flashinfer/jit/cpp_ext.py")
+if not p.exists():
+    print("flashinfer/jit/cpp_ext.py: not found, skipping")
+else:
+    src = p.read_text()
+    marker = "# [patch] _fi_cuda_ver_subprocess_bypass_"
+    if marker in src:
+        print("flashinfer/jit/cpp_ext.py: get_cuda_version already patched, skipping")
+    else:
+        target = (
+            "@functools.cache\n"
+            "def get_cuda_version() -> Version:\n"
+            "    # Try to query nvcc for CUDA version; if nvcc is unavailable, "
+            "fall back to torch.version.cuda\n"
+            "    try:"
+        )
+        replacement = (
+            "@functools.cache\n"
+            "def get_cuda_version() -> Version:\n"
+            "    " + marker + "\n"
+            "    # Short-circuit with torch.version.cuda to avoid spawning a `nvcc --version`\n"
+            "    # subprocess from inside a torch.compile/dynamo trace context. See the\n"
+            "    # sglang_launch.sh header block above this patch for the full rationale.\n"
+            "    if torch.version.cuda is not None:\n"
+            "        return Version(torch.version.cuda)\n"
+            "    # Try to query nvcc for CUDA version; if nvcc is unavailable, "
+            "fall back to torch.version.cuda\n"
+            "    try:"
+        )
+        if target in src:
+            p.write_text(src.replace(target, replacement, 1))
+            print("Patched flashinfer/jit/cpp_ext.py:get_cuda_version to bypass subprocess")
+        else:
+            print("flashinfer/jit/cpp_ext.py: get_cuda_version target pattern not found, skipping")
+PATCH_FI_CUDA_VER_EOF
+
 # Version gate: warn if the container image changed — patches below may need review.
 # Dev builds report __version__=0.0.0 (no setuptools-scm), so we check the image
 # tag (injected as SGLANG_IMAGE env var by Ansible) instead of the Python version.
