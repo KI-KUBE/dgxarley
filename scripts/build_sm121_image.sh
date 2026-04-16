@@ -74,8 +74,10 @@ CUDA_CONTAINERS_DIR="${BUILD_SM121_CC_DIR:-${HOME}/pythondev_workspace/cuda-cont
 # so that re-applying the patch stack is idempotent and drift in the working
 # tree from previous runs is discarded.
 BRANCH_NAME="sm121"
-RECIPE_NAME="sglang-0.5.10-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.10-sm121"
+# RECIPE_NAME="sglang-0.5.10-sm121"
+RECIPE_NAME="sglang-main-gemma4"
+# IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.10-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:main-gemma4-sm121"
 
 # Remote build host (spark4, arm64). Uses a registered podman connection
 # with a dedicated unencrypted SSH key. The connection name is derived from
