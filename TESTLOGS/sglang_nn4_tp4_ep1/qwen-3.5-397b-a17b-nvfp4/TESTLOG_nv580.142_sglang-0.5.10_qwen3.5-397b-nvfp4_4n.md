@@ -79,9 +79,10 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4
 | 34 | roce | cutlass    | triton    | fi_cudnn   | false          | true          | **STABLE**   | 20.8      | 66.9     | 100.6     |
 | 35 | roce | cutlass    | triton    | fi_cudnn   | true           | true          | **STABLE**   | 13.8      | 62.7     | 95.4      |
 | 36 | roce | cutlass    | triton    | fi_cudnn   | false          | false         | **STABLE**   | 19.9      | 67.4     | 100.5     |
-| 37 | roce | triton     | triton    | fi_cutlass | false          | true          | **STABLE ★** | **35.3**  | **80.6** | **106.1** |
+| 37 | roce | triton     | triton    | fi_cutlass | false          | true          | **STABLE**   | 35.3      | 80.6     | 106.1     |
+| 38 | roce | cutlass    | triton    | fi_cutlass | false          | true          | **STABLE ★** | **40.0**  | **84.3** | **110.9** |
 
-Test 37 uses **MTP speculative decoding** (NEXTN, `speculative_num_steps=3`, `speculative_num_draft_tokens=4`) with `mamba_scheduler_strategy=extra_buffer` + `SGLANG_ENABLE_SPEC_V2=1` (required for Qwen3.5 hybrid attention). `mem_fraction_static=0.75` (reduced from 0.80 for MTP KV headroom). Same `scitrera/dgx-spark-sglang:0.5.10` image.
+Tests 37–38 use **MTP speculative decoding** (NEXTN, `speculative_num_steps=3`, `speculative_num_draft_tokens=4`) with `mamba_scheduler_strategy=extra_buffer` + `SGLANG_ENABLE_SPEC_V2=1` (required for Qwen3.5 hybrid attention). `mem_fraction_static=0.75` (reduced from 0.80 for MTP KV headroom). Same `scitrera/dgx-spark-sglang:0.5.10` image. MTP speedup over non-MTP winner (Test 28): **+86% n=1, +24% n=4, +9% n=8**. cutlass MoE (Test 38) beats triton MoE (Test 37) by ~13% at n=1 with MTP — unlike without MTP where both are within noise.
 
 ### Column Legend
 
