@@ -52,10 +52,10 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 | #  | nccl | moe_runner | attention | dis_cuda_graph | dis_piecewise | Status            | n=1 tok/s | n=4 peak | n=8 peak |
 |----|------|------------|-----------|----------------|---------------|-------------------|-----------|----------|----------|
 | 1  | roce | triton     | fi        | false          | true          | **startup_crash** | —         | —        | —        |
-| 2  | roce | triton     | fi        | true           | true          | *pending*         | —         | —        | —        |
-| 3  | roce | triton     | fi        | false          | false         | *pending*         | —         | —        | —        |
-| 4  | roce | triton     | triton    | false          | true          | *pending*         | —         | —        | —        |
-| 5  | roce | triton     | triton    | true           | true          | *pending*         | —         | —        | —        |
+| 2  | roce | triton     | fi        | true           | true          | **bench_crash**   | —         | —        | —        |
+| 3  | roce | triton     | fi        | false          | false         | **startup_crash** | —         | —        | —        |
+| 4  | roce | triton     | triton    | false          | true          | **STABLE**        | 40.1      | 114.8    | 163.9    |
+| 5  | roce | triton     | triton    | true           | true          | **STABLE**        | 20.5      | 104.9    | 159.8    |
 | 6  | roce | triton     | triton    | false          | false         | *pending*         | —         | —        | —        |
 | 7  | roce | fi_cutlass | fi        | false          | true          | *pending*         | —         | —        | —        |
 | 8  | roce | fi_cutlass | fi        | true           | true          | *pending*         | —         | —        | —        |
@@ -97,3 +97,16 @@ FlashInfer Internal Error: Invalid configuration :
 - **This is the same class of bug that PR #22079 fixed for Triton attention on GB200** (PTX register exhaustion with `head_dim=512`). FlashInfer attention was not addressed in that PR.
 - **Workaround: `attention_backend=triton`** — Triton attention handles `head_dim=512` correctly (PR #22079 added SM120/121-specific block sizes). Tests 4–6 and 10–12 use triton attention and should avoid this crash.
 - Also observed: `CUTE_DSL WARNING: Unexpected error during package walk: cutlass.cute.experimental` on all ranks — non-fatal, likely a missing CUTLASS DSL dependency in the image. Did not cause the crash.
+- See `FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md` for upstream tracking (FlashInfer PR #2959, open).
+
+### Test 2 — triton MoE + flashinfer attn, eager (no CUDA graphs)
+
+- **bench_crash** — same FlashInfer `head_dim=512` dispatch bug as Test 1, but hits during the first benchmark request instead of during CUDA graph capture (eager mode skips CG capture but the first `forward_decode` still goes through FlashInfer attention).
+
+### Test 4 — triton MoE + triton attn, CUDA graphs on
+
+- **STABLE** — all three concurrencies passed (0 failed requests). **First successful Gemma-4 serving on the cluster.**
+- Peak tok/s: **40.1 / 114.8 / 163.9** (n=1/n=4/n=8).
+- TTFT: 2.05s (n=1), 0.76s (n=4 p50), 0.41s (n=8 p50).
+- Weight load: 43s, 13.68 GB (TP0), FP8 KV cache, sliding window memory pool (2.5M SWA + 3.1M full tokens, 74.4 GB).
+- **163.9 tok/s at n=8** — the highest throughput of any model on this cluster, driven by only ~3.8B active parameters per token. For comparison: Qwen3.5-397B with MTP reaches 110.9 tok/s at n=8 (17B active).
