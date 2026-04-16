@@ -172,6 +172,44 @@ done
 # For NVFP4 models on SM121: use flashinfer_cutlass MoE runner (avoids cutlass_moe_fp4).
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Patch sglang Transformers fallback: add Gemma-4 MoE config attribute names.
+#
+# Gemma-4 (Gemma4ForConditionalGeneration) has no native SGLang implementation
+# and falls through to the Transformers backend. The MoEMixin.recursive_replace()
+# method looks up top_k via ("num_experts_per_tok", "top_k") — Gemma-4 uses
+# "top_k_experts" instead → AssertionError: Cannot determine top_k from config.
+#
+# Fix: add "top_k_experts" to the _getattr_first lookup tuple on line 1197.
+# ─────────────────────────────────────────────────────────────────────────────
+python3 - <<'PATCH_TRANSFORMERS_TOPK_EOF'
+import pathlib
+p = pathlib.Path("/usr/local/lib/python3.12/dist-packages/sglang/srt/models/transformers.py")
+if not p.exists():
+    print("sglang/srt/models/transformers.py: not found, skipping")
+else:
+    src = p.read_text()
+    marker = "# [patch] _sgl_gemma4_topk_"
+    old = '("num_experts_per_tok", "top_k")'
+    new = '("num_experts_per_tok", "top_k", "top_k_experts")'
+    if marker in src:
+        print("sglang/srt/models/transformers.py: already patched (top_k_experts), skipping")
+    elif old not in src:
+        print("sglang/srt/models/transformers.py: top_k lookup pattern not found, skipping")
+    else:
+        # Replace the tuple inline. Marker goes on a NEW line above to avoid
+        # breaking the closing paren of _getattr_first(...).
+        src = src.replace(old, new, 1)
+        # Insert marker as a comment on the line before the patched line
+        src = src.replace(
+            "top_k = _getattr_first(text_config, " + new,
+            marker + "\n        top_k = _getattr_first(text_config, " + new,
+            1,
+        )
+        p.write_text(src)
+        print("Patched sglang/srt/models/transformers.py: added top_k_experts to MoE config lookup")
+PATCH_TRANSFORMERS_TOPK_EOF
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Patch flashinfer.jit.cpp_ext.get_cuda_version: avoid subprocess from inside a
 # torch.compile/dynamo trace.
 #
