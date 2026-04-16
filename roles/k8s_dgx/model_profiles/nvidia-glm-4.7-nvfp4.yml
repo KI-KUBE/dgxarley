@@ -19,39 +19,30 @@ _model_profile:
     # Note: model card does NOT specify --moe-runner-backend or --attention-backend.
     # model_type=glm4_moe is in transformers 4.57.6 — no upgrade needed (unlike GLM-5).
     nccl_transport: "roce"
-    tp_size: 4  # num_kv_heads=8 → TP=4 works (2 KV heads/GPU). EP=4 from nnodes.
-    context_length: 202752  # model max 202752; leave headroom
-    #chunked_prefill_size: 131072  # NVIDIA model card recommendation
+    tp_size: 4  # num_kv_heads=8 → TP=4 works (2 KV heads/GPU)
+    context_length: 202752
     quantization: "modelopt_fp4"
     trust_remote_code: true
-    # triton MoE → cutlass_moe_fp4: crashes on SM121 (101 KB shared memory too small
-    # for 128x128x128 tiles, device-side assert). Not patchable at runtime — needs
-    # SM121-specific sgl-kernel build. See CUTLASS_NVFP4_SM121_PRD.md.
-    # flashinfer_cutlass MoE: only working NVFP4 MoE runner on SM121.
-    # v0.5.10 TP=4 EP=4 best result: Test 17 (fi_cutlass + triton attn + fi_cutlass fp4
-    # + eager) → 8.4/20.8 tok/s (n=1/n=4, n=8 unstable).
-    # rc0 winner (#23): fi_cutlass MoE + triton attn + fi_cudnn fp4 → 8.06/21.94/30.01
-    # but fi_cudnn regressed in v0.5.10 (0 tokens).
-    moe_runner_backend: "flashinfer_cutlass"
+    # EP=1 TP=4 winner config (TESTLOG EP=1, 2026-04-15, 17/37 STABLE):
+    #   Test 31: cutlass MoE + fi attn + fi_cutlass FP4 + CG on → 14.51/40.60/60.03
+    #   All 17 STABLE configs within ±2%; cutlass/triton MoE and fi/triton attn
+    #   are interchangeable. CG on gives 30% better n=1 TTFT vs eager.
+    # EP=1 delivers ~2× throughput over EP=4 (40.6 vs 20.8 n=4, 60 vs 30 n=8).
+    moe_runner_backend: "cutlass"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.60"
-    # triton attn: required for stability with fi_cutlass MoE on v0.5.10 (Test 17).
-    # flashinfer attn + fi_cutlass MoE crashes with Xid 13 (Test 14).
-    attention_backend: "triton"
+    attention_backend: "flashinfer"
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4
-    disable_piecewise_cuda_graph: true
-    # Start with eager mode to verify SM121 patch works. Enable CUDA graphs
-    # after MoE Triton tuning provides SM121-optimized configs (101 KB shared mem).
-    disable_cuda_graph: true
+    disable_piecewise_cuda_graph: true  # piecewise broken: fp4_quantize has no fake-tensor impl
+    disable_cuda_graph: false
     cuda_graph_max_bs: 8
     pp_async_batch_depth: 0
     disable_deep_gemm: true
     reasoning_parser: "glm45"
     tool_call_parser: "glm47"
     num_experts: 160
-    ep_size: 4
-    #ep_size: "{{ sglang_nnodes if (160 % (sglang_nnodes | int) == 0) else 1 }}"
+    ep_size: 1
     recommended_sampling:
       temperature: 1.0
     speculative_enabled: false
