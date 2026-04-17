@@ -32,3 +32,4 @@ _model_profile:
       top_p: 0.95
       top_k: 64
     speculative_enabled: false
+    sglang_image: "xomoxcc/dgx-spark-sglang:main-gemma4-sm121"
