@@ -56,13 +56,13 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 | 3  | roce | triton     | fi        | false          | false         | **startup_crash** | —         | —        | —        |
 | 4  | roce | triton     | triton    | false          | true          | **STABLE**        | 40.1      | 114.8    | 163.9    |
 | 5  | roce | triton     | triton    | true           | true          | **STABLE**        | 20.5      | 104.9    | 159.8    |
-| 6  | roce | triton     | triton    | false          | false         | *pending*         | —         | —        | —        |
-| 7  | roce | fi_cutlass | fi        | false          | true          | *pending*         | —         | —        | —        |
-| 8  | roce | fi_cutlass | fi        | true           | true          | *pending*         | —         | —        | —        |
-| 9  | roce | fi_cutlass | fi        | false          | false         | *pending*         | —         | —        | —        |
-| 10 | roce | fi_cutlass | triton    | false          | true          | *pending*         | —         | —        | —        |
-| 11 | roce | fi_cutlass | triton    | true           | true          | *pending*         | —         | —        | —        |
-| 12 | roce | fi_cutlass | triton    | false          | false         | *pending*         | —         | —        | —        |
+| 6  | roce | triton     | triton    | false          | false         | **STABLE ★**      | 39.8      | 114.6    | **180.5** |
+| 7  | roce | fi_cutlass | fi        | false          | true          | **startup_crash** | —         | —        | —        |
+| 8  | roce | fi_cutlass | fi        | true           | true          | **bench_crash**   | —         | —        | —        |
+| 9  | roce | fi_cutlass | fi        | false          | false         | **startup_crash** | —         | —        | —        |
+| 10 | roce | fi_cutlass | triton    | false          | true          | **STABLE**        | 39.7      | 109.4    | 174.1    |
+| 11 | roce | fi_cutlass | triton    | true           | true          | **STABLE**        | 25.6      | 112.2    | 158.4    |
+| 12 | roce | fi_cutlass | triton    | false          | false         | **STABLE**        | 40.2      | 110.8    | 172.4    |
 
 Tests 1, 2, 3, 7, 8, 9 use `attention_backend=flashinfer` — expected to crash with the FlashInfer `head_dim=512` dispatch bug (see Test 1 below). Tests 4–6, 10–12 use `attention_backend=triton` and should avoid it.
 
@@ -79,6 +79,8 @@ Tests 1, 2, 3, 7, 8, 9 use `attention_backend=flashinfer` — expected to crash 
 ---
 
 ## Results
+
+_All 12 tests complete (2026-04-16/17). Image: `xomoxcc/dgx-spark-sglang:main-gemma4-sm121` (SGLang main @ PR #22079). 6/12 STABLE (all triton-attn), 6/12 crashed (all flashinfer-attn — FlashInfer `head_dim=512` dispatch bug). Winner: Test 6 (triton MoE + triton attn + piecewise) at 180.5 tok/s n=8._
 
 ### Test 1 — triton MoE + flashinfer attn, CUDA graphs on
 
@@ -109,4 +111,59 @@ FlashInfer Internal Error: Invalid configuration :
 - Peak tok/s: **40.1 / 114.8 / 163.9** (n=1/n=4/n=8).
 - TTFT: 2.05s (n=1), 0.76s (n=4 p50), 0.41s (n=8 p50).
 - Weight load: 43s, 13.68 GB (TP0), FP8 KV cache, sliding window memory pool (2.5M SWA + 3.1M full tokens, 74.4 GB).
-- **163.9 tok/s at n=8** — the highest throughput of any model on this cluster, driven by only ~3.8B active parameters per token. For comparison: Qwen3.5-397B with MTP reaches 110.9 tok/s at n=8 (17B active).
+- 163.9 tok/s at n=8 — superseded by Test 6 (piecewise, 180.5 tok/s).
+
+### Test 5 — triton MoE + triton attn, eager (no CUDA graphs)
+
+- **STABLE** — 20.5 / 104.9 / 159.8 (n=1/n=4/n=8).
+- TTFT: **15.56s** (n=1) — extremely high first-request latency without pre-captured graphs. Drops to 0.66s at n=4 and 0.40s at n=8 once JIT warmup is amortized.
+- n=1 throughput ~49% slower than CG-on (Test 4). n=8 within 2.5%.
+
+### Test 6 — triton MoE + triton attn, piecewise CUDA graphs
+
+- **STABLE ★** — **39.8 / 114.6 / 180.5** (n=1/n=4/n=8). **Overall winner at n=8.**
+- TTFT: 2.31s (n=1), 0.46s (n=4), 0.38s (n=8).
+- **180.5 tok/s at n=8** — the highest throughput of any model on this cluster. For comparison: Qwen3.5-397B with MTP reaches 110.9 tok/s at n=8.
+- Piecewise outperforms fixed-BS graphs (Test 4) by **+10% at n=8** (180.5 vs 163.9). This is the opposite of the NVFP4 models (GLM-4.7, Qwen3.5) where piecewise crashes — BF16 Gemma-4 has no `fp4_quantize` in its forward, so the FP4 fake-tensor dynamo bug doesn't apply.
+
+### Tests 7–9 — fi_cutlass MoE + flashinfer attn (all variants)
+
+- Tests 7 (CG on) and 9 (piecewise): **startup_crash** — FlashInfer `head_dim=512` dispatch bug (identical to Tests 1/3).
+- Test 8 (eager): **bench_crash** — same FlashInfer bug at first request (identical to Test 2).
+
+### Test 10 — fi_cutlass MoE + triton attn, CUDA graphs on
+
+- **STABLE** — 39.7 / 109.4 / 174.1 (n=1/n=4/n=8).
+- fi_cutlass MoE works on BF16 Gemma-4 at EP=1 with triton attention — unlike NVFP4 models where it was broken.
+
+### Test 11 — fi_cutlass MoE + triton attn, eager
+
+- **STABLE** — 25.6 / 112.2 / 158.4 (n=1/n=4/n=8).
+- Eager TTFT: 6.47s (n=1) — better than triton MoE eager (15.56s in Test 5). fi_cutlass MoE's pre-compiled kernels reduce JIT warmup.
+
+### Test 12 — fi_cutlass MoE + triton attn, piecewise
+
+- **STABLE** — 40.2 / 110.8 / 172.4 (n=1/n=4/n=8).
+- Piecewise works for BF16 (no FP4 fake-tensor issue). Slightly behind triton MoE piecewise (Test 6: 180.5) at n=8.
+
+### Overall conclusion (12/12)
+
+**6/12 STABLE, 6/12 crashed.** The split is clean: all `attention_backend=flashinfer` tests crash (FlashInfer `head_dim=512` dispatch bug), all `attention_backend=triton` tests pass.
+
+| Config axis | Result |
+|-------------|--------|
+| `attention_backend=flashinfer` | 0/6 STABLE — `head_dim=512` not in FlashInfer dispatch table |
+| `attention_backend=triton` | **6/6 STABLE** — all pass |
+| `moe_runner_backend=triton` vs `fi_cutlass` | Both work — triton MoE marginally faster at n=8 (180.5 vs 174.1 piecewise) |
+| CG on vs eager vs piecewise | Piecewise wins at n=8 (+10% over CG-on). CG-on ~2× faster than eager at n=1. |
+
+**Winner: Test 6** — triton MoE + triton attn + piecewise: **180.5 tok/s at n=8**, 39.8 at n=1.
+
+**Production profile recommendation:**
+
+```yaml
+attention_backend: triton           # mandatory — flashinfer crashes on head_dim=512
+moe_runner_backend: triton          # marginally faster than fi_cutlass at n=8
+disable_piecewise_cuda_graph: false  # piecewise works for BF16 (no FP4 dynamo issue)
+disable_cuda_graph: false
+```

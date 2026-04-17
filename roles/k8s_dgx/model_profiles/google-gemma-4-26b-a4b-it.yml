@@ -25,10 +25,16 @@ _model_profile:
     context_length: 262144
     quantization: ""  # native BF16
     trust_remote_code: false
-    moe_runner_backend: "triton"  # BF16 MoE — no NVFP4 fallback crash path
+    # EP=1 TP=4 winner config (Test 6, 2026-04-16):
+    #   triton MoE + triton attn + piecewise → 39.8 / 114.6 / 180.5 tok/s
+    #   180.5 tok/s at n=8 — highest throughput of any model on this cluster.
+    #   attention_backend=triton is mandatory: FlashInfer crashes on
+    #   global_head_dim=512 (see FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md).
+    #   piecewise works for BF16 (no fp4_quantize fake-tensor dynamo issue).
+    moe_runner_backend: "triton"
     kv_cache_dtype: "fp8_e4m3"
-    mem_fraction_static: "0.7"
-    attention_backend: "flashinfer"
+    mem_fraction_static: "0.85"
+    attention_backend: "triton"
     jit_max_jobs: 4
     disable_piecewise_cuda_graph: false
     disable_cuda_graph: false
@@ -36,19 +42,7 @@ _model_profile:
     pp_async_batch_depth: 0
     disable_deep_gemm: false
     num_experts: 128
-    # EP distributes 128 experts across nnodes (4 nodes → 32 experts/GPU).
-    # Auto-computed: if num_experts is divisible by nnodes, use ep_size=nnodes,
-    # else fall back to 1 (no EP). Same pattern as the other 128-expert profiles
-    # above. With only 3.8B active params per token, EP communication may be the
-    # bottleneck rather than compute — benchmark vs ep_size=1 (expert replication)
-    # before deciding what's faster at production concurrency.
-    ep_size: "{{ sglang_nnodes if (128 % (sglang_nnodes | int) == 0) else 1 }}"
-    # EPLB (Expert Parallel Load Balancer) disabled initially — Gemma 4 MoE
-    # routing is softmax top_k=8, and EPLB's rebalancing has been unstable on
-    # other similar MoE setups in this project. Enable later if load imbalance
-    # shows in expert_distribution_metrics.
-    enable_eplb: false
-    enable_expert_distribution_metrics: false
+    ep_size: 1
     recommended_sampling:
       temperature: 1.0
       top_p: 0.95
