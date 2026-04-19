@@ -352,3 +352,113 @@
     value: "{{ nsupdate_ingress_ip }}"
     state: present
 
+
+# ============================================================================
+# Virtual Key Provisioning (OPTIONAL — DISABLED BY DEFAULT)
+# ============================================================================
+# LiteLLM virtual keys live in the DB, not in config.yaml. To manage a fixed
+# set of keys via Ansible (idempotent), uncomment the block below. Keys are
+# looked up by key_alias first — if a key with that alias already exists it
+# is updated, otherwise a new one is generated. The returned sk-... token is
+# written to a per-key K8s Secret in the litellm namespace so consumer pods
+# (openwebui, pipelines, CLI users) can pull it via envFrom/volume.
+#
+# Define the key list in group_vars/all/vault.yml (sensitive metadata like
+# user_id/team_id may leak to logs if in public main.yml):
+#
+#   litellm_virtual_keys:
+#     - key_alias: "openwebui"
+#       user_id: "openwebui-system"
+#       max_budget: 100.0        # USD, null = unlimited
+#       budget_duration: "30d"
+#       tpm_limit: 0             # 0 = unlimited
+#       rpm_limit: 0
+#       models: []               # [] = all models in config
+#     - key_alias: "alice"
+#       user_id: "alice"
+#       max_budget: 5.0
+#       budget_duration: "30d"
+#       models: ["{{ sglang_served_model_name }}"]
+#
+# The master_key is required for these admin calls — read it back from the
+# in-cluster Secret (single source of truth, decoupled from vault variable).
+#
+# - name: Wait for litellm /health/readiness before provisioning keys
+#   ansible.builtin.uri:
+#     url: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/health/readiness"
+#     status_code: 200
+#   register: _litellm_ready
+#   until: _litellm_ready.status == 200
+#   retries: 30
+#   delay: 5
+#
+# - name: Read litellm master_key from in-cluster Secret
+#   kubernetes.core.k8s_info:
+#     api_version: v1
+#     kind: Secret
+#     name: litellm-env
+#     namespace: "{{ litellm_namespace }}"
+#   register: _litellm_env
+#
+# - name: Set litellm master_key fact
+#   ansible.builtin.set_fact:
+#     _litellm_master_key: "{{ _litellm_env.resources[0].data.LITELLM_MASTER_KEY | b64decode }}"
+#
+# # /key/info returns 404 if alias not found — use check-mode-ish logic via
+# # status_code: [200, 404] and branch on the response.
+# - name: Check which virtual keys already exist (by key_alias)
+#   ansible.builtin.uri:
+#     url: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/key/info?key_alias={{ item.key_alias }}"
+#     method: GET
+#     headers:
+#       Authorization: "Bearer {{ _litellm_master_key }}"
+#     status_code: [200, 404]
+#   loop: "{{ litellm_virtual_keys | default([]) }}"
+#   register: _litellm_existing_keys
+#
+# - name: Generate missing virtual keys via /key/generate
+#   ansible.builtin.uri:
+#     url: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/key/generate"
+#     method: POST
+#     headers:
+#       Authorization: "Bearer {{ _litellm_master_key }}"
+#       Content-Type: "application/json"
+#     body_format: json
+#     body:
+#       key_alias: "{{ item.item.key_alias }}"
+#       user_id: "{{ item.item.user_id | default(omit) }}"
+#       team_id: "{{ item.item.team_id | default(omit) }}"
+#       max_budget: "{{ item.item.max_budget | default(omit) }}"
+#       budget_duration: "{{ item.item.budget_duration | default(omit) }}"
+#       tpm_limit: "{{ item.item.tpm_limit | default(omit) }}"
+#       rpm_limit: "{{ item.item.rpm_limit | default(omit) }}"
+#       models: "{{ item.item.models | default(omit) }}"
+#       metadata: "{{ item.item.metadata | default(omit) }}"
+#     status_code: 200
+#   loop: "{{ _litellm_existing_keys.results }}"
+#   when: item.status == 404
+#   register: _litellm_generated_keys
+#   no_log: true   # response body contains the sk-... token
+#
+# # Store each returned key as a K8s Secret named litellm-vkey-<alias>. Consumer
+# # pods mount it via envFrom → LITELLM_API_KEY. Re-running the play is a no-op
+# # because the /key/info branch returns 200 and this task is skipped.
+# - name: Persist generated keys as K8s Secrets
+#   kubernetes.core.k8s:
+#     state: present
+#     definition:
+#       apiVersion: v1
+#       kind: Secret
+#       metadata:
+#         name: "litellm-vkey-{{ item.item.item.key_alias }}"
+#         namespace: "{{ litellm_namespace }}"
+#       type: Opaque
+#       stringData:
+#         LITELLM_API_KEY: "{{ item.json.key }}"
+#         LITELLM_API_BASE: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
+#   loop: "{{ _litellm_generated_keys.results | default([]) }}"
+#   when:
+#     - item.skipped is not defined or not item.skipped
+#     - item.json is defined
+#   no_log: true
+

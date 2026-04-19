@@ -550,6 +550,31 @@ litellm_port: 4000
 # Sampling defaults are set per model here — LiteLLM passes them as request
 # defaults to the backend. Per-request params from the client override these.
 # This replaces the previous generation_config.json patching hack in launch.sh.
+# Per-model token pricing (USD per token). LiteLLM multiplies prompt_tokens by
+# input_cost_per_token and completion_tokens by output_cost_per_token to populate
+# the spend table (per-key / per-user / per-team budgets). Local GPU inference
+# has no $-per-token rate — but we deliberately mirror the hosted-SaaS price
+# for the same model, so LiteLLM's /spend/* reports directly answer the question
+# "what would this usage have cost on a SaaS provider?".
+#
+# Current defaults = OpenRouter weighted-average pricing for
+# qwen/qwen3.5-397b-a17b (checked 2026-04-19 across providers):
+#   OpenRouter (weighted):  $0.39 / $2.34 per 1M
+#   Alibaba Cloud official: $0.39 / $0.90 per 1M
+#   DeepInfra:              $0.54 / $3.40 per 1M
+#   Together AI / Novita:   $0.60 / $3.60 per 1M
+# OpenRouter-median picked as the middle-of-the-road community rate. This is
+# ~realistic for our primary SGLang model (nvidia/Qwen3.5-397B-A17B-NVFP4).
+#
+# Fallback reference (if the served model changes to something Claude-class):
+#   Anthropic Claude Sonnet 4.5: $3.00 / $15.00 per 1M
+#
+# Override per-model by adding input_cost_per_token / output_cost_per_token
+# directly in litellm_model_list. Set both to 0 to track tokens without
+# charging spend. All values are in USD — LiteLLM has no currency switch.
+litellm_default_input_cost_per_token: 0.00000039   # $0.39 per 1M input  — OpenRouter Qwen3.5-397B median
+litellm_default_output_cost_per_token: 0.00000234  # $2.34 per 1M output — OpenRouter Qwen3.5-397B median
+
 litellm_model_list:
   - model_name: "{{ sglang_served_model_name }}"
     litellm_params:
@@ -566,6 +591,9 @@ litellm_model_list:
       min_p: "{{ _sglang_sampling_defaults.min_p | default(omit) }}"
       # Reasoning defaults from _sglang_extra_body_defaults (chat_template_kwargs):
       extra_body: "{{ _sglang_extra_body_defaults if _sglang_extra_body_defaults else omit }}"
+      # Spend tracking (nominal cost — edit litellm_default_*_cost_per_token above):
+      input_cost_per_token: "{{ litellm_default_input_cost_per_token }}"
+      output_cost_per_token: "{{ litellm_default_output_cost_per_token }}"
 
   # Ollama models via native LiteLLM providers (ollama/ for embeddings,
   # ollama_chat/ for chat). LiteLLM's ollama provider forces TLS on all
@@ -577,11 +605,15 @@ litellm_model_list:
       model: "ollama/{{ ollama_embed_model }}"
       api_base: "https://ollama-embed.ollama.svc.cluster.local:{{ ollama_tls_port }}"
       ssl_verify: false
+      input_cost_per_token: "{{ litellm_default_input_cost_per_token }}"
+      output_cost_per_token: "{{ litellm_default_output_cost_per_token }}"
   - model_name: "{{ ollama_model }}"
     litellm_params:
       model: "ollama_chat/{{ ollama_model }}"
       api_base: "https://ollama.ollama.svc.cluster.local:{{ ollama_tls_port }}"
       ssl_verify: false
+      input_cost_per_token: "{{ litellm_default_input_cost_per_token }}"
+      output_cost_per_token: "{{ litellm_default_output_cost_per_token }}"
 
 
 # litellm_settings: rendered as the litellm_settings block in config.yaml
