@@ -1,0 +1,191 @@
+#!/bin/bash
+set -euo pipefail
+
+DATA=/workspace
+APP="$DATA/comfyui"
+MODELS="$APP/models"
+
+# --- 1. ComfyUI source ---------------------------------------------
+if [ ! -d "$APP/.git" ]; then
+  echo "[comfyui] cloning upstream…"
+  git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git "$APP"
+else
+  echo "[comfyui] pulling latest…"
+  git -C "$APP" pull --ff-only || echo "[comfyui] pull failed, continuing with existing checkout"
+fi
+
+# --- 2. Python deps ------------------------------------------------
+cd "$APP"
+if [ ! -f "$DATA/.pip_done" ] || [ requirements.txt -nt "$DATA/.pip_done" ]; then
+  echo "[comfyui] installing requirements…"
+  # torch already present from base image; --upgrade-strategy only-if-needed
+  # avoids reinstalling torch/torchvision and breaking Blackwell support.
+  pip install --upgrade-strategy only-if-needed -r requirements.txt
+  pip install huggingface_hub[cli]
+  touch "$DATA/.pip_done"
+fi
+
+# --- 3. FLUX.1-schnell single-file checkpoint ----------------------
+mkdir -p "$MODELS/checkpoints"
+FLUX_FILE="$MODELS/checkpoints/{{ comfyui_flux_schnell_file }}"
+if [ -n "{{ comfyui_flux_schnell_repo }}" ] && [ ! -f "$FLUX_FILE" ]; then
+  echo "[comfyui] downloading {{ comfyui_flux_schnell_repo }}/{{ comfyui_flux_schnell_file }}…"
+  # huggingface_hub >=1.11 hat `huggingface-cli` entfernt — CLI heißt
+  # jetzt `hf` (gleiche Syntax, reine Umbenennung).
+  hf download "{{ comfyui_flux_schnell_repo }}" \
+    "{{ comfyui_flux_schnell_file }}" \
+    --local-dir "$MODELS/checkpoints"
+fi
+
+# --- 3b. Inpaint-Workflow-Modelle (HuggingFace, idempotent) --------
+# Zielstruktur auf spark4:$comfyui_hostpath_base → im Pod /workspace/:
+#   models/checkpoints/RealVisXL_V5.0_fp16.safetensors  (workflow.json SDXL)
+#   models/inpaint/{fooocus_inpaint_head.pth, inpaint_v26.fooocus.patch}
+#   models/unet/flux1-fill-dev-fp8.safetensors          (workflow-flux1)
+#   models/clip/{t5xxl_fp8_e4m3fn.safetensors, clip_l.safetensors}
+#   models/vae/ae.safetensors                            (FLUX VAE)
+#
+# Format je Zeile: "repo|filename|models-subdir".
+# Gitterschnitt: existiert die Zieldatei → skip.
+#
+# Alle Quellen hier sind ungated — kein HF_TOKEN erforderlich.
+# `hfmaster/models-moved` ist ein Community-Mirror der gated
+# black-forest-labs-Dateien (ae.safetensors, flux1-fill-dev-fp8);
+# inoffiziell, aber praktisch damit das Deployment ohne Token-
+# Infrastruktur auskommt. Fallen die Dateien dort irgendwann weg,
+# Alternative für gated Variante:
+#   "black-forest-labs/FLUX.1-schnell|ae.safetensors|vae"
+#   "boricuapab/flux1-fill-dev-fp8|flux1-fill-dev-fp8.safetensors|unet"
+# (beide gated: auto — brauchen HF_TOKEN + einmaligen Click-Through
+# auf der jeweiligen HF-Repo-Seite im Browser).
+#
+# RealVisXL_V5.0 ersetzt das Civitai-gated `gene/juggernautXL_...`
+# aus workflow.json — ungated, Photo-Realismus, voll Fooocus-Patch-
+# kompatibel. Im Workflow muss `ckpt_name` entsprechend angepasst
+# sein: "RealVisXL_V5.0_fp16.safetensors" (ist in workflow.json +
+# workflow-manual.json bereits gesetzt).
+# Entry-Format: "repo|source_path|subdir[|rename_to]". Steht das 4. Feld,
+# wird die heruntergeladene Datei nach dem Download auf diesen Namen
+# umbenannt (nötig z. B. für openai/clip-vit-large-patch14, das als
+# "model.safetensors" liegt, XLabs-IP-Adapter aber den Dateinamen
+# "clip_vit_large_patch14.safetensors" erwartet).
+#
+# Plugin-Engines (XLabs Redux / IPA / Kontext) — zusätzliche Referenzbild-
+# basierte Workflows, siehe COMFYUI_INPAINT.md:
+#   • Redux  → style_models/flux1-redux-dev.safetensors +
+#              clip_vision/sigclip_vision_patch14_384.safetensors
+#   • IPA    → xlabs_ipadapters/flux-ip-adapter.safetensors +
+#              clip_vision/clip_vit_large_patch14.safetensors
+#   • Kontext → diffusion_models/flux1-kontext-dev-fp8.safetensors
+# flux1-redux-dev und flux1-kontext-dev-fp8 sind Gated bzw. Community-
+# Quants — die HF-Quellen unten sind Best-Guess-Mirrors; schlägt der
+# Download fehl, greift die WARN-Zeile und die Datei muss manuell unter
+# $MODELS/<subdir>/ abgelegt werden.
+for entry in \
+  "SG161222/RealVisXL_V5.0|RealVisXL_V5.0_fp16.safetensors|checkpoints" \
+  "lllyasviel/fooocus_inpaint|fooocus_inpaint_head.pth|inpaint" \
+  "lllyasviel/fooocus_inpaint|inpaint_v26.fooocus.patch|inpaint" \
+  "comfyanonymous/flux_text_encoders|t5xxl_fp8_e4m3fn.safetensors|clip" \
+  "comfyanonymous/flux_text_encoders|clip_l.safetensors|clip" \
+  "hfmaster/models-moved|flux/ae.safetensors|vae" \
+  "hfmaster/models-moved|flux/flux1-fill-dev-fp8.safetensors|unet" \
+  "Comfy-Org/sigclip_vision_384|sigclip_vision_patch14_384.safetensors|clip_vision" \
+  "XLabs-AI/flux-ip-adapter|ip_adapter.safetensors|xlabs_ipadapters|flux-ip-adapter.safetensors" \
+  "openai/clip-vit-large-patch14|model.safetensors|clip_vision|clip_vit_large_patch14.safetensors" \
+  "hfmaster/models-moved|flux/flux1-redux-dev.safetensors|style_models" \
+  "boricuapab/flux1-kontext-dev-fp8|flux1-kontext-dev-fp8.safetensors|diffusion_models" \
+; do
+  IFS="|" read -r repo fname subdir rename_to <<< "$entry"
+  dest_dir="$MODELS/$subdir"
+  final_name="${rename_to:-$(basename "$fname")}"
+  dest_file="$dest_dir/$final_name"
+  mkdir -p "$dest_dir"
+  if [ -f "$dest_file" ]; then
+    continue
+  fi
+  echo "[comfyui] downloading $repo/$fname → $dest_file"
+  # --local-dir legt die Datei unter dem relativen Pfad ab, den die
+  # Repo-Struktur vorgibt (z. B. split_files/vae/ae.safetensors).
+  # Danach flachziehen/umbenennen, damit ComfyUI sie direkt unter
+  # $dest_dir unter dem erwarteten Namen findet — ComfyUI durchsucht
+  # Model-Ordner nicht rekursiv.
+  if hf download "$repo" "$fname" --local-dir "$dest_dir"; then
+    nested="$dest_dir/$fname"
+    downloaded="$dest_dir/$(basename "$fname")"
+    if [ "$nested" != "$downloaded" ] && [ -f "$nested" ]; then
+      mv "$nested" "$downloaded"
+    fi
+    if [ "$downloaded" != "$dest_file" ] && [ -f "$downloaded" ]; then
+      mv "$downloaded" "$dest_file"
+    fi
+  else
+    echo "[comfyui] WARN: $repo/$fname konnte nicht geladen werden — bitte $dest_file manuell ablegen"
+  fi
+done
+
+# --- 4. Custom nodes for inpaint + flux-inpaint workflows ---------
+# Idempotent git clone per Custom-Node-Repo. Existiert das Zielverzeichnis
+# bereits, wird nichts getan (KEIN pull — Updates per Hand oder via
+# `rm -rf <dir>` + Pod-Neustart).
+# Acly/comfyui-inpaint-nodes → INPAINT_ApplyFooocusInpaint,
+#   INPAINT_LoadFooocusInpaint (+ LaMa, MAT fills)
+# lquesada/ComfyUI-Inpaint-CropAndStitch → InpaintCropImproved,
+#   InpaintStitchImproved — die "Improved"-Varianten, die beide
+#   Workflows direkt aufrufen. NICHT in Acly's Repo enthalten.
+# XLabs-AI/x-flux-comfyui → LoadFluxIPAdapter + ApplyFluxIPAdapter für
+#   die IPA-Plugin-Engine (Referenzbild-basierte Flux-Workflows, siehe
+#   workflow-flux1-ipa.json / COMFYUI_INPAINT.md).
+mkdir -p "$APP/custom_nodes"
+for repo in \
+  https://github.com/Acly/comfyui-inpaint-nodes.git \
+  https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch.git \
+  https://github.com/XLabs-AI/x-flux-comfyui.git \
+; do
+  name="$(basename "$repo" .git)"
+  dest="$APP/custom_nodes/$name"
+  if [ ! -d "$dest/.git" ]; then
+    echo "[comfyui] cloning custom node $name…"
+    git clone --depth 1 "$repo" "$dest"
+  fi
+done
+
+# --- 4b. Custom-Node-Python-Deps ----------------------------------
+# Jeder Custom-Node darf eine requirements.txt mitbringen (z. B.
+# x-flux-comfyui: opencv-python, einops, transformers, diffusers,
+# sentencepiece, GitPython — ohne die bricht schon der Import mit
+# `ModuleNotFoundError: No module named 'cv2'`).
+#
+# WICHTIG — kein hostPath-Marker: pip installiert nach
+# /usr/local/lib/python3.12/dist-packages/, was zum Container-RootFS
+# gehört und bei jedem Pod-Restart verloren geht. Ein Marker unter
+# $APP/custom_nodes/<node>/.deps_installed würde auf hostPath
+# überleben und die Installation fälschlich als erledigt markieren →
+# nach Restart fehlt cv2 trotz präsentem Marker.
+# Daher: pip install auf JEDEM Start ausführen. `--upgrade-strategy
+# only-if-needed` macht den Lauf zum No-Op (~2s), wenn die Deps
+# bereits im Image gebacken sind (siehe scripts/comfyui/
+# requirements-extra.txt — dort sind GitPython, diffusers und
+# opencv-python vor-installiert). Schützt zusätzlich Blackwell-Torch
+# aus dem Base-Image vor Downgrades durch Custom-Node-Pins.
+# Stale Marker aus älteren Script-Versionen werden aufgeräumt.
+for req in "$APP"/custom_nodes/*/requirements.txt; do
+  [ -f "$req" ] || continue
+  node_dir="$(dirname "$req")"
+  rm -f "$node_dir/.deps_installed"
+  echo "[comfyui] ensuring deps for $(basename "$node_dir")…"
+  if ! pip install --upgrade-strategy only-if-needed -r "$req"; then
+    echo "[comfyui] WARN: pip install -r $req schlug fehl — Node lädt evtl. nicht"
+  fi
+done
+
+# --- 5. Launch -----------------------------------------------------
+# Debian/Ubuntu-Bases liefern nur `python3`; einen `python`-Alias gibt es
+# nur wenn das Paket python-is-python3 installiert ist. Sicher über PATH
+# auflösen, sonst scheitert exec mit "python: not found".
+PY="$(command -v python3 || command -v python)"
+echo "[comfyui] launching on 0.0.0.0:{{ comfyui_port }} ($PY)"
+exec "$PY" main.py \
+  --listen 0.0.0.0 \
+  --port {{ comfyui_port }} \
+  --output-directory "$DATA/output" \
+  --temp-directory "$DATA/temp"

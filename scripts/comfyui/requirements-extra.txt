@@ -1,0 +1,49 @@
+# ComfyUI sm121 image — extra deps not in scitrera pytorch-dev base.
+# Installed with `pip install --upgrade-strategy only-if-needed` so the
+# base image's torch/torchvision/triton wheels are NOT replaced — doing
+# that would drop Blackwell / SM_121 support and silently regress perf.
+
+# ComfyUI frontend bundles
+comfyui-frontend-package
+comfyui-workflow-templates
+comfyui-embedded-docs
+
+# Sampler / scheduler / IO stack
+einops
+torchsde
+kornia>=0.7.1
+spandrel
+soundfile
+av>=14.2.0
+pydantic~=2.0
+pydantic-settings~=2.0
+alembic
+SQLAlchemy
+
+# Utilities ComfyUI imports unconditionally
+huggingface_hub[cli]
+transformers>=4.37.2
+tokenizers>=0.13.3
+sentencepiece
+safetensors>=0.4.2
+aiohttp>=3.11.8
+yarl>=1.18.0
+psutil
+tqdm
+Pillow
+scipy
+numpy>=1.25.0
+
+# Custom-node deps pre-baked für die Standard-Plugin-Engines, damit
+# ein Fresh-Clone im Runtime-Launch ohne zusätzlichen pip-Roundtrip
+# lädt. Der Runtime-Install-Pass in comfyui_launch.sh.j2 (Sektion 4b)
+# bleibt als Safety-Net für Nodes, die später dazukommen.
+#
+# x-flux-comfyui (XLabs, Flux IP-Adapter / LoRA) benötigt:
+#   GitPython, einops==0.8.0, transformers, diffusers, sentencepiece,
+#   opencv-python — ohne cv2 scheitert schon der Node-Import.
+# einops/transformers/sentencepiece sind oben bereits abgedeckt.
+# libgl1 für opencv-python kommt aus dem System-Layer im Dockerfile.
+GitPython
+diffusers
+opencv-python

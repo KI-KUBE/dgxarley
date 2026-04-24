@@ -559,7 +559,8 @@ comfyui_namespace: "comfyui"
 # NGC PyTorch image ships CUDA + cuDNN + torch with Blackwell (SM121) support
 # on ARM64. Overkill for a playground but avoids the custom-wheels rabbit hole.
 # Alternative: build a slimmer image once we know which kernels ComfyUI pulls.
-comfyui_image: "nvcr.io/nvidia/pytorch:25.09-py3"
+# comfyui_image: "nvcr.io/nvidia/pytorch:25.09-py3"
+comfyui_image: "xomoxcc/comfyui:sm121"
 comfyui_port: 8188
 # Which Spark to pin ComfyUI to. spark4 is the least disruptive default (last
 # SGLang worker; during image generation only rank 3 takes a latency hit).

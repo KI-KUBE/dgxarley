@@ -24,9 +24,11 @@
         HUGGING_FACE_HUB_TOKEN: "{{ hf_token | default('') }}"
 
 
-# Launch script lives in a ConfigMap so we can iterate without rebuilding an
-# image. Idempotent: git clone + pip install + model download are each guarded
-# by a marker file or file-exists check, so container restarts skip the setup.
+# Launch script lebt in einer ConfigMap, damit Änderungen keinen Image-Rebuild
+# erfordern. Das Script selbst liegt in templates/comfyui_launch.sh.j2 —
+# `lookup('template', ...)` rendert es und füttert's hier rein. Dieselbe
+# Template-Datei wird unten im Deployment als checksum-Quelle herangezogen,
+# damit jede Änderung am Script automatisch einen Rollout triggert.
 - name: Create comfyui launch script configmap
   kubernetes.core.k8s:
     state: present
@@ -37,51 +39,7 @@
         name: comfyui-launch-script
         namespace: "{{ comfyui_namespace }}"
       data:
-        launch.sh: |
-          #!/bin/bash
-          set -euo pipefail
-
-          DATA=/workspace
-          APP="$DATA/comfyui"
-          MODELS="$APP/models"
-
-          # --- 1. ComfyUI source ---------------------------------------------
-          if [ ! -d "$APP/.git" ]; then
-            echo "[comfyui] cloning upstream…"
-            git clone --depth 1 https://github.com/comfyanonymous/ComfyUI.git "$APP"
-          else
-            echo "[comfyui] pulling latest…"
-            git -C "$APP" pull --ff-only || echo "[comfyui] pull failed, continuing with existing checkout"
-          fi
-
-          # --- 2. Python deps ------------------------------------------------
-          cd "$APP"
-          if [ ! -f "$DATA/.pip_done" ] || [ requirements.txt -nt "$DATA/.pip_done" ]; then
-            echo "[comfyui] installing requirements…"
-            # torch already present from base image; --upgrade-strategy only-if-needed
-            # avoids reinstalling torch/torchvision and breaking Blackwell support.
-            pip install --upgrade-strategy only-if-needed -r requirements.txt
-            pip install huggingface_hub[cli]
-            touch "$DATA/.pip_done"
-          fi
-
-          # --- 3. FLUX.1-schnell single-file checkpoint ----------------------
-          mkdir -p "$MODELS/checkpoints"
-          FLUX_FILE="$MODELS/checkpoints/{{ comfyui_flux_schnell_file }}"
-          if [ -n "{{ comfyui_flux_schnell_repo }}" ] && [ ! -f "$FLUX_FILE" ]; then
-            echo "[comfyui] downloading {{ comfyui_flux_schnell_repo }}/{{ comfyui_flux_schnell_file }}…"
-            huggingface-cli download "{{ comfyui_flux_schnell_repo }}" \
-              "{{ comfyui_flux_schnell_file }}" \
-              --local-dir "$MODELS/checkpoints"
-          fi
-
-          # --- 4. Launch -----------------------------------------------------
-          echo "[comfyui] launching on 0.0.0.0:{{ comfyui_port }}"
-          exec python main.py \
-            --listen 0.0.0.0 \
-            --port {{ comfyui_port }} \
-            --output-directory "$DATA/output" \
-            --temp-directory "$DATA/temp"
+        launch.sh: "{{ lookup('template', 'comfyui_launch.sh.j2') }}"
 
 
 - name: Create comfyui service
@@ -127,6 +85,17 @@
           metadata:
             labels:
               app: comfyui
+            annotations:
+              # Launch-Script-Hash: ändert sich der Inhalt von
+              # templates/comfyui_launch.sh.j2 (Modelle, Custom-Nodes, Launch-
+              # Args, …) → Annotation ändert sich → Pod-Template-Hash ändert
+              # sich → Deployment rollt den Pod neu aus. Ohne diese Annotation
+              # würde eine reine ConfigMap-Änderung vom k8s-Controller nicht
+              # als "Pod-Spec geändert" erkannt.
+              checksum/launch-script: "{{ lookup('template', 'comfyui_launch.sh.j2') | hash('sha256') }}"
+              # Config-Hash: deckt die Variablen ab, die NICHT im Launch-Script
+              # landen (Image-Tag, Port), aber trotzdem einen Rollout brauchen.
+              checksum/config: "{{ (comfyui_image ~ (comfyui_port | string)) | hash('sha256') }}"
           spec:
             restartPolicy: Always
             nodeSelector:
