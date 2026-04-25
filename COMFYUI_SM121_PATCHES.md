@@ -1,0 +1,371 @@
+# xformers SM_121 Patches for ComfyUI on DGX Spark
+
+This document describes the two patches we apply to xformers v0.0.32 so
+that the `xomoxcc/comfyui:sm121` image boots and runs cleanly on
+NVIDIA GB10 / Blackwell GPUs (compute capability 12.1, aarch64).
+
+The patches live under `scripts/comfyui/patches/` and are applied at
+image-build time by `scripts/comfyui/Dockerfile`. They are needed
+because v0.0.32 has two structural incompatibilities with sm121 that
+cannot be fixed via build flags alone.
+
+---
+
+## TL;DR
+
+| Issue | Where it lives | Fix |
+|---|---|---|
+| `cutlass.{Fw,Bw}Op` route to PyTorch's compiled `aten::_efficient_attention_forward`, which hard-rejects sm121 with `FATAL: kernel '..._sm80' is for sm80-sm100, but was built for sm121`. | PyTorch's compiled binary (we cannot patch it). | `xformers-disable-cutlass-on-sm121.patch`: mark cutlass.FwOp/BwOp as "not supported" on capability >= (12, 0). The xformers dispatcher then falls through to `fa2F@2.5.7-pt` (PyTorch's bundled Flash-Attention 2), which is sm121-clean. |
+| Flash-Attention 3 has no sm121 SASS (FA3 is sm90-only); a default-dispatch call to `memory_efficient_attention` lands on FA3 first and crashes with `CUDA error: no kernel image is available`. | `xformers/ops/fmha/flash3.py` plus FA3 binaries in the wheel. | Build-time: `XFORMERS_DISABLE_FLASH_ATTN=1` env var (read by `setup.py:280`) — FA3 is not compiled into the wheel. Runtime belt-and-braces: `xformers-fa3-runtime-belt-and-braces.patch` makes `flash3.py` honour the same env var at import time, so even a stray FA3 wheel never registers with the dispatcher. |
+
+After both patches, the dispatcher's effective FMHA priority list on
+sm121 is `[fa3F (skipped, disabled), fa2F@2.5.7-pt, cutlassF-pt
+(rejected via patch)]`. The first viable op the dispatcher actually
+selects is `fa2F@2.5.7-pt` — PyTorch's natively-bundled Flash-Attention
+2 (note the `-pt` suffix; this is *not* xformers' own FA2 submodule,
+which `XFORMERS_DISABLE_FLASH_ATTN=1` skipped at build time). Verified
+runtime behaviour on sm121: 0.40 ms steady-state for a 4096×8×64
+bf16 attention, comparable to SageAttention v2 (0.33 ms) on the same
+shape. For ComfyUI specifically we additionally launch with
+`--use-sage-attention` so Sage replaces xformers entirely on the hot
+path; the patches above are the safety net for any code that still
+goes through xformers' default dispatch (custom nodes, VAE fallbacks,
+upstream changes that bypass the global flag).
+
+---
+
+## Background: why this is necessary
+
+### The cutlass FATAL message
+
+On the first integration run after enabling xformers in the image,
+ComfyUI's VAE encode crashed with:
+
+```
+AttributeError: module 'xformers.ops' has no attribute 'memory_efficient_attention'
+```
+
+We traced this to a partially-broken xformers wheel (xformers `_C.so`
+present but unloadable, family-tagged kernels mis-built for sm121).
+After fixing triton + arch-list + verify-step in the Dockerfile,
+xformers built cleanly and `memory_efficient_attention` was exposed —
+but the very first call from a Python smoke test hit:
+
+```
+FATAL: kernel `fmha_cutlassF_bf16_aligned_64x64_rf_sm80`
+       is for sm80-sm100, but was built for sm121
+FATAL: kernel `fmha_cutlassF_bf16_aligned_64x64_rf_sm80` ... (x30+)
+```
+
+Investigation: in xformers v0.0.32 the cutlass FMHA kernels are no
+longer shipped in xformers' own source tree. `cutlass.FwOp` defaults to
+PyTorch's built-in `aten::_efficient_attention_forward` whenever
+`is_pt_cutlass_compatible()` returns True. The FATAL message is
+emitted by PyTorch's compiled CUTLASS dispatcher, which has a
+hard-coded family-range check:
+
+- The kernel's name encodes the family (`_sm80` claims to cover sm80-sm100)
+- The binary's actual gencode tag is sm121 (we built the wheel with `TORCH_CUDA_ARCH_LIST=8.0;12.1`)
+- Dispatcher: `kernel_arch in [family_min, family_max]` -> sm121 fails the check on the sm80 family entry.
+
+Patching PyTorch's compiled binary is out of scope. The cleanest
+xformers-side fix is to prevent xformers from selecting cutlass.FwOp
+on sm121 in the first place — the dispatcher already has a
+`not_supported_reasons()` mechanism for exactly this purpose.
+
+### The FA3 no-kernel-image crash
+
+Once we tested xformers' default dispatch (no `op=` kwarg), we saw:
+
+```
+CUDA error (.../flash-attention/hopper/flash_fwd_launch_template.h:188):
+  no kernel image is available for execution on the device
+```
+
+FA3 in xformers v0.0.32 is bundled from
+`third_party/flash-attention/hopper/`, hard-targeted to sm90/sm90a.
+There is no FA3 SASS for sm121, so any actual launch on Blackwell
+fails. xformers' `fa3_available()` only checks `compute_capability >= (9, 0)` — sm121 (12, 1) passes that, so FA3 is offered to the dispatcher first.
+
+The clean fix is to disable FA3 entirely on this image: we don't have
+any Hopper hardware in the cluster, and even if FA3 existed for
+Blackwell we'd want to keep the build small and predictable.
+
+---
+
+## Patch 1: `xformers-disable-cutlass-on-sm121.patch`
+
+**File touched:** `xformers/ops/fmha/cutlass.py` (single file, 4 hunks).
+
+**Effect:**
+- Adds class-level constant `CUDA_MAXIMUM_COMPUTE_CAPABILITY = (12, 0)` to `FwOp`. `BwOp` inherits the same value via `BwOp.CUDA_MAXIMUM_COMPUTE_CAPABILITY = FwOp.CUDA_MAXIMUM_COMPUTE_CAPABILITY` so the threshold lives in one place.
+- In both `FwOp.not_supported_reasons` and `BwOp.not_supported_reasons`, before the alignment checks, inserts a guard:
+
+```python
+if d.device.type == "cuda":
+    device_capability = torch.cuda.get_device_capability(d.device)
+    if device_capability >= cls.CUDA_MAXIMUM_COMPUTE_CAPABILITY:
+        reasons.append(
+            f"requires device with capability < {cls.CUDA_MAXIMUM_COMPUTE_CAPABILITY} "
+            f"(got {device_capability}; CUTLASS FMHA kernels only cover sm60-sm100)"
+        )
+```
+
+The check is `>= (12, 0)`, so it fires on sm121 (12, 1) and any future
+Blackwell or post-Blackwell revision until upstream xformers ships a
+sm121-aware kernel.
+
+**Effect on dispatch:** Calls to
+`xformers.ops.memory_efficient_attention(q, k, v)` go through
+`_dispatch_fw_priority_list`, which calls `op.not_supported_reasons()`
+on each candidate and skips ops whose reasons are non-empty. With this
+patch, `cutlass.FwOp` always has at least one reason on sm121, so the
+dispatcher walks past it to the next entry.
+
+The runtime priority list on sm121 with both patches active is:
+
+```
+['fa3F@0.0.0', 'fa2F@2.5.7-pt', 'cutlassF-pt']
+```
+
+- `fa3F` is in the list (xformers always populates `ALL_FW_OPS` statically) but `flash3._C_flashattention3 is None` thanks to Patch 2, so it skips itself in `not_supported_reasons`.
+- `fa2F@2.5.7-pt` is the first viable entry. The `-pt` suffix marks it as PyTorch's bundled Flash-Attention 2 implementation (loaded via `torch._C`), distinct from xformers' own FA2 submodule which `XFORMERS_DISABLE_FLASH_ATTN=1` excluded from the wheel. PyTorch's FA2 has sm121 SASS and runs cleanly.
+- `cutlassF-pt` is at the end of the list and would also have been viable on older hardware, but on sm121 our patch makes it self-reject before the dispatcher tries it.
+
+Measured throughput on sm121 (4096×8×64 bf16, default dispatch picking fa2F-pt): **0.40 ms steady-state** — within striking distance of SageAttention v2's 0.33 ms on the same shape. Both are well under what a typical ComfyUI workflow would care about per layer.
+
+**Behavioural delta visible to user code:**
+- Default dispatch silently picks Triton instead of CUTLASS. No error.
+- An explicit `op=cutlass.FwOp` call now fails fast with `NotImplementedError(...requires device with capability < (12, 0)...)` instead of crashing inside the kernel. The error message names the constraint, so future readers can find this document.
+
+**What this patch does *not* do:**
+- It does not patch PyTorch. PyTorch's `_efficient_attention_forward` is still buggy on sm121; we just don't call into it via xformers.
+- It does not extend Cutlass to actually run on sm121. We give up on cutlass on sm121 entirely. If/when upstream PyTorch+CUTLASS ship sm121 kernels, this patch should be reverted.
+
+---
+
+## Patch 2: `xformers-fa3-runtime-belt-and-braces.patch`
+
+**File touched:** `xformers/ops/fmha/flash3.py` (single file, 1 hunk).
+
+**Effect:** turns the top-level FA3 init block into an env-var-aware
+chain:
+
+```python
+if os.environ.get("XFORMERS_DISABLE_FLASH_ATTN", "0") != "0":
+    logger.info(
+        "Flash-Attention 3 disabled at import time via XFORMERS_DISABLE_FLASH_ATTN env var"
+    )
+elif importlib.util.find_spec("...flash_attn_3._C", package=__package__):
+    # original FA3 import + registration block, unchanged
+    ...
+```
+
+`os` is already imported at the top of `flash3.py`, so no new import
+is needed. With the env var set (or with FA3 simply not built), the
+elif branch never runs, `_C_flashattention3` stays `None`,
+`fa3_available()` returns False, and the dispatcher's priority-list
+builder omits FA3 altogether.
+
+**Why is this needed if we already disable FA3 at build time?**
+
+The build-time disable (`XFORMERS_DISABLE_FLASH_ATTN=1` env var read by
+`setup.py:280`) prevents FA3 from being compiled into the wheel.
+That alone is sufficient under normal conditions. The runtime patch
+exists as defence-in-depth for two scenarios:
+
+1. A pre-built FA3 wheel slips in via the pip cache (`--mount=type=cache`)
+   from a previous build that didn't have the env var set.
+2. The image is later mutated post-build (e.g., a user installs an
+   xformers wheel with FA3 baked in over the top).
+
+In both cases, setting `XFORMERS_DISABLE_FLASH_ATTN=1` in the
+container's runtime env is enough to keep FA3 out of the dispatcher.
+
+---
+
+## Build integration
+
+Relevant block in `scripts/comfyui/Dockerfile`:
+
+```dockerfile
+ARG XFORMERS_REF=v0.0.32
+COPY patches/xformers-disable-cutlass-on-sm121.patch /tmp/patches/...
+COPY patches/xformers-fa3-runtime-belt-and-braces.patch /tmp/patches/...
+RUN --mount=type=cache,target=/root/.cache/pip \
+    if [ "${BUILD_XFORMERS}" = "1" ]; then \
+        git clone --depth 1 --branch "${XFORMERS_REF}" --recurse-submodules \
+            https://github.com/facebookresearch/xformers.git /tmp/xformers && \
+        cd /tmp/xformers && \
+        git apply --verbose /tmp/patches/xformers-disable-cutlass-on-sm121.patch && \
+        git apply --verbose /tmp/patches/xformers-fa3-runtime-belt-and-braces.patch && \
+        XFORMERS_DISABLE_FLASH_ATTN=1 \
+        TORCH_CUDA_ARCH_LIST="8.0;12.1" \
+        CMAKE_CUDA_ARCHITECTURES="80;121" \
+        pip install --no-build-isolation -v . && \
+        cd / && rm -rf /tmp/xformers && \
+        python3 -c "..."     # see verify-step below
+```
+
+Notable points:
+
+- We do `git clone` rather than `pip install git+...` because the
+  `git+...` form has no convenient hook for `git apply` between clone
+  and install.
+- `--recurse-submodules` populates `third_party/cutlass` and
+  `third_party/flash-attention`, both required by xformers' setup.py
+  even when FA3 itself is disabled (cutlass templates are still pulled
+  for the few non-FMHA cutlass uses in xformers).
+- The arch list `8.0;12.1` keeps build memory in the GB10 budget. We
+  deliberately omit 9.0/sm90: no Hopper hardware in this cluster, and
+  the third arch roughly doubles NVCC peak memory pressure.
+- `XFORMERS_DISABLE_FLASH_ATTN=1` is a per-command env prefix on the
+  `pip install` line; it does not persist into subsequent layers.
+  The runtime patch in `flash3.py` is what carries the disable forward
+  to runtime.
+
+### Verify step
+
+After install, the Dockerfile runs:
+
+```python
+import xformers, xformers.ops as xo
+assert hasattr(xo, 'memory_efficient_attention')
+from xformers.ops.fmha import cutlass, flash3
+assert cutlass.FwOp.CUDA_MAXIMUM_COMPUTE_CAPABILITY == (12, 0), \
+    'cutlass sm121-disable patch did not apply'
+assert flash3._C_flashattention3 is None, \
+    'FA3 was not disabled (XFORMERS_DISABLE_FLASH_ATTN guard failed)'
+print('xformers', xformers.__version__,
+      '— mea ok, cutlass<12.0 only, FA3 disabled')
+```
+
+Each assertion catches one specific regression mode:
+
+1. xformers builds but `_C` doesn't load (early-2026 builds had this from
+   a partial build path; the assertion catches it before runtime).
+2. Patch 1 didn't apply or was silently dropped — `CUDA_MAXIMUM_COMPUTE_CAPABILITY`
+   wouldn't be set.
+3. FA3 leaked through (build env wasn't set, or the wheel cache returned
+   a pre-built FA3-enabled wheel) — `_C_flashattention3` would be a
+   non-None torch.ops module.
+
+Any failure here aborts the image build with a clear error rather than
+producing a silently-broken image.
+
+---
+
+## ComfyUI integration
+
+The patches make xformers safe to *import* on sm121, but ComfyUI
+internally still calls `xformers.ops.memory_efficient_attention(...)`
+in some VAE/attention paths (e.g.,
+`comfy/ldm/modules/diffusionmodules/model.py:298`). With the patches,
+those calls dispatch to Triton and work, but the launch script in
+`roles/k8s_dgx/templates/comfyui_launch.sh.j2` additionally sets
+`--use-sage-attention` so Sage replaces xformers wholesale on the hot
+path:
+
+```bash
+exec "$PY" main.py \
+  --listen 0.0.0.0 \
+  --port {{ comfyui_port }} \
+  --use-sage-attention \
+  ...
+```
+
+Reasoning: SageAttention v2 was verified working on sm121 in the same
+image build (smoke test: 0.33 ms/call steady-state for 4096-token
+multi-head bf16 attention) and is the recommended Blackwell backend.
+The xformers patches are the safety net for code paths that ignore
+the global flag.
+
+---
+
+## Maintenance
+
+### When to revisit these patches
+
+- **Upstream xformers version bump.** The patches are pinned to
+  v0.0.32 source layout. After bumping `XFORMERS_REF`, run the patches
+  through `git apply --check` against the new tag and update the diff
+  context if hunks have moved. Both files (`cutlass.py`, `flash3.py`)
+  are stable areas of the codebase, so context drift should be small.
+- **Upstream xformers ships sm121 support.** Watch
+  `xformers/ops/fmha/cutlass.py` for any device-capability handling.
+  When a release adds proper sm121 dispatch, drop Patch 1 entirely and
+  let cutlass run natively. Patch 2 can stay as long as we don't have
+  Hopper hardware.
+- **PyTorch ships a sm121-aware `_efficient_attention_forward`.**
+  Then Patch 1 becomes obsolete even without xformers changes. Test
+  by removing Patch 1 and running the smoke test; if no FATAL appears,
+  drop it.
+- **FA3 ships a sm121 SASS.** Then drop both `XFORMERS_DISABLE_FLASH_ATTN=1`
+  and Patch 2.
+
+### How to verify a candidate xformers version
+
+```bash
+# Re-clone fresh
+git clone --depth 1 --branch <NEW_TAG> https://github.com/facebookresearch/xformers.git /tmp/xfresh
+cd /tmp/xfresh
+
+# Apply both patches (dry-run; -p0/-p1 unchanged from current diff)
+git apply --check /path/to/patches/xformers-disable-cutlass-on-sm121.patch
+git apply --check /path/to/patches/xformers-fa3-runtime-belt-and-braces.patch
+```
+
+If either `--check` fails, regenerate the diff:
+
+1. Apply manually (with `-3` for 3-way fallback if needed).
+2. Re-export with `git diff -U5 > /path/to/patches/<patch-name>.patch`.
+3. Re-run `git apply --check` on a clean tree to confirm.
+
+### Smoke test in the running pod
+
+```bash
+POD=$(kubectl --context=ht@dgxarley -n comfyui get pod -l app=comfyui -o name | head -1)
+kubectl --context=ht@dgxarley -n comfyui exec ${POD} -- python3 -c '
+import torch
+from xformers.ops.fmha import cutlass, flash3
+import xformers.ops as xo
+
+# Patch 1 applied?
+print("cutlass.MAX_CC:", cutlass.FwOp.CUDA_MAXIMUM_COMPUTE_CAPABILITY)
+
+# Patch 2 + build-time disable both effective?
+print("flash3._C:", flash3._C_flashattention3)
+
+# Default dispatch picks something that runs on sm121?
+q = torch.randn(1, 16384, 1, 64, device="cuda", dtype=torch.bfloat16)
+out = xo.memory_efficient_attention(q, q, q)
+print("dispatch ok, out shape:", tuple(out.shape))
+'
+```
+
+Expected output:
+
+```
+cutlass.MAX_CC: (12, 0)
+flash3._C: None
+dispatch ok, out shape: (1, 16384, 1, 64)
+```
+
+If `cutlass.MAX_CC` is missing (`AttributeError`), Patch 1 didn't
+apply. If `flash3._C` is not None, FA3 leaked through. If the dispatch
+crashes, the priority list collapsed to nothing — likely an upstream
+change in `_dispatch_fw_priority_list` and a sign that the patches
+need to be revisited against the new layout.
+
+---
+
+## Related files
+
+| Path | Role |
+|---|---|
+| `scripts/comfyui/patches/xformers-disable-cutlass-on-sm121.patch` | Patch 1 |
+| `scripts/comfyui/patches/xformers-fa3-runtime-belt-and-braces.patch` | Patch 2 |
+| `scripts/comfyui/Dockerfile` | Builds xformers from source, applies patches, runs verify step |
+| `scripts/build_comfyui_image.sh` | Wraps the Dockerfile build, registry distribution, optional Docker Hub push |
+| `roles/k8s_dgx/templates/comfyui_launch.sh.j2` | Sets `--use-sage-attention` so ComfyUI bypasses xformers on the hot path |
+| `COMFYUI_ARM64_SM121.md` | Higher-level guide to building the image for DGX Spark |

@@ -111,49 +111,77 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 ARG BUILD_XFORMERS=1
 ARG BUILD_SAGE_ATTN=1
 
-# xformers: pinned to a release tag (v0.0.32) instead of @main. main has
-# repeatedly produced broken aarch64 builds in the past, and pinning gives
-# us reproducible behaviour. setuptools-scm may still synthesize a
-# 0.0.33+<sha>.dXXXXXX version on top of the pinned tag — that's expected.
+# xformers: pinned to a release tag (v0.0.32). setuptools-scm may still
+# synthesize a 0.0.33+<sha>.dXXXXXX version on top of the pinned tag —
+# that's expected and harmless.
 #
-# IMPORTANT — arch list override:
-# The image-wide TORCH_CUDA_ARCH_LIST="12.1" gets EVERY xformers kernel
-# compiled for sm121 only. xformers names its cutlass FMHA kernels by GPU
-# *family* (e.g. `..._sm80` covers sm80-sm100, `..._sm90` covers sm90+),
-# and its runtime dispatcher rejects a kernel whose binary arch falls
-# outside the family it claims:
-#   FATAL: kernel 'fmha_cutlassF_f32_aligned_64x64_rf_sm80'
-#          is for sm80-sm100, but was built for sm121
-# Result: ComfyUI's VAE attention crashes on the very first inference.
-# Fix: build for the family arches xformers expects on this cluster — 8.0
-# for the sm80 family (which the dispatcher will then accept on sm121, as
-# sm121 falls inside the sm80-sm100 family range *intent*), and 12.1 for
-# blackwell-native kernels. We deliberately omit 9.0 / sm90 family: this
-# cluster has no Hopper hardware, sm90 binaries would just bloat the image
-# and double NVCC memory pressure during build (CUTLASS template
-# instantiation; previous attempts OOM-killed at MAX_JOBS=8 with 3 archs).
-# CMAKE_CUDA_ARCHITECTURES mirrors the same values for the few CMake-
-# driven sub-builds in xformers.
+# Why we clone + patch instead of `pip install git+...`:
 #
-# Verify check explanation: do NOT do `from xformers import _C` — xformers'
-# `_C.so` is a torch-ops library (loaded via `torch.ops.load_library`),
-# not a regular CPython extension, so it has no `PyInit__C` symbol and
-# direct Python import always raises
+# v0.0.32 has TWO structural incompatibilities with sm121 (Blackwell GB10)
+# that cannot be fixed via build flags alone:
+#
+#   1) cutlass.FwOp / cutlass.BwOp route to PyTorch's compiled
+#      `aten::_efficient_attention_forward`. PyTorch's kernel dispatcher
+#      hard-rejects sm121 with
+#        FATAL: kernel '..._sm80' is for sm80-sm100, but was built for sm121
+#      We can't patch PyTorch's compiled binary, so we patch xformers'
+#      cutlass.py to mark itself as "not supported" on devices with
+#      compute capability >= 12.0. The xformers dispatcher then skips
+#      cutlass and falls through to triton_splitKF (which JITs at runtime
+#      and is sm121-clean).  See patches/xformers-disable-cutlass-on-sm121.patch
+#
+#   2) flash3 (FA3 / Hopper) is hardcoded to sm90+ SASS and has no sm121
+#      binary; runtime call → "no kernel image is available". We disable
+#      FA3 at BUILD time via XFORMERS_DISABLE_FLASH_ATTN=1 (setup.py:280
+#      reads this and skips emitting FA3 nvcc archs entirely → FA3 is not
+#      compiled into the wheel). The runtime patch in flash3.py is a
+#      belt-and-braces guard so the dispatcher also hides FA3 even if a
+#      pre-compiled wheel slipped through.
+#      See patches/xformers-fa3-runtime-belt-and-braces.patch
+#
+# Arch list (8.0 + 12.1): keeps sm80-family CUTLASS kernel compiles in
+# range (the dispatcher's family-tagging conventions expect sm80 binaries
+# for `_sm80` kernels) plus blackwell-native sm121 for everything else.
+# We deliberately omit 9.0/sm90: no Hopper hw on this cluster, sm90 just
+# bloats the image and roughly doubles NVCC memory pressure during build
+# (CUTLASS template instantiation; OOM-killed empirically at MAX_JOBS=8
+# with 3 archs).
+#
+# Verify check explanation: do NOT do `from xformers import _C` —
+# xformers' `_C.so` is a torch-ops library (loaded via
+# `torch.ops.load_library`), not a regular CPython extension, so it has
+# no `PyInit__C` symbol and direct Python import always raises
 #   ImportError: dynamic module does not define module export function (PyInit__C)
-# even on a perfectly healthy install. The meaningful test is whether the
-# public API (ops.memory_efficient_attention) is exposed after import —
-# that proves torch.ops.load_library succeeded and the kernels are bound.
+# even on a perfectly healthy install. The meaningful test is whether
+# the public API (ops.memory_efficient_attention) is exposed after
+# import — that proves torch.ops.load_library succeeded and the kernels
+# are bound.
 ARG XFORMERS_REF=v0.0.32
+COPY patches/xformers-disable-cutlass-on-sm121.patch /tmp/patches/xformers-disable-cutlass-on-sm121.patch
+COPY patches/xformers-fa3-runtime-belt-and-braces.patch /tmp/patches/xformers-fa3-runtime-belt-and-braces.patch
 RUN --mount=type=cache,target=/root/.cache/pip \
     if [ "${BUILD_XFORMERS}" = "1" ]; then \
+        git clone --depth 1 --branch "${XFORMERS_REF}" --recurse-submodules \
+            https://github.com/facebookresearch/xformers.git /tmp/xformers && \
+        cd /tmp/xformers && \
+        echo "Applying sm121 patches:" && \
+        git apply --verbose /tmp/patches/xformers-disable-cutlass-on-sm121.patch && \
+        git apply --verbose /tmp/patches/xformers-fa3-runtime-belt-and-braces.patch && \
+        XFORMERS_DISABLE_FLASH_ATTN=1 \
         TORCH_CUDA_ARCH_LIST="8.0;12.1" \
         CMAKE_CUDA_ARCHITECTURES="80;121" \
-        pip install --no-build-isolation -v \
-            "git+https://github.com/facebookresearch/xformers.git@${XFORMERS_REF}" && \
+        pip install --no-build-isolation -v . && \
+        cd / && \
+        rm -rf /tmp/xformers && \
         python3 -c "import xformers, xformers.ops as xo; \
                     assert hasattr(xo, 'memory_efficient_attention'), \
                         'xformers build is broken: ops.memory_efficient_attention missing'; \
-                    print('xformers', xformers.__version__, 'mea ok')" ; \
+                    from xformers.ops.fmha import cutlass, flash3; \
+                    assert cutlass.FwOp.CUDA_MAXIMUM_COMPUTE_CAPABILITY == (12, 0), \
+                        'cutlass sm121-disable patch did not apply'; \
+                    assert flash3._C_flashattention3 is None, \
+                        'FA3 was not disabled (XFORMERS_DISABLE_FLASH_ATTN guard failed)'; \
+                    print('xformers', xformers.__version__, '— mea ok, cutlass<12.0 only, FA3 disabled')" ; \
     fi
 
 # Same arch-list override rationale as for xformers above: SageAttention

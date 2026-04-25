@@ -5,6 +5,11 @@ DATA=/workspace
 APP="$DATA/comfyui"
 MODELS="$APP/models"
 
+# BUILDTIME wird vom Dockerfile beim Bau gesetzt; ältere Images (vor
+# Einführung des Stamps) haben das Env-Var nicht. `set -u` würde dann
+# direkt hier killen — daher Default "unknown" statt $BUILDTIME bare.
+echo "BUILDTIME: ${BUILDTIME:-unknown}"
+
 # --- 1. ComfyUI source ---------------------------------------------
 if [ ! -d "$APP/.git" ]; then
   echo "[comfyui] cloning upstream…"
@@ -223,10 +228,22 @@ done
 # Debian/Ubuntu-Bases liefern nur `python3`; einen `python`-Alias gibt es
 # nur wenn das Paket python-is-python3 installiert ist. Sicher über PATH
 # auflösen, sonst scheitert exec mit "python: not found".
+#
+# --use-sage-attention: globaler Attention-Backend = SageAttention v2.
+# Hintergrund: xformers' eigener FMHA-Dispatcher kennt SM_121 (Blackwell
+# GB10) nicht und rejected die sm80-Familie-Kernels mit
+#   FATAL: kernel '..._sm80' is for sm80-sm100, but was built for sm121
+# selbst wenn das Binary technisch sm80-kompatibel wäre. Der FA3-Pfad
+# (Hopper) hat auf sm121 gar kein ladbares SASS. Sage bietet auf
+# Blackwell ohnehin bessere Throughput und ist auf sm121 verifiziert
+# funktional (bf16, multi-head). Solange der xformers-Patch (s.
+# COMFYUI_XFORMERS_SM121_PATCH.md) nicht eingebaut ist, ist Sage der
+# einzige funktionsfähige Custom-Backend.
 PY="$(command -v python3 || command -v python)"
 echo "[comfyui] launching on 0.0.0.0:{{ comfyui_port }} ($PY)"
 exec "$PY" main.py \
   --listen 0.0.0.0 \
   --port {{ comfyui_port }} \
+  --use-sage-attention \
   --output-directory "$DATA/output" \
   --temp-directory "$DATA/temp"
