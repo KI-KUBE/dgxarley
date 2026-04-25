@@ -321,6 +321,60 @@ If either `--check` fails, regenerate the diff:
 2. Re-export with `git diff -U5 > /path/to/patches/<patch-name>.patch`.
 3. Re-run `git apply --check` on a clean tree to confirm.
 
+### End-to-end validation
+
+Verified via `dgxarley.integration.comfyui_integration_test` against the
+deployed pod on 2026-04-25 (image BUILDTIME `2026-04-25T15:07:41Z`):
+
+```
+[PASS] health (0.08s)
+[PASS] system_stats (0.02s) — devices=['cuda:0 NVIDIA GB10 : native']
+[PASS] queue (0.02s)
+[PASS] object_info_checkpoints (0.12s) — 3 checkpoints
+[PASS] image_generation (24.87s)
+[PASS] text2image_realvisxl (30.38s)
+[PASS] text2image_flux_schnell (16.21s)
+[PASS] text2image_flux_dev (54.65s)
+8/8 passed in 126.4s
+```
+
+All three model families (SDXL via RealVisXL, FLUX schnell, FLUX dev)
+complete their full pipeline (UNet + CLIP + VAE) and produce real
+images. No crashes, no hangs.
+
+### Cosmetic FATAL noise — expected, harmless
+
+In the pod's stderr during a real workflow you will still see lines
+like:
+
+```
+FATAL: kernel `fmha_cutlassF_f32_aligned_64x64_rf_sm80`
+       is for sm80-sm100, but was built for sm121
+FATAL: kernel `fmha_cutlassF_f32_aligned_64x64_rf_sm80` ... (xN)
+```
+
+This is **not** a crash. The lines are stderr output from PyTorch's
+CUTLASS kernel selector, which probes its kernel table and prints
+`FATAL` for each entry that doesn't match the current device before
+landing on one that does. The FATAL lines come from f32 probing
+specifically — our bf16 smoke test never triggers them because bf16
+takes a different selector path that exits early.
+
+The probes happen *inside* `aten::_efficient_attention_forward`, which
+on this image is reachable only when ComfyUI's VAE explicitly calls
+`xformers.ops.memory_efficient_attention(q, k, v)` and the dispatcher
+selects something other than our patched cutlass entry. The probe
+output is stderr-only, swallowed by neither us nor ComfyUI, and the
+final kernel runs successfully — confirmed by the 8/8 integration
+test pass.
+
+If the noise becomes a UX problem, possible mitigations (none currently
+applied):
+
+- Redirect stderr at the entrypoint level (`exec ... 2> >(grep -v 'FATAL: kernel' >&2)`); has the side effect of buffering all stderr.
+- Set `TORCH_CPP_LOG_LEVEL=ERROR` (silences torch C++ INFO/WARN but the FATAL printf is below the log framework, so this likely won't help).
+- Patch PyTorch's source to demote the printf to TORCH_CHECK or a debug-only log. Out of scope here.
+
 ### Smoke test in the running pod
 
 ```bash
