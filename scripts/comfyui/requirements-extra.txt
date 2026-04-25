@@ -9,7 +9,11 @@ comfyui-workflow-templates
 comfyui-embedded-docs
 
 # Sampler / scheduler / IO stack
-einops
+# einops==0.8.0 hart gepinnt, weil x-flux-comfyui genau diese Version
+# verlangt — ohne Pin landet im Image die aktuelle (0.8.2) und der
+# Runtime-Install-Pass in comfyui_launch.sh.j2 downgraded bei jedem
+# Pod-Start. Mit Pin ist der Pass ein No-Op.
+einops==0.8.0
 torchsde
 kornia>=0.7.1
 spandrel

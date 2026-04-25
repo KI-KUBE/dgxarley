@@ -62,16 +62,68 @@ COPY requirements-extra.txt /tmp/requirements-extra.txt
 RUN pip install --upgrade-strategy only-if-needed \
         -r /tmp/requirements-extra.txt
 
+# ---- Triton ------------------------------------------------------
+# SageAttention has a hard import-time dependency on triton. xformers also
+# uses triton for several backend paths and prints
+#   "A matching Triton is not available, some optimizations will not be enabled"
+# without it. The scitrera 2.10.0-v2-cu131 base does NOT ship triton on
+# aarch64, so we install it explicitly here, BEFORE the kernel builds.
+#
+# Strategy: read torch's own Requires-Dist metadata and install the exact
+# triton package + version that torch declares. That way we don't pick a
+# random PyPI version that mismatches torch's expected ABI. Falls back to
+# PyPI 'triton' only when torch declares no triton dep at all (rare, only
+# happens on bases stripped of the dep metadata).
+#
+# Pitfall encountered before: the package `pytorch-triton` on PyPI is a
+# defensive squat stub that hard-crashes on import with
+#   RuntimeError("Should never be installed")
+# The real pytorch-triton wheels live on download.pytorch.org/whl/. By
+# reading torch's metadata we automatically get the right name (whether
+# that's `triton`, `pytorch-triton`, or a versioned variant), pinned to
+# torch's ABI.
+ARG INSTALL_TRITON=1
+RUN --mount=type=cache,target=/root/.cache/pip \
+    if [ "${INSTALL_TRITON}" = "1" ]; then \
+        TRITON_REQ=$(python3 -c "import importlib.metadata as m; reqs = m.requires('torch') or []; tr = [r for r in reqs if 'triton' in r.split(';')[0].lower() and 'extra ==' not in r]; print('\n'.join(tr))") && \
+        if [ -n "${TRITON_REQ}" ]; then \
+            echo "torch declares triton requirement: ${TRITON_REQ}" && \
+            echo "${TRITON_REQ}" | pip install --upgrade-strategy only-if-needed -r /dev/stdin ; \
+        else \
+            echo "torch declares no triton dep — falling back to PyPI 'triton'" && \
+            pip install --upgrade-strategy only-if-needed triton ; \
+        fi && \
+        python3 -c "import triton; print('triton', triton.__version__)" ; \
+    fi
+
 # ---- Acceleration kernels (from source, SM_121) -----------------
 # Both are optional; ComfyUI falls back to torch SDPA without them. With
 # SageAttention especially, SDXL/FLUX throughput improves substantially.
 ARG BUILD_XFORMERS=1
 ARG BUILD_SAGE_ATTN=1
 
+# xformers: pinned to a release tag (v0.0.32) instead of @main. main has
+# repeatedly produced broken aarch64 builds in the past, and pinning gives
+# us reproducible behaviour. setuptools-scm may still synthesize a
+# 0.0.33+<sha>.dXXXXXX version on top of the pinned tag — that's expected.
+#
+# Verify check explanation: do NOT do `from xformers import _C` — xformers'
+# `_C.so` is a torch-ops library (loaded via `torch.ops.load_library`),
+# not a regular CPython extension, so it has no `PyInit__C` symbol and
+# direct Python import always raises
+#   ImportError: dynamic module does not define module export function (PyInit__C)
+# even on a perfectly healthy install. The meaningful test is whether the
+# public API (ops.memory_efficient_attention) is exposed after import —
+# that proves torch.ops.load_library succeeded and the kernels are bound.
+ARG XFORMERS_REF=v0.0.32
 RUN --mount=type=cache,target=/root/.cache/pip \
     if [ "${BUILD_XFORMERS}" = "1" ]; then \
         pip install --no-build-isolation -v \
-            git+https://github.com/facebookresearch/xformers.git@main ; \
+            "git+https://github.com/facebookresearch/xformers.git@${XFORMERS_REF}" && \
+        python3 -c "import xformers, xformers.ops as xo; \
+                    assert hasattr(xo, 'memory_efficient_attention'), \
+                        'xformers build is broken: ops.memory_efficient_attention missing'; \
+                    print('xformers', xformers.__version__, 'mea ok')" ; \
     fi
 
 RUN --mount=type=cache,target=/root/.cache/pip \
@@ -79,7 +131,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
         git clone https://github.com/thu-ml/SageAttention.git /tmp/sage && \
         cd /tmp/sage && \
         pip install --no-build-isolation -v . && \
-        rm -rf /tmp/sage ; \
+        cd / && \
+        rm -rf /tmp/sage && \
+        python3 -c "import sageattention; print('sageattention ok')" ; \
     fi
 
 # ---- Custom nodes (opt-in bake-in) -------------------------------
