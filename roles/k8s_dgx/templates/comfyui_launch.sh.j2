@@ -414,14 +414,17 @@ done
 # Idempotent (cls._sm121_sdpa_patched marker), no git-tracked file
 # modified, survives ComfyUI git pulls.
 # Disabled 2026-04-26: switched ComfyUI base image from
-# scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131 to nvcr.io/nvidia/pytorch:25.12-py3
-# (NGC PyTorch). NGC's torch wheel for sm121 has a correct SDPA EFFICIENT
-# kernel, so the workaround here is no longer needed. The block is kept as
-# a commented heredoc for two reasons: (1) easy re-enable if a future base
-# image regresses, (2) the rationale comment above remains the canonical
-# explanation of WHY the bug exists. Toggle SM121_SDPA_SHIM_ENABLED=1 to
-# re-activate, then redeploy. See UPSTREAM_PYTORCH_SDPA_SM121.md for the
-# verification matrix that justified the disable.
+# scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131 to nvcr.io/nvidia/pytorch:26.03-py3
+# (NGC PyTorch — torch 2.11.0a0+nv26.03 / cu13.2). NGC's torch wheel
+# has correct SDPA EFFICIENT_ATTENTION on sm121 (verified empirically;
+# matrix in UPSTREAM_PYTORCH_SDPA_SM121.md). The shim is no longer
+# needed for default deployments — every text-encoder forward now runs
+# on the native EFFICIENT path without producing garbage embeddings.
+#
+# Kept as a commented heredoc for two reasons: (1) easy re-enable if a
+# future base-image regression brings the SDPA bug back, (2) the
+# rationale comment above remains the canonical explanation of the bug.
+# To re-activate, toggle SM121_SDPA_SHIM_ENABLED=1 below and redeploy.
 SM121_SDPA_SHIM_ENABLED=0
 
 # Cleanup: hostPath persists $APP/sitecustomize.py from any previous
@@ -546,8 +549,9 @@ echo "[comfyui] launching on 0.0.0.0:{{ comfyui_port }} ($PY)"
 # is narrow: only `^FATAL: kernel ` is dropped, every other FATAL/error
 # line still passes through. `--line-buffered` keeps multi-line tracebacks
 # intact. Documented in COMFYUI_SM121_PATCHES.md ("Cosmetic FATAL noise").
-exec > >(grep --line-buffered -v '^FATAL: kernel ')
-exec 2> >(grep --line-buffered -v '^FATAL: kernel ' >&2)
+
+# exec > >(grep --line-buffered -v '^FATAL: kernel ')
+# exec 2> >(grep --line-buffered -v '^FATAL: kernel ' >&2)
 
 exec "$PY" main.py \
   --listen 0.0.0.0 \

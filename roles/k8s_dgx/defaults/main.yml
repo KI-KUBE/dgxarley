@@ -557,10 +557,12 @@ _sglang_extra_body_defaults: >-
 # (~17 GB, Apache-2.0, no HF gating) into models/checkpoints.
 comfyui_enabled: true
 comfyui_namespace: "comfyui"
-# NGC PyTorch image ships CUDA + cuDNN + torch with Blackwell (SM121) support
-# on ARM64. Overkill for a playground but avoids the custom-wheels rabbit hole.
-# Alternative: build a slimmer image once we know which kernels ComfyUI pulls.
-# comfyui_image: "nvcr.io/nvidia/pytorch:25.09-py3"
+# Custom image built by scripts/build_comfyui_image.sh on top of NGC PyTorch
+# (nvcr.io/nvidia/pytorch:26.03-py3 default since 2026-04-26). NGC base is
+# the only verified-correct sm121 SDPA option — scitrera-pipeline bases ship
+# a torch wheel with silently broken EFFICIENT_ATTENTION. See
+# UPSTREAM_PYTORCH_SDPA_SM121.md / COMFYUI_PROMPT_FAIL.md for the diagnosis,
+# and COMFYUI_ARM64_SM121.md / scripts/comfyui/Dockerfile for the build.
 comfyui_image: "xomoxcc/comfyui:sm121"
 comfyui_port: 8188
 # Which Spark to pin ComfyUI to. spark4 is the least disruptive default (last

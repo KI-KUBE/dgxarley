@@ -5,12 +5,13 @@ that runs ComfyUI **GPU-accelerated** on a DGX Spark (NVIDIA GB10 Grace‑Blackw
 compute capability **SM_121**, `aarch64/ARM64`) — including FP8/FP4 checkpoints
 such as `flux1-schnell-fp8.safetensors`.
 
-The existing Ansible role path (`roles/k8s_dgx/tasks/comfyui.yml`) uses
-`nvcr.io/nvidia/pytorch:25.09-py3` as its default and clones ComfyUI from git
-into a hostPath at startup. That variant works — but it's bloated (~20 GB),
-pulls pip dependencies on every start, and ships no xformers/flash-attn.
-The goal of this guide: a **lean, reproducible image** with all kernels
-pre-compiled for SM_121.
+> **Source-of-truth note.** The canonical production build is in this
+> repo at [`scripts/comfyui/Dockerfile`](scripts/comfyui/Dockerfile)
+> driven by [`scripts/build_comfyui_image.sh`](scripts/build_comfyui_image.sh).
+> The snippets below are illustrative explainers — when in doubt, the
+> repo files are authoritative. The guide is kept aligned with the
+> repo state but reflects design decisions you'll want to understand
+> before editing the Dockerfile yourself.
 
 ---
 
@@ -37,24 +38,37 @@ nvidia-smi --query-gpu=compute_cap,driver_version --format=csv
 ## 1. Choosing a base image
 
 For SM_121 we need **CUDA ≥ 13.0** and **PyTorch with Blackwell support**.
-Three viable bases (as of 2026-04):
 
-| Base | Pro | Con |
-|---|---|---|
-| `nvcr.io/nvidia/pytorch:25.09-py3` | ARM64, cu13.1, torch 2.10, officially tested | ~20 GB, packed with things we don't need |
-| `scitrera/dgx-spark-pytorch-dev:2.11.0-v1-cu132` | torch 2.11, cu13.2, leaner (~8 GB), ARM64 | Third-party, tag availability fluctuates (see `reference_sm121_build_base_regression`) |
-| `nvidia/cuda:13.2.0-cudnn-devel-ubuntu24.04` | full control, minimal (~3 GB) | torch has to be installed manually |
+**Current default (verified 2026-04-26): `nvcr.io/nvidia/pytorch:26.03-py3`**
+(torch 2.11.0a0+nv26.03 / cu13.2). NGC's PyTorch wheels build sm_121-correct
+SDPA `EFFICIENT_ATTENTION` kernels (verified empirically — see
+[`UPSTREAM_PYTORCH_SDPA_SM121.md`](UPSTREAM_PYTORCH_SDPA_SM121.md)).
 
-**Recommendation:** for a first working version use NGC (`25.09-py3`); for
-a lean production build use scitrera. The examples below use the NGC path —
-the steps for scitrera are identical, only `FROM` changes.
+| Base | torch / cu | sm121 SDPA | Use |
+|---|---|---|---|
+| `nvcr.io/nvidia/pytorch:26.03-py3` | 2.11.0a0+nv / cu13.2 | ✓ correct | **default** |
+| `nvcr.io/nvidia/pytorch:26.02-py3` | 2.11.0a0+nv / cu13.1 | ✓ correct | alternative |
+| `nvcr.io/nvidia/pytorch:25.12-py3` | 2.10.0a0+nv / cu13.1 | ✓ correct | last 2.10 NGC |
+| `scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131` | 2.10.0 / cu13.1 | **✗ broken** | DO NOT USE |
+| `xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132` | 2.11.0 / cu13.2 | **✗ broken** | DO NOT USE |
 
-> Note: before building, **check Docker Hub tags** — scitrera does not
-> publish every tag referenced in recipes:
->
-> ```bash
-> curl -s 'https://hub.docker.com/v2/repositories/scitrera/dgx-spark-pytorch-dev/tags/?page_size=20' | jq '.results[].name'
-> ```
+> **Avoid scitrera-pipeline images on sm121.** Both
+> `scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131` and our own rebuild
+> at 2.11/cu132 (built from scitrera's recipe) ship a torch wheel
+> whose SDPA EFFICIENT_ATTENTION backend silently returns numerically
+> corrupt output on sm121 — no NaN, no exception, just garbage
+> embeddings. Discovered via ComfyUI text-to-image workflows that
+> rendered prompt-unrelated images. Root cause traced to
+> `NVCC_GENCODE=-gencode=arch=compute_121,code=sm_121` in scitrera's
+> `Dockerfile.base` (no family fallback, family-range mismatch in the
+> CUTLASS dispatcher). Full forensics in
+> [`UPSTREAM_PYTORCH_SDPA_SM121.md`](UPSTREAM_PYTORCH_SDPA_SM121.md);
+> end-to-end discovery story in
+> [`COMFYUI_PROMPT_FAIL.md`](COMFYUI_PROMPT_FAIL.md).
+
+**Trade-off with NGC bases:** ~13 GB image (vs ~6–8 GB for scitrera).
+Acceptable cost for guaranteed correctness; see Section 11 for leaner
+options if image size is a hard constraint.
 
 ---
 
@@ -121,11 +135,12 @@ numpy>=1.25.0
 
 ```dockerfile
 # syntax=docker/dockerfile:1.7
-ARG BASE=nvcr.io/nvidia/pytorch:25.09-py3
+ARG BASE=nvcr.io/nvidia/pytorch:26.03-py3
 FROM ${BASE}
 
 # ---- System deps -------------------------------------------------
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        tini \
         git git-lfs ffmpeg libgl1 libglib2.0-0 \
         build-essential ninja-build cmake pkg-config \
         ca-certificates curl && \
@@ -142,7 +157,9 @@ ENV PIP_NO_CACHE_DIR=1 \
     HF_HOME=/workspace/.cache/huggingface    \
     COMFYUI_PATH=/opt/comfyui
 
-# TORCH_CUDA_ARCH_LIST=12.1 compiles SM_121 kernels exclusively.
+# TORCH_CUDA_ARCH_LIST=12.1 compiles SM_121 kernels for the kernels we
+# build ourselves (xformers, SageAttention, torchaudio). The base
+# image's torch is consumed as-is — we DO NOT rebuild it.
 # MAX_JOBS=8 is the empirically safe ceiling on GB10 (16 OOM-kills CUTLASS).
 
 # ---- Clone ComfyUI (pinned commit for reproducibility) -----------
@@ -152,37 +169,70 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI.git ${COMFYUI_PATH} && \
     git rev-parse HEAD > ${COMFYUI_PATH}/.commit
 
 # ---- ComfyUI's own requirements (WITHOUT overwriting torch) ------
-RUN pip install --upgrade-strategy only-if-needed \
-        -r ${COMFYUI_PATH}/requirements.txt
+# CRITICAL: filter torch / torchaudio / torchvision out of the requirements
+# file before pip touches it. ComfyUI's requirements.txt lists them
+# unpinned; pip then sees NGC's torch wheels (e.g. `2.11.0a0+nv26.03`)
+# as pre-release and silently REPLACES them with stock PyPI wheels —
+# which have ABI-incompatible mangling against NGC libtorch and crash at
+# import time with `undefined symbol: torch_dtype_float4_e2m1fn_x2`.
+# The `\b` word-boundary leaves siblings like torchsde / torchao alone.
+RUN grep -vE '^(torch|torchaudio|torchvision)\b' ${COMFYUI_PATH}/requirements.txt \
+        > /tmp/comfyui-requirements-filtered.txt && \
+    pip install --upgrade-strategy only-if-needed \
+        -r /tmp/comfyui-requirements-filtered.txt
 
 # ---- Our extra packages -----------------------------------------
 COPY requirements-extra.txt /tmp/requirements-extra.txt
-RUN pip install --upgrade-strategy only-if-needed \
-        -r /tmp/requirements-extra.txt
+RUN grep -vE '^(torch|torchaudio|torchvision)\b' /tmp/requirements-extra.txt \
+        > /tmp/requirements-extra-filtered.txt && \
+    pip install --upgrade-strategy only-if-needed \
+        -r /tmp/requirements-extra-filtered.txt
+
+# ---- torchaudio (from source against NGC torch) ------------------
+# NGC PyTorch 25.12 / 26.02 / 26.03 do NOT ship torchaudio in their
+# aarch64 wheel set. ComfyUI imports torchaudio unconditionally
+# (audio_vae.py via comfy/sd.py:15), so the pod fails to start with
+# ModuleNotFoundError without it. Stock-PyPI torchaudio has ABI mismatch
+# (see comment above). Build from source against the in-place NGC torch.
+ARG TORCHAUDIO_REF=v2.11.0
+RUN --mount=type=cache,target=/root/.cache/pip \
+    git clone --depth 1 --branch "${TORCHAUDIO_REF}" --recurse-submodules \
+        https://github.com/pytorch/audio.git /tmp/torchaudio && \
+    cd /tmp/torchaudio && \
+    USE_CUDA=1 BUILD_SOX=0 BUILD_RNNT=0 BUILD_CTC_DECODER=0 USE_FFMPEG=0 \
+    TORCH_CUDA_ARCH_LIST="12.1" \
+    pip install --no-build-isolation -v . && \
+    cd / && rm -rf /tmp/torchaudio && \
+    python3 -c "import torchaudio; print('torchaudio', torchaudio.__version__)"
 
 # ---- Acceleration kernels (from source, SM_121) -----------------
-# All three are optional — without them ComfyUI runs on stock
-# PyTorch SDPA. With them, significantly more it/s on SDXL/FLUX.
+# Both optional — ComfyUI runs on torch SDPA without them. With them
+# enabled, significantly more it/s on SDXL/FLUX.
 
-# (a) xformers — memory-efficient attention; an ARM64 wheel exists
-#     but often ships without SM_121 kernels. Build from source:
+# (a) xformers v0.0.32 + sm121 patches (cutlass disable, FA3 disable).
+#     The patches are needed because xformers' v0.0.32 dispatcher would
+#     route to PyTorch's compiled CUTLASS-FMHA dispatcher and crash on
+#     sm121. See COMFYUI_SM121_PATCHES.md for the patch content and
+#     scripts/comfyui/patches/ for the actual diffs.
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-build-isolation -v \
-        git+https://github.com/facebookresearch/xformers.git@main
+    git clone --depth 1 --branch v0.0.32 --recurse-submodules \
+        https://github.com/facebookresearch/xformers.git /tmp/xformers && \
+    cd /tmp/xformers && \
+    git apply /tmp/patches/xformers-disable-cutlass-on-sm121.patch && \
+    git apply /tmp/patches/xformers-fa3-runtime-belt-and-braces.patch && \
+    XFORMERS_DISABLE_FLASH_ATTN=1 \
+    TORCH_CUDA_ARCH_LIST="8.0;12.1" \
+    pip install --no-build-isolation -v . && \
+    cd / && rm -rf /tmp/xformers
 
-# (b) Sage-Attention v2 — faster than xformers on Blackwell for
-#     most ComfyUI workloads. Optional, but strongly recommended.
+# (b) Sage-Attention v2 — faster than xformers on Blackwell for most
+#     ComfyUI workloads.
 RUN --mount=type=cache,target=/root/.cache/pip \
     git clone https://github.com/thu-ml/SageAttention.git /tmp/sage && \
     cd /tmp/sage && \
-    python -m pip install --no-build-isolation -v . && \
+    TORCH_CUDA_ARCH_LIST="8.0;8.9;12.1" \
+    pip install --no-build-isolation -v . && \
     rm -rf /tmp/sage
-
-# (c) Flash-Attention 3 — only relevant for a few custom nodes,
-#     build is RAM-heavy. If memory is tight: comment out.
-# RUN --mount=type=cache,target=/root/.cache/pip \
-#     pip install --no-build-isolation -v \
-#         "git+https://github.com/Dao-AILab/flash-attention.git@main#subdirectory=hopper"
 
 # ---- Entrypoint --------------------------------------------------
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
@@ -190,14 +240,17 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 WORKDIR /workspace
 EXPOSE 8188
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/usr/local/bin/entrypoint.sh"]
 ```
 
-**About `TORCH_CUDA_ARCH_LIST=12.1`:**
-SM_121 is not always registered yet in recent PyTorch/CUTLASS builds. If
-a kernel refuses (error `no kernel image is available`), fall back to:
-`TORCH_CUDA_ARCH_LIST="9.0a;12.0;12.1"` (builds SM_90a + SM_120 + SM_121 in
-parallel). The image grows, but it's more portable.
+**About `TORCH_CUDA_ARCH_LIST` and the family vs specific gencode:**
+The image-wide `TORCH_CUDA_ARCH_LIST="12.1"` only governs kernels we
+build ourselves. The base image's torch wheel is consumed as-is.
+For our own kernels we use `8.0;12.1` (xformers) or `8.0;8.9;12.1`
+(SageAttention) — the family ranges matter because CUTLASS dispatcher
+metadata is family-tagged. **Never use `12.1a` (architecture-specific)
+without a family fallback** — see UPSTREAM_PYTORCH_SDPA_SM121.md for
+why scitrera's identical mistake produces silently corrupt SDPA on sm121.
 
 ---
 
@@ -257,26 +310,26 @@ ComfyUI explicitly which attention backend to use. Via env var:
 **Always build on a Spark, never on `k3smaster` (x86_64)** — otherwise
 kernels get compiled for the wrong architecture or emulated through QEMU.
 
+In this repo the build is wrapped:
+
 ```bash
-# SSH to the build Spark (e.g. spark4, if ComfyUI is going to run there anyway)
-ssh root@spark4
-
-# Working directory
-mkdir -p /root/comfyui-sm121 && cd /root/comfyui-sm121
-#  Place Dockerfile, entrypoint.sh, requirements-extra.txt here
-
-# Build (plain docker, or buildx if you want multi-stage caching)
-docker build \
-    --build-arg BASE=nvcr.io/nvidia/pytorch:25.09-py3 \
-    --build-arg COMFYUI_REF=master \
-    -t xomoxcc/comfyui:sm121 \
-    -t xomoxcc/comfyui:sm121-$(date +%Y%m%d) \
-    .
+# From the control host (x86 is fine — the wrapper drives a remote
+# podman socket on spark4 over SSH):
+bash scripts/build_comfyui_image.sh                 # default: NGC 26.03 base
+bash scripts/build_comfyui_image.sh --base nvcr.io/nvidia/pytorch:26.02-py3
+bash scripts/build_comfyui_image.sh --no-torchaudio # skip torchaudio source build
+bash scripts/build_comfyui_image.sh --no-push       # don't push to Docker Hub
 ```
 
-The initial build takes ~40–60 min (xformers + SageAttention are CUDA
-compiles). With `--mount=type=cache` and an unchanged Dockerfile, later
-builds finish in <10 min.
+The wrapper handles: registering the podman SSH connection, cloning
+ComfyUI into the build context, applying our xformers patches,
+streaming the result back to the control host, optional Docker Hub
+push, and parallel k3s containerd distribution to all sparks via a
+throwaway local registry. See the script header for full options.
+
+The initial build takes ~50–80 min (xformers + SageAttention + torchaudio
+are CUDA compiles). With `--mount=type=cache` and an unchanged Dockerfile,
+later builds finish in <15 min.
 
 On OOM kills during kernel builds: try `MAX_JOBS=4` instead of `8`
 (see `feedback_build_jobs_gb10` — `16` empirically kills CUTLASS, `8` is
@@ -359,8 +412,11 @@ ansible-playbook k8s_dgx.yml --tags comfyui -e comfyui_enabled=true
 | Symptom | Cause / fix |
 |---|---|
 | `RuntimeError: CUDA error: no kernel image is available` | Arch list missing 12.1 → rebuild image with `TORCH_CUDA_ARCH_LIST="9.0a;12.0;12.1"` |
-| Build kills itself during SageAttention compile | RAM exhausted → `MAX_JOBS=4` or `2`, keep the host otherwise idle |
-| ComfyUI starts, but generation is **slower** than the NGC image | Base-image skew — check torch/cu version in the new image (`python -c "import torch; print(torch.__version__, torch.version.cuda)"`) and switch to a base with torch ≥ 2.11/cu13.2 if needed (see also the known regression pattern for SM_121 builds) |
+| Build kills itself during SageAttention / torchaudio compile | RAM exhausted → `MAX_JOBS=4` or `2`, keep the host otherwise idle |
+| ComfyUI starts, but generation is **slower** than the NGC image | Base-image skew — check torch/cu version in the new image (`python -c "import torch; print(torch.__version__, torch.version.cuda)"`) and switch to a base with torch ≥ 2.11/cu13.2 if needed |
+| **Image renders but prompts are ignored / wrong content** (red apple → loft scene, "blue cube" → tiki statue, Flux → handwriting cards) | scitrera-pipeline base image — torch wheel has broken SDPA EFFICIENT_ATTENTION on sm121. **Switch to NGC base.** See [`COMFYUI_PROMPT_FAIL.md`](COMFYUI_PROMPT_FAIL.md) and [`UPSTREAM_PYTORCH_SDPA_SM121.md`](UPSTREAM_PYTORCH_SDPA_SM121.md). |
+| `OSError: undefined symbol: torch_dtype_float4_e2m1fn_x2` from torchaudio at pod start | Stock-PyPI torchaudio over NGC torch (ABI mismatch). Filter `torchaudio` out of pip requirements before install (Section 4 above) and build it from source against in-place NGC torch. |
+| `ModuleNotFoundError: No module named 'torchaudio'` at pod start | torchaudio source build skipped (`--no-torchaudio`) but ComfyUI imports it unconditionally via `comfy/sd.py`. Re-enable the torchaudio build step. |
 | `!` tokens / NaN / black images on FLUX-fp8 | fp8 attention without kernel support → set `--use-sage-attention` or pull the fp16 variant instead |
 | Pod stays `ContainerCreating` after an image push | `imagePullPolicy: IfNotPresent` + new tag → recreate the pod, or switch to `Always` + a versioned tag |
 | `nvidia-smi` inside the pod shows no GPU | Time-slicing share gone? → `kubectl describe pod` → check the `nvidia.com/gpu` request. The cluster has 4 replicas/GPU via time-slicing (SGLang + ComfyUI share that) |
@@ -369,9 +425,12 @@ ansible-playbook k8s_dgx.yml --tags comfyui -e comfyui_enabled=true
 
 ## 11. Variants / outlook
 
-- **Leaner base:** once the build is stable, switch to
-  `nvidia/cuda:13.2.0-cudnn-devel-ubuntu24.04` + manual torch — the image
-  drops from ~20 GB to ~6 GB.
+- **Leaner base:** once a sm121-correct PyTorch wheel ships outside NGC,
+  a `nvidia/cuda:13.2.0-cudnn-devel-ubuntu24.04` + manual-torch base
+  could drop the image from ~13 GB to ~6 GB. Until then NGC remains the
+  only verified-correct option for sm121 SDPA — see
+  [`UPSTREAM_PYTORCH_SDPA_SM121.md`](UPSTREAM_PYTORCH_SDPA_SM121.md) for
+  the cross-validation matrix.
 - **Models baked into the image instead of a hostPath:** not recommended —
   FLUX alone is 17 GB, and swapping models forces image rebuilds.
 - **Preinstall ComfyUI-Manager:** clone it as a custom node into

@@ -344,22 +344,26 @@ images — no crashes, no hangs.
 
 > **CAVEAT — added 2026-04-26.** The integration test above only
 > validates *workflow completion* (HTTP 200, PNG returned), **not
-> semantic correctness of the output**. On sm121 with PyTorch 2.10,
-> text-encoder forwards run through `aten::_efficient_attention_forward`
-> and silently return numerically incorrect output (norm 12–27× off
-> from the CPU reference, no NaN/Inf). The integration test does not
-> compare prompt-to-image semantics, so it passed cleanly while the
-> actual outputs were prompt-unrelated garbage. The full diagnostic
-> trail is in [`COMFYUI_PROMPT_FAIL.md`](COMFYUI_PROMPT_FAIL.md); the
-> upstream bug write-up is in
-> [`UPSTREAM_PYTORCH_SDPA_SM121.md`](UPSTREAM_PYTORCH_SDPA_SM121.md);
-> the production workaround is in
-> [`roles/k8s_dgx/templates/comfyui_launch.sh.j2`](roles/k8s_dgx/templates/comfyui_launch.sh.j2)
-> §4c (sitecustomize shim wrapping `SDClipModel.forward` with
-> `sdpa_kernel([SDPBackend.MATH])`). The xformers patches in this
-> document are still correct and necessary — they fix a different,
-> earlier-discovered class of sm121 problems — but they do not cover
-> ComfyUI's text-encoder path, which bypasses xformers entirely.
+> semantic correctness of the output**. On the scitrera-pipeline
+> PyTorch wheel for sm121, text-encoder forwards run through
+> `aten::_efficient_attention_forward` and silently return numerically
+> incorrect output (norm 12–27× off from the CPU reference, no NaN/Inf).
+> The integration test does not compare prompt-to-image semantics, so
+> it passed cleanly while the actual outputs were prompt-unrelated
+> garbage. **Production resolution: switched the ComfyUI image base to
+> `nvcr.io/nvidia/pytorch:26.03-py3`**, whose torch wheel has correct
+> SDPA EFFICIENT_ATTENTION on sm121. The earlier
+> [`comfyui_launch.sh.j2`](roles/k8s_dgx/templates/comfyui_launch.sh.j2)
+> §4c sitecustomize shim (wraps `SDClipModel.forward` with
+> `sdpa_kernel([SDPBackend.MATH])`) is now disabled by default
+> (`SM121_SDPA_SHIM_ENABLED=0`); kept as a fallback toggle in case a
+> future base-image regression brings the bug back. Full diagnostic
+> trail in [`COMFYUI_PROMPT_FAIL.md`](COMFYUI_PROMPT_FAIL.md), upstream
+> bug write-up in
+> [`UPSTREAM_PYTORCH_SDPA_SM121.md`](UPSTREAM_PYTORCH_SDPA_SM121.md).
+> The xformers patches in this document remain correct and necessary —
+> they cover xformers' own dispatcher, a separate concern from the
+> SDPA-EFFICIENT path that was broken on the scitrera build.
 
 ### `FATAL: kernel` log noise — filtered on stdout (and stderr)
 
@@ -377,22 +381,25 @@ prints `FATAL: ...` for every entry that does not match the current
 device, then returns from the call. ComfyUI continues, the workflow
 runs to completion, a PNG is returned.
 
-> **CAVEAT — added 2026-04-26.** Earlier revisions of this section
-> called the FATAL noise "cosmetic" and asserted that the surviving
-> kernel "runs successfully — confirmed by the 8/8 integration test
-> pass." That second half was wrong: the kernel that survives the
-> probe loop on sm121 returns numerically incorrect output (verified
-> empirically — see
+> **CAVEAT — added 2026-04-26, updated for NGC base.** Earlier
+> revisions of this section called the FATAL noise "cosmetic" and
+> asserted that the surviving kernel "runs successfully — confirmed by
+> the 8/8 integration test pass." That second half was wrong on the
+> scitrera-pipeline base: the kernel surviving the probe loop returned
+> numerically incorrect output (see
 > [`UPSTREAM_PYTORCH_SDPA_SM121.md`](UPSTREAM_PYTORCH_SDPA_SM121.md) for
-> the per-backend reproducer and numbers). The integration test
-> passed because it only checks workflow completion, not output
-> correctness. The FATAL lines are therefore not just log clutter —
-> they are a smoking gun that the broken EFFICIENT_ATTENTION path is
-> being entered. We continue to filter them on stdout/stderr because
-> the volume is intolerable, but a future re-audit of any sm121 image
-> should grep the *unfiltered* log for `^FATAL: kernel ` to confirm
-> that no untracked codepath is silently corrupting tensors. The
-> bf16 smoke test in this document never triggers them because bf16
+> the reproducer). After the switch to `nvcr.io/nvidia/pytorch:26.03-py3`
+> the FATAL noise pattern is GONE on the production image — NGC's
+> dispatcher uses a different family-range table that recognises sm121
+> kernels. If you see `FATAL: kernel ... is for sm80-sm100` lines on
+> any future build, that's a strong signal the base image regressed to
+> the scitrera-style build and SDPA correctness needs to be re-verified
+> (see the smoke test in `UPSTREAM_PYTORCH_SDPA_SM121.md`). We keep the
+> stdout/stderr filter in `comfyui_launch.sh.j2` defensively because
+> the volume on a regressed image would be intolerable — and because
+> the filter is harmless on a healthy image (no FATAL lines means no
+> work for grep).
+> The bf16 smoke test in this document never triggers them because bf16
 > takes a different selector path that exits early; only the f32
 > probing path emits the spam, and ComfyUI's VAE attention runs in
 > f32.

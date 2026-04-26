@@ -2,11 +2,37 @@
 
 **Status:** **RESOLVED.** Root cause is a numerically broken
 `aten::_efficient_attention_forward` kernel path on Blackwell GB10 (sm121)
-in PyTorch 2.10. The kernel returns garbage without crashing or producing
-NaN, which silently corrupts every text-encoder forward in ComfyUI.
-Workaround applied via a sitecustomize shim that wraps
-`comfy.sd1_clip.SDClipModel.forward` with `sdpa_kernel([SDPBackend.MATH])`.
-Verified end-to-end against SDXL (RealVisXL_V5.0) and Flux-schnell.
+in the **scitrera-pipeline PyTorch wheel** (build-flag bug:
+`-gencode=arch=compute_121,code=sm_121` without family fallback —
+see [`UPSTREAM_PYTORCH_SDPA_SM121.md`](UPSTREAM_PYTORCH_SDPA_SM121.md)).
+The kernel returns garbage without crashing or producing NaN, which
+silently corrupts every text-encoder forward in ComfyUI.
+
+**Resolution path (final, in production):** switched the ComfyUI image
+base from `scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131` to
+`nvcr.io/nvidia/pytorch:26.03-py3` (NGC PyTorch 2.11.0a0+nv26.03).
+NGC's PyTorch wheel has correct SDPA EFFICIENT_ATTENTION on sm121
+(verified empirically — same hardware, same major torch version,
+opposite outcome). End-to-end SDXL/Flux text-to-image now hits the
+correct kernels with no user-side workaround.
+
+**Earlier intermediate workaround (kept disabled in
+[`comfyui_launch.sh.j2`](roles/k8s_dgx/templates/comfyui_launch.sh.j2)
+§4c via `SM121_SDPA_SHIM_ENABLED=0`):** a `sitecustomize.py` shim that
+wrapped `comfy.sd1_clip.SDClipModel.forward` with
+`sdpa_kernel([SDPBackend.MATH])`. Re-enable only if a future base-image
+regression brings the bug back.
+
+**Build-side gotchas discovered along the resolution path:**
+
+- ComfyUI's `requirements.txt` lists `torch`/`torchvision`/`torchaudio`
+  unpinned. NGC's wheels (`*+nv26.03`) are pre-release per pip — bare
+  installs replace them with stock PyPI wheels that are ABI-incompatible
+  with NGC libtorch. Dockerfile filters them out before pip install.
+- NGC PyTorch 26.03 / 25.12 / 26.02 do NOT ship torchaudio in their
+  aarch64 wheels. ComfyUI imports torchaudio unconditionally via
+  `comfy/sd.py`. Dockerfile builds torchaudio from source against the
+  in-place NGC torch (same pattern as xformers/sage).
 
 **First diagnosis session:** 2026-04-26
 **Resolution session:** 2026-04-26
@@ -212,15 +238,39 @@ sm121, but ComfyUI's text encoders never go through xformers.
 
 ## Fix
 
+### Production fix (in deployment as of 2026-04-26 onward)
+
+Switch the ComfyUI image base from the broken scitrera-pipeline wheel
+to NGC PyTorch:
+
+```diff
+-ARG BASE=scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131
++ARG BASE=nvcr.io/nvidia/pytorch:26.03-py3
+```
+
+NGC's PyTorch 2.11.0a0+nv26.03 wheel for sm121 has correct SDPA
+EFFICIENT_ATTENTION (verified via the cross-validation matrix in
+[`UPSTREAM_PYTORCH_SDPA_SM121.md`](UPSTREAM_PYTORCH_SDPA_SM121.md)).
+Every text-encoder forward now hits a kernel that returns numerically
+correct output. No user-side wrapping needed.
+
+The image build script and Dockerfile changes:
+
+- `scripts/build_comfyui_image.sh`: default `--base` is `nvidia` →
+  `nvcr.io/nvidia/pytorch:26.03-py3`. Aliases `scitrera` and `xomoxcc`
+  remain for diagnostic use, marked BROKEN in the help text.
+- `scripts/comfyui/Dockerfile`: filters `torch`/`torchaudio`/`torchvision`
+  out of pip requirements so NGC wheels don't get clobbered by stock
+  PyPI ones, and builds torchaudio from source against the NGC torch
+  (NGC's aarch64 wheel set drops torchaudio).
+
+### Earlier intermediate workaround (kept disabled, see §4c)
+
 A surgical wrapper around `SDClipModel.forward` forces the SDPA backend
 to MATH for the duration of every text-encoder forward. Implemented as
-a `sitecustomize.py` written into the hostPath workspace at pod start
-and loaded via `PYTHONPATH=/workspace/comfyui` so Python's `site.py`
-picks it up at interpreter init, before ComfyUI's `main.py` runs.
-
-The shim installs an `importlib` meta-path finder that fires once on
-the first import of `comfy.sd1_clip` and patches `SDClipModel.forward`
-in place:
+a `sitecustomize.py` loaded via `PYTHONPATH=/workspace/comfyui`, with
+an `importlib` meta-path finder that fires once on the first import of
+`comfy.sd1_clip` and patches `SDClipModel.forward` in place:
 
 ```python
 @functools.wraps(orig)
@@ -231,23 +281,26 @@ def patched(self, *args, **kwargs):
 
 This single wrap covers every text-encoder model in ComfyUI because
 every encoder class (CLIP-L, CLIP-G, T5-XXL, Llama, Qwen, Gemma, …)
-inherits from `SDClipModel` and shares its forward. Idempotent via a
-`cls._sm121_sdpa_patched` marker; survives ComfyUI `git pull`s because
-no git-tracked file is modified.
-
-The full implementation (with rationale comment block) lives in
+inherits from `SDClipModel`. The implementation lives in
 [`roles/k8s_dgx/templates/comfyui_launch.sh.j2`](roles/k8s_dgx/templates/comfyui_launch.sh.j2)
-under section §4c.
+under section §4c, gated by `SM121_SDPA_SHIM_ENABLED=0`. The launch
+script also actively `rm -f`s any stale `sitecustomize.py` from
+hostPath when the shim is disabled, so an old shim file from a prior
+run cannot silently take effect.
 
-### Why MATH is acceptable here
+To re-enable (e.g. as a defensive fallback if a future base-image
+regression brings back the SDPA bug): flip
+`SM121_SDPA_SHIM_ENABLED=1` in the launch template and redeploy.
 
-The CLIP/T5 forwards in ComfyUI operate on 77-token sequences. MATH's
+### Why MATH was acceptable in the shim (still relevant for the toggle)
+
+CLIP/T5 forwards in ComfyUI operate on 77-token sequences. MATH's
 O(n²) memory and compute cost there is single-digit milliseconds per
 workflow. Diffusion attention — the actual hot path — is unaffected:
 SageAttention v2 continues to drive the UNet/DiT, and VAE attention
-keeps using the xformers→fa2F-pt path established by the existing
-`COMFYUI_SM121_PATCHES.md` patches. End-to-end wall-clock is
-indistinguishable from before the patch.
+keeps using the xformers→fa2F-pt path established by
+`COMFYUI_SM121_PATCHES.md`. End-to-end wall-clock is indistinguishable
+from before the shim.
 
 ## Verification
 
