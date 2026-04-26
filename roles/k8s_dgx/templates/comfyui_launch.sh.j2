@@ -413,6 +413,29 @@ done
 # imported by ComfyUI, then patches SDClipModel.forward in place.
 # Idempotent (cls._sm121_sdpa_patched marker), no git-tracked file
 # modified, survives ComfyUI git pulls.
+# Disabled 2026-04-26: switched ComfyUI base image from
+# scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131 to nvcr.io/nvidia/pytorch:25.12-py3
+# (NGC PyTorch). NGC's torch wheel for sm121 has a correct SDPA EFFICIENT
+# kernel, so the workaround here is no longer needed. The block is kept as
+# a commented heredoc for two reasons: (1) easy re-enable if a future base
+# image regresses, (2) the rationale comment above remains the canonical
+# explanation of WHY the bug exists. Toggle SM121_SDPA_SHIM_ENABLED=1 to
+# re-activate, then redeploy. See UPSTREAM_PYTORCH_SDPA_SM121.md for the
+# verification matrix that justified the disable.
+SM121_SDPA_SHIM_ENABLED=0
+
+# Cleanup: hostPath persists $APP/sitecustomize.py from any previous
+# invocation that had the shim enabled. Without this rm, an older shim file
+# would stay on disk forever and silently load when PYTHONPATH was set.
+# Idempotent — no-op when the file isn't there.
+if [ "$SM121_SDPA_SHIM_ENABLED" != "1" ]; then
+  if [ -f "$APP/sitecustomize.py" ]; then
+    echo "[comfyui] removing stale sm121 SDPA shim ($APP/sitecustomize.py)"
+    rm -f "$APP/sitecustomize.py"
+  fi
+fi
+
+if [ "$SM121_SDPA_SHIM_ENABLED" = "1" ]; then
 echo "[comfyui] writing sm121 SDPA text-encoder shim"
 cat > "$APP/sitecustomize.py" <<'PYEOF'
 """sm121 SDPA workaround — see comfyui_launch.sh.j2 §4c for full rationale.
@@ -488,6 +511,7 @@ PYEOF
 # at interpreter init. Set this only for the launch — pip installs above
 # this point have already finished, so they aren't affected.
 export PYTHONPATH="$APP:${PYTHONPATH:-}"
+fi  # SM121_SDPA_SHIM_ENABLED
 
 # --- 5. Launch -----------------------------------------------------
 # Debian/Ubuntu bases ship only `python3`; a `python` alias only exists

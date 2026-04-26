@@ -64,11 +64,51 @@ IMAGE_TAG_DATED="${IMAGE_TAG}-$(date +%Y%m%d)"
 COMFYUI_REF="${BUILD_COMFYUI_REF:-master}"
 
 # Base image aliases. --base <value> or BUILD_COMFYUI_BASE_IMAGE env var
-# override these. The 'scitrera' base is the default — xomoxcc is optional
-# and only works if the custom 2.11/cu132 base has already been built on
-# spark4 (scripts/build_pytorch_base_image.sh) or pushed to Docker Hub.
+# override these.
+#
+# The 'nvidia' base (NGC PyTorch) is the default since 2026-04-26: both
+# scitrera-pipeline images on sm121 ship a torch wheel whose SDPA
+# EFFICIENT_ATTENTION backend silently returns numerically corrupt output
+# on Blackwell GB10 (12-27× off from a CPU reference, no NaN/Inf — see
+# UPSTREAM_PYTORCH_SDPA_SM121.md for the reproducer and cross-validation
+# matrix). The defect is byte-identical between scitrera-2.10/cu131 and
+# the xomoxcc-rebuild-of-scitrera-2.11/cu132, so it lives in the
+# scitrera/cuda-containers build pipeline rather than in any specific
+# torch/CUDA version. NGC's own builds are correct on the same hardware.
+#
+# The 'scitrera' and 'xomoxcc' aliases are kept for diagnostic use (e.g.
+# re-running the SDPA reproducer to confirm the bug is still present)
+# and as fallbacks if NGC's image goes away. They do NOT produce a
+# correct ComfyUI image on sm121 unless paired with the §4c
+# sitecustomize SDPA-MATH workaround in
+# roles/k8s_dgx/templates/comfyui_launch.sh.j2.
+
+# NGC PyTorch tag mapping verified 2026-04-26 (probed each tag for
+# torch.__version__ + torch.version.cuda; ran the SDPA reproducer on
+# sm121 against a CPU reference where applicable):
+#
+#   25.10-py3 → torch 2.9.0a0+nv25.10  / cu13.0   (too old, untested SDPA)
+#   25.12-py3 → torch 2.10.0a0+nv25.12 / cu13.1   ← current default
+#                                                   (last 2.10/cu131 tag,
+#                                                    SDPA verified correct)
+#   26.01-py3 → torch 2.10.0a0+nv26.01 / cu13.1   (still 2.10, fresher build)
+#   26.02-py3 → torch 2.11.0a0+nv26.02 / cu13.1   (first 2.11 tag, SDPA verified correct)
+#   26.03-py3 → torch 2.11.0a0+nv26.03 / cu13.2   (latest release as of 2026-04-26,
+#                                                   SDPA verified correct,
+#                                                   newest CUDA major available)
+#   26.04-py3 → not yet released
+#
+# Default is 26.03 (latest torch 2.11 + cu13.2, SDPA verified correct).
+# Uncomment one of the alternatives below — or pass --base <image-tag> at
+# runtime — for a deliberate downgrade (e.g. to stay on torch 2.10 for
+# xformers v0.0.32 source-pin compatibility, until that pin is bumped).
+# BASE_NVIDIA_IMAGE="nvcr.io/nvidia/pytorch:25.12-py3"  # torch 2.10 / cu13.1, last 2.10/cu131 tag
+# BASE_NVIDIA_IMAGE="nvcr.io/nvidia/pytorch:26.01-py3"  # torch 2.10 / cu13.1, fresher 2.10 build
+# BASE_NVIDIA_IMAGE="nvcr.io/nvidia/pytorch:26.02-py3"  # torch 2.11 / cu13.1, first 2.11 release
+BASE_NVIDIA_IMAGE="nvcr.io/nvidia/pytorch:26.03-py3"  # torch 2.11 / cu13.2, latest available
 BASE_SCITRERA_IMAGE="scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131"
 BASE_XOMOXCC_IMAGE="xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132"
+
 BASE_IMAGE_ALIAS=""
 BASE_IMAGE_OVERRIDE="${BUILD_COMFYUI_BASE_IMAGE:-}"
 EFFECTIVE_BASE_IMAGE=""
@@ -129,7 +169,7 @@ die()  { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
 usage() {
     cat <<EOF
-Usage: $(basename "$0") [--base xomoxcc|scitrera|<image>]
+Usage: $(basename "$0") [--base nvidia|scitrera|xomoxcc|<image>]
                         [--comfyui-ref REF]
                         [--remote-host user@host] [--podman-connection NAME]
                         [--no-xformers] [--no-sage-attn] [--no-triton]
@@ -144,10 +184,14 @@ from here (unless --no-push or --no-local-copy).
 
 Options:
   --base VALUE  PyTorch dev base image this build sits on:
-                  scitrera  ${BASE_SCITRERA_IMAGE}  (default; published upstream)
-                  xomoxcc   ${BASE_XOMOXCC_IMAGE}   (custom 2.11/cu132 — must
-                                                     already exist on build
-                                                     host or Docker Hub)
+                  nvidia    ${BASE_NVIDIA_IMAGE}        (default; NGC PyTorch,
+                                                         verified-correct SDPA on sm121)
+                  scitrera  ${BASE_SCITRERA_IMAGE}  (BROKEN SDPA on sm121 —
+                                                     diagnostic use only, see
+                                                     UPSTREAM_PYTORCH_SDPA_SM121.md)
+                  xomoxcc   ${BASE_XOMOXCC_IMAGE}   (custom 2.11/cu132, also
+                                                     BROKEN — same scitrera
+                                                     pipeline; diagnostic use only)
                   <image>   arbitrary image reference, passed verbatim.
   --comfyui-ref REF
                 Git ref (branch, tag, commit SHA) of comfyanonymous/ComfyUI
@@ -281,9 +325,10 @@ resolve_base_image() {
         return 0
     fi
     case "${BASE_IMAGE_ALIAS}" in
+        nvidia)   EFFECTIVE_BASE_IMAGE="${BASE_NVIDIA_IMAGE}";   BASE_IMAGE_SOURCE="--base nvidia" ;;
         xomoxcc)  EFFECTIVE_BASE_IMAGE="${BASE_XOMOXCC_IMAGE}";  BASE_IMAGE_SOURCE="--base xomoxcc" ;;
         scitrera) EFFECTIVE_BASE_IMAGE="${BASE_SCITRERA_IMAGE}"; BASE_IMAGE_SOURCE="--base scitrera" ;;
-        "")       EFFECTIVE_BASE_IMAGE="${BASE_SCITRERA_IMAGE}"; BASE_IMAGE_SOURCE="default (scitrera)" ;;
+        "")       EFFECTIVE_BASE_IMAGE="${BASE_NVIDIA_IMAGE}";   BASE_IMAGE_SOURCE="default (nvidia)" ;;
         *)        EFFECTIVE_BASE_IMAGE="${BASE_IMAGE_ALIAS}";    BASE_IMAGE_SOURCE="--base (verbatim)" ;;
     esac
 }
@@ -402,8 +447,23 @@ ensure_base_image_present() {
     local base_image="${EFFECTIVE_BASE_IMAGE}"
     log "Verifying base image '${base_image}' on '${PODMAN_CONNECTION}' (from ${BASE_IMAGE_SOURCE})"
 
-    if podman --connection "${PODMAN_CONNECTION}" image exists "docker.io/${base_image}" 2>/dev/null; then
-        echo "Base image found as docker.io/${base_image}"
+    # Resolve to a fully-qualified name. Images already prefixed with a
+    # registry hostname (first slash-segment contains a '.' or ':' — e.g.
+    # `nvcr.io/...` or `localhost:5000/...`) are used verbatim. Docker Hub
+    # short names like `xomoxcc/foo:bar` get an explicit `docker.io/` prefix.
+    # Without this guard, an NGC image like `nvcr.io/nvidia/pytorch:26.03-py3`
+    # would be pulled as `docker.io/nvcr.io/nvidia/pytorch:26.03-py3` which
+    # Docker Hub rejects with "requested access to the resource is denied".
+    local first_segment="${base_image%%/*}"
+    local fqn_base
+    if [[ "${first_segment}" == *.* || "${first_segment}" == *:* ]]; then
+        fqn_base="${base_image}"
+    else
+        fqn_base="docker.io/${base_image}"
+    fi
+
+    if podman --connection "${PODMAN_CONNECTION}" image exists "${fqn_base}" 2>/dev/null; then
+        echo "Base image found as ${fqn_base}"
         return 0
     fi
     if podman --connection "${PODMAN_CONNECTION}" image exists "${base_image}" 2>/dev/null; then
@@ -411,8 +471,8 @@ ensure_base_image_present() {
         return 0
     fi
 
-    echo "Base image not found locally — pulling from Docker Hub..."
-    if podman --connection "${PODMAN_CONNECTION}" pull "docker.io/${base_image}"; then
+    echo "Base image not found locally — pulling ${fqn_base}..."
+    if podman --connection "${PODMAN_CONNECTION}" pull "${fqn_base}"; then
         echo "Base image pulled"
         return 0
     fi
@@ -422,7 +482,7 @@ ensure_base_image_present() {
             die "xomoxcc base image '${base_image}' is not on ${PODMAN_CONNECTION} and not pullable — build it first via scripts/build_pytorch_base_image.sh, or switch to --base scitrera."
             ;;
         *)
-            die "Base image '${base_image}' not found locally and pull from Docker Hub failed."
+            die "Base image '${base_image}' not found locally and pull from '${fqn_base}' failed."
             ;;
     esac
 }

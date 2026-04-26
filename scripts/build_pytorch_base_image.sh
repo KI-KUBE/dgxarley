@@ -87,6 +87,12 @@ CUDA_CONTAINERS_DIR="${BUILD_PYTORCH_CC_DIR:-${HOME}/pythondev_workspace/cuda-co
 
 # Same scratch branch name as build_sm121_image.sh (intentionally shared).
 BRANCH_NAME="sm121"
+# Last verified vs scitrera/cuda-containers main on 2026-04-26: this is still
+# the most recent dev recipe upstream (no 2.12 / cu13.3 / newer; only an
+# `experimental/pytorch-2.11.0-runtime.recipe` exists alongside, which is the
+# runtime-only variant of the same source line). When updating, re-run:
+#   git -C ~/pythondev_workspace/cuda-containers fetch origin
+#   ls ~/pythondev_workspace/cuda-containers/container-recipes/*pytorch*
 RECIPE_NAME="pytorch-2.11.0-dev-v1"
 IMAGE_TAG="xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132"
 

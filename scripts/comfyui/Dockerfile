@@ -18,7 +18,14 @@
 #   - ComfyUI-Manager or any custom nodes (belong under /workspace/custom_nodes
 #     so they persist across image upgrades without rebuilds)
 
-ARG BASE=scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131
+# Default base is the NGC PyTorch image (verified-correct SDPA on sm121).
+# scripts/build_comfyui_image.sh overrides this via --build-arg BASE=...; the
+# default here only matters for direct `podman build` calls without our
+# wrapper. 26.03-py3 is the latest available NGC tag (torch 2.11 / cu13.2).
+# Avoid scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131 and the rebuilt
+# xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132 — both reproduce the
+# silent-corruption SDPA bug documented in UPSTREAM_PYTORCH_SDPA_SM121.md.
+ARG BASE=nvcr.io/nvidia/pytorch:26.03-py3
 FROM ${BASE}
 
 # ---- System deps -------------------------------------------------
