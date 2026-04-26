@@ -5,9 +5,10 @@ DATA=/workspace
 APP="$DATA/comfyui"
 MODELS="$APP/models"
 
-# BUILDTIME wird vom Dockerfile beim Bau gesetzt; ältere Images (vor
-# Einführung des Stamps) haben das Env-Var nicht. `set -u` würde dann
-# direkt hier killen — daher Default "unknown" statt $BUILDTIME bare.
+# BUILDTIME is set by the Dockerfile at build time; older images (built
+# before the stamp was introduced) don't have the env var. `set -u`
+# would otherwise kill the script right here — hence the `:-unknown`
+# default instead of bare $BUILDTIME.
 echo "BUILDTIME: ${BUILDTIME:-unknown}"
 
 # --- 1. ComfyUI source ---------------------------------------------
@@ -35,15 +36,15 @@ mkdir -p "$MODELS/checkpoints"
 FLUX_FILE="$MODELS/checkpoints/{{ comfyui_flux_schnell_file }}"
 if [ -n "{{ comfyui_flux_schnell_repo }}" ] && [ ! -f "$FLUX_FILE" ]; then
   echo "[comfyui] downloading {{ comfyui_flux_schnell_repo }}/{{ comfyui_flux_schnell_file }}…"
-  # huggingface_hub >=1.11 hat `huggingface-cli` entfernt — CLI heißt
-  # jetzt `hf` (gleiche Syntax, reine Umbenennung).
+  # huggingface_hub >=1.11 removed `huggingface-cli` — the CLI is now
+  # called `hf` (same syntax, pure rename).
   hf download "{{ comfyui_flux_schnell_repo }}" \
     "{{ comfyui_flux_schnell_file }}" \
     --local-dir "$MODELS/checkpoints"
 fi
 
-# --- 3b. Inpaint-Workflow-Modelle (HuggingFace, idempotent) --------
-# Zielstruktur auf spark4:$comfyui_hostpath_base → im Pod /workspace/:
+# --- 3b. Inpaint workflow models (HuggingFace, idempotent) --------
+# Target layout on spark4:$comfyui_hostpath_base → in the pod /workspace/:
 #   models/checkpoints/RealVisXL_V5.0_fp16.safetensors    (workflow.json SDXL)
 #   models/inpaint/{fooocus_inpaint_head.pth, inpaint_v26.fooocus.patch}
 #   models/diffusion_models/{flux1-fill-dev-fp8.safetensors,
@@ -53,58 +54,71 @@ fi
 #   models/clip_vision/{sigclip_vision_patch14_384.safetensors,
 #                       clip_vit_large_patch14.safetensors}
 #   models/style_models/flux1-redux-dev.safetensors        (Redux)
-#   models/xlabs/ipadapters/ip_adapter.safetensors         (IPA — XLabs-Legacy,
-#     wird vom Plugin-Workflow nicht mehr benutzt; Pfad muss zu
-#     x-flux-comfyui/nodes.py passen: dir_xlabs_ipadapters =
-#     models/xlabs/ipadapters; sonst ist die LoadFluxIPAdapter-Liste leer.
-#     XLabs hat auch einen attn_mask-Bug gegen aktuelles Comfy-Core; falls
-#     dieser Custom-Node aktiv genutzt wird, layers.py:296 patchen.)
-#   models/ipadapter-flux/ip-adapter.bin                   (Shakker/InstantX
-#     IPA-Flux, Standard-Pfad fuer comfyui-ipadapter-flux)
-#   models/clip_vision/siglip-so400m-patch14-384/          (HF-Format-Dir
-#     fuer Shakker-IPA: SiglipVisionModel.from_pretrained() braucht
-#     config.json + model.safetensors + preprocessor_config.json — kein
-#     einzelnes safetensors-File ausreichend)
+#   models/xlabs/ipadapters/ip_adapter.safetensors         (IPA — XLabs legacy,
+#     no longer used by the plugin workflow; the path has to match
+#     x-flux-comfyui/nodes.py: dir_xlabs_ipadapters = models/xlabs/ipadapters,
+#     otherwise the LoadFluxIPAdapter dropdown is empty. XLabs also has an
+#     attn_mask bug against current ComfyUI core; if this custom node is
+#     actively used, patch layers.py:296.)
+#   models/ipadapter-flux/ip-adapter.bin                   (Shakker / InstantX
+#     IPA-Flux, the default path for comfyui-ipadapter-flux)
+#   models/clip_vision/siglip-so400m-patch14-384/          (HF-format dir
+#     for Shakker IPA: SiglipVisionModel.from_pretrained() needs
+#     config.json + model.safetensors + preprocessor_config.json — a single
+#     safetensors file is not enough)
+#   models/upscale_models/{4x-UltraSharp.pth,                (5 standard
+#                          4x_foolhardy_Remacri.pth,         upscalers for
+#                          4x_NMKD-Siax_200k.pth,            photo/architecture:
+#                          RealESRGAN_x4plus.pth,            UltraSharp = sharp,
+#                          RealESRGAN_x2plus.pth}            Remacri = preferred
+#                                                            for real-estate,
+#                                                            Siax = detail-outdoor,
+#                                                            RealESRGAN = workhorse;
+#                                                            x2plus for moderate
+#                                                            upscales)
 #
-# Hinweis Verzeichnis-Konventionen: ComfyUI hat `models/clip/` → `text_encoders/`
-# und `models/unet/` → `diffusion_models/` umbenannt (Mitte 2024). Beide Pfade
-# werden noch unterstützt, aber die UNETLoader/DualCLIPLoader-Nodes haben den
-# neuen Pfad als Default-Suchort. Wir nutzen die neuen Namen — der Migrations-
-# Block direkt unter dieser Liste verschiebt evtl. existierende Files aus den
-# alten Ordnern, damit nichts doppelt heruntergeladen wird.
+# Note on directory conventions: ComfyUI renamed `models/clip/` →
+# `text_encoders/` and `models/unet/` → `diffusion_models/` (mid-2024).
+# Both old paths still work, but UNETLoader/DualCLIPLoader nodes default
+# to the new ones. We use the new names — the migration block right
+# under this list moves any pre-existing files from the old folders so
+# nothing gets downloaded twice.
 #
-# Format je Zeile: "repo|source_path|subdir[|rename_to]". Steht das 4. Feld,
-# wird die heruntergeladene Datei nach dem Download auf diesen Namen
-# umbenannt.
+# Per-line format: "repo|source_path|subdir[|rename_to]". If the 4th
+# field is present, the downloaded file is renamed to that name.
 #
-# Alle Quellen sind ungated — kein HF_TOKEN erforderlich.
+# All sources are ungated — no HF_TOKEN required.
 #
-# Mirror-Auswahl:
-#   • flux1-dev-fp8     → Comfy-Org/flux1-dev (offizieller ComfyUI-Mirror,
-#     ungated, All-in-One fp8 mit UNet+CLIP+T5+VAE — über CheckpointLoaderSimple
-#     ladbar, gleiche Struktur wie flux1-schnell-fp8).
-#   • flux1-fill-dev-fp8 → hfmaster/models-moved (Comfy-Org hat NUR Flux-dev,
-#     nicht Fill; hfmaster ist Community-Bulk-Mirror, funktioniert stabil).
-#     Fallback wenn weg: boricuapab/flux1-fill-dev-fp8 (gated).
-#   • ae.safetensors    → Comfy-Org/flux1-dev (offizieller ComfyUI-Mirror,
-#     identische Datei wie BFL — Flux-VAE ist für alle Flux-Varianten gleich).
-#   • flux1-redux-dev   → Runware/FLUX.1-Redux-dev (dedizierter Mirror, ungated).
-#   • flux1-kontext-fp8 → Comfy-Org/flux1-kontext-dev_ComfyUI (offiziell, ungated).
-#   • XLabs-IPA         → flux-ip-adapter-v2 (ip_adapter.safetensors); v1-Repo-
-#     Filename `flux-ip-adapter.safetensors` existiert im main-Branch nicht mehr.
+# Mirror selection rationale:
+#   • flux1-dev-fp8     → Comfy-Org/flux1-dev (official ComfyUI mirror,
+#     ungated, all-in-one fp8 with UNet+CLIP+T5+VAE — loadable via
+#     CheckpointLoaderSimple, same structure as flux1-schnell-fp8).
+#   • flux1-fill-dev-fp8 → hfmaster/models-moved (Comfy-Org has only
+#     flux-dev, not Fill; hfmaster is a community bulk mirror, stable).
+#     Fallback if it disappears: boricuapab/flux1-fill-dev-fp8 (gated).
+#   • ae.safetensors    → Comfy-Org/flux1-dev (official ComfyUI mirror,
+#     identical to BFL — Flux VAE is the same across all Flux variants).
+#   • flux1-redux-dev   → Runware/FLUX.1-Redux-dev (dedicated mirror, ungated).
+#   • flux1-kontext-fp8 → Comfy-Org/flux1-kontext-dev_ComfyUI (official, ungated).
+#   • XLabs-IPA         → flux-ip-adapter-v2 (ip_adapter.safetensors); the
+#     v1 repo filename `flux-ip-adapter.safetensors` no longer exists on main.
+#   • Upscalers         → 4x-UltraSharp from Kim2091/UltraSharp (author's repo);
+#     4x_foolhardy_Remacri from FacehugmanIII/...; 4x_NMKD-Siax_200k from
+#     gemasai/...; RealESRGAN_x4plus + x2plus from xingren23/comfyflow-models
+#     (Comfy aggregator that mirrors xinntao's official weights from the
+#     upscale_models/ subpath — xinntao's own repo is gated).
 #
-# RealVisXL_V5.0 ersetzt das Civitai-gated `gene/juggernautXL_...` aus
-# workflow.json — ungated, Photo-Realismus, voll Fooocus-Patch-kompatibel.
-# Im Workflow muss `ckpt_name` entsprechend angepasst sein:
-# "RealVisXL_V5.0_fp16.safetensors" (ist in workflow.json +
-# workflow-manual.json bereits gesetzt).
+# RealVisXL_V5.0 replaces the Civitai-gated `gene/juggernautXL_...` from
+# workflow.json — ungated, photo-realism, fully Fooocus-patch compatible.
+# `ckpt_name` in the workflow has to match: "RealVisXL_V5.0_fp16.safetensors"
+# (already set in workflow.json + workflow-manual.json).
 #
-# Plugin-Engines (Redux / IPA / Kontext) — zusätzliche Referenzbild-basierte
-# Workflows, siehe COMFYUI_INPAINT.md.
+# Plugin engines (Redux / IPA / Kontext) — additional reference-image-based
+# workflows, see COMFYUI_INPAINT.md.
 
-# Migration: alte Verzeichnis-Konventionen (clip/ → text_encoders/,
-# unet/ → diffusion_models/) und alte Dateinamen ins neue Layout verschieben,
-# damit nichts doppelt geladen wird. No-op wenn alte Pfade leer sind.
+# Migration: move files from old directory conventions (clip/ →
+# text_encoders/, unet/ → diffusion_models/) into the new layout so
+# nothing gets downloaded twice. No-op when the old paths are empty.
 for migration in \
   "clip|text_encoders" \
   "unet|diffusion_models" \
@@ -123,8 +137,8 @@ for migration in \
     rmdir "$MODELS/$old_dir" 2>/dev/null || true
   fi
 done
-# Migration der alten IPA- und Kontext-Dateinamen auf die neuen, die die
-# aktuellen Workflow-JSONs erwarten.
+# Migration of old IPA and Kontext filenames to the names the current
+# workflow JSONs expect.
 for rename in \
   "xlabs_ipadapters/flux-ip-adapter.safetensors|xlabs/ipadapters/ip_adapter.safetensors" \
   "xlabs_ipadapters/ip_adapter.safetensors|xlabs/ipadapters/ip_adapter.safetensors" \
@@ -153,6 +167,11 @@ for entry in \
   "InstantX/FLUX.1-dev-IP-Adapter|ip-adapter.bin|ipadapter-flux" \
   "Runware/FLUX.1-Redux-dev|flux1-redux-dev.safetensors|style_models" \
   "Comfy-Org/flux1-kontext-dev_ComfyUI|split_files/diffusion_models/flux1-dev-kontext_fp8_scaled.safetensors|diffusion_models" \
+  "Kim2091/UltraSharp|4x-UltraSharp.pth|upscale_models" \
+  "FacehugmanIII/4x_foolhardy_Remacri|4x_foolhardy_Remacri.pth|upscale_models" \
+  "gemasai/4x_NMKD-Siax_200k|4x_NMKD-Siax_200k.pth|upscale_models" \
+  "xingren23/comfyflow-models|upscale_models/RealESRGAN_x4plus.pth|upscale_models" \
+  "xingren23/comfyflow-models|upscale_models/RealESRGAN_x2plus.pth|upscale_models" \
 ; do
   IFS="|" read -r repo fname subdir rename_to <<< "$entry"
   dest_dir="$MODELS/$subdir"
@@ -163,11 +182,11 @@ for entry in \
     continue
   fi
   echo "[comfyui] downloading $repo/$fname → $dest_file"
-  # --local-dir legt die Datei unter dem relativen Pfad ab, den die
-  # Repo-Struktur vorgibt (z. B. split_files/vae/ae.safetensors).
-  # Danach flachziehen/umbenennen, damit ComfyUI sie direkt unter
-  # $dest_dir unter dem erwarteten Namen findet — ComfyUI durchsucht
-  # Model-Ordner nicht rekursiv.
+  # --local-dir places the file under the relative path the repo
+  # structure dictates (e.g. split_files/vae/ae.safetensors). After the
+  # download we flatten / rename so ComfyUI finds it directly under
+  # $dest_dir with the expected name — ComfyUI does not search model
+  # folders recursively.
   if hf download "$repo" "$fname" --local-dir "$dest_dir"; then
     nested="$dest_dir/$fname"
     downloaded="$dest_dir/$(basename "$fname")"
@@ -178,48 +197,82 @@ for entry in \
       mv "$downloaded" "$dest_file"
     fi
   else
-    echo "[comfyui] WARN: $repo/$fname konnte nicht geladen werden — bitte $dest_file manuell ablegen"
+    echo "[comfyui] WARN: $repo/$fname could not be downloaded — please place $dest_file manually"
   fi
 done
 
-# --- 3c. SigLIP-Vision (HF-Format-Dir, kein Single-File) -----------
-# Shakker comfyui-ipadapter-flux laedt CLIP-Vision via
+# --- 3c. SigLIP-Vision (HF-format dir, not a single file) ----------
+# Shakker comfyui-ipadapter-flux loads CLIP-Vision via
 #   SiglipVisionModel.from_pretrained(<dir>)
-# d. h. wir brauchen das komplette HF-Repo als Verzeichnis, nicht nur
-# eine .safetensors-Datei. Ordnername muss exakt "siglip-so400m-patch14-384"
-# sein (Shakker splittet "google/siglip-so400m-patch14-384" am "/"
-# und sucht in CLIP_VISION_DIR + last segment).
-# Idempotent: wenn config.json schon da ist, ueberspringen.
+# i.e. we need the full HF repo as a directory, not just a single
+# .safetensors file. The folder name must be exactly
+# "siglip-so400m-patch14-384" (Shakker splits "google/siglip-so400m-patch14-384"
+# at the "/" and looks under CLIP_VISION_DIR + last segment).
+# Idempotent: if config.json is already there, skip.
 SIGLIP_DIR="$MODELS/clip_vision/siglip-so400m-patch14-384"
 if [ ! -f "$SIGLIP_DIR/config.json" ] || [ ! -f "$SIGLIP_DIR/model.safetensors" ]; then
   echo "[comfyui] downloading google/siglip-so400m-patch14-384 -> $SIGLIP_DIR/"
   mkdir -p "$SIGLIP_DIR"
   if ! hf download google/siglip-so400m-patch14-384 --local-dir "$SIGLIP_DIR" \
       --exclude "*.msgpack" --exclude "*.h5" --exclude "*.bin"; then
-    echo "[comfyui] WARN: SigLIP-SO400M konnte nicht geladen werden — Shakker IPA-Flux funktioniert dann nicht"
+    echo "[comfyui] WARN: SigLIP-SO400M could not be downloaded — Shakker IPA-Flux will not work"
   fi
 fi
 
 # --- 4. Custom nodes for inpaint + flux-inpaint workflows ---------
-# Idempotent git clone per Custom-Node-Repo. Existiert das Zielverzeichnis
-# bereits, wird nichts getan (KEIN pull — Updates per Hand oder via
-# `rm -rf <dir>` + Pod-Neustart).
+# Idempotent git clone per custom-node repo. If the target directory
+# already exists, nothing is done (NO pull — updates happen by hand or
+# via `rm -rf <dir>` + pod restart).
 # Acly/comfyui-inpaint-nodes → INPAINT_ApplyFooocusInpaint,
 #   INPAINT_LoadFooocusInpaint (+ LaMa, MAT fills)
 # lquesada/ComfyUI-Inpaint-CropAndStitch → InpaintCropImproved,
-#   InpaintStitchImproved — die "Improved"-Varianten, die beide
-#   Workflows direkt aufrufen. NICHT in Acly's Repo enthalten.
-# XLabs-AI/x-flux-comfyui → Legacy. NICHT mehr vom Plugin-Workflow benutzt;
-#   bleibt installiert fuer Backward-Compat (alte Workflows aus dem
-#   Browser-UI). Hat einen attn_mask-Bug gegen aktuelles Comfy-Core,
-#   Upstream tot seit 2024-10. Falls weiter genutzt: layers.py:296
-#   patchen (forward-Signatur um attn_mask=None, **kwargs erweitern).
+#   InpaintStitchImproved — the "Improved" variants both workflows call
+#   directly. NOT in Acly's repo.
+# XLabs-AI/x-flux-comfyui → legacy. NO LONGER used by the plugin
+#   workflow; remains installed for backward compatibility (old
+#   workflows from the browser UI). Has an attn_mask bug against
+#   current ComfyUI core, upstream dead since 2024-10. If still used:
+#   patch layers.py:296 (extend the forward signature with
+#   attn_mask=None, **kwargs).
 # Shakker-Labs/ComfyUI-IPAdapter-Flux → IPAdapterFluxLoader +
-#   ApplyIPAdapterFlux. Aktiv gepflegt (zuletzt 2025-06), Apache 2.0,
-#   Comfy-native add_object_patch ohne direktes block-Replace.
-#   Ersetzt XLabs als IPA-Engine; siehe workflow-flux1-ipa.json /
+#   ApplyIPAdapterFlux. Actively maintained (last commit 2025-06),
+#   Apache 2.0, ComfyUI-native add_object_patch without direct block
+#   replace. Replaces XLabs as the IPA engine; see workflow-flux1-ipa.json /
 #   COMFYUI_INPAINT.md.
 mkdir -p "$APP/custom_nodes"
+
+# Canonical names (basename of repo, no .git). Order matches the for-loop
+# below. Used by the case-duplicate cleanup pass — see comments there.
+CANONICAL_CUSTOM_NODES="comfyui-inpaint-nodes ComfyUI-Inpaint-CropAndStitch x-flux-comfyui ComfyUI-IPAdapter-Flux"
+
+# Cleanup pass: ComfyUI scans every directory under custom_nodes/ recursively
+# and registers the contained nodes. On a case-sensitive filesystem (which is
+# all we have here), `ComfyUI-IPAdapter-Flux` and `comfyui-ipadapter-flux` are
+# two distinct directories — both get loaded, both register the same node
+# names, ComfyUI logs "duplicate node" warnings, and a workflow that hits
+# the wrong copy can crash on subtly different code. ComfyUI-Manager / manual
+# `git clone` with a typo'd capitalisation are the usual sources.
+#
+# For every canonical custom node we manage, scan custom_nodes/ for dirs
+# whose lowercased name matches the canonical lowercased name but whose
+# actual name does NOT match — those are case-variant duplicates and get
+# `rm -rf`'d. Idempotent: if there are no duplicates, no-op.
+#
+# This runs BEFORE the clone loop so the canonical clone below picks up
+# any reclaimed directory slot.
+for canonical in $CANONICAL_CUSTOM_NODES; do
+  canonical_lc=$(echo "$canonical" | tr '[:upper:]' '[:lower:]')
+  for dir in "$APP/custom_nodes"/*/; do
+    [ -d "$dir" ] || continue
+    base=$(basename "$dir")
+    base_lc=$(echo "$base" | tr '[:upper:]' '[:lower:]')
+    if [ "$base_lc" = "$canonical_lc" ] && [ "$base" != "$canonical" ]; then
+      echo "[comfyui] removing case-duplicate custom node: $base (canonical: $canonical)"
+      rm -rf "$dir"
+    fi
+  done
+done
+
 for repo in \
   https://github.com/Acly/comfyui-inpaint-nodes.git \
   https://github.com/lquesada/ComfyUI-Inpaint-CropAndStitch.git \
@@ -234,50 +287,105 @@ for repo in \
   fi
 done
 
-# --- 4b. Custom-Node-Python-Deps ----------------------------------
-# Jeder Custom-Node darf eine requirements.txt mitbringen (z. B.
-# x-flux-comfyui: opencv-python, einops, transformers, diffusers,
-# sentencepiece, GitPython — ohne die bricht schon der Import mit
+# --- 4a. Custom-node patches against API drift in current ComfyUI ---
+# Both IPA-Flux plugins (XLabs and Shakker-Labs) are unmaintained and
+# reference attributes / signatures that ComfyUI core has since moved
+# past. We patch idempotently in place — sed patterns match only the
+# un-patched original line, so repeated pod starts or a plugin update
+# via `rm -rf $name + restart` automatically re-apply the patch
+# without doubling up.
+#
+# Patch 1 (Shakker-Labs/ComfyUI-IPAdapter-Flux):
+#   File:  ComfyUI-IPAdapter-Flux/flux/layers.py:31
+#   Crash: AttributeError: 'DoubleStreamBlock' object has no attribute
+#          'flipped_img_txt'
+#   Cause: the plugin (HEAD eef22b6, 2025-06-22) expects this attribute
+#          on every ComfyUI DoubleStreamBlock. ComfyUI master no longer
+#          exposes it — only plugin-internal forks set it. Read it
+#          defensively via getattr() with default False (= classic
+#          Flux token layout, img before txt), which is semantically
+#          correct for all pre-Kontext Flux models.
+SHAKKER_LAYERS="$APP/custom_nodes/ComfyUI-IPAdapter-Flux/flux/layers.py"
+if [ -f "$SHAKKER_LAYERS" ] && grep -q '= original_block\.flipped_img_txt$' "$SHAKKER_LAYERS"; then
+  echo "[comfyui] patching $SHAKKER_LAYERS (DoubleStreamBlock.flipped_img_txt API drift)"
+  sed -i 's|= original_block\.flipped_img_txt$|= getattr(original_block, "flipped_img_txt", False)|' "$SHAKKER_LAYERS"
+fi
+
+# Patch 2 (Shakker-Labs/ComfyUI-IPAdapter-Flux):
+#   File:  ComfyUI-IPAdapter-Flux/utils.py:48
+#   Crash: TypeError: forward_orig_ipa() got an unexpected keyword argument
+#          'timestep_zero_index'
+#   Cause: the plugin monkey-patches ComfyUI's flux model.forward_orig
+#          with forward_orig_ipa(self, img, img_ids, txt, txt_ids,
+#                                timesteps, y, guidance=None, control=None,
+#                                transformer_options={}, attn_mask=None).
+#          ComfyUI master additionally calls forward_orig with
+#          timestep_zero_index= (and possibly more kwargs in the future).
+#          The plugin doesn't actually use any of those kwargs → defensively
+#          append a `**kwargs` to the signature, swallowing every unknown
+#          kwarg. Idempotent: the grep guard checks for the exact
+#          `    **kwargs,` line marker that only this patch produces.
+SHAKKER_UTILS="$APP/custom_nodes/ComfyUI-IPAdapter-Flux/utils.py"
+if [ -f "$SHAKKER_UTILS" ] \
+   && grep -q '^def forward_orig_ipa(' "$SHAKKER_UTILS" \
+   && ! grep -q '^    \*\*kwargs,$' "$SHAKKER_UTILS"; then
+  echo "[comfyui] patching $SHAKKER_UTILS (forward_orig_ipa **kwargs guard)"
+  sed -i 's/^    attn_mask: Tensor = None,$/&\n    **kwargs,/' "$SHAKKER_UTILS"
+fi
+
+# Patch 3 (XLabs-AI/x-flux-comfyui) — TODO, not active yet:
+#   File:  x-flux-comfyui/layers.py:296
+#   Symptom: forward(self, x, vec, pe) is called by newer ComfyUI with
+#            attn_mask=, but the old plugin code doesn't accept it.
+#   Fix:   extend the signature with `, attn_mask=None, **kwargs`
+#          (the plugin ignores the mask, no functional loss for IPA).
+# The plugin is legacy and no active workflows use it any more; if
+# someone hits this, add the corresponding sed block here.
+
+# --- 4b. Custom-node Python deps ----------------------------------
+# Each custom node may ship a requirements.txt (e.g. x-flux-comfyui:
+# opencv-python, einops, transformers, diffusers, sentencepiece,
+# GitPython — without these the plugin already fails on import with
 # `ModuleNotFoundError: No module named 'cv2'`).
 #
-# WICHTIG — kein hostPath-Marker: pip installiert nach
-# /usr/local/lib/python3.12/dist-packages/, was zum Container-RootFS
-# gehört und bei jedem Pod-Restart verloren geht. Ein Marker unter
-# $APP/custom_nodes/<node>/.deps_installed würde auf hostPath
-# überleben und die Installation fälschlich als erledigt markieren →
-# nach Restart fehlt cv2 trotz präsentem Marker.
-# Daher: pip install auf JEDEM Start ausführen. `--upgrade-strategy
-# only-if-needed` macht den Lauf zum No-Op (~2s), wenn die Deps
-# bereits im Image gebacken sind (siehe scripts/comfyui/
-# requirements-extra.txt — dort sind GitPython, diffusers und
-# opencv-python vor-installiert). Schützt zusätzlich Blackwell-Torch
-# aus dem Base-Image vor Downgrades durch Custom-Node-Pins.
-# Stale Marker aus älteren Script-Versionen werden aufgeräumt.
+# IMPORTANT — no hostPath marker: pip installs to
+# /usr/local/lib/python3.12/dist-packages/, which lives in the
+# container rootfs and is wiped on every pod restart. A marker under
+# $APP/custom_nodes/<node>/.deps_installed would survive on hostPath
+# and falsely flag the install as done → after a restart cv2 would be
+# missing despite the marker.
+# Therefore: run pip install on EVERY start. `--upgrade-strategy
+# only-if-needed` makes the run a no-op (~2s) when the deps are
+# already baked into the image (see scripts/comfyui/requirements-extra.txt
+# — GitPython, diffusers, opencv-python are pre-installed there).
+# It also protects the Blackwell-capable torch from the base image
+# against downgrades caused by custom-node pins.
+# Stale markers from older script versions are cleaned up.
 for req in "$APP"/custom_nodes/*/requirements.txt; do
   [ -f "$req" ] || continue
   node_dir="$(dirname "$req")"
   rm -f "$node_dir/.deps_installed"
   echo "[comfyui] ensuring deps for $(basename "$node_dir")…"
   if ! pip install --upgrade-strategy only-if-needed -r "$req"; then
-    echo "[comfyui] WARN: pip install -r $req schlug fehl — Node lädt evtl. nicht"
+    echo "[comfyui] WARN: pip install -r $req failed — node may not load"
   fi
 done
 
 # --- 5. Launch -----------------------------------------------------
-# Debian/Ubuntu-Bases liefern nur `python3`; einen `python`-Alias gibt es
-# nur wenn das Paket python-is-python3 installiert ist. Sicher über PATH
-# auflösen, sonst scheitert exec mit "python: not found".
+# Debian/Ubuntu bases ship only `python3`; a `python` alias only exists
+# when the python-is-python3 package is installed. Resolve through PATH
+# so exec doesn't fail with "python: not found".
 #
-# --use-sage-attention: globaler Attention-Backend = SageAttention v2.
-# Hintergrund: xformers' eigener FMHA-Dispatcher kennt SM_121 (Blackwell
-# GB10) nicht und rejected die sm80-Familie-Kernels mit
+# --use-sage-attention: global attention backend = SageAttention v2.
+# Background: xformers' own FMHA dispatcher does not know about SM_121
+# (Blackwell GB10) and rejects the sm80-family kernels with
 #   FATAL: kernel '..._sm80' is for sm80-sm100, but was built for sm121
-# selbst wenn das Binary technisch sm80-kompatibel wäre. Der FA3-Pfad
-# (Hopper) hat auf sm121 gar kein ladbares SASS. Sage bietet auf
-# Blackwell ohnehin bessere Throughput und ist auf sm121 verifiziert
-# funktional (bf16, multi-head). Solange der xformers-Patch (s.
-# COMFYUI_XFORMERS_SM121_PATCH.md) nicht eingebaut ist, ist Sage der
-# einzige funktionsfähige Custom-Backend.
+# even when the binary is technically sm80-compatible. The FA3 path
+# (Hopper) has no loadable SASS for sm121 at all. Sage delivers better
+# throughput on Blackwell anyway and is verified functional on sm121
+# (bf16, multi-head). Until the xformers patches (see
+# COMFYUI_SM121_PATCHES.md) are baked into the image, Sage is the only
+# functional custom backend.
 PY="$(command -v python3 || command -v python)"
 echo "[comfyui] launching on 0.0.0.0:{{ comfyui_port }} ($PY)"
 
@@ -307,17 +415,42 @@ exec "$PY" main.py \
   --output-directory "$DATA/output" \
   --temp-directory "$DATA/temp"
 
-# --highvram: ComfyUI hält geladene Modelle komplett im VRAM und macht
-# kein partial-offload zwischen Host und GPU. Auf der DGX Spark ist der
-# Default-Modus ("smart memory") konservativ und entscheidet on-the-fly,
-# wieviel von einem Modell ins GPU-VRAM passt; bei knappem Budget
-# resultiert das in
-#   loaded partially; 6978 MB loaded, 4371 MB offloaded
-# was für FLUX-Workflows ~3 s/iter statt ~0.5-1 s/iter bedeutet, weil
-# pro Forward-Pass Weights zwischen Host und Device gestreamt werden.
-# Mit --highvram werden Modelle voll geladen oder gar nicht — bei
-# OOM crasht der Workflow lieber, statt langsam zu werden. Auf GB10
-# unified memory + 4-fach GPU-Timeslicing bedeutet das: wenn ein
-# anderer Replica gerade viel VRAM hält, schlägt der Load fehl statt
-# in den langsamen Offload-Modus zu gehen. Falls das stört, Flag
-# entfernen oder durch --normalvram ersetzen (smart memory).
+# --highvram on DGX Spark (GB10, unified memory) — design notes:
+#
+# DGX Spark uses a unified-memory architecture: the Grace ARM CPU and
+# the Blackwell GPU share the same physical LPDDR5X pool (~128 GB per
+# node). Unlike a discrete GPU where "VRAM" and "host RAM" are
+# separate physical pools connected by PCIe, here both views map to
+# the same memory. ComfyUI's default "smart memory" mode is designed
+# around the dGPU model — it actively offloads model weights between
+# "GPU memory" and "host memory" to fit a small VRAM budget, paying
+# real PCIe transfer cost on a discrete card. On unified memory that
+# offloading is essentially free in terms of *data movement*, but
+# ComfyUI still pays the *software* cost: per-forward bookkeeping,
+# CUDA allocator updates, and the per-iteration loop seen in the log:
+#   loaded partially; 6978 MB loaded, 4371 MB offloaded   ← smart memory
+# That ~3 s/iter for FLUX (vs ~0.5–1 s/iter when fully resident) is
+# almost entirely software overhead, not data transfer.
+#
+# `--highvram` tells ComfyUI to keep loaded models entirely in the GPU
+# view and never partial-offload, eliminating the per-iteration
+# bookkeeping. On unified memory this gives the same effect as a
+# dGPU's full-VRAM-load case without the data-transfer cost on the
+# offload path — i.e. it's almost always the right setting on this
+# hardware.
+#
+# Caveat — GPU time-slicing: when 4-fold time-slicing is enabled (each
+# physical GPU appears as 4 logical replicas), ComfyUI sees only its
+# share of the unified pool as "GPU memory" via cudaMemGetInfo(). With
+# `--highvram` ComfyUI will reserve its full slice up front and not
+# release it back, even when idle. If a co-tenant pod (e.g. SGLang)
+# needs more memory at the same time, it gets the OOM, not us. If you
+# care about co-tenancy more than ComfyUI's own latency, drop the flag
+# (revert to "smart memory" / `--normalvram`); if ComfyUI runs alone
+# on the GPU or you'd rather have throughput than fairness, keep it.
+#
+# OOM behaviour: with `--highvram`, a model that doesn't fit will
+# crash the workflow rather than silently fall back to slow streaming.
+# That's almost always preferable for debugging — the failure points
+# at the real constraint (model size vs. budget) instead of hiding it
+# in a 5x slowdown.

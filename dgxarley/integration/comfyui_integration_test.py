@@ -313,6 +313,51 @@ def test_object_info_checkpoints() -> TestResult:
         return TestResult("object_info_checkpoints", False, time.monotonic() - t0, str(e))
 
 
+def test_object_info_ipa_flux() -> TestResult:
+    """Verify Shakker IPA-Flux nodes are registered AND the IP-Adapter weights are visible.
+
+    Regression guard for the XLabs->Shakker migration: catches both halves of
+    the install (custom node clone + model file under models/ipadapter-flux/)
+    so a fresh deploy can fail the test without us having to wait for a real
+    inpaint run to surface a missing dependency.
+    """
+    t0 = time.monotonic()
+    try:
+        resp = requests.get(f"{COMFYUI_URL}/object_info", timeout=TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        problems: list[str] = []
+
+        loader = data.get("IPAdapterFluxLoader")
+        if loader is None:
+            problems.append("IPAdapterFluxLoader missing (custom node not loaded)")
+        else:
+            # The 'ipadapter' input is a folder_paths.get_filename_list("ipadapter-flux") dropdown.
+            # If it's empty, the InstantX weights weren't downloaded into the right dir.
+            ipa_input = loader.get("input", {}).get("required", {}).get("ipadapter", [])
+            ipa_files: list[str] = ipa_input[0] if ipa_input and isinstance(ipa_input[0], list) else []
+            if not ipa_files:
+                problems.append("ipadapter-flux dir empty (InstantX ip-adapter.bin missing)")
+
+        applier = data.get("ApplyIPAdapterFlux")
+        if applier is None:
+            problems.append("ApplyIPAdapterFlux missing")
+        else:
+            # Sanity-check the input shape so a future Shakker-side rename
+            # (weight -> ip_scale or similar) trips the test instead of
+            # silently breaking _build_workflow's IPA mapping.
+            required = applier.get("input", {}).get("required", {})
+            for expected in ("model", "ipadapter_flux", "image", "weight"):
+                if expected not in required:
+                    problems.append(f"ApplyIPAdapterFlux.{expected} input renamed/removed")
+
+        ok = not problems
+        detail = "ok" if ok else "; ".join(problems)
+        return TestResult("object_info_ipa_flux", ok, time.monotonic() - t0, detail)
+    except Exception as e:
+        return TestResult("object_info_ipa_flux", False, time.monotonic() - t0, str(e))
+
+
 def _submit_and_wait(workflow: dict[str, Any], test_name: str, t0: float) -> TestResult:
     """Queue a workflow, poll ``/history/<id>`` until completion, return a TestResult.
 
@@ -503,6 +548,7 @@ def main() -> None:
         test_system_stats,
         test_queue,
         test_object_info_checkpoints,
+        test_object_info_ipa_flux,
         test_image_generation,
         test_text2image_realvisxl,
         test_text2image_flux_schnell,
