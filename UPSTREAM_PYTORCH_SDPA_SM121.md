@@ -275,43 +275,115 @@ torch.git_version: 449b1768410104d3ed79d3bcfe4ba1d65c7f22c0
                    inside our overlay is unmodified scitrera output)
 ```
 
-## Suggested investigation for scitrera maintainers
+## Likely root cause: NVCC_GENCODE is sm_121-only
 
-The bug is in **what scitrera's build pipeline produces**, not in
-the PyTorch 2.10 source it builds from (Run-C / NGC 25.12 establishes
-that the same major version source line works on the same CUDA major
-on the same hardware when built by NVIDIA's pipeline). Worth checking:
+Empirical investigation of the compiled `libtorch_cuda.so` from
+scitrera-pipeline images vs NGC PyTorch images on the same hardware
+(both torch 2.11.0 / cu13.x, same Blackwell GB10) reveals a
+consistent build-flag difference that is the most plausible root
+cause.
 
-1. **Bisect existing tags.** Test `dgx-spark-pytorch-dev` tags
-   prior to `2.10.0-v2-cu131` and any newer ones (e.g.
-   `2.11.0-v1-cu132`) on the same reproducer. The first failing tag
-   identifies which build-recipe change introduced the regression.
-2. **Diff the build recipe** at the failing tag against the prior
-   working one. Areas most likely to matter:
-   - `TORCH_CUDA_ARCH_LIST` / `CMAKE_CUDA_ARCHITECTURES` for sm121
-     specifically.
-   - PyTorch submodule pins (`third_party/cutlass`,
-     `third_party/flash-attention`, `third_party/composable_kernel`).
-   - Any local patches applied between `git clone pytorch` and `pip
-     install`.
-   - CUDA toolkit minor version (cu131 vs cu13.x flavours).
-   - Compile-time defines that affect FMHA dispatch
-     (`USE_FLASH_ATTENTION`, `USE_MEM_EFF_ATTENTION`,
-     `XFORMERS_*`-style flags if any leaked in).
-3. **Compare to NGC 25.12's build setup.** NVIDIA publishes the
-   recipe-equivalent in the [NGC PyTorch container release notes](https://docs.nvidia.com/deeplearning/frameworks/pytorch-release-notes/).
-   Any sm121-specific cherry-pick they apply that scitrera doesn't is
-   a strong candidate.
-4. **Check binary cache / wheel reuse.** If scitrera's build uses a
-   pip wheel cache or a pre-built CUTLASS object cache, a stale
-   binary from an earlier (mis-built) state could persist across
-   tag bumps even when the source-level recipe is correct. A
-   no-cache rebuild from clean state may resolve it without any
-   recipe change.
+### Evidence from `strings libtorch_cuda.so`
 
-The user-side workaround (next section) is in production for our
-ComfyUI deployment but is an unsatisfactory long-term answer for a
-general PyTorch image.
+Counts of `sm_NN` symbol references inside the compiled CUDA library:
+
+| sm-arch | scitrera-pipeline (broken) | NGC (correct) | observation |
+|---|---|---|---|
+| sm121  |  58  |   3  | scitrera embeds sm121-tagged kernels everywhere; NGC almost never |
+| sm120  | 121  | 212  | NGC has ~2× more sm120 family kernels |
+| sm110  |   0  |  99  | NGC includes a full sm110 family that scitrera lacks entirely |
+| sm100  | 149  | 243  | NGC ~60% more sm100 |
+| sm86   |   3  | 102  | NGC includes the sm86 family; scitrera barely |
+
+Library size: scitrera **212 MB** vs NGC **588 MB** — NGC carries
+substantially more arch variants.
+
+### Evidence from FATAL format strings
+
+The dispatcher source-code format string differs between the two
+builds. scitrera's `libtorch_cuda.so` contains hardcoded family
+ranges:
+
+```
+FATAL: kernel `…` is for sm80-sm100, but was built for sm%d
+FATAL: kernel `…` is for sm70-sm75, but was built for sm%d
+FATAL: kernel `…` is for sm75-sm80, but was built for sm%d
+…
+```
+
+NGC's contains a different (parameterised) pattern with empty
+lower-bounds (`-sm80`, etc.), suggesting NVIDIA reworks the
+dispatcher's family-range table — most likely to recognise sm_12x
+as in-range.
+
+### Evidence from scitrera's build recipe
+
+`scitrera/cuda-containers/container-build/Dockerfile.base` line 6:
+
+```
+NVCC_GENCODE="-gencode=arch=compute_121,code=sm_121"
+```
+
+This compiles every CUTLASS template **only for sm_121** — no family
+fallback. CUTLASS's FMHA kernel-name templates encode their
+applicable arch family in the symbol (e.g. `fmha_cutlassF_*_sm80`),
+and PyTorch's runtime CUTLASS dispatcher uses that name to derive a
+`[family_min, family_max]` interval. When scitrera's build
+instantiates the templates with `code=sm_121`, the resulting binary
+has SASS for sm_121 but inherits the family-tag from the template
+name (`_sm80`, etc.). The dispatcher then rejects the kernel
+("FATAL: kernel `…_sm80` is for sm80-sm100, but was built for sm121"),
+and the survivor that runs after the rejection is the source of the
+garbage output.
+
+### Proposed fix
+
+Change scitrera's `NVCC_GENCODE` to use the **sm_120 family**, which
+provides forward-compatible SASS that runs on sm_120, sm_121, and
+any future sm_12x — and which the existing CUTLASS family-range
+metadata recognises:
+
+```diff
+-NVCC_GENCODE="-gencode=arch=compute_121,code=sm_121"
++NVCC_GENCODE="-gencode=arch=compute_120,code=sm_120"
+```
+
+Or, to retain explicit sm_121 SASS as well (slightly larger image,
+but covers both fast paths):
+
+```diff
+-NVCC_GENCODE="-gencode=arch=compute_121,code=sm_121"
++NVCC_GENCODE="-gencode=arch=compute_120,code=sm_120 -gencode=arch=compute_121,code=sm_121"
+```
+
+This single one-line change at the recipe level is the most
+plausible fix. It is consistent with everything we observe in NGC's
+build (sm_120 family kernels dominate, sm_121-specific tags are
+rare) and with the CUTLASS dispatcher's family-range expectations.
+
+### Suggested verification path for scitrera maintainers
+
+1. Apply the gencode change above in `Dockerfile.base`.
+2. Rebuild `dgx-spark-pytorch-dev:2.11.0-v1-cu132` from scratch (no
+   cache reuse).
+3. Run the reproducer in this document on the resulting image. If
+   `EFFICIENT_ATTENTION` norms now match the CPU reference within
+   bf16/fp16 tolerance, the fix is correct. Bonus: re-run the
+   ComfyUI text-to-image A/B test on top of that base image — if
+   prompts are honoured without any user-side `sdpa_kernel([MATH])`
+   workaround, end-to-end correctness is confirmed.
+4. If still broken after the gencode change, the next likely
+   suspects are:
+   - PyTorch source revision / cherry-picks NGC carries (compare
+     `torch.version.git_version` of broken vs `Unknown` in NGC, plus
+     the `+nvNN.MM` suffix that signals NVIDIA-internal patches).
+   - third_party/cutlass commit pin in the PyTorch tag scitrera
+     builds from.
+
+The user-side `sdpa_kernel([MATH])` workaround documented below is
+a chirurgical patch around the symptom; the recipe fix above
+addresses the root cause and removes the need for the workaround
+in any future image build.
 
 ## User-side workaround
 

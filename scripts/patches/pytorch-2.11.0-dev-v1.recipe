@@ -29,8 +29,10 @@ NCCL_REPO=https://github.com/zyang-dev/nccl.git
 
 BUILD_JOBS=8
 
-TORCH_CUDA_ARCH_LIST=12.1a
-NVCC_GENCODE=-gencode=arch=compute_121,code=sm_121
+#TORCH_CUDA_ARCH_LIST=12.1a
+#NVCC_GENCODE=-gencode=arch=compute_121,code=sm_121
+TORCH_CUDA_ARCH_LIST="12.0;12.1"
+NVCC_GENCODE="-gencode=arch=compute_120,code=sm_120 -gencode=arch=compute_121,code=sm_121"
 
 TORCH_VERSION=2.11.0
 TORCH_AUDIO_VERSION=2.11.0
