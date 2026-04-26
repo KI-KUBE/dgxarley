@@ -71,12 +71,34 @@ RUN git clone https://github.com/comfyanonymous/ComfyUI.git ${COMFYUI_PATH} && \
 # --upgrade-strategy only-if-needed prevents torch/torchvision/triton from
 # the base image being replaced. The base ships Blackwell-capable wheels;
 # replacing them silently regresses perf.
-RUN pip install --upgrade-strategy only-if-needed \
-        -r ${COMFYUI_PATH}/requirements.txt
+#
+# We additionally filter `torch`, `torchaudio`, and `torchvision` (without
+# the `torch_*` separators — `torchsde`/`torchao`/`torch_tensorrt` etc. are
+# unrelated and stay) out of the requirements before pip touches them. Why:
+# NGC's PyTorch wheels carry version strings like `2.11.0a0+nv26.3.46836102`
+# which pip classifies as PRE-RELEASE. A bare requirement like `torchaudio`
+# (no version specifier) is treated by pip as "any stable release", and a
+# pre-release does not count as satisfying it — so pip silently *replaces*
+# NGC's torchaudio with stock PyPI's `torchaudio==2.11.0`. The stock wheel's
+# libtorchaudio.so was built against stock libtorch and uses different
+# dtype-symbol mangling than NGC's, leading to a runtime
+#   undefined symbol: torch_dtype_float4_e2m1fn_x2
+# crash on `import torchaudio`. ComfyUI imports torchaudio unconditionally
+# (audio-VAE module), so the whole pod fails to start. Same risk applies in
+# principle to torch and torchvision, but pip's resolver tends to leave
+# those alone because they're heavy dependencies of many other packages.
+# The strict cure is to strip all three from the requirements file — NGC's
+# already-installed wheels stay untouched.
+RUN grep -vE '^(torch|torchaudio|torchvision)\b' ${COMFYUI_PATH}/requirements.txt \
+        > /tmp/comfyui-requirements-filtered.txt && \
+    pip install --upgrade-strategy only-if-needed \
+        -r /tmp/comfyui-requirements-filtered.txt
 
 COPY requirements-extra.txt /tmp/requirements-extra.txt
-RUN pip install --upgrade-strategy only-if-needed \
-        -r /tmp/requirements-extra.txt
+RUN grep -vE '^(torch|torchaudio|torchvision)\b' /tmp/requirements-extra.txt \
+        > /tmp/requirements-extra-filtered.txt && \
+    pip install --upgrade-strategy only-if-needed \
+        -r /tmp/requirements-extra-filtered.txt
 
 # ---- Triton ------------------------------------------------------
 # SageAttention has a hard import-time dependency on triton. xformers also
