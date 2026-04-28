@@ -1,0 +1,48 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nvenc-test
+  namespace: default
+  labels:
+    app: nvenc-test
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: spark1
+  tolerations:
+    - operator: Exists
+  containers:
+    - name: ffmpeg
+      image: ubuntu:24.04
+      imagePullPolicy: IfNotPresent
+      command: ["bash", "-c"]
+      args:
+        - |
+          set -e
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ffmpeg ca-certificates >/dev/null
+          echo "=== ffmpeg version ==="
+          ffmpeg -hide_banner -version | head -1
+          echo "=== nvenc encoders ==="
+          ffmpeg -hide_banner -encoders 2>/dev/null | grep -iE 'nvenc' || echo "WARN: no nvenc encoders found"
+          echo "=== hwaccels ==="
+          ffmpeg -hide_banner -hwaccels 2>/dev/null
+          exec tail -f /dev/null
+      env:
+        - name: NVIDIA_VISIBLE_DEVICES
+          value: all
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: compute,utility,video
+      resources:
+        limits:
+          nvidia.com/gpu: "1"
+        requests:
+          nvidia.com/gpu: "1"
+      volumeMounts:
+        - name: scratch
+          mountPath: /scratch
+  volumes:
+    - name: scratch
+      emptyDir:
+        sizeLimit: 2Gi
