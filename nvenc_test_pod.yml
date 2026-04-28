@@ -45,4 +45,4 @@ spec:
   volumes:
     - name: scratch
       emptyDir:
-        sizeLimit: 2Gi
+        sizeLimit: 8Gi

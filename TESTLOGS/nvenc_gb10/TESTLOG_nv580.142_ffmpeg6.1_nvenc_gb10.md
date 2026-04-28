@@ -141,10 +141,105 @@ for RES in "1920x1080:60" "3840x2160:60"; do
 done
 ```
 
-## Follow-ups
+## Follow-up 1 — Concurrent-stream saturation
 
-- [ ] Concurrent-stream saturation: run 2/4/8 parallel `h264_nvenc` 1080p60 encodes,
-      observe per-stream fps degradation and find the NVENC-session ceiling on GB10.
-- [ ] Pure encoder fps (raw YUV input) to isolate NVENC throughput from lavfi CPU cost.
-- [ ] NVDEC test: full transcode roundtrip (`-hwaccel cuda -i in.mp4 -c:v h264_nvenc out.mp4`).
-- [ ] Decide if Jibri deployment is worth pursuing on the cluster.
+Run N parallel `h264_nvenc` 1080p60 p4 encodes (20 s each) simultaneously, measure
+per-stream fps and aggregate.
+
+| N streams | per-stream fps | aggregate fps | wall (s) | per-stream vs realtime |
+|----------:|---------------:|--------------:|---------:|-----------------------:|
+| 1 |  519 |  519 |  2.31 |  8.7× |
+| 2 |  266 |  532 |  4.51 |  4.4× |
+| 4 |  133 |  532 |  9.02 |  2.2× |
+| 8 |   65 |  523 | 18.34 |  1.09× |
+
+**Findings:**
+- **NVENC saturates immediately** — aggregate throughput plateaus at **~520–530 fps**
+  for `h264_nvenc` 1080p60 p4. Per-stream fps is just `aggregate / N`.
+- **No hard session cap observed up to N=8.** The encoder shares its single engine
+  fairly across concurrent contexts; degradation is graceful, not cliff-edged.
+- **Realtime ceiling for 1080p60 recording: ~8 concurrent streams.** At N=8,
+  per-stream fps is 65 — barely above realtime (60 fps). N=9+ would fall below
+  realtime and start dropping frames in a recording scenario.
+
+## Follow-up 2 — Raw YUV pure encoder throughput
+
+Pre-generated 1.78 GB raw YUV420p file (1080p60, 10 s, 600 frames), encoded directly
+to remove `lavfi testsrc2` CPU overhead.
+
+| Codec | Preset | Wall lavfi (s) | Wall raw (s) | fps lavfi | fps raw | Δ |
+|-------|--------|--------------:|-------------:|----------:|--------:|---:|
+| h264_nvenc | p1 | 0.872 | 0.819 | 688 | **733** | +6% |
+| h264_nvenc | p4 | 1.263 | 1.278 | 475 | 469 | ~0 |
+| hevc_nvenc | p1 | 0.772 | 0.750 | 777 | **800** | +3% |
+| hevc_nvenc | p4 | 1.422 | 1.446 | 422 | 415 | ~0 |
+| av1_nvenc  | p1 | 0.916 | 0.947 | 655 | 634 | ~0 |
+| av1_nvenc  | p4 | 1.332 | 1.334 | 450 | 450 |  0 |
+
+**Finding:** at 1080p, lavfi overhead is **negligible** (≤6% on the fastest preset,
+zero everywhere else). The original lavfi-based numbers in the main table are
+representative of real NVENC throughput. At 4K the gap might be larger; not measured
+because raw 4K60 10 s ≈ 6 GB exceeds the test pod's emptyDir.
+
+## Follow-up 3 — NVDEC + NVENC transcode roundtrip
+
+60 s synthetic h264 source (3 600 frames), 1080p60, transcode to `h264_nvenc` p4 8 Mbps.
+Four pipelines compared:
+
+| Mode | Decoder | Frame transit | Wall (s) | fps | utime (s) | Δ utime |
+|------|---------|---------------|---------:|----:|----------:|---------:|
+| `cpu_dec_libx264`     | CPU      | sysmem        | 3.98 | **904** | (very high — multi-core) | baseline |
+| `cpu_dec_nvenc`       | CPU h264 | sysmem        | 6.38 | 565 | 13.78 |  ref |
+| `nvdec_sysmem_nvenc`  | NVDEC    | GPU→host→GPU  | 6.70 | 538 |  1.92 | **−86%** |
+| `nvdec_cuda_nvenc`    | NVDEC    | GPU-resident  | 6.21 | **580** |  0.95 | **−93%** |
+
+**Findings:**
+- **NVDEC works on GB10.** Full GPU pipeline (`-hwaccel cuda -hwaccel_output_format cuda`)
+  succeeds at 580 fps — slightly faster than CPU-decode + NVENC because no PCIe round trip.
+- **The CPU savings are huge.** Full-GPU pipeline uses **~14× less CPU** than
+  CPU-decode + NVENC for the same throughput. Critical for a Jibri-style deployment
+  where the same host also runs Chromium, prosody, etc.
+- **libx264 ultrafast wins on raw fps** (904 fps) but burns multiple CPU cores fully
+  and produces lower quality at the same bitrate than NVENC p4. Not an apples-to-apples
+  comparison; libx264 medium would land below NVENC p4 in fps with comparable quality.
+- **Wall-time is encoder-bound** — all three NVENC variants land at 6.2–6.7 s. NVDEC
+  is fast enough to keep the encoder fed; the encoder is the bottleneck.
+
+## Verdict — is Jibri (or similar) worth deploying on the cluster?
+
+**Yes, technically very feasible.** Concrete reasons:
+
+- **One NVENC engine handles ~8 concurrent 1080p60 H.264 recordings in realtime** —
+  vastly more than any homelab Jitsi instance needs. Even with 50% headroom for
+  encoder variance and B-frame logic, 4–6 concurrent recordings is conservative.
+- **Full GPU pipeline frees the CPU** for the rest of the recording stack (Xorg,
+  Chromium, audio mux, file IO).
+- **All three relevant codecs work** — H.264 for compatibility, HEVC for ~30%
+  bitrate savings, AV1 for archival.
+- **No conflict with SGLang.** NVENC and CUDA SMs are independent units;
+  measurements were taken with the SGLang head pod live on the same GPU.
+
+**Caveats / pre-requisites if you actually deploy Jibri:**
+
+- Jibri itself is a Java service that drives a headless Chromium under Xorg + ffmpeg.
+  It needs `--shm-size`, X11/PulseAudio inside the container, and either
+  `nvidia.com/gpu: 1` or hostPath device passthrough. **The standard upstream
+  jitsi-jibri Docker image is x86_64 only** — would need an ARM64 rebuild for the
+  Sparks. That's the main porting cost, not NVENC capability.
+- Jibri's ffmpeg invocation needs `-c:v h264_nvenc -preset p4` patched in (it
+  defaults to libx264). One-line config change.
+- NVENC engine is **not** partitioned by GPU time-slicing. If two deployments
+  hammer NVENC simultaneously (e.g. multiple Jibri pods), they share the ~520 fps
+  aggregate — plan accordingly.
+- **Alternative recommendation:** the Sparks' actual sweet spot for conferencing is
+  AI features (live transcription via Whisper, summarization via SGLang/Ollama),
+  not the SFU itself. The JVB has nothing to GPU-accelerate. Worth deploying Jibri
+  only if recording/streaming is a real requirement; otherwise the GPU is more
+  valuable doing inference.
+
+## Pod cleanup
+
+```bash
+kubectl --context=ht@dgxarley delete -f nvenc_test_pod.yml
+```
+
