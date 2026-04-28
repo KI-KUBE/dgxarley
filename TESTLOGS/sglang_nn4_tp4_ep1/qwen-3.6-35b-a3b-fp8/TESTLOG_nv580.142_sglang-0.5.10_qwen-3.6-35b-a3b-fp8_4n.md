@@ -76,7 +76,7 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 | #  | nccl | moe_runner   | attention | dis_cuda_graph | dis_piecewise | spec | Status     | n=1 tok/s | n=4 peak | n=8 peak |
 |----|------|--------------|-----------|----------------|---------------|------|------------|-----------|----------|----------|
 | 1  | roce | triton       | fi        | false          | true          | —    | **STABLE** | 68.6      | 214.7    | **344.0** |
-| 2  | roce | triton       | fi        | true           | true          | —    | running    | 21.0      | 102.7    | (~207)   |
+| 2  | roce | triton       | fi        | true           | true          | —    | **STABLE** | 21.0      | 102.7    | 206.9    |
 | 3  | roce | triton       | fi        | false          | false         | —    | pending    | —         | —        | —        |
 | 4  | roce | triton       | triton    | false          | true          | —    | pending    | —         | —        | —        |
 | 5  | roce | triton       | triton    | true           | true          | —    | pending    | —         | —        | —        |
@@ -105,7 +105,7 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 
 ## Results
 
-Run started 2026-04-28 (`kikube/matrixtest/2026-04-28/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.10/`). 1/14 complete, 1 running.
+Run started 2026-04-28 (`kikube/matrixtest/2026-04-28/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.10/`). 2/14 complete.
 
 ### Test 1 — triton MoE, flashinfer attn, CUDA graphs on, piecewise off
 
@@ -121,15 +121,18 @@ Run started 2026-04-28 (`kikube/matrixtest/2026-04-28/results/sglang_nn4_tp4_ep1
 
 ### Test 2 — triton MoE, flashinfer attn, eager (no CUDA graphs)
 
+- **STABLE.** 8/8 successful at n=8.
 - n=1: **21.0 tok/s** (TTFT **11.86s** — heavy JIT warmup without pre-captured
   graphs, identical pattern to Gemma-4 31B Test 5).
 - n=4: **102.7 tok/s peak** (TTFT 1.14s, ~25.7 tok/s per request).
-- n=8: still running at the time of this update; head log shows aggregate
-  decode rate ~207 tok/s with 8 running requests → expected n=8 peak ≈ 200–210.
-- Eager is roughly **3× slower than Test 1 (CG on)** at n=1 (21.0 vs 68.6) and
-  ~2× slower at n=4 (102.7 vs 214.7). Expected — CUDA graphs are mandatory for
+- n=8: **206.9 tok/s peak** (TTFT 0.45s, ~25.9 tok/s per request, wall 118.8s).
+- Eager is **3.3× slower than Test 1 (CG on)** at n=1 (21.0 vs 68.6), **2.1×
+  slower at n=4** (102.7 vs 214.7), and **1.7× slower at n=8** (206.9 vs 344.0).
+  Gap narrows with concurrency but stays large — CUDA graphs are mandatory for
   good throughput on this codepath.
 
 ### Tests 3–14 — pending
+
+Test 3 (piecewise CUDA graphs) not yet started.
 
 

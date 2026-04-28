@@ -2,10 +2,10 @@
 
 ## Status
 
-**Open upstream (vLLM only)** as of 2026-04-20 (re-verified: no review movement on any open PR since last check). Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447). Present in SGLang v0.5.10 (2026-04-06) and v0.5.10.post1 (2026-04-09, flashinfer bump only). No new release since v0.5.10.post1. EPLB Qwen3 fix (PR #21822) merged 2026-04-09 but not in any release yet (post1 was tagged ~4h before merge); all other referenced PRs re-verified 2026-04-20 — none merged, none reviewed (vllm#35598 last touched 2026-04-13 by author rebase, vllm#36026 stale since 2026-03-29, sglang#20869 stale since 2026-03-18, sglang#21630 stale since 2026-03-29, sglang#21612 stale since 2026-03-29, sglang#20963 last collaborator activity 2026-04-06).
+**Open upstream (vLLM only)** as of 2026-04-28. Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447). Present in SGLang v0.5.10 (2026-04-06) and v0.5.10.post1 (2026-04-09, flashinfer bump only). No new SGLang release since v0.5.10.post1. EPLB Qwen3 fix (PR #21822) merged 2026-04-09 but still not in any SGLang release (post1 was tagged ~4h before merge). vLLM v0.20.0 was tagged 2026-04-27 (latest). All other referenced PRs re-verified 2026-04-28: vllm#35598 unchanged since 2026-04-13 author rebase (still only bot review), **vllm#36026 closed without merge by the author on 2026-04-25** after 8+ weeks with no maintainer review (author offered to reopen if needed); sglang#20869 stale since 2026-03-18, sglang#21630 stale since 2026-03-29, sglang#21612 stale since 2026-03-29, sglang#20963 last collaborator activity 2026-04-06.
 
 - vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, not merged. Author rebased onto `main` on 2026-04-13 (commit `c56eae0e`, merge-from-main only, no code changes); prior rebase 2026-03-05. Still only the initial Gemini bot review from 2026-02-28 — no human reviewer has engaged
-- vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch, open since 2026-03-29, author pinged for review 2026-03-29, still unreviewed
+- vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch. **Closed without merge 2026-04-25** by author (`weiguangli-io`) citing 8+ weeks with no maintainer review; offered to reopen if it becomes relevant. The sub-bug it fixed (kernel dispatch num_experts) remains unaddressed in vLLM `main`
 - SGLang: no upstream issue or PR filed
 
 Files:
@@ -405,7 +405,7 @@ However, the CUDA kernel-level issue cannot be patched. For NVFP4 + EP > 1, use
 - vLLM #12647 — moe_wna16 AssertionError (KV cache conflict, unrelated)
 - vLLM #22961 — TypeError in moe_wna16_weight_loader (return_success param, unrelated)
 - vLLM PR #14447 — introduced moe_wna16 marlin kernel (origin of this code)
-- vLLM [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch (open, different sub-bug)
+- vLLM [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch (**closed without merge 2026-04-25** by author due to no maintainer review; different sub-bug)
 - SGLang PR #17137 — non-Marlin WNA16MoE port (does not fix EP bug)
 - SGLang #14158 — update_weights_from_tensor for WNA16MoE (unrelated)
 - SGLang [PR #13715](https://github.com/sgl-project/sglang/pull/13715) — fix EPLB + FP4 weight tensor filtering (merged, different issue)

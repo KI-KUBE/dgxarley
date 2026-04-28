@@ -111,6 +111,6 @@ PR opened 2026-04-12, status **OPEN** (re-verified 2026-04-20, last touched 2026
 
 ## Upstream references
 
-- Not yet reported (re-verified 2026-04-20: GitHub search for `sub_configs Qwen3_5` in sgl-project/sglang still returns no matching issues or PRs)
+- [PR #22839](https://github.com/sgl-project/sglang/pull/22839) — "fix(config): Add from_dict() for Qwen3VL config classes" (opened 2026-04-15 by `libermeng`, **OPEN** as of 2026-04-28). Addresses the same root cause this doc describes ("Transformers 5.5.0+ natively supports Qwen3-VL, causing `AutoConfig.from_pretrained()` to skip sglang's config conversion logic. This leaves nested `vision_config` and `text_config` as dicts instead of config objects."). Different fix vehicle than ours: adds a `from_dict()` classmethod to `Qwen3VLConfig`/`Qwen3VLMoeConfig`/`Qwen3_5Config`/`Qwen3_5MoeConfig` and registers them in `_CONFIG_REGISTRY`, instead of hooking `__post_init__`. Also fixes `Qwen3_5MoeTextConfig` MoE attributes. Includes 9 unit tests. CI re-run requested 2026-04-15 — no human review since. **Not yet merged → our monkey-patch is still required.**
 - Related: transformers 5.x `PretrainedConfig.__init_subclass__` auto-init behavior
 - Related: sgl-project/sglang#20973 (different Qwen3.5 NVFP4 checkpoint, different bug)
