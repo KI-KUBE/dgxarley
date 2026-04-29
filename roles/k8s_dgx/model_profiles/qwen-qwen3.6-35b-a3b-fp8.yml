@@ -34,17 +34,33 @@ _model_profile:
     # MTP / speculative decoding (NEXTN) — recommended by model card:
     #   --speculative-algo NEXTN --speculative-num-steps 3
     #   --speculative-eagle-topk 1 --speculative-num-draft-tokens 4
-    # Disabled pending validation; flip speculative_enabled to true to enable.
+    #
+    # IMPORTANT: the card's recipe is incomplete on SGLang 0.5.10 for this
+    # hybrid-mamba arch. With just speculative_* set, startup fails with:
+    #   ValueError: Speculative decoding for Qwen3_5MoeForConditionalGeneration
+    #   is not compatible with radix cache when using --mamba-scheduler-strategy
+    #   no_buffer. Use --mamba-scheduler-strategy extra_buffer and
+    #   set SGLANG_ENABLE_SPEC_V2=1.
+    # Both extra knobs (mamba_scheduler_strategy, enable_spec_v2) are wired
+    # through defaults/main.yml → tasks/sglang.yml env → sglang_launch.sh.
+    # Flip the whole block (speculative_enabled, mamba_scheduler_strategy,
+    # enable_spec_v2) together to enable MTP.
     # speculative_enabled: true
     # speculative_algo: NEXTN
     # speculative_num_steps: 3
     # speculative_eagle_topk: 1
     # speculative_num_draft_tokens: 4
-    # operational defaults (mirror Qwen3.5-122B-A10B-FP8 sister profile)
+    # mamba_scheduler_strategy: extra_buffer
+    # enable_spec_v2: true
+    # operational defaults — Test 6 winner config from the 14-case 0.5.10 sweep
+    # on 4× DGX Spark TP=4 EP=1 (TESTLOG ..._qwen-3.6-35b-a3b-fp8_4n.md):
+    #   triton MoE + triton attn + CG on + piecewise on → 345.8 tok/s @ n=8.
+    # fi_cutlass MoE crashes on FP8 ("Fp8MoEMethod has no attribute 'runner'");
+    # eager mode is 1.7×–3.3× slower at every batch size.
     nccl_transport: roce
     moe_runner_backend: triton
     disable_cuda_graph: false
-    disable_piecewise_cuda_graph: true
+    disable_piecewise_cuda_graph: false
     pp_async_batch_depth: 0
     cuda_graph_max_bs: 8
     speculative_enabled: false

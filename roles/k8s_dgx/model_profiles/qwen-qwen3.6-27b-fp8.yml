@@ -30,12 +30,19 @@ _model_profile:
     # config applies here:
     #   --speculative-algo NEXTN --speculative-num-steps 3
     #   --speculative-eagle-topk 1 --speculative-num-draft-tokens 4
-    # Disabled pending validation; flip speculative_enabled to true to enable.
+    #
+    # NOTE: the 35B-A3B sibling needs two extra knobs on SGLang 0.5.10
+    # (mamba_scheduler_strategy=extra_buffer + enable_spec_v2=true) because
+    # the MoE arch is hybrid-mamba. The 27B is also hybrid (Gated DeltaNet),
+    # so the same requirement likely applies — added preemptively. Verify
+    # against an actual run before relying on it.
     # speculative_enabled: true
     # speculative_algo: NEXTN
     # speculative_num_steps: 3
     # speculative_eagle_topk: 1
     # speculative_num_draft_tokens: 4
+    # mamba_scheduler_strategy: extra_buffer
+    # enable_spec_v2: true
     # operational defaults (dense → no moe_runner_backend)
     nccl_transport: roce
     disable_cuda_graph: false

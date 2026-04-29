@@ -73,22 +73,22 @@ shape that won on Qwen3.5-397B and GLM-4.7 at EP=1). Profile keeps it disabled
 
 All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0.50, disable_deep_gemm=true, fp8_gemm_runner_backend=cutlass, context_length=262144, num_experts=256, enable_eplb=false` unless noted. FP8 → no FP4 sweep. `cutlass` MoE skipped (FP4-only).
 
-| #  | nccl | moe_runner   | attention | dis_cuda_graph | dis_piecewise | spec | Status     | n=1 tok/s | n=4 peak | n=8 peak |
-|----|------|--------------|-----------|----------------|---------------|------|------------|-----------|----------|----------|
-| 1  | roce | triton       | fi        | false          | true          | —    | **STABLE** | 68.6      | 214.7    | **344.0** |
-| 2  | roce | triton       | fi        | true           | true          | —    | **STABLE** | 21.0      | 102.7    | 206.9    |
-| 3  | roce | triton       | fi        | false          | false         | —    | pending    | —         | —        | —        |
-| 4  | roce | triton       | triton    | false          | true          | —    | pending    | —         | —        | —        |
-| 5  | roce | triton       | triton    | true           | true          | —    | pending    | —         | —        | —        |
-| 6  | roce | triton       | triton    | false          | false         | —    | pending    | —         | —        | —        |
-| 7  | roce | fi_cutlass   | fi        | false          | true          | —    | pending    | —         | —        | —        |
-| 8  | roce | fi_cutlass   | fi        | true           | true          | —    | pending    | —         | —        | —        |
-| 9  | roce | fi_cutlass   | fi        | false          | false         | —    | pending    | —         | —        | —        |
-| 10 | roce | fi_cutlass   | triton    | false          | true          | —    | pending    | —         | —        | —        |
-| 11 | roce | fi_cutlass   | triton    | true           | true          | —    | pending    | —         | —        | —        |
-| 12 | roce | fi_cutlass   | triton    | false          | false         | —    | pending    | —         | —        | —        |
-| 13 | roce | triton       | fi        | false          | true          | NEXTN| pending    | —         | —        | —        |
-| 14 | roce | fi_cutlass   | fi        | false          | true          | NEXTN| pending    | —         | —        | —        |
+| #  | nccl | moe_runner   | attention | dis_cuda_graph | dis_piecewise | spec | Status            | n=1 tok/s | n=4 peak | n=8 peak  |
+|----|------|--------------|-----------|----------------|---------------|------|-------------------|-----------|----------|-----------|
+| 1  | roce | triton       | fi        | false          | true          | —    | **STABLE**        | 68.6      | **214.7**| 344.1     |
+| 2  | roce | triton       | fi        | true           | true          | —    | **STABLE**        | 21.0      | 102.7    | 207.0     |
+| 3  | roce | triton       | fi        | false          | false         | —    | **STABLE**        | 62.4      | 210.4    | 336.3     |
+| 4  | roce | triton       | triton    | false          | true          | —    | **STABLE**        | 69.0      | 213.3    | 343.2     |
+| 5  | roce | triton       | triton    | true           | true          | —    | **STABLE**        | 20.5      | 105.1    | 205.5     |
+| 6  | roce | triton       | triton    | false          | false         | —    | **STABLE ★**      | **69.0**  | 212.0    | **345.8** |
+| 7  | roce | fi_cutlass   | fi        | false          | true          | —    | **startup_crash** | —         | —        | —         |
+| 8  | roce | fi_cutlass   | fi        | true           | true          | —    | **bench_crash**   | —         | —        | —         |
+| 9  | roce | fi_cutlass   | fi        | false          | false         | —    | **startup_crash** | —         | —        | —         |
+| 10 | roce | fi_cutlass   | triton    | false          | true          | —    | **timeout**       | —         | —        | —         |
+| 11 | roce | fi_cutlass   | triton    | true           | true          | —    | **bench_crash**   | —         | —        | —         |
+| 12 | roce | fi_cutlass   | triton    | false          | false         | —    | **startup_crash** | —         | —        | —         |
+| 13 | roce | triton       | fi        | false          | true          | NEXTN| **startup_crash** | —         | —        | —         |
+| 14 | roce | fi_cutlass   | fi        | false          | true          | NEXTN| **startup_crash** | —         | —        | —         |
 
 ### Column Legend
 
@@ -105,34 +105,146 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 
 ## Results
 
-Run started 2026-04-28 (`kikube/matrixtest/2026-04-28/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.10/`). 2/14 complete.
+Run completed 2026-04-29, 14/14 cases finished (`kikube/matrixtest/2026-04-28/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.10/`).
 
-### Test 1 — triton MoE, flashinfer attn, CUDA graphs on, piecewise off
+**6/14 STABLE, 8/14 failed.** Clean split by MoE runner: every `triton`
+MoE config works; every `flashinfer_cutlass` MoE config fails. Both MTP
+variants fail at startup with the same root cause regardless of MoE runner.
 
-- **STABLE.** First successful Qwen3.6-35B-A3B-FP8 serve on the cluster.
-- n=1: **68.6 tok/s** (TTFT 1.16s — first request, includes warmup).
-- n=4: **214.7 tok/s peak** (TTFT 0.37s, ~53.7 tok/s per request).
-- n=8: **344.0 tok/s peak** (TTFT 0.41s, ~43.0 tok/s per request).
-- 8/8 successful at n=8, no failed requests; wall_time 71.4s.
-- `attention_backend: flashinfer` works here — head_dim=256 (gated-attn) is
-  inside FlashInfer's dispatch table, no `head_dim=512` problem like Gemma-4.
-- Throughput at n=8 is ~3.4× the Qwen3.5-397B-NVFP4 winner (102 tok/s) thanks
-  to the small active-param count (3B vs 17B).
+### Tests 1–6 — triton MoE (all STABLE)
 
-### Test 2 — triton MoE, flashinfer attn, eager (no CUDA graphs)
+| Config | n=1 | n=4 | n=8 | n=1 TTFT |
+|--------|----:|----:|----:|---------:|
+| **Test 6** (triton attn, piecewise) | **69.0** | 212.0 | **345.8** | 0.48s |
+| Test 1 (fi attn, CG on)             | 68.6     | **214.7** | 344.1 | **1.16s¹** |
+| Test 4 (triton attn, CG on)         | 69.0     | 213.3 | 343.2 | 0.56s |
+| Test 3 (fi attn, piecewise)         | 62.4     | 210.4 | 336.3 | 1.79s |
+| Test 2 (fi attn, eager)             | 21.0     | 102.7 | 207.0 | 11.86s |
+| Test 5 (triton attn, eager)         | 20.5     | 105.1 | 205.5 | 14.55s |
 
-- **STABLE.** 8/8 successful at n=8.
-- n=1: **21.0 tok/s** (TTFT **11.86s** — heavy JIT warmup without pre-captured
-  graphs, identical pattern to Gemma-4 31B Test 5).
-- n=4: **102.7 tok/s peak** (TTFT 1.14s, ~25.7 tok/s per request).
-- n=8: **206.9 tok/s peak** (TTFT 0.45s, ~25.9 tok/s per request, wall 118.8s).
-- Eager is **3.3× slower than Test 1 (CG on)** at n=1 (21.0 vs 68.6), **2.1×
-  slower at n=4** (102.7 vs 214.7), and **1.7× slower at n=8** (206.9 vs 344.0).
-  Gap narrows with concurrency but stays large — CUDA graphs are mandatory for
-  good throughput on this codepath.
+¹ first request of the day; warmup-cost noise.
 
-### Tests 3–14 — pending
+- **CG-on configs (1, 3, 4, 6) all cluster within ~3% at n=8 (336–346 tok/s).**
+  Test 6 wins by a hair (345.8) over Test 1 (344.1) — within run-to-run
+  noise, no clear architectural advantage of triton-attn over fi-attn.
+- **`attention_backend: flashinfer` works** — head_dim=256 on the gated-attn
+  layer is in FlashInfer's dispatch table, no `head_dim=512` problem like Gemma-4.
+- **Eager mode (2, 5) is 1.7×–3.3× slower** than CG-on at every batch size.
+  CUDA graphs are mandatory for production throughput on this codepath.
+- **Piecewise vs fixed-BS at n=4 split:** CG-on wins (214.7) over piecewise
+  (210.4) when fi-attn; piecewise wins at n=8 by 1.7 tok/s. Pick CG-on for
+  interactive (best n=4), piecewise for max-batch.
+- n=8 peak (~346 tok/s) is **~3.4× the Qwen3.5-397B-NVFP4 winner** (102 tok/s)
+  — small-active-MoE pays off (3B vs 17B active).
 
-Test 3 (piecewise CUDA graphs) not yet started.
+### Tests 7–12 — flashinfer_cutlass MoE (all FAIL)
+
+All 6 fi_cutlass configs failed regardless of attention backend or CUDA-graph
+setting. Distribution: 3× startup_crash, 2× bench_crash, 1× timeout. Common
+root cause from the head log:
+
+```
+[TP0] Scheduler hit an exception:
+AttributeError: 'Fp8MoEMethod' object has no attribute 'runner'
+[TP0] Received sigquit from a child process. It usually means the child failed.
+```
+
+**`flashinfer_cutlass` MoE runner is incompatible with FP8 weights** — the
+`Fp8MoEMethod` doesn't define a `runner` attribute that the fi_cutlass
+codepath expects. This is consistent with the existing CLAUDE.md guidance
+that `cutlass_moe_fp4` requires FP4 tensors. Profile correctly defaults to
+`moe_runner_backend: triton`; fi_cutlass should not be used on FP8.
+
+Test 8 (eager) and Test 11 (eager + triton attn) hit the same kernel error
+at first benchmark request rather than during graph capture, hence
+`bench_crash`. Test 10 timed out at startup (900s) — a slower variant of
+the same crash. Test 12 was the lone server-side `sglang stuck` / pod restart.
+
+### Tests 13–14 — MTP / NEXTN (both FAIL)
+
+Both MTP variants startup-crashed with an explicit, actionable error from SGLang:
+
+```
+ValueError: Speculative decoding for Qwen3_5MoeForConditionalGeneration is
+not compatible with radix cache when using --mamba-scheduler-strategy
+no_buffer. To use radix cache with speculative decoding, please use
+--mamba-scheduler-strategy extra_buffer and set SGLANG_ENABLE_SPEC_V2=1.
+```
+
+The model card's `--speculative-algo NEXTN ...` recipe is incomplete on
+SGLang 0.5.10 for this hybrid-mamba arch. Two extra knobs are required:
+
+- `mamba_scheduler_strategy: extra_buffer`
+- `enable_spec_v2: true` (sets `SGLANG_ENABLE_SPEC_V2=1`)
+
+Both keys already exist in `defaults/main.yml`. A follow-up matrix should
+add these to the MTP cases (or a 4-case MTP-only sweep) and re-run; the
+failure is configuration, not a code bug.
+
+### Production profile recommendation
+
+```yaml
+moe_runner_backend: triton              # mandatory — fi_cutlass crashes on FP8
+attention_backend: triton               # tied with flashinfer; triton is conservative
+disable_cuda_graph: false               # mandatory — eager is 1.7×–3.3× slower
+disable_piecewise_cuda_graph: false     # piecewise edges out CG-on at n=8 (Test 6)
+cuda_graph_max_bs: 8
+nccl_transport: roce
+```
+
+This is **Test 6**'s shape; it sits within noise of Tests 1/4 at every batch
+size and wins n=8 outright.
+
+### MTP re-run (2026-04-29) — both STABLE, big throughput win
+
+Tests 13/14 re-run with the missing MTP knobs added (`mamba_scheduler_strategy:
+extra_buffer` + `enable_spec_v2: true`). Test shape switched to the Test-6
+winner layout (piecewise CG on, two attn variants). Result dir:
+`kikube/matrixtest/2026-04-29/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.10/`.
+
+Server args confirm the fix is wired: `mamba_scheduler_strategy='extra_buffer'`,
+`speculative_algorithm='EAGLE'` (SGLang's internal name for NEXTN under
+spec_v2). No startup crash.
+
+| Test | moe_runner | attn   | spec  | n=1   | n=4   | n=8       | n=8 TTFT |
+|------|------------|--------|-------|------:|------:|----------:|---------:|
+| 13   | triton     | triton | NEXTN | **104.2** | 277.8 | **410.7** | **0.74s** |
+| 14   | triton     | fi     | NEXTN | 85.8  | **284.3** | 409.9 | 0.97s    |
+| 6 (no MTP, prior run) | triton | triton | —     | 69.0  | 212.0 | 345.8 | —        |
+
+- **MTP delivers a massive boost over the no-MTP winner (Test 6):**
+  **+51% at n=1** (104.2 vs 69.0), **+31% at n=4** (277.8 vs 212.0),
+  **+19% at n=8** (410.7 vs 345.8). Higher gain at low concurrency is expected —
+  speculative decoding hides latency, and at high batch the scheduler is
+  already saturated.
+- **Tests 13 and 14 tie at n=8** (410.7 vs 409.9, within noise). Test 13's
+  triton-attn has the better n=1 (+22%) and lower n=8 TTFT (0.74 vs 0.97s);
+  fi-attn edges ahead at n=4 (+2%). Triton-attn is the better default for
+  interactive workloads.
+- The card's claim of ~2× speedup is not reproduced here at n=8 (1.19×) but
+  is closer at n=1 (1.51×). Plausible that benchmark-prompt mix matters.
+
+### Recommended MTP profile (when enabled)
+
+```yaml
+moe_runner_backend: triton
+attention_backend: triton
+disable_cuda_graph: false
+disable_piecewise_cuda_graph: false
+nccl_transport: roce
+cuda_graph_max_bs: 8
+speculative_enabled: true
+speculative_algo: NEXTN
+speculative_num_steps: 3
+speculative_eagle_topk: 1
+speculative_num_draft_tokens: 4
+mamba_scheduler_strategy: extra_buffer
+enable_spec_v2: true
+```
+
+### Open follow-ups
+
+- **27B-FP8 matrix** — kicked off on 2026-04-29 but no cases completed yet
+  (`MATRIX_SUMMARY` file exists, empty results array).
 
 
