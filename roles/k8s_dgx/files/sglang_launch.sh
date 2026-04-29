@@ -600,6 +600,122 @@ print("Patched moe_wna16.py: EP-aware expert_id + tp_rank remapping for qzeros")
 PATCH_QZEROS_EOF
 fi
 
+# Patch quantization/utils.py: dot-boundary matching in is_layer_skipped()
+# (GitHub issue #23687, PR #23467, commit 4323fce, 2026-04-22).
+# Naive `ignored in prefix` substring check causes `mlp.gate` (from Qwen3.6-FP8
+# modules_to_not_convert) to match `mlp.gate_up_proj`, silently bypassing FP8
+# weight_scale_inv registration and producing garbage logits / token salad.
+# Fix: replace all four bare substring checks with _module_path_match() which
+# requires dot-boundary separation, and add _FALLBACK_FUSED_SHARDS for configs
+# that don't ship packed_modules_mapping.
+QUANT_UTILS="/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/quantization/utils.py"
+if [ -f "$QUANT_UTILS" ] && ! grep -q 'def _module_path_match' "$QUANT_UTILS" 2>/dev/null; then
+  python3 << 'PATCH_QUANT_UTILS_EOF'
+import sys
+f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/quantization/utils.py"
+with open(f) as fh:
+    code = fh.read()
+
+# Idempotency check (belt-and-suspenders after the shell grep guard)
+if "def _module_path_match" in code:
+    print("quantization/utils.py: already patched (_module_path_match present), skipping")
+    sys.exit(0)
+
+# Hunk 1: inject _module_path_match() and _FALLBACK_FUSED_SHARDS just before
+# is_layer_skipped() — anchor on the function signature line.
+old1 = '''def is_layer_skipped(
+    prefix: str,
+    ignored_layers: List[str],
+    fused_mapping: Mapping[str, List[str]] = MappingProxyType({}),
+) -> bool:'''
+new1 = '''def _module_path_match(ignored: str, prefix: str) -> bool:
+    # Match on dotted module-path boundaries so that `mlp.gate` does NOT
+    # match `mlp.gate_up_proj`. Needed for quant configs (e.g. Qwen3.6-FP8)
+    # whose `modules_to_not_convert` lists MoE-template names like `mlp.gate`
+    # that collide with fused dense MLP names by plain substring.
+    if ignored == prefix:
+        return True
+    if prefix.startswith(ignored + "."):
+        return True
+    return ("." + ignored + ".") in ("." + prefix + ".")
+
+
+# Known fused-linear -> shard names. Used as a fallback when the quant
+# config doesn't ship packed_modules_mapping (typical for HF FP8 configs).
+_FALLBACK_FUSED_SHARDS: dict[str, list[str]] = {
+    "qkv_proj": ["q_proj", "k_proj", "v_proj"],
+    "gate_up_proj": ["gate_proj", "up_proj"],
+    "in_proj_ba": ["in_proj_b", "in_proj_a"],
+    "in_proj_qkvz": ["in_proj_qkv", "in_proj_z"],
+}
+
+
+def is_layer_skipped(
+    prefix: str,
+    ignored_layers: List[str],
+    fused_mapping: Mapping[str, List[str]] = MappingProxyType({}),
+) -> bool:'''
+
+if old1 not in code:
+    print("quantization/utils.py: is_layer_skipped signature not found, skipping")
+    sys.exit(0)
+code = code.replace(old1, new1, 1)
+
+# Hunk 2: inside the fused-mapping branch — use _FALLBACK_FUSED_SHARDS when
+# proj_name is not in fused_mapping, and replace bare substring check with
+# _module_path_match().
+old2 = '''    if proj_name in fused_mapping:
+        shard_prefixes = [
+            prefix.replace(proj_name, shard_proj_name)
+            for shard_proj_name in fused_mapping[proj_name]
+        ]
+
+        is_skipped = None
+        for shard_prefix in shard_prefixes:
+            is_shard_skipped = any(
+                ignored in shard_prefix for ignored in ignored_layers
+            )'''
+new2 = '''    effective_fused = (
+        fused_mapping if proj_name in fused_mapping else _FALLBACK_FUSED_SHARDS
+    )
+    if proj_name in effective_fused:
+        shard_prefixes = [
+            prefix.replace(proj_name, shard_proj_name)
+            for shard_proj_name in effective_fused[proj_name]
+        ]
+
+        is_skipped = None
+        for shard_prefix in shard_prefixes:
+            is_shard_skipped = any(
+                _module_path_match(ignored, shard_prefix) for ignored in ignored_layers
+            )'''
+
+if old2 not in code:
+    print("quantization/utils.py: fused-mapping branch not found, skipping")
+    sys.exit(0)
+code = code.replace(old2, new2, 1)
+
+# Hunk 3: the else-branch bare substring check → _module_path_match().
+old3 = '''    else:
+        is_skipped = any(ignored in prefix for ignored in ignored_layers)
+        if "gate_up_proj" in prefix:'''
+new3 = '''    else:
+        is_skipped = any(
+            _module_path_match(ignored, prefix) for ignored in ignored_layers
+        )
+        if "gate_up_proj" in prefix:'''
+
+if old3 not in code:
+    print("quantization/utils.py: else-branch substring check not found, skipping")
+    sys.exit(0)
+code = code.replace(old3, new3, 1)
+
+with open(f, 'w') as fh:
+    fh.write(code)
+print("Patched quantization/utils.py: dot-boundary _module_path_match + _FALLBACK_FUSED_SHARDS in is_layer_skipped()")
+PATCH_QUANT_UTILS_EOF
+fi
+
 # Patch modelopt_quant.py: EP-aware input_scale slicing (SGLang 0.5.9 bug).
 # In process_weights_after_loading(), the fallback else-branch computes
 # w13_input_scale and w2_input_scale with shape (num_experts,) but multiplies
