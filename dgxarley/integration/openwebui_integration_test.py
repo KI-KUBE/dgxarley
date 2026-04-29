@@ -109,6 +109,21 @@ else:
 # YAML-loaded data has heterogeneous structure; annotated as dict[str, object]
 _MODEL_PROFILES: dict[str, object] = _dgx_defaults.get("sglang_model_profiles", {})  # type: ignore[assignment]
 
+# Ansible merges per-model YAML files from roles/k8s_dgx/model_profiles/ into
+# sglang_model_profiles at runtime via include_vars + combine. The defaults
+# file only contains an empty stub. Replicate the merge here so the bench
+# client sees the same dict Ansible produces.
+_profiles_dir: Path = (_defaults_path.parent.parent / "model_profiles").resolve()
+if _profiles_dir.is_dir():
+    for _profile_path in sorted(_profiles_dir.glob("*.yml")):
+        with open(_profile_path) as _pf:
+            _doc = yaml.safe_load(_pf) or {}
+        _entries = _doc.get("_model_profile", {}) if isinstance(_doc, dict) else {}
+        if isinstance(_entries, dict):
+            for _model_id, _profile in _entries.items():
+                if _model_id not in _MODEL_PROFILES:
+                    _MODEL_PROFILES[_model_id] = _profile
+
 
 def load_sampling_presets(
     model_id: str,
