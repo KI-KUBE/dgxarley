@@ -8,7 +8,7 @@ _model_profile:
     context_length: 262144
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.80"
-    attention_backend: "triton"
+    attention_backend: "flashinfer"
     disable_deep_gemm: true
     fp8_gemm_runner_backend: "cutlass"
     reasoning_parser: "qwen3"
@@ -35,27 +35,25 @@ _model_profile:
     ep_size: 1
     tp_size: 4
     # MTP / speculative decoding (NEXTN) — Qwen3.6 is MTP-trained.
-    # Card shows the SGLang flags only on the 35B-A3B sibling; the same NEXTN
-    # config applies here:
-    #   --speculative-algo NEXTN --speculative-num-steps 3
-    #   --speculative-eagle-topk 1 --speculative-num-draft-tokens 4
-    #
-    # NOTE: the 35B-A3B sibling needs two extra knobs on SGLang 0.5.10
-    # (mamba_scheduler_strategy=extra_buffer + enable_spec_v2=true) because
-    # the MoE arch is hybrid-mamba. The 27B is also hybrid (Gated DeltaNet),
-    # so the same requirement likely applies — added preemptively. Verify
-    # against an actual run before relying on it.
-    # speculative_enabled: true
-    # speculative_algo: NEXTN
-    # speculative_num_steps: 3
-    # speculative_eagle_topk: 1
-    # speculative_num_draft_tokens: 4
-    # mamba_scheduler_strategy: extra_buffer
-    # enable_spec_v2: true
-    # operational defaults (dense → no moe_runner_backend)
+    # Two extra knobs (mamba_scheduler_strategy=extra_buffer + enable_spec_v2=true)
+    # are required on SGLang 0.5.10 to avoid spec-v2-vs-radix-cache crash on this
+    # hybrid Gated-DeltaNet arch.
+    speculative_enabled: true
+    speculative_algo: NEXTN
+    speculative_num_steps: 3
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 4
+    mamba_scheduler_strategy: extra_buffer
+    enable_spec_v2: true
+    # operational defaults — Test 7 winner config from the 8-case 0.5.10 sweep
+    # on 4× DGX Spark TP=4 EP=1 (TESTLOG ..._qwen-3.6-27b-fp8_4n.md):
+    # fi-attn + CG on + piecewise off + MTP NEXTN → 44.4 / 146.4 / 238.8 tok/s
+    # @ n=1/4/8 (vs 21.9/84.2/157.4 without MTP — +102%/+74%/+52%).
+    # Requires runtime patch in sglang_launch.sh (PR #23467, FP8 weight-scale
+    # fix); without it the model produces token salad. See
+    # SGLANG_QWEN36_27B_FP8_UPSTREAM_BUG.md.
     nccl_transport: roce
     disable_cuda_graph: false
     disable_piecewise_cuda_graph: true
     pp_async_batch_depth: 0
     cuda_graph_max_bs: 8
-    speculative_enabled: false
