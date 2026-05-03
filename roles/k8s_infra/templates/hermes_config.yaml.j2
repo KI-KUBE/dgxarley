@@ -1,0 +1,14 @@
+{# Hermes Agent config — rendered per user via lookup('template', ...).
+   Provider "custom" routes through OpenAI-compatible API; api_key comes from
+   OPENAI_API_KEY in the .env file (mounted as Secret).
+   See: https://hermes-agent.nousresearch.com/docs/user-guide/configuration
+#}
+model:
+  provider: "custom"
+  default: "{{ (item.litellm_model | default('')) or hermes_default_model }}"
+  base_url: "{{ hermes_litellm_url }}/v1"
+
+terminal:
+  backend: "local"
+  cwd: "."
+  timeout: 180
