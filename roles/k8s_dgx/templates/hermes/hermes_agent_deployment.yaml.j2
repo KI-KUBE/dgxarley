@@ -142,14 +142,17 @@ spec:
             - name: seed-secret
               mountPath: /seed-secret
               readOnly: true
-        # `hermes dashboard --tui` runs npm install on first start to refresh
-        # @hermes/ink TUI deps. The image's /opt/hermes/ui-tui/node_modules is
-        # baked-in root-owned (chown'd at image build), so npm trying to
-        # rename/replace files inside fails with EACCES for our non-root UID.
-        # Copy the whole tree to an emptyDir, chown to the user, then bind-
-        # mount it OVER /opt/hermes/ui-tui in the main container — npm now has
-        # full write access to its own node_modules. Uses the agent image
-        # itself (already cached on the node) so we copy from the same layer.
+        # `hermes dashboard --tui` runs `npm install` on every launch because
+        # `_tui_need_npm_install()` returns True (the upstream image has a
+        # package-lock vs node_modules/.package-lock content mismatch). The
+        # image-baked /opt/hermes/ui-tui/node_modules is root-owned, so the
+        # rename(2) npm uses to swap directories EACCES's for our non-root
+        # UID — including under the entrypoint pattern, since the entrypoint
+        # only chowns $HERMES_HOME, not /opt/hermes/. Verified empirically:
+        # remove this initContainer + the corresponding volume + mount and
+        # the next pod start logs "npm install failed" → "Chat unavailable: 1"
+        # in the browser. Bind-mount stays mandatory until upstream ships a
+        # tree where the lockfile check passes.
         - name: copy-ui-tui
           image: "nousresearch/hermes-agent:{{ item.image_tag | default(hermes_image_tag) }}"
           command:
@@ -185,20 +188,29 @@ spec:
       containers:
         - name: hermes
           image: "nousresearch/hermes-agent:{{ item.image_tag | default(hermes_image_tag) }}"
-          imagePullPolicy: IfNotPresent
-          # `dashboard` serves the web UI on 9119; --tui adds the embedded chat tab.
-          # `gateway run` (the docker default) is messaging-only and binds no
-          # HTTP port — do not use it.
+          imagePullPolicy: Always
+          # We let the image's ENTRYPOINT (/opt/hermes/docker/entrypoint.sh)
+          # run instead of overriding `command:`. The entrypoint:
+          #   1. Starts as root, usermod's the baked-in `hermes` user (UID
+          #      10000) to HERMES_UID/HERMES_GID, chown's HERMES_HOME, and
+          #      `gosu hermes` re-execs itself.
+          #   2. Now running as the user, sources the venv, mkdir's
+          #      $HERMES_HOME/{cron,sessions,logs,hooks,memories,skills,
+          #      skins,plans,workspace,home}, copies cli-config.yaml.example /
+          #      .env.example / SOUL.md if missing, runs skills_sync.py.
+          #   3. If $1 is an executable on PATH → exec "$@" raw; otherwise
+          #      → exec hermes "$@". So `args: [dashboard, --host, ...]`
+          #      becomes `exec hermes dashboard --host ...`.
+          # That gives us a /etc/passwd entry for our UID (so HOME is set,
+          # which fixes npm cache EACCES), pre-created data dirs, SOUL.md,
+          # and bundled-skills sync — all of which our previous explicit
+          # `command:` override skipped.
           #
-          # Bind to 127.0.0.1 — the in-pod Caddy sidecar (also in this pod's
-          # network namespace) reverse-proxies external traffic to the same
-          # 127.0.0.1:9119, so its connections arrive with TCP source 127.0.0.1
-          # which IS in Hermes' built-in `_LOOPBACK_HOSTS` allow-list. That
-          # avoids triggering the `--insecure` requirement (which Hermes
-          # demands for non-loopback binds) and avoids the WS-upgrade rejection
-          # that hits with `--host=0.0.0.0` (where uvicorn's `ws.client.host`
-          # somehow ends up reporting the pod IP rather than 127.0.0.1).
-          command: ["/opt/hermes/.venv/bin/hermes"]
+          # Bind to 127.0.0.1: Caddy sidecar (same network namespace)
+          # connects via 127.0.0.1:9119 — `ws.client.host` arrives as
+          # 127.0.0.1 which matches Hermes' built-in _LOOPBACK_HOSTS.
+          # `--insecure` not needed (Hermes only requires it for non-
+          # loopback binds).
           args:
             - "dashboard"
             - "--host=127.0.0.1"
@@ -207,15 +219,22 @@ spec:
 {% if _dashboard_tui %}
             - "--tui"
 {% endif %}
+          # Container-level securityContext overrides pod-level. Entrypoint
+          # MUST start as root to do usermod + gosu drop. After the entrypoint
+          # gosu's, the python process runs as <uid> matching pod-level intent.
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
           env:
-            # `hermes dashboard --tui` runs `npm install` on first launch to
-            # set up @hermes/ink TUI deps. With securityContext.runAsUser={{ item.uid }}
-            # there's no /etc/passwd entry for the uid, so npm defaults HOME to
-            # `/` and tries to create `/.npm` (EACCES). Point HOME at the
-            # writable per-user data dir so npm can put its cache under
-            # /opt/data/.npm. HERMES_HOME is already /opt/data anyway.
-            - name: HOME
-              value: "/opt/data"
+            # Read by entrypoint.sh: `usermod -u $HERMES_UID hermes`.
+            # After this the gosu-spawned hermes process runs as <uid> with a
+            # proper /etc/passwd entry (HOME=/opt/data via the hermes user's
+            # passwd entry — no need to set HOME explicitly).
+            - name: HERMES_UID
+              value: "{{ item.uid }}"
+            - name: HERMES_GID
+              value: "{{ item.gid }}"
           ports:
             - containerPort: 9119
               name: dashboard
