@@ -142,6 +142,26 @@ spec:
             - name: seed-secret
               mountPath: /seed-secret
               readOnly: true
+        # `hermes dashboard --tui` runs npm install on first start to refresh
+        # @hermes/ink TUI deps. The image's /opt/hermes/ui-tui/node_modules is
+        # baked-in root-owned (chown'd at image build), so npm trying to
+        # rename/replace files inside fails with EACCES for our non-root UID.
+        # Copy the whole tree to an emptyDir, chown to the user, then bind-
+        # mount it OVER /opt/hermes/ui-tui in the main container — npm now has
+        # full write access to its own node_modules. Uses the agent image
+        # itself (already cached on the node) so we copy from the same layer.
+        - name: copy-ui-tui
+          image: "nousresearch/hermes-agent:{{ item.image_tag | default(hermes_image_tag) }}"
+          command:
+            - sh
+            - -c
+            - "cp -a /opt/hermes/ui-tui/. /target/ && chown -R {{ item.uid }}:{{ item.gid }} /target"
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: ui-tui
+              mountPath: /target
         # Seed Caddy's writable user-DB from the read-only Secret. Always
         # overwrite on start so password rotations in vault propagate. Caddy
         # itself may write to this file (admin bootstrap, password resets) but
@@ -187,6 +207,15 @@ spec:
 {% if _dashboard_tui %}
             - "--tui"
 {% endif %}
+          env:
+            # `hermes dashboard --tui` runs `npm install` on first launch to
+            # set up @hermes/ink TUI deps. With securityContext.runAsUser={{ item.uid }}
+            # there's no /etc/passwd entry for the uid, so npm defaults HOME to
+            # `/` and tries to create `/.npm` (EACCES). Point HOME at the
+            # writable per-user data dir so npm can put its cache under
+            # /opt/data/.npm. HERMES_HOME is already /opt/data anyway.
+            - name: HOME
+              value: "/opt/data"
           ports:
             - containerPort: 9119
               name: dashboard
@@ -200,6 +229,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /opt/data
+            # Writable copy of /opt/hermes/ui-tui (image layer is root-owned;
+            # see copy-ui-tui initContainer rationale).
+            - name: ui-tui
+              mountPath: /opt/hermes/ui-tui
           # Hermes binds to 127.0.0.1 only (we route external traffic via the
           # in-pod Caddy sidecar). kubelet tcpSocket probes hit the pod IP,
           # which Hermes does NOT listen on, so probes have to run inside the
@@ -322,4 +355,6 @@ spec:
               - key: users.json
                 path: users.json
         - name: caddy-data
+          emptyDir: {}
+        - name: ui-tui
           emptyDir: {}

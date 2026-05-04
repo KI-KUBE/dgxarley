@@ -65,6 +65,21 @@
         authorize with hermes_policy
         reverse_proxy 127.0.0.1:9119 {
             flush_interval -1
+            # Hermes runs `host_header_middleware` which 400's any request
+            # whose Host header isn't in {localhost, 127.0.0.1, ::1} when bound
+            # to a loopback host (DNS-rebinding defence, GHSA-ppp5-vxwm-4cf7).
+            # Caddy by default forwards the public Host header, so rewrite it
+            # on the upstream hop. The original is preserved via X-Forwarded-
+            # Host for Hermes' own log output (Traefik already adds that).
+            header_up Host 127.0.0.1
+            # STRIP X-Forwarded-For on the upstream hop. Uvicorn trusts XFF
+            # from loopback (its `forwarded_allow_ips` default = "127.0.0.1")
+            # and overrides `ws.client.host` with the XFF value. Caddy's auto-
+            # appended XFF carries the pod IP (10.68.0.140), which is NOT in
+            # Hermes' `_LOOPBACK_HOSTS` set, so the WS handler closes with
+            # code 4403 → HTTP 403. With XFF removed, uvicorn falls back to
+            # the actual TCP peer (127.0.0.1) and the loopback check passes.
+            header_up -X-Forwarded-For
         }
     }
 }
