@@ -807,16 +807,30 @@ hermes_litellm_url: "http://litellm.litellm.svc.cluster.local:4000"
 hermes_webui_image: "ghcr.io/nesquena/hermes-webui"
 hermes_webui_image_tag: "latest"
 hermes_webui_port: 8787
+# Caddy sidecar in front of the agent dashboard. Cookie-session auth (via the
+# caddy-security plugin) so WebSocket (TUI/PTY) and EventSource (events feed)
+# work — BasicAuth credentials are NOT auto-included by browsers on those
+# requests. oauth2-proxy v7 was tried first but rejects WS upgrades with 403
+# even with --skip-auth-route; caddy-security checks the cookie only on the
+# initial handshake and transparently passes the upgrade through. The image is
+# greenpau/caddy-security packaged as `authcrunch/authcrunch` (multi-arch).
+hermes_caddy_image: "ghcr.io/authcrunch/authcrunch"
+hermes_caddy_image_tag: "latest"
+hermes_agent_proxy_port: 9118
 # Per-user defaults — overridable per entry in hermes_users.
 hermes_dashboard_enabled_default: true
 hermes_dashboard_tui_default: true
 hermes_webui_enabled_default: false
+# Sets logging.level=DEBUG in the rendered config.yaml (otherwise INFO).
+# Affects /opt/data/logs/agent.log — kubectl logs -c log-tail <pod> tails it.
+hermes_debug_default: false
 # Per-user list — real entries in group_vars/all/vault.yml.
 # Schema: { username, uid, gid, litellm_token,
 #           litellm_model?, basicauth_password?, webui_password?,
 #           dashboard_enabled? (default true),
 #           dashboard_tui?     (default true),
 #           webui_enabled?     (default false),
+#           hermes_debug?      (default false),
 #           enabled }
 # Hostnames: <username>.hermes-dashboard.<dns> (original)  +  <username>.hermes.<dns> (webui)
 hermes_users: []

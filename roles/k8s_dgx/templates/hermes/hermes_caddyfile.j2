@@ -1,0 +1,70 @@
+{# Caddyfile for the per-user hermes-agent sidecar. Replaces oauth2-proxy.
+   - caddy-security `authentication portal` issues a JWT-signed cookie after
+     successful login against the local user store (rendered separately as
+     users.json from the same Secret).
+   - The `authorize` middleware on `/*` validates the cookie on EVERY request
+     including WebSocket upgrades and EventSource — that's the whole reason
+     we switched away from oauth2-proxy.
+   - `flush_interval -1` is required so SSE responses aren't buffered.
+   - Listens cleartext on hermes_agent_proxy_port; Traefik in front terminates TLS.
+#}
+{
+    admin off
+    auto_https off
+    debug
+    security {
+        local identity store localdb {
+            realm local
+            path /secrets/users.json
+        }
+
+        authentication portal hermes_portal {
+            crypto default token lifetime 86400
+            crypto key sign-verify {env.JWT_SIGNING_KEY}
+            enable identity store localdb
+            cookie domain {{ item.username }}.hermes-dashboard.{{ dns_external_domain_suffix }}
+            cookie lifetime 86400
+            cookie insecure off
+            ui {
+                logo description "Hermes — {{ item.username }}"
+                links {
+                    "Open Dashboard" / icon "las la-tachometer-alt"
+                }
+            }
+        }
+
+        # Per-user pod, single user. acl rule with broad `match` works for
+        # any authenticated request. Critical: explicit `set token sources
+        # cookie header query` — without it the authorize middleware looks for
+        # cookies named "access_token" / "jwt_access_token" by default and
+        # ignores the AUTHP_ACCESS_TOKEN that the portal actually sets. This
+        # is the WS+SSE breakage root cause that the previous role-based
+        # policy hit.
+        authorization policy hermes_policy {
+            set auth url /auth/
+            crypto key verify {env.JWT_SIGNING_KEY}
+            set token sources cookie header query
+            allow roles authp/admin authp/user authp/guest
+            allow roles superadmin
+        }
+    }
+}
+
+:{{ hermes_agent_proxy_port }} {
+    log {
+        output stdout
+        format console
+        level INFO
+    }
+
+    route /auth* {
+        authenticate * with hermes_portal
+    }
+
+    route /* {
+        authorize with hermes_policy
+        reverse_proxy 127.0.0.1:9119 {
+            flush_interval -1
+        }
+    }
+}

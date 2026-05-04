@@ -109,6 +109,23 @@
     kind: Namespace
     state: present
 
+- name: Create shared hermes launcher ConfigMap (Python loopback-bypass)
+  # Single shared ConfigMap, mounted by every per-user agent pod. Disables
+  # the dashboard's localhost-only guard on /api/ws, /api/pty, /api/events
+  # so reverse-proxied (Caddy → upstream) WS upgrades are accepted.
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "hermes-launcher"
+        namespace: "{{ hermes_namespace }}"
+        labels:
+          app: hermes
+      data:
+        launcher.py: "{{ lookup('template', 'hermes/hermes_launcher.py.j2') }}"
+
 # === Per-user shared ConfigMaps + Secrets (used by both agent + webui pods) ===
 
 - name: Render per-user hermes config.yaml ConfigMap
@@ -124,7 +141,7 @@
           app: hermes
           hermes-user: "{{ item.username }}"
       data:
-        config.yaml: "{{ lookup('template', 'hermes_config.yaml.j2') }}"
+        config.yaml: "{{ lookup('template', 'hermes/hermes_config.yaml.j2') }}"
   loop: "{{ _hermes_active_users }}"
   loop_control:
     label: "{{ item.username }}"
@@ -143,43 +160,88 @@
           hermes-user: "{{ item.username }}"
       type: Opaque
       stringData:
-        ".env": "{{ lookup('template', 'hermes_env.j2') }}"
+        ".env": "{{ lookup('template', 'hermes/hermes_env.j2') }}"
         WEBUI_PASSWORD: "{{ item.webui_password | default(item.basicauth_password | default(item.litellm_token)) }}"
   loop: "{{ _hermes_active_users }}"
   loop_control:
     label: "{{ item.username }}"
 
-- name: Create per-user hermes BasicAuth Secret (Traefik front-door auth)
+- name: Create per-user Caddy ConfigMap (Caddyfile)
+  # Caddyfile + caddy-security config — see template for full rationale.
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "hermes-caddy-{{ item.username }}"
+        namespace: "{{ hermes_namespace }}"
+        labels:
+          app: hermes
+          hermes-user: "{{ item.username }}"
+      data:
+        Caddyfile: "{{ lookup('template', 'hermes/hermes_caddyfile.j2') }}"
+  loop: "{{ _hermes_active_users }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+- name: Create per-user Caddy Secret (users.json + JWT signing_key)
+  # users.json holds the bcrypt password for caddy-security's local identity
+  # store; signing_key is the symmetric key for JWT cookies. signing_key is
+  # deterministically derived from username + password so it stays stable
+  # across Ansible runs (no separate vault entry needed) and so changing the
+  # password also rotates the cookie keys.
   kubernetes.core.k8s:
     state: present
     definition:
       apiVersion: v1
       kind: Secret
       metadata:
-        name: "hermes-basicauth-{{ item.username }}"
+        name: "hermes-caddy-{{ item.username }}"
         namespace: "{{ hermes_namespace }}"
         labels:
           app: hermes
           hermes-user: "{{ item.username }}"
       type: Opaque
       stringData:
-        users: "{{ lookup('pipe', 'htpasswd -nbB ' ~ item.username ~ ' ' ~ (item.basicauth_password | default(item.litellm_token))) }}"
+        users.json: "{{ lookup('template', 'hermes/hermes_caddy_users.json.j2') }}"
+        signing_key: "{{ (item.username ~ '|hermes-caddy-jwt|' ~ (item.basicauth_password | default(item.litellm_token))) | hash('sha512') }}"
   loop: "{{ _hermes_active_users }}"
   loop_control:
     label: "{{ item.username }}"
 
-- name: Create per-user hermes BasicAuth Middleware
+# Legacy Traefik BasicAuth + oauth2-proxy artefacts — replaced by Caddy
+# sidecar (caddy-security cookie auth, fixes WS+SSE). Kept as absent-asserts
+# so removal is clean on existing deployments.
+- name: Remove legacy oauth2-proxy Secret (replaced by Caddy)
   kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: traefik.io/v1alpha1
-      kind: Middleware
-      metadata:
-        name: "hermes-basicauth-{{ item.username }}"
-        namespace: "{{ hermes_namespace }}"
-      spec:
-        basicAuth:
-          secret: "hermes-basicauth-{{ item.username }}"
+    state: absent
+    api_version: v1
+    kind: Secret
+    namespace: "{{ hermes_namespace }}"
+    name: "hermes-oauth2-{{ item.username }}"
+  loop: "{{ _hermes_active_users }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+- name: Remove legacy hermes BasicAuth Secret (replaced by oauth2-proxy)
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Secret
+    namespace: "{{ hermes_namespace }}"
+    name: "hermes-basicauth-{{ item.username }}"
+  loop: "{{ _hermes_active_users }}"
+  loop_control:
+    label: "{{ item.username }}"
+
+- name: Remove legacy hermes BasicAuth Middleware (replaced by oauth2-proxy)
+  kubernetes.core.k8s:
+    state: absent
+    api_version: traefik.io/v1alpha1
+    kind: Middleware
+    namespace: "{{ hermes_namespace }}"
+    name: "hermes-basicauth-{{ item.username }}"
   loop: "{{ _hermes_active_users }}"
   loop_control:
     label: "{{ item.username }}"
@@ -190,7 +252,7 @@
   kubernetes.core.k8s:
     state: present
     apply: true
-    definition: "{{ lookup('template', 'hermes_agent_deployment.yaml.j2') | from_yaml }}"
+    definition: "{{ lookup('template', 'hermes/hermes_agent_deployment.yaml.j2') | from_yaml }}"
   loop: "{{ _hermes_active_users }}"
   loop_control:
     label: "{{ item.username }}"
@@ -209,6 +271,9 @@
   when: not (item.dashboard_enabled | default(hermes_dashboard_enabled_default))
 
 - name: Apply per-user hermes-agent Service
+  # Single port: `auth` → oauth2-proxy sidecar (which forwards in-pod to
+  # localhost:9119). The bare hermes port is intentionally NOT exposed via
+  # the Service — every external request must terminate auth at oauth2-proxy.
   kubernetes.core.k8s:
     state: present
     apply: true
@@ -228,9 +293,9 @@
           hermes-component: agent
           hermes-user: "{{ item.username }}"
         ports:
-          - name: dashboard
-            port: 9119
-            targetPort: 9119
+          - name: auth
+            port: "{{ hermes_agent_proxy_port }}"
+            targetPort: "{{ hermes_agent_proxy_port }}"
   loop: "{{ _hermes_active_users }}"
   loop_control:
     label: "{{ item.username }}"
@@ -282,7 +347,12 @@
     label: "{{ item.username }}"
   when: not (item.dashboard_enabled | default(hermes_dashboard_enabled_default))
 
-- name: Apply per-user hermes-agent IngressRoute (port 9119)
+- name: Apply per-user hermes-agent IngressRoute (auth via oauth2-proxy sidecar)
+  # All paths route through the oauth2-proxy sidecar (cookie session). Bypassing
+  # oauth2-proxy for /api/(ws|events|pty) was considered but rejected: those
+  # endpoints carry the live PTY/chat stream, which means leaking the
+  # ?token=... URL via Traefik access logs / browser history would expose all
+  # chat content. Auth must terminate at oauth2-proxy for every request.
   kubernetes.core.k8s:
     state: present
     apply: true
@@ -303,9 +373,7 @@
               - kind: Service
                 name: "hermes-agent-{{ item.username }}"
                 passHostHeader: true
-                port: 9119
-            middlewares:
-              - name: "hermes-basicauth-{{ item.username }}"
+                port: "{{ hermes_agent_proxy_port }}"
         tls:
           secretName: "hermes-agent-{{ item.username }}-tls"
   loop: "{{ _hermes_active_users }}"
@@ -347,7 +415,7 @@
   kubernetes.core.k8s:
     state: present
     apply: true
-    definition: "{{ lookup('template', 'hermes_webui_deployment.yaml.j2') | from_yaml }}"
+    definition: "{{ lookup('template', 'hermes/hermes_webui_deployment.yaml.j2') | from_yaml }}"
   loop: "{{ _hermes_active_users }}"
   loop_control:
     label: "{{ item.username }}"

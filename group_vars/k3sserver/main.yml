@@ -18,7 +18,7 @@ cluster_cidr: "10.68.0.0/16"
 service_cidr: "10.69.0.0/16"
 
 # K3s Version
-k3s_version: "v1.35.3+k3s1"
+k3s_version: "v1.35.4+k3s1"
 
 # DNS
 dns_external_domain_suffix: "dgx.example.com"

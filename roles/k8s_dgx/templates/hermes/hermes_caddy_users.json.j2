@@ -1,0 +1,39 @@
+{# caddy-security `local identity store` users.json — minimal schema.
+   The bcrypt hash comes from `htpasswd -bnBC 10 "" <password>` stripped of
+   the leading `:` (output is `:$2y$...`); caddy-security accepts both $2a$
+   and $2y$ bcrypt prefixes. Roles must include authp/user for the
+   authorization policy to allow access.
+#}
+{%- set _bcrypt = lookup('pipe', 'htpasswd -bnBC 10 "" ' ~ (item.basicauth_password | default(item.litellm_token)) | quote) | regex_replace('^:', '') | regex_replace('\n.*$', '') -%}
+{%- set _user_uuid = (item.username ~ '|hermes-user-uuid|' ~ (item.basicauth_password | default(item.litellm_token))) | hash('sha256') -%}
+{
+  "version": "1.1.62",
+  "policy": {
+    "password": { "keep_versions": 10, "min_length": 8, "max_length": 128 },
+    "user": { "min_length": 3, "max_length": 50 }
+  },
+  "revision": 1,
+  "last_modified": "2026-01-01T00:00:00Z",
+  "users": [
+    {
+      "id": "{{ _user_uuid[0:8] }}-{{ _user_uuid[8:12] }}-{{ _user_uuid[12:16] }}-{{ _user_uuid[16:20] }}-{{ _user_uuid[20:32] }}",
+      "username": "{{ item.username }}",
+      "email_address": {
+        "address": "{{ item.username }}@local",
+        "domain": "local"
+      },
+      "passwords": [
+        {
+          "purpose": "generic",
+          "algorithm": "bcrypt",
+          "hash": "{{ _bcrypt }}",
+          "cost": 10,
+          "expired_at": "0001-01-01T00:00:00Z",
+          "created_at": "2026-01-01T00:00:00Z",
+          "disabled_at": "0001-01-01T00:00:00Z"
+        }
+      ],
+      "roles": [{"name": "user", "organization": "authp"}]
+    }
+  ]
+}

@@ -12,3 +12,9 @@ terminal:
   backend: "local"
   cwd: "."
   timeout: 180
+
+# Server-side log level for /opt/data/logs/agent.log. The merge-config
+# initContainer always rewrites this on pod start, so toggling
+# `hermes_debug` on a user entry and rolling the pod is enough — ops wins.
+logging:
+  level: "{{ 'DEBUG' if (item.hermes_debug | default(hermes_debug_default)) else 'INFO' }}"

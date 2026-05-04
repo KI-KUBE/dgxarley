@@ -113,7 +113,7 @@
     - never
 
 - name: Deploy per-user Nous Hermes agents (agent + optional webui sidecar)
-  ansible.builtin.import_tasks: hermes/kubectlstuff_hermes.yml
+  ansible.builtin.import_tasks: hermes.yml
   tags: hermes
 
 - name: QSFP SR-IOV NCCL all_reduce benchmark (legacy 2-node)

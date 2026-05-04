@@ -13,8 +13,16 @@ metadata:
     app: hermes
     hermes-component: webui
     hermes-user: "{{ item.username }}"
+  annotations:
+    # Keel auto-update: ghcr.io/nesquena/hermes-webui ships only `:latest`,
+    # so `force` + `match-tag` redeploys whenever the digest behind :latest
+    # changes upstream. Daily poll matches the rest of the cluster.
+    keel.sh/policy: force
+    keel.sh/match-tag: "true"
+    keel.sh/pollSchedule: "@every 24h"
+    keel.sh/trigger: poll
 spec:
-  replicas: 1
+  replicas: 0
   strategy:
     type: Recreate
   selector:
@@ -28,6 +36,15 @@ spec:
         app: hermes
         hermes-component: webui
         hermes-user: "{{ item.username }}"
+      annotations:
+        # Default container for `kubectl logs`/`exec` — skips initContainer noise
+        kubectl.kubernetes.io/default-container: hermes-webui
+        # Auto-roll the pod when the seed config.yaml or .env changes
+        # (e.g. flipping `hermes_debug` or rotating the litellm token).
+        # Same shared ConfigMap/Secret as the agent pod — both initContainers
+        # need to re-merge into /opt/data on update.
+        checksum/config: "{{ lookup('template', 'hermes/hermes_config.yaml.j2') | hash('sha256') }}"
+        checksum/env:    "{{ lookup('template', 'hermes/hermes_env.j2')         | hash('sha256') }}"
     spec:
       restartPolicy: Always
       nodeSelector:
@@ -60,6 +77,67 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /opt/data
+        # Strategic merge of ops-managed keys into /opt/data/config.yaml +
+        # /opt/data/.env. Mirrors hermes-agent pod's merge-config initContainer
+        # — needed because the webui spawns its own `hermes` subprocesses which
+        # read the same config.yaml/.env. Race-safe because both pods derive
+        # the same ops-managed values from the same ConfigMap/Secret. See
+        # hermes_agent_deployment.yaml.j2 for the full EBUSY rationale.
+        - name: merge-config
+          image: "nousresearch/hermes-agent:{{ item.image_tag | default(hermes_image_tag) }}"
+          command:
+            - /opt/hermes/.venv/bin/python
+            - -c
+            - |
+              import os, yaml
+              UID, GID = {{ item.uid }}, {{ item.gid }}
+              def deep_override(user, ops):
+                  for k, v in ops.items():
+                      if isinstance(v, dict) and isinstance(user.get(k), dict):
+                          deep_override(user[k], v)
+                      else:
+                          user[k] = v
+              ops = yaml.safe_load(open("/seed-config/config.yaml")) or {}
+              try:
+                  user = yaml.safe_load(open("/opt/data/config.yaml")) or {}
+              except FileNotFoundError:
+                  user = {}
+              deep_override(user, ops)
+              with open("/opt/data/config.yaml", "w") as f:
+                  yaml.safe_dump(user, f, sort_keys=False)
+              os.chown("/opt/data/config.yaml", UID, GID)
+              os.chmod("/opt/data/config.yaml", 0o600)
+              def parse_env(p):
+                  out = {}
+                  if not os.path.exists(p):
+                      return out
+                  for line in open(p):
+                      s = line.strip()
+                      if not s or s.startswith("#") or "=" not in s:
+                          continue
+                      k, v = s.split("=", 1)
+                      out[k.strip()] = v
+                  return out
+              ops_env = parse_env("/seed-secret/.env")
+              user_env = parse_env("/opt/data/.env")
+              user_env.update(ops_env)
+              with open("/opt/data/.env", "w") as f:
+                  for k, v in user_env.items():
+                      f.write(f"{k}={v}\n")
+              os.chown("/opt/data/.env", UID, GID)
+              os.chmod("/opt/data/.env", 0o600)
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+            - name: seed-config
+              mountPath: /seed-config
+              readOnly: true
+            - name: seed-secret
+              mountPath: /seed-secret
+              readOnly: true
         # Provide the hermes-agent source tree to the webui. Upstream's
         # docker-compose.two-container.yml does the same via a named volume
         # (`hermes-agent-src`) populated from the agent image; we replicate it
@@ -152,3 +230,9 @@ spec:
             type: DirectoryOrCreate
         - name: agent-src
           emptyDir: {}
+        - name: seed-config
+          configMap:
+            name: "hermes-config-{{ item.username }}"
+        - name: seed-secret
+          secret:
+            secretName: "hermes-env-{{ item.username }}"
