@@ -37,6 +37,6 @@ TRANSFORMERS_VERSION=5.6.0
 # SGLANG_VERSION is left empty so setuptools-scm derives the version
 # from the git history.
 SGLANG_VERSION=
-SGLANG_REF="2bbd30a27a23"
+SGLANG_REF="2bbd30a27a236421b4dd0782ee31d15897e8c043"
 
 IMAGE_TAG=xomoxcc/dgx-spark-sglang:main-gemma4-20260429-sm121-dev1
