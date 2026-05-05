@@ -478,8 +478,8 @@ Verify on the build host:
 
 Next steps:
 
-1. Verify that scripts/patches/sglang-0.5.10-sm121.recipe references this
-   image as BASE_IMAGE:
+1. Verify that scripts/patches/sglang-{,gemma4-}sm121-dev1.recipe reference
+   this image as BASE_IMAGE:
      BASE_IMAGE=${IMAGE_TAG}
 
 2. Run the sgl-kernel sm121 build on top of this base:

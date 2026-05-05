@@ -8,7 +8,7 @@
 # GEMM backend (fp4_gemm_backend=flashinfer_cudnn) becomes usable.
 #
 # Base image choice: we deliberately build on the upstream scitrera image,
-# not on xomoxcc/dgx-spark-sglang:0.5.10-sm121. The sm121 CUTLASS MoE
+# not on xomoxcc/dgx-spark-sglang:*-sm121-dev1. The sm121 CUTLASS MoE
 # patch is irrelevant for the current matrix workloads (the GLM-4.7-NVFP4
 # EP=1 sweep proved triton + cutlass-direct MoE are stable on SM121
 # without the patch, because EP=1 avoids the shared-memory / EP-assert

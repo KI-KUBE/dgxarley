@@ -1,7 +1,7 @@
 #
 # Custom recipe: SGLang main (dev1 cut) + Gemma-4 NVFP4 patches.
 #
-# Based on sglang-0.5.10-sm121.recipe but pins the same dev1 main-branch
+# Based on sglang-sm121-dev1.recipe but pins the same dev1 main-branch
 # commit (2bbd30a27a23, 2026-04-29) — picks up the full 832-commit window
 # (PCG + speculative, EAGLE3/DFLASH aux capture, NCCL hang fixes, Qwen3.5
 # FP8/GDN regressions, DP/EP comm path) on top of the existing Gemma-4
@@ -39,4 +39,4 @@ TRANSFORMERS_VERSION=5.6.0
 SGLANG_VERSION=
 SGLANG_REF="2bbd30a27a236421b4dd0782ee31d15897e8c043"
 
-IMAGE_TAG=xomoxcc/dgx-spark-sglang:main-gemma4-20260429-sm121-dev1
+IMAGE_TAG=xomoxcc/dgx-spark-sglang:0.5.10-20260429-gemma4-sm121-dev1

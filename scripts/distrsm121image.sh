@@ -32,7 +32,7 @@
 #
 # Prerequisites
 # -------------
-# - spark4 has `localhost/xomoxcc/dgx-spark-sglang:0.5.10-sm121` in its
+# - spark4 has `localhost/xomoxcc/dgx-spark-sglang:*-sm121-dev1` in its
 #   local podman store (built via scripts/build_sm121_image.sh, either with
 #   or without --no-push).
 # - Root SSH from x86 control host to all 4 sparks (management) works.
@@ -43,11 +43,16 @@
 
 set -euo pipefail
 
-#SRC_IMAGE="localhost/xomoxcc/dgx-spark-sglang:0.5.10-sm121"
-#IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.10-sm121"
-
-SRC_IMAGE="docker.io/xomoxcc/dgx-spark-sglang:main-gemma4-sm121"
-IMAGE="docker.io/xomoxcc/dgx-spark-sglang:main-gemma4-sm121"
+# Toggle these two pairs to match the recipe variant just built by
+# build_sm121_image.sh. Both lines in a pair must agree.
+#
+#   sm121 (no Gemma-4 source patches):
+#SRC_IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.10-20260429-sm121-dev1"
+#IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.10-20260429-sm121-dev1"
+#
+#   gemma4-sm121 (with Gemma-4 source patches):
+SRC_IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.10-20260429-gemma4-sm121-dev1"
+IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.10-20260429-gemma4-sm121-dev1"
 
 # Source host: where the built image lives in podman. Defaults to spark4
 # (the historical build host); override with --source when the image was
@@ -165,7 +170,10 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
-REGISTRY_REF="xomoxcc/dgx-spark-sglang:0.5.10-sm121"
+# REGISTRY_REF is the intermediate tag the temp registry hosts. Strip any
+# docker.io/ prefix from IMAGE so the registry path is self-consistent and
+# matches what's being distributed (no more stale-tag confusion).
+REGISTRY_REF="${IMAGE#docker.io/}"
 REGISTRY_IMAGE="${REGISTRY_HOST}:${REGISTRY_PORT}/${REGISTRY_REF}"
 REGISTRY_IMAGE_LOCAL="127.0.0.1:${REGISTRY_PORT}/${REGISTRY_REF}"
 REGISTRY_CONTAINER="tmp-distr-registry"

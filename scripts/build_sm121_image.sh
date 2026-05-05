@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# build_sm121_image.sh — Build xomoxcc/dgx-spark-sglang:0.5.10-sm121.
+# build_sm121_image.sh — Build xomoxcc/dgx-spark-sglang:*-sm121-dev1.
 #
 # Produces a custom SGLang image where cutlass_moe_fp4 (the triton/cutlass
 # MoE runner codepath for NVFP4) is patched to fit SM121's 101 KB shared
@@ -74,10 +74,26 @@ CUDA_CONTAINERS_DIR="${BUILD_SM121_CC_DIR:-${HOME}/pythondev_workspace/cuda-cont
 # so that re-applying the patch stack is idempotent and drift in the working
 # tree from previous runs is discarded.
 BRANCH_NAME="sm121"
-# RECIPE_NAME="sglang-main-gemma4"
-# IMAGE_TAG="xomoxcc/dgx-spark-sglang:main-gemma4-20260429-sm121-dev1"
-RECIPE_NAME="sglang-0.5.10-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.10-20260429-sm121-dev1"
+# Two recipe variants live in scripts/patches/. They differ only in whether
+# the two unmerged Gemma-4-NVFP4 source patches (PRs #22929/#22928) are also
+# applied to the SGLang Python source — the underlying SGLang commit and
+# every other build option are identical between them.
+#
+#   sglang-sm121-dev1.recipe         — base SGLang dev1 + our six SM121 sgl-kernel
+#                                      patches. No Gemma-4 source patches.
+#                                      Tag: xomoxcc/dgx-spark-sglang:0.5.10-20260429-sm121-dev1
+#
+#   sglang-gemma4-sm121-dev1.recipe  — same base + Gemma-4 source patches stacked
+#                                      on top. Required for Gemma-4-NVFP4 on SM121.
+#                                      Tag: xomoxcc/dgx-spark-sglang:0.5.10-20260429-gemma4-sm121-dev1
+#
+# apply_patches() gates the Gemma-4 source patches and the gemma4 Dockerfile
+# patch by `RECIPE_NAME == *gemma4*`, so toggling the two lines below is the
+# only switch needed.
+RECIPE_NAME="sglang-gemma4-sm121-dev1"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.10-20260429-gemma4-sm121-dev1"
+#RECIPE_NAME="sglang-sm121-dev1"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.10-20260429-sm121-dev1"
 
 # Remote build host (spark4, arm64). Uses a registered podman connection
 # with a dedicated unencrypted SSH key. The connection name is derived from
@@ -360,12 +376,29 @@ fi
 preflight() {
     log "Preflight"
 
+    local required_files=(
+        sgl-kernel-sm121.patch
+        sgl-kernel-sm121-debug.patch
+        sgl-kernel-arch-prune.patch
+        sgl-kernel-disable-fa3.patch
+        sgl-kernel-skip-sm90-target.patch
+        sgl-kernel-skip-flashmla.patch
+        dockerfile-sm121.patch
+        build-image-sh-podman.patch
+        "${RECIPE_NAME}.recipe"
+    )
+    # Gemma-4 patches are only required when building the gemma4 recipe variant.
+    # See apply_patches() for the matching gating logic.
+    if [[ "${RECIPE_NAME}" == *gemma4* ]]; then
+        required_files+=(
+            dockerfile-gemma4-nvfp4.patch
+            sglang-gemma4-nvfp4-expert-loading.patch
+            sglang-gemma4-geglu-nan-clamp.patch
+        )
+    fi
+
     local missing=0
-    for f in sgl-kernel-sm121.patch sgl-kernel-sm121-debug.patch \
-             sgl-kernel-arch-prune.patch sgl-kernel-disable-fa3.patch \
-             sgl-kernel-skip-sm90-target.patch sgl-kernel-skip-flashmla.patch \
-             dockerfile-sm121.patch build-image-sh-podman.patch \
-             "${RECIPE_NAME}.recipe"; do
+    for f in "${required_files[@]}"; do
         if [[ ! -f "${PATCHES_DIR}/${f}" ]]; then
             warn "Missing patch file: ${PATCHES_DIR}/${f}"
             missing=1
@@ -458,7 +491,7 @@ EOF
 # Verify the pytorch dev base image is present in the remote podman store
 # ============================================================================
 #
-# Our sglang-0.5.10-sm121.recipe references
+# Both sglang-{,gemma4-}sm121-dev1.recipe files reference
 #   BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132
 # which is NOT on Docker Hub — it's built locally via
 # scripts/build_pytorch_base_image.sh and kept in spark4's podman store.
@@ -602,17 +635,42 @@ apply_patches() {
 
     cd "${CUDA_CONTAINERS_DIR}"
 
-    # 1. Drop all sgl-kernel source patches into the build context.
+    # Determine recipe variant once. The "*gemma4*" pattern matches our
+    # sglang-gemma4-sm121-dev1.recipe filename and any future gemma4 spinoff.
+    local apply_gemma4_patches=0
+    if [[ "${RECIPE_NAME}" == *gemma4* ]]; then
+        apply_gemma4_patches=1
+    fi
+
+    # 1. Drop sgl-kernel source patches into the build context.
     # The Dockerfile COPY steps read from container-build/patches/ and the
     # in-container `patch` invocations are conditionally gated by the
-    # APPLY_SGL_KERNEL_* build-args — we always copy the files so the
-    # build context is deterministic regardless of toggle state.
+    # APPLY_SGL_KERNEL_* build-args — we always copy the sgl-kernel files
+    # so the build context is deterministic regardless of toggle state.
+    # Gemma-4 source patches are copied only for the gemma4 recipe variant
+    # because the matching dockerfile-gemma4-nvfp4.patch (which adds the
+    # `RUN patch -p1 < /tmp/sglang-gemma4-*.patch` steps to the Dockerfile)
+    # is itself gated by ${apply_gemma4_patches} below — copying the source
+    # patch files in the non-gemma4 variant would have no effect but would
+    # bloat the build context unnecessarily.
     mkdir -p container-build/patches
-    for p in sgl-kernel-sm121.patch sgl-kernel-sm121-debug.patch \
-             sgl-kernel-arch-prune.patch sgl-kernel-disable-fa3.patch \
-             sgl-kernel-skip-sm90-target.patch sgl-kernel-skip-flashmla.patch \
-             sglang-gemma4-nvfp4-expert-loading.patch \
-             sglang-gemma4-geglu-nan-clamp.patch; do
+    local sgl_kernel_patches=(
+        sgl-kernel-sm121.patch
+        sgl-kernel-sm121-debug.patch
+        sgl-kernel-arch-prune.patch
+        sgl-kernel-disable-fa3.patch
+        sgl-kernel-skip-sm90-target.patch
+        sgl-kernel-skip-flashmla.patch
+    )
+    local gemma4_source_patches=(
+        sglang-gemma4-nvfp4-expert-loading.patch
+        sglang-gemma4-geglu-nan-clamp.patch
+    )
+    local patches_to_copy=( "${sgl_kernel_patches[@]}" )
+    if (( apply_gemma4_patches )); then
+        patches_to_copy+=( "${gemma4_source_patches[@]}" )
+    fi
+    for p in "${patches_to_copy[@]}"; do
         if [[ -f "${PATCHES_DIR}/${p}" ]]; then
             install -m 0644 "${PATCHES_DIR}/${p}" "container-build/patches/${p}"
             echo "Installed container-build/patches/${p}"
@@ -630,10 +688,10 @@ apply_patches() {
         || die "Dockerfile patch verification failed"
     echo "Dockerfile patched"
 
-    # 2b. Gemma-4 NVFP4 Dockerfile patch (optional — only if the patch file exists).
+    # 2b. Gemma-4 NVFP4 Dockerfile patch — only for the gemma4 recipe variant.
     #     Adds COPY + apply steps for PR #22929 (per-expert weight loading) and
     #     PR #22928 (GEGLU activation + NaN clamp). Stacks on top of the sm121 patch.
-    if [[ -f "${PATCHES_DIR}/dockerfile-gemma4-nvfp4.patch" ]]; then
+    if (( apply_gemma4_patches )); then
         echo "Applying dockerfile-gemma4-nvfp4.patch..."
         patch --dry-run -p1 < "${PATCHES_DIR}/dockerfile-gemma4-nvfp4.patch" \
             || die "Gemma4 Dockerfile patch dry-run failed — regenerate dockerfile-gemma4-nvfp4.patch"
@@ -641,6 +699,8 @@ apply_patches() {
         grep -q 'sglang-gemma4-nvfp4-expert-loading.patch' container-build/Dockerfile.sglang-nightly \
             || die "Gemma4 Dockerfile patch verification failed"
         echo "Gemma4 Dockerfile patched"
+    else
+        echo "Skipping dockerfile-gemma4-nvfp4.patch (RECIPE_NAME='${RECIPE_NAME}' is not a gemma4 variant)"
     fi
 
     # 3. Drop in the recipe file. run_build() parses it inline and calls
@@ -920,7 +980,7 @@ Next steps (on the x86 control host in ~/pythondev_workspace/dgxarley):
 
 7. If n=1 works, reactivate Qwen3-235B matrix tests 1–6 and 25–30
    (previously all startup_crash / infer_error) and record in a new
-   TESTLOG_nv580.142_sglang-0.5.10-sm121_*.md file.
+   TESTLOG_nv580.142_sglang-sm121-dev1_*.md file.
 
 If the triton MoE path does not beat the current flashinfer_cutlass baseline
 (Qwen3-235B test 17: 42.70 tok/s @ n=8), roll back sglang_image to
