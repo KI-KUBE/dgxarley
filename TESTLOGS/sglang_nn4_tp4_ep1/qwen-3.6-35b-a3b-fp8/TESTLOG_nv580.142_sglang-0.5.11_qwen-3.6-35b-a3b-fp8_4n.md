@@ -108,3 +108,162 @@ Reference winners from `TESTLOG_nv580.142_sglang-0.5.10_qwen-3.6-35b-a3b-fp8_4n.
 After the 0.5.11 run, populate the table above and write a short delta vs 0.5.10
 section here (toolchain bump impact + cutedsl viability + MTP under default
 Spec V2 + Overlap-Scheduling).
+
+---
+
+## Correctness Debug Sweep — Word-Salad Regression in v0.5.11
+
+**Status: ongoing as of 2026-05-09 19:20 (Tests 00–02 done, 03–05 pending)**
+
+Matrix: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/nv580.142_sglang-0.5.11_qwen-3.6-35b-a3b-fp8_correctness-debug_n4_ep1.yaml`
+
+Result dir: `kikube/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.11-correctness-debug/`
+
+Image: `xomoxcc/dgx-spark-sglang:0.5.11-sm121` (sm121 patches, **without** gemma4 source patches).
+
+### Background
+
+While running the main 0.5.11 matrix (Tests 01–20, see `MATRIX_SUMMARY` in `0.5.11/`),
+Test 01 (triton MoE + fi-attn, the prior 0.5.10 stable shape) reported severely
+degraded aggregate throughput at n=4/n=8 with one `status: repetition` failure at n=8.
+Inspection of the actual generated text revealed the model producing **word-salad**:
+synonym-walk loops with explicit self-correction triggers, e.g.
+
+> ...customers drive business outcomes revenue impact measurable meaningful
+> contributions valued appreciated respected admired legendary status achieved
+> through dedication excellence pursuit mastery relentless improvement never settle
+> mediocre strive superior innovate disrupt transform industries shape future
+> generations legacy endure inspire others follow lead pave way extraordinary
+> achievements monumental feats history remember celebrated honored immortalized
+> timeless classic masterpiece **masterpiece masterpiece masterpiece...Wait stop
+> rambling. Generate structured response. Focus.**
+
+This is **not** classic n-gram repetition (the kikube NGRAM-filter only catches
+the most extreme primitive repetition cases, e.g. `retire retire retire`). Most
+runs ramble all the way to the 3072-token hard limit (`finish_reason=length`),
+which the matrix-test scoring counts as a *successful* run. Output quality must
+be verified manually.
+
+The bug reproduces both on `scitrera/dgx-spark-sglang:0.5.11` (vanilla) and on
+`xomoxcc/dgx-spark-sglang:0.5.11-sm121` (our build). It does **not** occur on
+v0.5.10 with the same configuration (compare TESTLOG `_sglang-0.5.10_*` Test 1).
+
+`speculative_algorithm=None` in the server args of all reproducer cases — i.e.
+**this is not the MTP / Spec V2 path**.
+
+### Hypotheses (from the matrix preamble)
+
+1. **Spec V2 Overlap-Scheduling default (PR #21062)** triggers a KV-cache update
+   race even with `speculative_algorithm=None` (the overlap pipelining still runs).
+2. **`mamba_scheduler_strategy=extra_buffer`** under hybrid-mamba is incompatible
+   with FlashInfer 0.6.8.post1 / sgl-kernel 0.4.2.
+3. Some deeper hybrid-mamba + FP8-logits issue, independent of (1) and (2).
+
+### Configuration Matrix (6 cases)
+
+All cases: `tp=4 ep=1 nccl=roce moe_runner=triton kv_cache_dtype=fp8_e4m3 disable_cuda_graph=false disable_piecewise_cuda_graph=true cuda_graph_max_bs=8 speculative_enabled=false`.
+
+| #  | overlap | mamba_strategy     | attention  | Notes                                     |
+|----|---------|--------------------|------------|-------------------------------------------|
+| 00 | on      | extra_buffer       | fi         | 1:1 0.5.10 winner config — must reproduce |
+| 01 | **off** | extra_buffer       | fi         | Hypothesis 1                              |
+| 02 | on      | **""** (no_buffer) | fi         | Hypothesis 2                              |
+| 03 | **off** | **""** (no_buffer) | fi         | Hypothesis 1+2 combined                   |
+| 04 | on      | extra_buffer       | **triton** | Rule out FlashInfer-attn                  |
+| 05 | **off** | extra_buffer       | **triton** | overlap-off + triton-attn                 |
+
+### Results (in flight)
+
+| #  | overlap | mamba        | attn   | n=1 throughput |    n=1 finish | n=4 agg | n=4 fails | n=8 agg | n=8 fails | Output quality                       |
+|----|---------|--------------|--------|---------------:|--------------:|--------:|----------:|--------:|----------:|--------------------------------------|
+| 00 | on      | extra_buffer | fi     |          82.29 |   length=3072 |  177.99 |       0/4 |  284.20 |   **1/8** | **Word-salad** all phases            |
+| 01 | **off** | extra_buffer | fi     |          67.70 | **stop=1179** |  145.38 |       0/4 |  284.90 |       0/8 | **n=1 coherent**, n=4/n=8 word-salad |
+| 02 | on      | **""**       | fi     |          63.20 |   length=3072 |   93.21 |   **1/4** |  247.41 |   **1/8** | n=1 coherent, n=4/n=8 word-salad     |
+| 03 | **off** | **""**       | fi     |          45.94 | **stop=1034** |  159.03 |   **1/4** |  306.66 |       0/8 | n=1 coherent, n=4/n=8 word-salad     |
+| 04 | on      | extra_buffer | triton |            tbd |           tbd |     tbd |       tbd |     tbd |       tbd | tbd                                  |
+| 05 | off     | extra_buffer | triton |            tbd |           tbd |     tbd |       tbd |     tbd |       tbd | tbd                                  |
+
+### Output samples
+
+**Test 00 n=1 (baseline reproducer, word-salad):**
+
+> ...completed finalized concluded terminated ended ceased stopped halted
+> interrupted broken disrupted scrambled scrambled fragmented shredded torn ripped
+> slashed cut chopped hacked dissected autopsied ... retired retired retired
+> retired retired retire retire retire retire!!! *(Self-correction/refocus needed
+> immediately!! Stop rambling mental loop start producing structured coherent
+> response now!!!)*
+
+**Test 01 n=1 (overlap-off, COHERENT):**
+
+> 1.  **Analyze User Input:**
+>    - **Role:** Science communicator with 10 years experience writing for
+>      popular science magazines
+>    - **Audience:** Curious 12-year-old
+>    - *Quantum Entanglement:* Two particles share a single quantum state.
+>      Measuring one instantly determines the state of the other, regardless of
+>      distance...
+
+**Test 01 n=4 (overlap-off, word-salad regressed):**
+
+> ...lost missing found retrieved recovered rescued saved delivered liberated
+> forever nonstop continuously perpetually incessantly unremittingly...
+
+**Test 01 n=8 (overlap-off, word-salad worse):**
+
+> ...awareness presence being existence life reality truth wisdom knowledge
+> understanding insight intuition perception sensation feeling emotion thought
+> idea concept notion theory hypothesis conjecture speculation supposition
+> assumption premise axiom theorem lemma corollary proposition statement assertion
+> claim argument proof demonstration evidence...
+
+**Test 02 n=4 (mamba=no_buffer, model rebels against itself):**
+
+> ...**[OUTPUT GENERATION PHASE ACTIVATED]** *(self-correction during ... focus
+> back task at hand produce precise accurate professional response as ... OKAY
+> STOP THIS RUNAWAY WORD ASSOCIATION LOOP IMMEDIATELY FOCUS RESET ...
+
+**Test 03 n=8 (both switches off, word-salad still present):**
+
+> ...break recess interval gap pause stop halt cease quit resign retire withdraw...
+> *(Self-Correction During Drafting Phase)* That list went completely... thematic
+> coherence! Let us regain focus diligently restoring precision...
+
+> ...knowledge expanded awareness heightened perception sharpened focus clarified...
+
+### Interim conclusions
+
+1. **The bug is a concurrency race**, not a single-flag misconfig. Both Tests 01
+   and 02 fix `n=1` (single-request decode) but leave `n=4` and `n=8` broken.
+   The race surfaces under multi-request decoding regardless of which one of the
+   two switches we flip.
+2. **Overlap-Scheduling default in 0.5.11 makes the race show up even at `n=1`**,
+   because overlap pipelining gives the scheduler internal multi-batch state.
+   Disabling it cleans up `n=1` but does not eliminate the underlying race.
+3. **`mamba_scheduler_strategy=""` (no_buffer) is strictly worse** — it costs
+   ~47% throughput at n=4 and produces a `repetition` kill at both n=4 and n=8,
+   while not fixing the word-salad. Hypothesis 2 falsified.
+4. **Test 03 (both switches off) does NOT fix it either** — n=1 coherent,
+   n=4 with 1 repetition kill, n=8 6×length=3072 with explicit synonym-walk
+   visible in the output. So neither overlap-scheduling nor mamba-strategy
+   alone or in combination is the culprit at multi-request concurrency.
+5. **Verdict so far:** the regression is in the multi-request KV-cache or
+   mamba-state update path on the hybrid-mamba `Qwen3_5MoeForConditionalGeneration`
+   architecture, between v0.5.10.post1 and v0.5.11, **independent of the two
+   diagnosed switches**. Tests 04–05 (triton-attn) will rule out / pin
+   FlashInfer-attn as the source.
+
+### Action items
+
+- Wait for Tests 03–05.
+- If Test 04/05 (triton-attn) shows the same pattern → bug is **not**
+  FlashInfer-attn-specific; deeper hybrid-mamba issue.
+- File upstream issue with reproducer: prompt + server-args + concrete
+  word-salad output sample. Tag PRs #21062 (Spec V2 default) and #19767
+  (`Qwen3_5MoeForConditionalGeneration` MTP/radix-cache compat).
+- **Do not run the main 20-case 0.5.11 matrix to completion** until upstream
+  fix lands or a working diagnostic config is found — current results are
+  meaningless for performance comparison if outputs are word-salad.
+- Extend kikube NGRAM-filter to catch synonym-walk patterns
+  (Type-Token-Ratio, WordNet-synset density, or LLM-judge on output).
+
