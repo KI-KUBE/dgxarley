@@ -105,17 +105,62 @@
   ansible.builtin.command: bootctl update
   when: _kernel_cmdline_changed is changed
 
-- name: Remove splash and quiet from GRUB config
-  ansible.builtin.lineinfile:
-    path: /etc/default/grub
-    regexp: '^GRUB_CMDLINE_LINUX_DEFAULT='
-    line: 'GRUB_CMDLINE_LINUX_DEFAULT=""'
-  register: _grub_cmdline_changed
+# DGX-OS appends `quiet splash` (via /etc/default/grub.d/menu.cfg) and
+# `plymouth.use-simpledrm plymouth.ignore-serial-consoles` (via
+# /etc/default/grub.d/nvidia-console-settings.cfg) to the GRUB cmdline,
+# overriding any GRUB_CMDLINE_LINUX_DEFAULT="" set in /etc/default/grub.
+# A `zz-` snippet sorts last and strips them back out so we get raw
+# kernel-log output on tty0 instead of the Plymouth splash.
+- name: Drop zz-no-splash GRUB snippet to strip splash/plymouth flags
+  ansible.builtin.copy:
+    dest: /etc/default/grub.d/zz-no-splash.cfg
+    mode: "0644"
+    content: |
+      GRUB_CMDLINE_LINUX_DEFAULT="$(echo "$GRUB_CMDLINE_LINUX_DEFAULT" | sed -e 's/\bquiet\b//g' -e 's/\bsplash\b//g')"
+      GRUB_CMDLINE_LINUX="$(echo "$GRUB_CMDLINE_LINUX" | sed -e 's/\bplymouth\.use-simpledrm\b//g' -e 's/\bplymouth\.ignore-serial-consoles\b//g')"
+  register: _grub_snippet_changed
+  when: not _kernel_cmdline_file.stat.exists
+
+# DGX-OS ships /etc/default/grub.d/no-grubmenu.cfg which forces TIMEOUT=0,
+# STYLE=hidden, RECORDFAIL_TIMEOUT=0 — meaning the GRUB menu flashes by with
+# no chance to interact. Re-enable a visible 10s countdown.
+- name: Drop zz-grub-timeout GRUB snippet (10s with visible countdown)
+  ansible.builtin.copy:
+    dest: /etc/default/grub.d/zz-grub-timeout.cfg
+    mode: "0644"
+    content: |
+      GRUB_TIMEOUT=10
+      GRUB_TIMEOUT_STYLE=countdown
+      GRUB_RECORDFAIL_TIMEOUT=10
+  register: _grub_timeout_changed
   when: not _kernel_cmdline_file.stat.exists
 
 - name: Update GRUB after cmdline change
   ansible.builtin.command: update-grub
-  when: _grub_cmdline_changed is changed
+  when: _grub_snippet_changed is changed or _grub_timeout_changed is changed
+
+# Without this, getty@tty1 wipes the kernel boot log the moment it starts —
+# you lose all dmesg-style output on the local console and just see a login
+# prompt. The drop-in keeps the VT contents so post-boot inspection works.
+- name: Ensure getty@tty1.service.d drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/systemd/system/getty@tty1.service.d
+    state: directory
+    mode: "0755"
+
+- name: Drop-in override to keep kernel log on tty1 (no VT disallocate)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/getty@tty1.service.d/noclear.conf
+    mode: "0644"
+    content: |
+      [Service]
+      TTYVTDisallocate=no
+  register: _tty1_noclear
+
+- name: Reload systemd after tty1 override
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: _tty1_noclear is changed
 
 - name: Find active XDG autostart desktop files
   ansible.builtin.find:
