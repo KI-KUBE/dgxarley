@@ -113,7 +113,7 @@ Spec V2 + Overlap-Scheduling).
 
 ## Correctness Debug Sweep — Word-Salad Regression in v0.5.11
 
-**Status: ongoing as of 2026-05-09 19:20 (Tests 00–02 done, 03–05 pending)**
+**Status: complete as of 2026-05-09 19:35 (all 6 cases done, regression confirmed but root cause not isolated)**
 
 Matrix: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/nv580.142_sglang-0.5.11_qwen-3.6-35b-a3b-fp8_correctness-debug_n4_ep1.yaml`
 
@@ -172,16 +172,16 @@ All cases: `tp=4 ep=1 nccl=roce moe_runner=triton kv_cache_dtype=fp8_e4m3 disabl
 | 04 | on      | extra_buffer       | **triton** | Rule out FlashInfer-attn                  |
 | 05 | **off** | extra_buffer       | **triton** | overlap-off + triton-attn                 |
 
-### Results (in flight)
+### Results
 
-| #  | overlap | mamba        | attn   | n=1 throughput |    n=1 finish | n=4 agg | n=4 fails | n=8 agg | n=8 fails | Output quality                       |
-|----|---------|--------------|--------|---------------:|--------------:|--------:|----------:|--------:|----------:|--------------------------------------|
-| 00 | on      | extra_buffer | fi     |          82.29 |   length=3072 |  177.99 |       0/4 |  284.20 |   **1/8** | **Word-salad** all phases            |
-| 01 | **off** | extra_buffer | fi     |          67.70 | **stop=1179** |  145.38 |       0/4 |  284.90 |       0/8 | **n=1 coherent**, n=4/n=8 word-salad |
-| 02 | on      | **""**       | fi     |          63.20 |   length=3072 |   93.21 |   **1/4** |  247.41 |   **1/8** | n=1 coherent, n=4/n=8 word-salad     |
-| 03 | **off** | **""**       | fi     |          45.94 | **stop=1034** |  159.03 |   **1/4** |  306.66 |       0/8 | n=1 coherent, n=4/n=8 word-salad     |
-| 04 | on      | extra_buffer | triton |            tbd |           tbd |     tbd |       tbd |     tbd |       tbd | tbd                                  |
-| 05 | off     | extra_buffer | triton |            tbd |           tbd |     tbd |       tbd |     tbd |       tbd | tbd                                  |
+| #  | overlap | mamba        | attn       | n=1 throughput |    n=1 finish |    n=4 agg | n=4 fails | n=8 agg | n=8 fails | Output quality                       |
+|----|---------|--------------|------------|---------------:|--------------:|-----------:|----------:|--------:|----------:|--------------------------------------|
+| 00 | on      | extra_buffer | fi         |          82.29 |   length=3072 |     177.99 |       0/4 |  284.20 |   **1/8** | **Word-salad** all phases            |
+| 01 | **off** | extra_buffer | fi         |          67.70 | **stop=1179** |     145.38 |       0/4 |  284.90 |       0/8 | **n=1 coherent**, n=4/n=8 word-salad |
+| 02 | on      | **""**       | fi         |          63.20 |   length=3072 |      93.21 |   **1/4** |  247.41 |   **1/8** | n=1 coherent, n=4/n=8 word-salad     |
+| 03 | **off** | **""**       | fi         |          45.94 | **stop=1034** |     159.03 |   **1/4** |  306.66 |       0/8 | n=1 coherent, n=4/n=8 word-salad     |
+| 04 | on      | extra_buffer | **triton** |          59.33 |   length=3072 | **210.70** |       0/4 |  303.46 |       0/8 | Word-salad all phases                |
+| 05 | **off** | extra_buffer | **triton** |          65.07 |   length=3072 |     164.23 |       0/4 |  239.29 |       0/8 | Word-salad all phases                |
 
 ### Output samples
 
@@ -231,6 +231,21 @@ All cases: `tp=4 ep=1 nccl=roce moe_runner=triton kv_cache_dtype=fp8_e4m3 disabl
 
 > ...knowledge expanded awareness heightened perception sharpened focus clarified...
 
+**Test 04 n=4 (baseline + triton-attn — falsifies FlashInfer-attn hypothesis):**
+
+> ...heart center hub focus nucleus kernel crux pivot keystone linchpin axis...
+> ...preserved conserved saved rescued delivered freed liberated emancipated...
+> *Hmm my mind started looping randomly... Stop it! Let's get back to serious...*
+> ...malicious evil wicked bad bad bad bad... STOP THIS LOOPING GENERATED TEXT
+> ...self-loop detection triggered abort fantasy segment resume actual drafting...
+
+**Test 05 n=4 (overlap-off + triton-attn):**
+
+> ...lation_lines_phase_locked_loop_clock_generator_frequency_synthesizer_vco_var
+> *(Self-Correction/Refinement during thought process)*
+> ...also deriving its negation leads external observer aware correctness σ
+> ...restoring wholeness completing circles closing loops breaking cycles...
+
 ### Interim conclusions
 
 1. **The bug is a concurrency race**, not a single-flag misconfig. Both Tests 01
@@ -247,23 +262,54 @@ All cases: `tp=4 ep=1 nccl=roce moe_runner=triton kv_cache_dtype=fp8_e4m3 disabl
    n=4 with 1 repetition kill, n=8 6×length=3072 with explicit synonym-walk
    visible in the output. So neither overlap-scheduling nor mamba-strategy
    alone or in combination is the culprit at multi-request concurrency.
-5. **Verdict so far:** the regression is in the multi-request KV-cache or
+5. **Test 04 (baseline + triton-attn) confirms word-salad on triton-attn too.**
+   Hypothesis 3 falsified — the bug is **not** FlashInfer-attn-specific. Test 04
+   even has the highest n=4 throughput of the matrix (210.70, ~vs 0.5.10's 212.0)
+   while still producing rambling output, so the regression is purely a
+   correctness issue, not a performance one.
+6. **Test 05 (overlap-off + triton-attn) likewise word-salad** at all phases.
+   Even the n=1 single-request decode produced length=3072 rambling — the
+   "overlap-off fixes n=1" effect from Test 01 does NOT carry over when the
+   attention backend changes.
+7. **Final verdict:** the regression is in the multi-request KV-cache or
    mamba-state update path on the hybrid-mamba `Qwen3_5MoeForConditionalGeneration`
-   architecture, between v0.5.10.post1 and v0.5.11, **independent of the two
-   diagnosed switches**. Tests 04–05 (triton-attn) will rule out / pin
-   FlashInfer-attn as the source.
+   architecture, between v0.5.10.post1 and v0.5.11. **None of the three
+   diagnostic switches (overlap-schedule, mamba-strategy, attention-backend)
+   alone or in combination eliminates the bug at multi-request concurrency.**
+   The true culprit is somewhere deeper in the 0.5.11 stack — candidates:
+   - The `Qwen3_5MoeForConditionalGeneration` model code itself (small model
+     touches in the 588-PR window between v0.5.10.post1 and v0.5.11)
+   - The Mamba SSM kernel (mamba_backend=triton, possibly affected by sgl-kernel
+     0.4.2 or torch 2.11)
+   - FP8 logits post-processing or sampler-side state
+   - DeepGemm JIT (we have `disable_deep_gemm=true`, so this is *probably* not it)
 
 ### Action items
 
-- Wait for Tests 03–05.
-- If Test 04/05 (triton-attn) shows the same pattern → bug is **not**
-  FlashInfer-attn-specific; deeper hybrid-mamba issue.
-- File upstream issue with reproducer: prompt + server-args + concrete
-  word-salad output sample. Tag PRs #21062 (Spec V2 default) and #19767
-  (`Qwen3_5MoeForConditionalGeneration` MTP/radix-cache compat).
-- **Do not run the main 20-case 0.5.11 matrix to completion** until upstream
-  fix lands or a working diagnostic config is found — current results are
-  meaningless for performance comparison if outputs are word-salad.
-- Extend kikube NGRAM-filter to catch synonym-walk patterns
-  (Type-Token-Ratio, WordNet-synset density, or LLM-judge on output).
+- **File upstream issue** with reproducer: model + prompt + server-args + concrete
+  word-salad output sample. Reference PRs that touched
+  `Qwen3_5MoeForConditionalGeneration` between v0.5.10.post1 and v0.5.11 (e.g.
+  #19767 MTP/radix-cache compat) and the hybrid-mamba scheduler/Mamba-cache code.
+- **Pin Qwen3.6-35B-A3B-FP8 to scitrera/dgx-spark-sglang:0.5.10** in production
+  via per-profile `sglang_image` override until upstream fix lands. Other models
+  (Gemma-4, GLM, Qwen3.5-397B-NVFP4) can move to 0.5.11 individually.
+- **Do not run the main 20-case 0.5.11 matrix to completion** for this model —
+  every aggregate-throughput number is meaningless if 50–80% of the output
+  tokens are rambling. The matrix is fine to run on **other models** (different
+  arch families) where word-salad has not been observed.
+- **Bisect candidates** for upstream issue (priority order):
+  1. Hybrid-mamba scheduler / Mamba-state-cache code under multi-request
+     concurrency. The race surfaces at n=4 even with all known mitigations.
+  2. Sampler-side state. With `enable_custom_logit_processor=true` (default on
+     0.5.11) and `min_tokens=4 + frequency_penalty=0.5 + presence_penalty=1.5`
+     in the profile, a per-batch state-mixing bug in penalty application could
+     produce exactly this synonym-walk pattern.
+  3. sgl-kernel 0.4.2 mamba kernels.
+- **Extend kikube NGRAM-filter** to catch synonym-walk patterns. Current filter
+  caught only 4 of ~30 word-salad rambles across the 6 cases. Suggestions:
+  Type-Token-Ratio threshold, WordNet-synset density, or LLM-judge on output.
+- **Verify Qwen3.6-27B-FP8** (sibling hybrid-mamba arch) for the same bug —
+  if also affected, this is an arch-family regression, not a model-specific one.
+- **Verify Gemma-4 / GLM / non-mamba models** are unaffected on 0.5.11 — those
+  matrices can proceed normally.
 
