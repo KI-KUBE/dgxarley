@@ -48,14 +48,15 @@ _model_profile:
     #   set SGLANG_ENABLE_SPEC_V2=1.
     speculative_enabled: true
     speculative_algo: NEXTN
-    speculative_num_steps: 3
+    speculative_num_steps: 2
     speculative_eagle_topk: 1
     speculative_num_draft_tokens: 4
     mamba_scheduler_strategy: extra_buffer
     enable_spec_v2: true
-    # operational defaults — Test 13 (rerun) winner config from the 14-case
+    # operational defaults — Test 13 (MTP rerun) winner config from the 14-case
     # 0.5.10 sweep on 4× DGX Spark TP=4 EP=1 (TESTLOG ..._qwen-3.6-35b-a3b-fp8_4n.md):
-    #   triton MoE + triton attn + CG on + piecewise off + MTP NEXTN
+    #   triton MoE + triton attn + CG on + piecewise on + MTP NEXTN
+    #   (rerun reused Test-6's "piecewise CG on" layout, see testlog L200-202)
     #   → 104.2 / 277.8 / 410.7 tok/s @ n=1/4/8 (vs 69.0/212.0/345.8 without MTP —
     #   +51% / +31% / +19%). Test 14 (fi-attn + MTP) is tied at n=8 (409.9) but
     #   has worse n=1 (-18%) and worse n=8 TTFT.
@@ -64,6 +65,6 @@ _model_profile:
     nccl_transport: roce
     moe_runner_backend: triton
     disable_cuda_graph: false
-    disable_piecewise_cuda_graph: true
+    disable_piecewise_cuda_graph: false
     pp_async_batch_depth: 0
     cuda_graph_max_bs: 8

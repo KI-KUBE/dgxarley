@@ -76,24 +76,25 @@ CUDA_CONTAINERS_DIR="${BUILD_SM121_CC_DIR:-${HOME}/pythondev_workspace/cuda-cont
 BRANCH_NAME="sm121"
 # Two recipe variants live in scripts/patches/. They differ only in whether
 # the two unmerged Gemma-4-NVFP4 source patches (PRs #22929/#22928) are also
-# applied to the SGLang Python source — the underlying SGLang commit and
-# every other build option are identical between them.
+# applied to the SGLang Python source — the underlying SGLang ref and every
+# other build option are identical between them.
 #
-#   sglang-sm121-dev1.recipe         — base SGLang dev1 + our six SM121 sgl-kernel
-#                                      patches. No Gemma-4 source patches.
-#                                      Tag: xomoxcc/dgx-spark-sglang:0.5.10-20260429-sm121-dev1
+#   sglang-0.5.11-sm121.recipe         — SGLang v0.5.11 + our six SM121 sgl-kernel
+#                                        patches. No Gemma-4 source patches.
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.11-sm121
 #
-#   sglang-gemma4-sm121-dev1.recipe  — same base + Gemma-4 source patches stacked
-#                                      on top. Required for Gemma-4-NVFP4 on SM121.
-#                                      Tag: xomoxcc/dgx-spark-sglang:0.5.10-20260429-gemma4-sm121-dev1
+#   sglang-0.5.11-gemma4-sm121.recipe  — same base + Gemma-4 NVFP4 source patches
+#                                        (PRs #22929/#22928) stacked on top.
+#                                        Required for Gemma-4-NVFP4 on SM121.
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121
 #
 # apply_patches() gates the Gemma-4 source patches and the gemma4 Dockerfile
 # patch by `RECIPE_NAME == *gemma4*`, so toggling the two lines below is the
 # only switch needed.
-RECIPE_NAME="sglang-gemma4-sm121-dev1"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.10-20260429-gemma4-sm121-dev1"
-#RECIPE_NAME="sglang-sm121-dev1"
-#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.10-20260429-sm121-dev1"
+RECIPE_NAME="sglang-0.5.11-gemma4-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121"
+#RECIPE_NAME="sglang-0.5.11-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.11-sm121"
 
 # Remote build host (spark4, arm64). Uses a registered podman connection
 # with a dedicated unencrypted SSH key. The connection name is derived from
@@ -636,7 +637,7 @@ apply_patches() {
     cd "${CUDA_CONTAINERS_DIR}"
 
     # Determine recipe variant once. The "*gemma4*" pattern matches our
-    # sglang-gemma4-sm121-dev1.recipe filename and any future gemma4 spinoff.
+    # sglang-0.5.11-gemma4-sm121.recipe filename and any future gemma4 spinoff.
     local apply_gemma4_patches=0
     if [[ "${RECIPE_NAME}" == *gemma4* ]]; then
         apply_gemma4_patches=1
@@ -980,11 +981,11 @@ Next steps (on the x86 control host in ~/pythondev_workspace/dgxarley):
 
 7. If n=1 works, reactivate Qwen3-235B matrix tests 1–6 and 25–30
    (previously all startup_crash / infer_error) and record in a new
-   TESTLOG_nv580.142_sglang-sm121-dev1_*.md file.
+   TESTLOG_nv580.142_sglang-0.5.11-sm121_*.md file.
 
 If the triton MoE path does not beat the current flashinfer_cutlass baseline
 (Qwen3-235B test 17: 42.70 tok/s @ n=8), roll back sglang_image to
-scitrera/dgx-spark-sglang:0.5.10 — the custom image is then proof-of-concept
+scitrera/dgx-spark-sglang:0.5.11 — the custom image is then proof-of-concept
 only and the upstream flashinfer_cutlass path remains the production default.
 
 EOF
