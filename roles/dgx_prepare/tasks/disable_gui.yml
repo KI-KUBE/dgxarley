@@ -124,6 +124,19 @@
 # DGX-OS ships /etc/default/grub.d/no-grubmenu.cfg which forces TIMEOUT=0,
 # STYLE=hidden, RECORDFAIL_TIMEOUT=0 — meaning the GRUB menu flashes by with
 # no chance to interact. Re-enable a visible 10s countdown.
+# Without nvidia-drm.modeset=1 the console stays on simpledrm, which inherits
+# whatever resolution UEFI/GOP set up at boot — and that is unreliable on the
+# sparks (sometimes 1920x1080, sometimes 800x600 with the same hardware).
+# With KMS enabled, nvidia-drm registers fb0 and does proper EDID detection.
+- name: Drop zz-nvidia-drm GRUB snippet (enable nvidia-drm KMS for stable console)
+  ansible.builtin.copy:
+    dest: /etc/default/grub.d/zz-nvidia-drm.cfg
+    mode: "0644"
+    content: |
+      GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX nvidia-drm.modeset=1 video=HDMI-A-1:1920x1080M@60e"
+  register: _grub_nvidia_drm_changed
+  when: not _kernel_cmdline_file.stat.exists
+
 - name: Drop zz-grub-timeout GRUB snippet (10s with visible countdown)
   ansible.builtin.copy:
     dest: /etc/default/grub.d/zz-grub-timeout.cfg
@@ -137,7 +150,7 @@
 
 - name: Update GRUB after cmdline change
   ansible.builtin.command: update-grub
-  when: _grub_snippet_changed is changed or _grub_timeout_changed is changed
+  when: _grub_snippet_changed is changed or _grub_timeout_changed is changed or _grub_nvidia_drm_changed is changed
 
 # Without this, getty@tty1 wipes the kernel boot log the moment it starts —
 # you lose all dmesg-style output on the local console and just see a login
