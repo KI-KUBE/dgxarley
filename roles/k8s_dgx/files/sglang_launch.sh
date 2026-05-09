@@ -925,6 +925,9 @@ fi
 if [ "$SGLANG_DISABLE_PIECEWISE_CUDA_GRAPH" = "true" ]; then
   args+=(--disable-piecewise-cuda-graph)
 fi
+if [ "$SGLANG_DISABLE_OVERLAP_SCHEDULE" = "true" ]; then
+  args+=(--disable-overlap-schedule)
+fi
 if [ "$SGLANG_DISABLE_FLASHINFER_CUTLASS_MOE_FP4_ALLGATHER" = "true" ]; then
   args+=(--disable-flashinfer-cutlass-moe-fp4-allgather)
 fi

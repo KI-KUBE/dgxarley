@@ -21,7 +21,7 @@
 
 set -euo pipefail
 
-IMAGE="${IMAGE:-scitrera/dgx-spark-sglang:0.5.10}"
+IMAGE="${IMAGE:-scitrera/dgx-spark-sglang:0.5.11}"
 
 # Source spark (management address) holding the image in its podman store.
 SOURCE="spark4.local"
