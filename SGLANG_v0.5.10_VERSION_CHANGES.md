@@ -565,7 +565,7 @@ All other dependencies unchanged from rc0 (transformers 5.3.0, xgrammar
 | reasoning_tokens always 0 | `SGLANG_REASONING_TOKENS_UPSTREAM_BUG.md` | NOT FIXED | **FIXED** -- PR #15562 merged 2026-04-04 |
 | moe_wna16 qzeros + EP | `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md` | NOT FIXED | NOT FIXED -- vLLM PRs #35598/#36026 still open |
 | EPLB + Qwen3 MoE | `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md` | NOT FIXED | NOT FIXED -- PR #21822 still open (2026-04-05) |
-| NVFP4 input_scale + EP | `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md` | NOT FIXED | NOT FIXED -- PRs #20869/#21630/#20963 still open |
+| NVFP4 input_scale + EP | `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md` | NOT FIXED | NOT FIXED -- PRs #20869/#21630/#20963/#23531 still open. Cited by downstream issue #24502 (Blackwell EP+NVFP4 runner-registry bug, 2026-05-06) as a stacking prerequisite |
 | ModelOptModelLoader + sharded_state | `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md` | NOT FIXED | NOT FIXED -- PR #21612 still open |
 | CutlassMoEParams global num_experts | `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md` | NOT FIXED | NOT FIXED -- unreported |
 | sharded_state + speculative | `SGLANG_SHARDED_SPECULATIVE_UPSTREAM_BUG.md` | NOT FIXED | NOT FIXED -- unreported |

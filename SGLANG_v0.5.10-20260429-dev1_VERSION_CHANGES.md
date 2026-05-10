@@ -362,7 +362,7 @@ uvicorn `0.0.0.0:<same-port>` still conflicts. **HAProxy sidecar stays.**
 | reasoning_tokens always 0                         | `SGLANG_REASONING_TOKENS_UPSTREAM_BUG.md`    | FIXED (PR #15562)   | FIXED                                                                        |
 | moe_wna16 qzeros + EP                             | `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md`           | NOT FIXED           | NOT FIXED — vLLM PR #35598 still open                                        |
 | EPLB + Qwen3 MoE                                  | same                                         | NOT FIXED           | NOT FIXED — PR #21822 still open                                             |
-| NVFP4 input_scale + EP                            | same                                         | NOT FIXED           | NOT FIXED — PRs #20869/#21630/#20963 still open                              |
+| NVFP4 input_scale + EP                            | same                                         | NOT FIXED           | NOT FIXED — PRs #20869/#21630/#20963/#23531 still open. Cited by issue #24502 (Blackwell EP+NVFP4) as stacking prerequisite |
 | ModelOptModelLoader + sharded_state               | same                                         | NOT FIXED           | NOT FIXED — PR #21612 still open                                             |
 | CutlassMoEParams global num_experts               | same                                         | NOT FIXED           | NOT FIXED — unreported                                                       |
 | sharded_state + speculative                       | `SGLANG_SHARDED_SPECULATIVE_UPSTREAM_BUG.md` | NOT FIXED           | NOT FIXED                                                                    |

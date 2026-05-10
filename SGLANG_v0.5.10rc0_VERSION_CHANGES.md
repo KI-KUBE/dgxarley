@@ -218,7 +218,7 @@ to `0.0.0.0`, allowing unauthenticated remote access. Now bound to `127.0.0.1`.
 | reasoning_tokens always 0 | `SGLANG_REASONING_TOKENS_UPSTREAM_BUG.md` | **NOT FIXED** — PR #15562 still open |
 | moe_wna16 qzeros + EP | `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md` | **NOT FIXED** — monkey-patch still needed |
 | EPLB + Qwen3 | `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md` | **NOT FIXED** — PR #21461 still open |
-| NVFP4 input_scale + EP | `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md` | **NOT FIXED** — PRs #20869/#21630 still open |
+| NVFP4 input_scale + EP | `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md` | **NOT FIXED** — PRs #20869/#21630/#23531 still open. Cited by downstream issue #24502 (Blackwell EP+NVFP4) as a stacking prerequisite |
 | ModelOptModelLoader + sharded_state | `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md` | **NOT FIXED** — no fix PR filed |
 | sharded_state + speculative | `SGLANG_SHARDED_SPECULATIVE_UPSTREAM_BUG.md` | **NOT FIXED** — not reported upstream |
 | MoE Triton tuning text_config | `SGLANG_MOE_TUNE_UPSTREAM_BUG.md` | **FIXED** — PR #20232 merged 2026-03-27 |

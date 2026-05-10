@@ -161,11 +161,22 @@ which is acceptable.
 
 **Reported** as of 2026-03-28: [sgl-project/sglang#21602](https://github.com/sgl-project/sglang/issues/21602). Bug exists in SGLang `sglang/srt/layers/quantization/modelopt_quant.py`, class `ModelOptNvFp4FusedMoEMethod`.
 
-Two competing fix PRs have been filed (neither merged as of 2026-04-09):
+Three competing fix PRs have been filed (none merged as of 2026-05-10):
 - [PR #20869](https://github.com/sgl-project/sglang/pull/20869) (2026-03-18) — broader fix: EP-slices input_scale, passes `num_local_experts` to `CutlassMoEParams`, extends SM120 support. No human review, stale since 2026-03-18. Likely to be superseded by the #20963 modelopt refactoring (see below)
 - [PR #21630](https://github.com/sgl-project/sglang/pull/21630) (2026-03-29) — narrower fix: only the `else` branch (non-FlashInfer backends). Code updated 2026-03-29, no review yet
+- [PR #23531](https://github.com/sgl-project/sglang/pull/23531) (2026-04-23, `jybsuper` / Yanbin Jiang) — "[Quant] Fix NVFP4 MoE input scale EP sharding in generic post-load path". Newest entrant, addresses the same root cause via the generic post-load path. **OPEN** as of 2026-05-10. Cited by downstream issue #24502 (see below) as essentially equivalent to our private monkey-patch
 
-Maintainer feedback on [#21602](https://github.com/sgl-project/sglang/issues/21602) (2026-03-30): maintainer `wenscarl` confirmed the bug is real but noted that `w13_input_scale` shape is model-dependent — some models (e.g. DSR1 NVFP4) require the full `num_experts` dimension. The fix needs to be model-aware rather than a blanket slice to `num_local_experts`. The broader modelopt refactoring ([PR #20963](https://github.com/sgl-project/sglang/pull/20963)) is likely the vehicle for this fix
+Maintainer feedback on [#21602](https://github.com/sgl-project/sglang/issues/21602) (2026-03-30): maintainer `wenscarl` confirmed the bug is real but noted that `w13_input_scale` shape is model-dependent — some models (e.g. DSR1 NVFP4) require the full `num_experts` dimension. The fix needs to be model-aware rather than a blanket slice to `num_local_experts`. The broader modelopt refactoring ([PR #20963](https://github.com/sgl-project/sglang/pull/20963)) is likely the vehicle for this fix.
+
+### Downstream issue citing our bug
+
+[sgl-project/sglang#24502](https://github.com/sgl-project/sglang/issues/24502) (`kenzhangwangshu`, opened 2026-05-06, OPEN) — "[Bug] `flashinfer_trtllm` MoE runner has no DeepEP fused func registered — blocks EP+NVFP4 on Blackwell". Different bug (missing `(runner=FLASHINFER_TRTLLM, a2a=deepep)` registry entry in `moe/moe_runner/runner.py:71/74`), but explicitly references our [#21602](https://github.com/sgl-project/sglang/issues/21602) and [PR #23531](https://github.com/sgl-project/sglang/pull/23531) as a stacking dependency:
+
+> Adjacent bug in the same area: #21602 / PR #23531 — even with `deep_gemm` the modelopt loader needs an EP-slice fix. Worth fixing this issue and #21602 together so EP+NVFP4 has at least one working path.
+
+> We have a downstream patch for the modelopt loader EP-slice issue (essentially equivalent to #23531) that gets us past weight load — but inference still fails because of this runner-registry gap.
+
+Reproduced on B300 SXM6 with `lukealonso/MiniMax-M2.7-NVFP4` and `nvidia/DeepSeek-R1-NVFP4` across `latest-cu130-runtime` (0.5.10.post1) and `dev-cu13` images. Implication for our cluster: not on the SM121/GB10 critical path (we don't run `flashinfer_trtllm` — that's Blackwell-only), but confirms there is currently **no working `(runner, a2a=deepep)` pair for NVFP4** anywhere — `flashinfer_trtllm` is unregistered and the only registered runner with DeepEP (`deep_gemm`) uses a deprecated `forward_deepgemm_contiguous` that asserts on first inference.
 
 ### Affected Configuration
 
@@ -398,6 +409,8 @@ However, the CUDA kernel-level issue cannot be patched. For NVFP4 + EP > 1, use
 - SGLang [#21602](https://github.com/sgl-project/sglang/issues/21602) — our report: NVFP4 input_scale not EP-aware
   - Fix PR: [#20869](https://github.com/sgl-project/sglang/pull/20869) — broader fix incl. CutlassMoEParams + SM120 (open, stale since 2026-03-18, no human review)
   - Fix PR: [#21630](https://github.com/sgl-project/sglang/pull/21630) — narrower fix, else-branch only (open, 2026-03-29)
+  - Fix PR: [#23531](https://github.com/sgl-project/sglang/pull/23531) — "[Quant] Fix NVFP4 MoE input scale EP sharding in generic post-load path" by `jybsuper` (open, 2026-04-23)
+  - Cited by: [#24502](https://github.com/sgl-project/sglang/issues/24502) — Blackwell EP+NVFP4 runner-registry bug stacks on top of #21602; references our issue + PR #23531 as a prerequisite fix
 - SGLang [#21603](https://github.com/sgl-project/sglang/issues/21603) — our report: ModelOptModelLoader doesn't support sharded_state
   - Fix PR: [#21612](https://github.com/sgl-project/sglang/pull/21612) — fix sharded state for ModelOptModelLoader (open, awaiting review)
 
