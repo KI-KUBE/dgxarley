@@ -24,6 +24,12 @@ Hopper-only kernels (FA3, sm90 targets, FlashMLA) that never run on GB10.
   `sm_121` only, FA3 / sm90 / FlashMLA stripped
 - **flashinfer** bumped to a version with the `head_dim=512` fix
   (unblocks Gemma-4 global attention)
+- **transformers pinned to `5.8.0`** (released 2026-05-05) — required for
+  the Gemma-4 `*-assistant` drafter checkpoints used by NEXTN/MTP
+  speculative decoding (`google/gemma-4-{26B-A4B,31B}-it-assistant`).
+  Earlier transformers releases don't know the drafter's config subclass
+  and the SGLang head exits with `Unrecognized configuration class` during
+  drafter weight-loading.
 - Built on a CUDA 13.2 + PyTorch 2.11 base for the GB10 codegen path
   (CUDA 13.1 / PyTorch 2.10 fallback is ~45 % slower end-to-end)
 

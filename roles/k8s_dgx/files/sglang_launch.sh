@@ -924,6 +924,50 @@ else
   echo "MiniMax NEXTN patch: not needed or already applied, skipping"
 fi
 
+# Patch transformers AutoModel mapping for Gemma-4 *-assistant MTP drafter.
+#
+# SGLang v0.5.11 promotes NEXTN→EAGLE internally and loads the draft model via
+# `sglang/srt/models/transformers.py:613` → `AutoModel.from_config(...)`.
+# For `google/gemma-4-{26B-A4B,31B}-it-assistant` the architecture
+# `Gemma4AssistantForCausalLM` is registered in transformers 5.8.0 ONLY for
+# `MODEL_FOR_CAUSAL_LM_MAPPING`, not for the base `MODEL_MAPPING` — so the call
+# fails with:
+#   ValueError: Unrecognized configuration class
+#     <class 'transformers.models.gemma4_assistant.configuration_gemma4_assistant.Gemma4AssistantConfig'>
+#     for this kind of AutoModel: AutoModel.
+#
+# Fix: register the CausalLM class into AutoModel's mapping at runtime.
+#
+# STOP-GAP ONLY: the real upstream fix is SGLang PR #24436 (merged 2026-05-07,
+# i.e. AFTER the v0.5.11 tag), which adds a dedicated `FROZEN_KV_MTP` worker
+# implementing Gemma-4's frozen-KV / recurrent-hidden-state MTP protocol. Until
+# that PR is cherry-picked into the image, the drafter runs through the EAGLE
+# worker — loading succeeds but speculative correctness is unverified. Use the
+# resulting outputs with caution and validate against non-MTP baseline.
+if [ "$SGLANG_SPECULATIVE_ENABLED" = "true" ]; then
+  python3 << 'PATCH_GEMMA4_ASSISTANT_AUTOMODEL_EOF'
+try:
+    from transformers.models.auto.modeling_auto import MODEL_MAPPING_NAMES
+    if "gemma4_assistant" in MODEL_MAPPING_NAMES:
+        print("Gemma4Assistant AutoModel: already registered, skipping")
+    else:
+        from transformers import AutoModel
+        from transformers.models.gemma4_assistant.configuration_gemma4_assistant import (
+            Gemma4AssistantConfig,
+        )
+        from transformers.models.gemma4_assistant.modeling_gemma4_assistant import (
+            Gemma4AssistantForCausalLM,
+        )
+        AutoModel.register(Gemma4AssistantConfig, Gemma4AssistantForCausalLM, exist_ok=True)
+        print("Patched transformers: registered Gemma4AssistantForCausalLM with AutoModel")
+except ModuleNotFoundError as e:
+    # transformers <5.8.0 — class does not exist yet. Image needs TRANSFORMERS_VERSION>=5.8.0.
+    print(f"Gemma4Assistant AutoModel: module missing ({e}); needs transformers>=5.8.0")
+except Exception as e:
+    print(f"Gemma4Assistant AutoModel patch failed: {e!r}")
+PATCH_GEMMA4_ASSISTANT_AUTOMODEL_EOF
+fi
+
 args=(
   tini -s --
   python3 -m sglang.launch_server
