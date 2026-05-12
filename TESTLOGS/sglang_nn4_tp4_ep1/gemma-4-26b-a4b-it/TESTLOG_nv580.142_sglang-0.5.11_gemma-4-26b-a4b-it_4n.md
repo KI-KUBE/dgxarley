@@ -56,9 +56,11 @@ added in Tests 13–18. See `SGLANG_v0.5.11_VERSION_CHANGES.md`.
    (not hybrid-mamba), so should be unaffected by the Word-Salad concurrency-race
    observed on Qwen3.6-35B-A3B-FP8. Verify output quality at n=4 / n=8 anyway.
 
-## Configuration Matrix (18 cases)
+## Configuration Matrix (23 cases — 18 baseline + 5 MTP sweep)
 
 All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0.85, context_length=262144`. BF16 weights → no FP4/FP8 GEMM sweep. `cutlass` MoE skipped (FP4-only).
+
+### Baseline (Tests 1–18): moe_runner × attention × cuda_graph
 
 | #  | moe_runner | attention | dis_cuda_graph | dis_piecewise | Status              | n=1 tok/s | n=4 peak | n=8 peak    |
 |----|------------|-----------|----------------|---------------|---------------------|----------:|---------:|------------:|
@@ -85,6 +87,20 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 
 **Crash B** (`moe_runner_backend=flashinfer_cutedsl`, 6/6 cases): `AssertionError: Invalid quantization 'None'. FlashInfer CuteDSL MOE currently supports only: 'modelopt_fp4'.` Pre-check assertion at `server_args.py:2975`. Same fail-fast behaviour as on Qwen3.6-35B-A3B-FP8 — the new `fi_cutedsl` MoE backend (PR #21339) is FP4-only by design; BF16 weights are rejected before model load.
 
+### MTP speculative-decoding sweep (Tests 19–23)
+
+Drafter: `google/gemma-4-26B-A4B-it-assistant` (4-layer auxiliary checkpoint, released 2026-05-05, Apache-2.0). NEXTN code-path via `--speculative-draft-model-path`; drafter shares the target's KV cache. Winner-shape fixed to **Case 06** (triton-MoE + triton-attn + CG on + piecewise on — chosen as MTP base over Case 12's `fi_cutlass`-MoE despite the latter's 2.5 % edge, because cookbook-validated MTP path is `triton`-MoE). Only `speculative_num_steps` varies. Cookbook defaults: `num_steps=5, num_draft_tokens=6, eagle_topk=1`. `enable_spec_v2: true`.
+
+CAVEAT (from matrix preamble): SGLang cookbook recommends `--tp 2` for the 26B-A4B + MTP combo on H200 (141 GB). We run 4-node TP=4 (Spark) — different topology, expected to fit (mem_fraction=0.85 leaves >2 GB/GPU headroom for the drafter shard). Reduce `mem_fraction_static` in a follow-up if OOMs.
+
+| #  | moe    | attn   | CG / pw | spec_num_steps | spec_draft_tokens | eagle_topk | Status      | n=1 tok/s | n=4 peak | n=8 peak |
+|----|--------|--------|---------|---------------:|------------------:|-----------:|-------------|----------:|---------:|---------:|
+| 19 | triton | triton | on / on | 2              | 6                 | 1          | **pending** | —         | —        | —        |
+| 20 | triton | triton | on / on | 3              | 6                 | 1          | **pending** | —         | —        | —        |
+| 21 | triton | triton | on / on | 4              | 6                 | 1          | **pending** | —         | —        | —        |
+| 22 | triton | triton | on / on | 5              | 6                 | 1          | **pending** | —         | —        | —        |
+| 23 | triton | triton | on / on | 6              | 6                 | 1          | **pending** | —         | —        | —        |
+
 ---
 
 ### Column Legend
@@ -100,7 +116,7 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 
 ## Results
 
-**Matrix complete (started 2026-05-11 22:36 CEST, finished early morning 2026-05-12 — 18/18 cases run: 6 ok, 12 crash).**
+**Baseline complete (started 2026-05-11 22:36 CEST, finished early morning 2026-05-12 — 18/18 baseline cases run: 6 ok, 12 crash). MTP sweep (Tests 19–23) pending.**
 
 Result dir: `kikube/matrixtest/2026-05-11/results/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it/0.5.11/`.
 
@@ -160,4 +176,18 @@ From `TESTLOG_nv580.142_sglang-0.5.10_gemma-4-26b-a4b-it_4n.md`:
 | 11 | fi_cutlass / triton / **eager**             | 25.6 | 112.2 | 158.4      | stable                |
 | 12 | fi_cutlass / triton / CG on / **pw on**     | 40.2 | 110.8 | 172.4      | stable                |
 | 1–3, 7–9 | fi-attn (any MoE)                     | —    | —     | —          | startup/bench crash   |
+
+---
+
+## MTP sweep (Tests 19–23) — pending
+
+The MTP cases mirror the Case 06 shape (triton-MoE + triton-attn + CG on + piecewise on) — the cookbook-validated path. Only `speculative_num_steps ∈ {2, 3, 4, 5, 6}` varies; cookbook default is `num_steps=5`.
+
+**Expectation.** 26B-A4B at n=1 is **40.48 tok/s** on 0.5.11 (Case 06 baseline) — fast for a 26 B model because only 3.8 B params are active per token (MoE). Per-token compute is already low, so MTP gains may be **smaller than on the 31B-it dense sibling** (which sat at 10.49 tok/s n=1 — much more compute-bound). At n=8 the target reaches 208 tok/s; MTP's draft-verify overhead competes with naked batched decode, so the n=8 row may regress vs the 208.50 baseline. Sweet-spot hypothesis: small win at n=1, breakeven at n=4, neutral-to-loss at n=8.
+
+Quality-watch items once results land:
+- **Drafter + MoE expert routing**: the auxiliary checkpoint is dense (4 layers) but the target is MoE — verify the assistant's outputs map cleanly to target tokens (no quality degradation from routing mismatch on rejected drafts).
+- **mem_fraction=0.85 + drafter shard**: 26B target uses ~13 GB/GPU, drafter adds ~4 GB / TP=4 = ~1 GB/GPU; should fit with headroom. Watch for OOM in startup logs.
+- **Token-acceptance rate**: small drafters on MoE targets historically accept poorly (~40 %) — if so, MTP is a loss here regardless of `num_steps`.
+- **Output coherence**: re-apply baseline word-salad / triple-word grep + tail-eyeball.
 

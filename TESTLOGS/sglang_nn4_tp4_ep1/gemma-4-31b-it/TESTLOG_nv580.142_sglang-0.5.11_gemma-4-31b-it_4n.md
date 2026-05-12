@@ -31,9 +31,11 @@ support in 0.5.11. See `SGLANG_v0.5.11_VERSION_CHANGES.md`.
 - Native Gemma 4 BF16 path in 0.5.11.
 - Dense → no MoE-runner sweep; only attention × cuda_graph variants.
 
-## Configuration Matrix (6 cases)
+## Configuration Matrix (11 cases — 6 baseline + 5 MTP sweep)
 
 All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0.60, context_length=262144`. BF16 dense → no MoE/FP4/FP8 sweep.
+
+### Baseline (Tests 1–6): attention × cuda_graph
 
 | # | attention | dis_cuda_graph | dis_piecewise | Status            | n=1 tok/s | n=4 peak | n=8 peak  |
 |---|-----------|----------------|---------------|-------------------|-----------|----------|-----------|
@@ -44,6 +46,18 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 | 5 | triton    | true           | true          | ok                | 9.26      | 42.48    | 83.06     |
 | 6 | triton    | false          | false         | ok                | 10.49     | 44.06    | **85.34** |
 
+### MTP speculative-decoding sweep (Tests 7–11)
+
+Drafter: `google/gemma-4-31B-it-assistant` (4-layer auxiliary checkpoint, released 2026-05-05, Apache-2.0). Driven through SGLang's NEXTN code-path via `--speculative-draft-model-path`; drafter shares the target's KV cache. Winner-shape fixed to **Case 06** (triton-attn + CG on + piecewise on); only `speculative_num_steps` varies. Cookbook defaults: `num_steps=5, num_draft_tokens=6, eagle_topk=1, attention_backend=triton` (mandatory for Gemma-4 anyway). Sweet-spot search ±2 around the cookbook default. `enable_spec_v2: true`. Drafter auto-appended to `HF_PRELOAD_MODELS` by dgxarley when `speculative_enabled=true` + `speculative_draft_model_path` set.
+
+| #  | attn   | CG / pw | spec_num_steps | spec_draft_tokens | eagle_topk | Status      | n=1 tok/s | n=4 peak | n=8 peak |
+|----|--------|---------|---------------:|------------------:|-----------:|-------------|----------:|---------:|---------:|
+| 7  | triton | on / on | 2              | 6                 | 1          | **pending** | —         | —        | —        |
+| 8  | triton | on / on | 3              | 6                 | 1          | **pending** | —         | —        | —        |
+| 9  | triton | on / on | 4              | 6                 | 1          | **pending** | —         | —        | —        |
+| 10 | triton | on / on | 5              | 6                 | 1          | **pending** | —         | —        | —        |
+| 11 | triton | on / on | 6              | 6                 | 1          | **pending** | —         | —        | —        |
+
 **fi-attn (Cases 1–3) — 3× startup_crash, same FlashInfer dispatch-table miss as on 0.5.10.** The Gemma-4 head_dim=256 + RoPE=64 prefill kernel still hits `FlashInfer Internal Error: Invalid configuration : NUM_MMA_Q=1 NUM_MMA_D_QK=32 NUM_MMA_D_VO=32 NUM_MMA_KV=1 NUM_WARPS_Q=1 NUM_WARPS_KV=4` from `prefill.cuh:2978`. FlashInfer 0.6.8.post1 + sgl-kernel 0.4.2 did not fix the dispatch-table gap. Even Case 02 (eager, no CUDA graph) crashes — the assert fires at the first decode call, not during graph capture. **Workaround: triton-attn (the profile default), as on 0.5.10.**
 
 All triton-attn cases finish with `stop` × N (Gemma is concise; ~1.2 k tokens vs the 3072 cap).
@@ -52,7 +66,7 @@ All triton-attn cases finish with `stop` × N (Gemma is concise; ~1.2 k tokens v
 
 ## Results
 
-**Matrix complete (2026-05-11, 6/6 cases run: 3 ok, 3 startup_crash).**
+**Baseline matrix complete (2026-05-11, 6/6 cases run: 3 ok, 3 startup_crash). MTP sweep (Tests 7–11) pending.**
 
 Result dir: `kikube/matrixtest/2026-05-11/results/sglang_nn4_tp4_ep1/gemma-4-31b-it/0.5.11/`.
 
@@ -82,3 +96,16 @@ n=1 is essentially flat across versions (~10 tok/s — single-stream is compute-
   - Eyeballed tails of all 8 n=8 requests in Case 06: clean concluding
     sentences (comparison tables, summaries, calls-to-action), no
     deterioration toward end-of-context.
+
+---
+
+## MTP sweep (Tests 7–11) — pending
+
+The MTP cases mirror the Case 06 winner shape (triton-attn + CG on + piecewise on) and only vary `speculative_num_steps ∈ {2, 3, 4, 5, 6}`. Cookbook default is `num_steps=5`; we sweep ±2.
+
+**Expectation.** MTP helps most when the target model is decode-bound (large per-token cost relative to the drafter step). The 31B dense BF16 at n=1 is **10.49 tok/s** — heavy compute per token, ideal MTP territory at low concurrency. At n=8 the target is already at 85.34 tok/s and CG-piecewise is doing most of the work; expected MTP delta there is smaller (or negative if drafter overhead eats batch headroom). Sweet-spot hypothesis: `num_steps=3–5` for n=1, lower or off for n=8.
+
+Quality-watch items once results land:
+- **Drafter KV-share**: the 4-layer assistant shares the target's KV cache — verify no `mem_fraction_static=0.60` headroom blow-up. If OOM, drop to 0.55 in a follow-up.
+- **Token-acceptance rate** (in SGLang's `/metrics` or stdout): if `<60%` at any step count, the drafter isn't pulling its weight on this workload.
+- **Output coherence**: speculative decoding must be lossless on the verify path — re-apply the same word-salad / triple-word grep + tail-eyeball as baseline.
