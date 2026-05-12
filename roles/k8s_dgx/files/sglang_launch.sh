@@ -938,19 +938,29 @@ fi
 # An inline `AutoModel.register(...)` call before `sglang.launch_server` does
 # NOT survive: SGLang spawns TP / draft workers as fresh Python processes, and
 # `register()` mutates only in-memory state of the calling process. Therefore
-# we install a `sitecustomize.py` into dist-packages — Python's `site.py`
-# auto-imports it at the START of every process (including spawned children),
-# so the registration runs in main + every TP worker + every draft worker.
+# we append the registration to the canonical `sitecustomize.py` resolved by
+# Python's `site.py` (only ONE sitecustomize is loaded per process; on this
+# Ubuntu/Debian image it's `/usr/lib/python3.12/sitecustomize.py`, NOT a file
+# in dist-packages). site.py auto-imports it at the START of every process
+# (including spawned children), so the registration runs in main + every TP
+# worker + every draft worker.
 #
 # STOP-GAP ONLY: the real upstream fix is SGLang PR #24436 (merged 2026-05-07,
 # i.e. AFTER the v0.5.11 tag), which adds a dedicated `FROZEN_KV_MTP` worker
 # implementing Gemma-4's frozen-KV / recurrent-hidden-state MTP protocol. Until
 # that PR is cherry-picked into the image, the drafter runs through the EAGLE
 # worker — loading succeeds but speculative correctness is unverified.
-SITECUSTOMIZE_PATH=/usr/local/lib/python3.12/dist-packages/sitecustomize.py
-if [ ! -f "$SITECUSTOMIZE_PATH" ] || ! grep -q '# kikube: gemma4_assistant AutoModel patch v2' "$SITECUSTOMIZE_PATH" 2>/dev/null; then
-  cat > "$SITECUSTOMIZE_PATH" <<'SITECUSTOMIZE_EOF'
-# kikube: gemma4_assistant AutoModel patch v2
+# Resolve the *actually loaded* sitecustomize.py path. Python only loads ONE
+# sitecustomize per process (whichever comes first on sys.path), and on this
+# Ubuntu/Debian image that turns out to be /usr/lib/python3.12/sitecustomize.py,
+# NOT a freshly-written file in dist-packages. So we MUST append our patch to
+# the canonical file — otherwise our snippet sits on disk but is never imported.
+SITECUSTOMIZE_PATH=$(python3 -c 'import sitecustomize, sys; sys.stdout.write(sitecustomize.__file__)' 2>/dev/null || echo "/usr/lib/python3.12/sitecustomize.py")
+
+if ! grep -q '# kikube: gemma4_assistant AutoModel patch v3' "$SITECUSTOMIZE_PATH" 2>/dev/null; then
+  cat >> "$SITECUSTOMIZE_PATH" <<'SITECUSTOMIZE_EOF'
+
+# kikube: gemma4_assistant AutoModel patch v3
 # Registers Gemma4AssistantForCausalLM with transformers.AutoModel so SGLang's
 # draft-worker `AutoModel.from_config(config)` call succeeds. Runs at every
 # Python process startup via site.py auto-import.
@@ -991,9 +1001,9 @@ except ModuleNotFoundError as _e:
 except Exception as _e:
     _kikube_log(f"{type(_e).__name__}: {_e}")
 SITECUSTOMIZE_EOF
-  echo "Installed $SITECUSTOMIZE_PATH (gemma4_assistant AutoModel patch v2)"
+  echo "Appended gemma4_assistant AutoModel patch v3 to $SITECUSTOMIZE_PATH"
 else
-  echo "$SITECUSTOMIZE_PATH already contains gemma4_assistant patch v2, skipping"
+  echo "$SITECUSTOMIZE_PATH already contains gemma4_assistant patch v3, skipping"
 fi
 
 # Verbose smoke-test in a fresh child process: prove that (a) site.py finds
