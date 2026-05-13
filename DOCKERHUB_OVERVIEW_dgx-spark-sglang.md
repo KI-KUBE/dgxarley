@@ -30,6 +30,23 @@ Hopper-only kernels (FA3, sm90 targets, FlashMLA) that never run on GB10.
   Earlier transformers releases don't know the drafter's config subclass
   and the SGLang head exits with `Unrecognized configuration class` during
   drafter weight-loading.
+- **Gemma-4 MTP (Frozen-KV) speculative-decoding patch** — the
+  `0.5.11-gemma4-sm121` tag carries a cherry-pick of upstream
+  [PR #24436](https://github.com/sgl-project/sglang/pull/24436)
+  ("Gemma 4 — Adding MTP support", merged 2026-05-07, after the v0.5.11
+  release tag). Adds the dedicated `Gemma4AssistantForCausalLM` model and a
+  new `FROZEN_KV_MTP` speculative algorithm (recurrent hidden-state draft
+  loop with frozen target KV cache). At runtime SGLang auto-promotes
+  `--speculative-algorithm NEXTN → FROZEN_KV_MTP` once the drafter is
+  detected. Without this patch the stock NEXTN/EAGLE worker crashes with
+  `ValueError: No module or parameter named 'model.language_model' in
+  TransformersMultiModalForCausalLM` during drafter weight-load.
+  Verified working on the 4-node DGX Spark cluster — see the 31B-it
+  TESTLOG, [Test 07 (`num_steps=2`, `num_draft_tokens=3`)](https://github.com/vroomfondel/dgxarley/blob/main/TESTLOGS/sglang_nn4_tp4_ep1/gemma-4-31b-it/TESTLOG_nv580.142_sglang-0.5.11_gemma-4-31b-it_4n.md#mtp-sweep-tests-711--partial-15-cases-done):
+  **+98 % at n=1** (10.49 → 20.83 tok/s), **+76 % at n=4** (44.06 → 77.67
+  tok/s), drafter acceptance rate median ~0.68, 5/5 requests stopped on
+  natural EOS. The 26B-A4B MoE sibling's MTP sweep is still in progress
+  ([TESTLOG](https://github.com/vroomfondel/dgxarley/blob/main/TESTLOGS/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it/TESTLOG_nv580.142_sglang-0.5.11_gemma-4-26b-a4b-it_4n.md)).
 - Built on a CUDA 13.2 + PyTorch 2.11 base for the GB10 codegen path
   (CUDA 13.1 / PyTorch 2.10 fallback is ~45 % slower end-to-end)
 

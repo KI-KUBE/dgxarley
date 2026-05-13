@@ -56,13 +56,13 @@ At runtime SGLang detects `Gemma4AssistantForCausalLM` as drafter and **auto-pro
 
 **`speculative_num_draft_tokens` manual sweep** — SGLang requires `num_draft_tokens ≥ num_steps + 1` (each step contributes one draft token plus the final accepted-token slot). The cookbook's fixed `num_draft_tokens=6` only matches `num_steps=5`; for `num_steps ∈ {2,3,4,6}` we had to bump it per case (autoadjust didn't fire). The table reflects the actually-launched values.
 
-| #  | attn   | CG / pw | spec_num_steps | spec_draft_tokens | eagle_topk | Status      | n=1 tok/s | n=4 peak | n=8 peak |
-|----|--------|---------|---------------:|------------------:|-----------:|-------------|----------:|---------:|---------:|
-| 7  | triton | on / on | 2              | 3                 | 1          | ok          | **20.83** | **77.67**| —        |
-| 8  | triton | on / on | 3              | 4                 | 1          | **pending** | —         | —        | —        |
-| 9  | triton | on / on | 4              | 5                 | 1          | **pending** | —         | —        | —        |
-| 10 | triton | on / on | 5              | 6                 | 1          | **pending** | —         | —        | —        |
-| 11 | triton | on / on | 6              | 7                 | 1          | **pending** | —         | —        | —        |
+| #  | attn   | CG / pw | spec_num_steps | spec_draft_tokens | eagle_topk | Status      | n=1 tok/s | n=4 peak  | n=8 peak  |
+|----|--------|---------|---------------:|------------------:|-----------:|-------------|----------:|----------:|----------:|
+| 7  | triton | on / on | 2              | 3                 | 1          | ok          | 20.83     | 77.67     | (skipped) |
+| 8  | triton | on / on | 3              | 4                 | 1          | ok          | **22.88** | **83.04** | **142.02**|
+| 9  | triton | on / on | 4              | 5                 | 1          | **pending** | —         | —         | —         |
+| 10 | triton | on / on | 5              | 6                 | 1          | **pending** | —         | —         | —         |
+| 11 | triton | on / on | 6              | 7                 | 1          | **pending** | —         | —         | —         |
 
 **fi-attn (Cases 1–3) — 3× startup_crash, same FlashInfer dispatch-table miss as on 0.5.10.** The Gemma-4 head_dim=256 + RoPE=64 prefill kernel still hits `FlashInfer Internal Error: Invalid configuration : NUM_MMA_Q=1 NUM_MMA_D_QK=32 NUM_MMA_D_VO=32 NUM_MMA_KV=1 NUM_WARPS_Q=1 NUM_WARPS_KV=4` from `prefill.cuh:2978`. FlashInfer 0.6.8.post1 + sgl-kernel 0.4.2 did not fix the dispatch-table gap. Even Case 02 (eager, no CUDA graph) crashes — the assert fires at the first decode call, not during graph capture. **Workaround: triton-attn (the profile default), as on 0.5.10.**
 
@@ -72,7 +72,7 @@ All triton-attn cases finish with `stop` × N (Gemma is concise; ~1.2 k tokens v
 
 ## Results
 
-**Baseline matrix complete (2026-05-11, 6/6 cases run: 3 ok, 3 startup_crash). MTP sweep partial (2026-05-13, 1/5 cases ok; Tests 8–11 pending).**
+**Baseline matrix complete (2026-05-11, 6/6 cases run: 3 ok, 3 startup_crash). MTP sweep partial (2026-05-13, 2/5 cases ok; Tests 9–11 pending).**
 
 Result dir: `kikube/matrixtest/2026-05-11/results/sglang_nn4_tp4_ep1/gemma-4-31b-it/0.5.11/`.
 
@@ -105,7 +105,7 @@ n=1 is essentially flat across versions (~10 tok/s — single-stream is compute-
 
 ---
 
-## MTP sweep (Tests 7–11) — partial (1/5 cases done)
+## MTP sweep (Tests 7–11) — partial (2/5 cases done)
 
 The MTP cases mirror the Case 06 winner shape (triton-attn + CG on + piecewise on) and only vary `speculative_num_steps ∈ {2, 3, 4, 5, 6}`. Cookbook default is `num_steps=5`; we sweep ±2.
 
@@ -132,7 +132,28 @@ n=8 not in this run; needs follow-up to see whether the gain compresses once the
 
 Output quality: 5/5 requests finished with `stop` (natural EOS), output tokens 1153–1554 (median ~1380), well below the 3072 cap. Pattern same as the baseline runs.
 
-### Tests 08–11 — pending
+### Test 08 (`num_steps=3`, `num_draft_tokens=4`) — ok, 2026-05-13
+
+Result dir: `kikube/matrixtest/2026-05-13/results/sglang_nn4_tp4_ep1/gemma-4-31b-it/0.5.11/nv580.142_sglang-0.5.11_gemma-4-31b-it_4n_1pp_4tp_ep1_08_triton-attn_piecewise_mtp_steps-3/`.
+
+| n | peak (sum tok/s) | avg per-req | wall (s) | tokens out (median) | finish |
+|--:|-----------------:|------------:|---------:|--------------------:|--------|
+| 1 | **22.88**        | 22.88       | 53.4     | 1 220               | stop   |
+| 4 | **83.04**        | 20.76       | 68.7     | 1 342               | stop ×4|
+| 8 | **142.02**       | 17.75       | 83.2     | 1 332               | stop ×8|
+
+**MTP gain grew vs Test 07 and now extends to n=8:**
+- n=1: 22.88 vs Test 07 20.83 (+10 %), **+118 % vs Case 06 baseline** (10.49)
+- n=4: 83.04 vs Test 07 77.67 (+7 %), **+88 % vs baseline** (44.06)
+- n=8: 142.02 — first MTP n=8 datapoint, **+66 % vs baseline** (85.34). MTP still pays at the largest concurrency we test, contrary to my earlier hypothesis that it would tail off.
+
+**Drafter acceptance** (from `decode batch` log):
+- `accept_len ∈ [2.25, 2.86]` out of `num_steps=3`, with **median ~2.7** — drafter contributes ~2/3 of its theoretical max.
+- `accept_rate ∈ [0.42, 0.62]`, median ~0.55. Per-step rate is *lower* than Test 07's ~0.68 (which had `num_steps=2`) — adding more steps compounds the per-step rejection probability. But the **absolute** accepted-token count per verify cycle is higher (2.7 vs 2.4), so net throughput wins.
+
+Output quality: 13/13 requests stopped on natural EOS, tokens 1220–1610. No 3072 cap hits.
+
+### Tests 09–11 — pending
 
 The remaining four step counts (3, 4, 5, 6) have not been launched yet. Expectation given Test 07's profile:
 - Acceptance length should scale roughly with `num_steps` but the **acceptance rate** typically tails off past ~3–4 steps as draft uncertainty compounds. Sweet spot is probably `num_steps ∈ {3, 4}` if Test 07's ~0.7 acceptance rate at 2 steps holds.
