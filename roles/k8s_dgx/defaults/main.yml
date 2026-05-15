@@ -30,6 +30,30 @@ default_sglang_image: "scitrera/dgx-spark-sglang:0.5.11"
 
 sglang_nnodes: 4
 
+
+# Select the active model — parameters are pulled from sglang_model_profiles
+#sglang_model: "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
+#sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+#sglang_model: "Qwen/Qwen3.5-35B-A3B-FP8"
+#sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+
+# sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
+# sglang_model: "google/gemma-4-26B-A4B-it"
+sglang_model: "google/gemma-4-31B-it"
+# sglang_model: "nvidia/Qwen3-235B-A22B-NVFP4"
+# sglang_model: "zai-org/GLM-4.7-FP8"
+
+# sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
+# sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
+# sglang_model: "nvidia/GLM-4.7-NVFP4"
+# sglang_model: "nvidia/GLM-5-NVFP4"
+#sglang_model: "nvidia/MiniMax-M2.5-NVFP4"
+#sglang_model: "Qwen/Qwen3.5-122B-A10B-FP8"
+#sglang_model: "QuantTrio/Qwen3-235B-A22B-Thinking-2507-AWQ"
+#sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
+#sglang_model: "google/gemma-4-31B-it"        # 30.7B dense, multimodal, 256K ctx
+#sglang_model: "google/gemma-4-26B-A4B-it"    # 26B/3.8B-active MoE, multimodal, 256K ctx
+
 # Model profiles are loaded from individual files in model_profiles/
 # by the merge task at the top of tasks/main.yml. See model_profiles/*.yml.
 # sglang_model_profiles dict is built at runtime via include_vars + combine.
@@ -64,29 +88,6 @@ sglang_mamba_scheduler_strategy: "{{ sglang_model_profiles[sglang_model].mamba_s
 # Enable MTP spec_v2 — required alongside mamba_scheduler_strategy=extra_buffer
 # for speculative decoding on hybrid-attention models. Sets SGLANG_ENABLE_SPEC_V2=1.
 sglang_enable_spec_v2: "{{ sglang_model_profiles[sglang_model].enable_spec_v2 | default(false) }}"
-
-# Select the active model — parameters are pulled from sglang_model_profiles
-#sglang_model: "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
-#sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
-#sglang_model: "Qwen/Qwen3.5-35B-A3B-FP8"
-#sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
-
-# sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
-# sglang_model: "google/gemma-4-26B-A4B-it"
-sglang_model: "google/gemma-4-31B-it"
-# sglang_model: "nvidia/Qwen3-235B-A22B-NVFP4"
-# sglang_model: "zai-org/GLM-4.7-FP8"
-
-# sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
-# sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
-# sglang_model: "nvidia/GLM-4.7-NVFP4"
-# sglang_model: "nvidia/GLM-5-NVFP4"
-#sglang_model: "nvidia/MiniMax-M2.5-NVFP4"
-#sglang_model: "Qwen/Qwen3.5-122B-A10B-FP8"
-#sglang_model: "QuantTrio/Qwen3-235B-A22B-Thinking-2507-AWQ"
-#sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
-#sglang_model: "google/gemma-4-31B-it"        # 30.7B dense, multimodal, 256K ctx
-#sglang_model: "google/gemma-4-26B-A4B-it"    # 26B/3.8B-active MoE, multimodal, 256K ctx
 
 # NOTE: you should never change the image directly here!
 sglang_image: "{{ sglang_model_profiles[sglang_model].sglang_image | default(default_sglang_image) }}"
