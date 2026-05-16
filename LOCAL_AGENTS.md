@@ -1,6 +1,6 @@
 # LOCAL_AGENTS.md
 
-Overview of current (as of April 2026) open-source agents that can be wired
+Overview of current (as of May 2026) open-source agents that can be wired
 up to a locally running LLM API — for example, SGLang or vLLM on the DGX
 Sparks (`http://<host>:8000/v1` or `:8001/v1`, OpenAI-compatible) or Ollama
 on spark1 (`http://spark1:11434/v1`).
@@ -27,7 +27,10 @@ self-hosted endpoint.
   calling (Qwen3-Coder, GLM-4.7, DeepSeek-V4, Hermes-3/4).
 - Strengths: polished TUI, multi-session, MCP support, very active
   development. Overtook both Cline and OpenHands on GitHub stars in early
-  2026.
+  2026. Recent (v1.15.x, May 2026): experimental background subagents
+  (tasks keep running while you work), Effect-based event system for
+  cleaner streaming/replay. Note: NVIDIA endpoints now require a
+  billing-origin header — relevant if you ever point OpenCode at NIM.
 
 ### Aider
 - Repo: <https://github.com/Aider-AI/aider>
@@ -122,8 +125,9 @@ self-hosted endpoint.
 
 Hermes Agent is not purely a coding agent but a persistent personal agent
 with a built-in learning loop. It explicitly positions itself as "the
-agent that grows with you". Current version: **v0.11.0**, released
-April 23, 2026, MIT-licensed.
+agent that grows with you". Current version: **v0.13.0 — "The Tenacity
+Release"**, released May 7, 2026, MIT-licensed. Since v0.12.0 alone:
+864 commits, 588 merged PRs, 295 contributors.
 
 - Repo: <https://github.com/NousResearch/hermes-agent>
 - Web: <https://hermes-agent.nousresearch.com>
@@ -172,6 +176,14 @@ Inside a running chat you can switch on the fly with
   workstreams; Python scripts call tools via RPC.
 - **MCP client**: in addition to the native tools, arbitrary MCP servers
   can be plugged in.
+- **Multi-agent Kanban (v0.13.0)**: durable Kanban board across multiple
+  agents with heartbeat, reclaim, zombie detection, auto-block on
+  incomplete exit, per-task retries, and hallucination recovery —
+  Hermes's answer to "how do I keep N subagents coherent over hours".
+- **`/goal` (v0.13.0)**: persistent goal tracking that keeps the agent
+  locked onto a target across turns (the "Ralph loop" pattern).
+- **i18n (v0.13.0)**: static gateway and CLI messages are localized into
+  Chinese, Japanese, German, Spanish, French, Ukrainian, and Turkish.
 
 #### Memory system (the actual differentiator)
 
@@ -209,9 +221,16 @@ The full stack runs anywhere from a 5 €/mo VPS to a GPU cluster.
 #### Multi-platform gateway
 
 Through the built-in gateway (`hermes gateway`) the same agent is
-simultaneously reachable via Telegram, Discord, Slack, WhatsApp, Signal,
-Matrix, email, and CLI. Voice memos are transcribed; sessions continue
-across platforms.
+simultaneously reachable via 20 platforms — Telegram, Discord, Slack,
+WhatsApp, Signal, Matrix, email, CLI, **Google Chat** (added in v0.13.0),
+and others. Voice memos are transcribed; sessions continue across
+platforms.
+
+> **Security note (v0.13.0):** redaction of secrets is now on by default;
+> Discord role-allowlists are guild-scoped (closes a CVSS 8.1 cross-guild
+> DM bypass); WhatsApp rejects messages from strangers by default; TOCTOU
+> windows in `auth.json` and MCP OAuth were closed. Worth re-checking the
+> gateway config when upgrading.
 
 #### Scheduling
 
