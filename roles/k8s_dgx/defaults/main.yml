@@ -837,7 +837,7 @@ hermes_agent_proxy_port: 9118
 # Per-user defaults — overridable per entry in hermes_users.
 hermes_dashboard_enabled_default: false
 # enables chat-interface if set to true IF hermes_dashboard_enabled is even enabled
-hermes_dashboard_tui_default: true
+hermes_dashboard_tui_default: false
 # enables webui-interface (alternative interface to native hermes dashboard)
 hermes_webui_enabled_default: true
 # Sets logging.level=DEBUG in the rendered config.yaml (otherwise INFO).

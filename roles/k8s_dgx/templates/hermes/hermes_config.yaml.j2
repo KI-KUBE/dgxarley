@@ -13,6 +13,12 @@ terminal:
   cwd: "."
   timeout: 180
 
+# Web search via in-cluster SearXNG (search-only). SEARXNG_URL is set in .env.
+# Extract/crawl backends are not configured — Hermes' web_extract / web_crawl
+# will be unavailable until a Firecrawl/Tavily/Exa key is added.
+web:
+  backend: "searxng"
+
 # Server-side log level for /opt/data/logs/agent.log. The merge-config
 # initContainer always rewrites this on pod start, so toggling
 # `hermes_debug` on a user entry and rolling the pod is enough — ops wins.
