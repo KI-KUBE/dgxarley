@@ -83,12 +83,18 @@
               disabled: false
             - name: wolframalpha
               disabled: true
-            # disabled (broken/captcha/403)
+            # disabled (broken/captcha/403, tor-only, or sqlite race)
             - name: duckduckgo
               disabled: true
             - name: yep
               disabled: true
             - name: karmasearch
+              disabled: true
+            - name: ahmia
+              disabled: true
+            - name: torch
+              disabled: true
+            - name: radio_browser
               disabled: true
 
 
