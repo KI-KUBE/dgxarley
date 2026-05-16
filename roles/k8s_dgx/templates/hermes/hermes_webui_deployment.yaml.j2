@@ -49,18 +49,27 @@ spec:
       restartPolicy: Always
       nodeSelector:
         node-role: k3smaster
-      # Pod-level securityContext targets the webui's image-internal user.
-      # The image's docker_init.bash entrypoint MUST start as hermeswebuitoo
-      # (UID 1025): it usermod's the hermeswebui user to WANTED_UID/WANTED_GID
-      # and re-execs itself. After that switch the actual python server runs
-      # as {{ item.uid }}/{{ item.gid }} (verified via /proc).
-      # fsGroup={{ item.gid }} is added so the bootstrap shell can read /opt/data
-      # before the switch; once switched, the server owns the dir directly.
+      # Pod-level securityContext: the webui image's hermeswebui_init.bash
+      # entrypoint REQUIRES starting as root (UID 0). It then `usermod`s the
+      # baked-in `hermeswebui` user to WANTED_UID/WANTED_GID, prepares root-
+      # owned paths (/app, $UV_CACHE_DIR, /opt/data), and `exec su`s itself
+      # to `hermeswebui`. The python server runs as {{ item.uid }}/{{ item.gid }}.
+      #
+      # Earlier image versions (pre-2026-05-15) shipped sudo + a separate
+      # hermeswebuitoo user (UID 1025) that did the bootstrap and dropped
+      # to hermeswebui (UID 1024). The new production image dropped sudo
+      # entirely; the bootstrap now ONLY runs when whoami == root, otherwise
+      # the script aborts with `current UID 1025 ≠ wanted ${WANTED_UID}`.
+      # See script: `if [ "A${whoami}" == "Aroot" ]; then ... usermod ...
+      # exec su -s /bin/bash -c "exec ..." hermeswebui`.
+      #
+      # fsGroup={{ item.gid }} so the post-switch hermeswebui user can read
+      # the NFS-mounted /opt/data; the bootstrap as root doesn't need it.
       securityContext:
-        runAsUser: 1025
-        runAsGroup: 1025
+        runAsUser: 0
+        runAsGroup: 0
         fsGroup: {{ item.gid }}
-        runAsNonRoot: true
+        runAsNonRoot: false
       initContainers:
         # Reset NFS subdir owner so the post-switch hermeswebui user (UID
         # {{ item.uid }}) can write. Idempotent — agent pod's fix-perms does the
