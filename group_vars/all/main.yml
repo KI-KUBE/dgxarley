@@ -179,3 +179,46 @@ traefik_internal_allowlist:
 # NUT exporter (k8s_infra)
 nut_exporter_server: "192.168.124.100"
 nut_exporter_password: "changeme"
+
+
+# === Nous Hermes Agent (per-user deployments) — SCHEMA REFERENCE ===
+# Public schema documentation. Real entries live in group_vars/all/vault.yml
+# (git-crypted) and override this list entirely. Default is `[]` from
+# roles/k8s_dgx/defaults/main.yml — this dummy is purely illustrative.
+# `enabled: false` on every entry keeps it inert even if vault.yml is missing.
+#
+# Per-user gates (independent):
+#   dashboard_enabled  → official `hermes dashboard` pod  (<u>.hermes-dashboard.<dns>)
+#   dashboard_tui      → adds embedded chat tab to the dashboard
+#   webui_enabled      → ghcr.io/nesquena/hermes-webui pod (<u>.hermes.<dns>)
+#   email.enabled      → `hermes gateway run` sidecar inside the webui pod
+#                        (implies webui_enabled; reads EMAIL_* from /opt/data/.env)
+hermes_users:
+  - username: example
+    uid: 1500
+    gid: 1500
+    litellm_token: "sk-REPLACE-WITH-PER-USER-LITELLM-VIRTUAL-KEY"
+    litellm_model: ""                  # empty → falls back to hermes_default_model
+    basicauth_password: "changeme"     # defaults to litellm_token if unset
+    webui_password: "changeme"         # defaults to basicauth_password if unset
+    dashboard_enabled: false
+    dashboard_tui: false
+    webui_enabled: true
+    hermes_debug: false                # true → logging.level=DEBUG in config.yaml
+    email:                             # omit block or set enabled:false to skip
+      enabled: false
+      address: "hermes-example@example.com"
+      password: "imap-app-password"    # Gmail/Outlook: app password, NOT account password
+      imap_host: "imap.example.com"
+      smtp_host: "smtp.example.com"
+      imap_port: 993                   # default 993  (IMAP SSL)
+      smtp_port: 587                   # default 587  (SMTP STARTTLS)
+      poll_interval: 15                # default 15s between IMAP polls
+      home_address: "owner@example.com"  # fallback recipient for autonomous tasks
+      allow_all_users: false           # true → ignore allowed_users
+      allowed_users:                   # sender whitelist
+        - "owner@example.com"
+      skip_attachments: false          # true → strip attachments before LLM
+      cpu_limit: "500m"                # sidecar caps; defaults 500m / 512Mi
+      memory_limit: "512Mi"
+    enabled: false

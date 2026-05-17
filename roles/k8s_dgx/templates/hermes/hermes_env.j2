@@ -1,2 +1,21 @@
 OPENAI_API_KEY={{ item.litellm_token }}
 SEARXNG_URL={{ hermes_searxng_url | default('http://searxng.searxng.svc.cluster.local:' ~ searxng_port) }}
+{% set email = item.email | default({}) %}
+{% if email.get('enabled', hermes_email_enabled_default) %}
+EMAIL_ADDRESS={{ email.address }}
+EMAIL_PASSWORD={{ email.password }}
+EMAIL_IMAP_HOST={{ email.imap_host }}
+EMAIL_SMTP_HOST={{ email.smtp_host }}
+EMAIL_IMAP_PORT={{ email.imap_port | default(993) }}
+EMAIL_SMTP_PORT={{ email.smtp_port | default(587) }}
+EMAIL_POLL_INTERVAL={{ email.poll_interval | default(15) }}
+{% if email.home_address is defined %}
+EMAIL_HOME_ADDRESS={{ email.home_address }}
+{% endif %}
+{% if email.allow_all_users is defined %}
+EMAIL_ALLOW_ALL_USERS={{ 'true' if email.allow_all_users else 'false' }}
+{% endif %}
+{% if email.allowed_users is defined %}
+EMAIL_ALLOWED_USERS={{ email.allowed_users | join(',') if email.allowed_users is iterable and email.allowed_users is not string else email.allowed_users }}
+{% endif %}
+{% endif %}

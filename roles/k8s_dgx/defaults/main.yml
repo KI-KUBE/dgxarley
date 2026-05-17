@@ -849,6 +849,12 @@ hermes_webui_enabled_default: true
 # Sets logging.level=DEBUG in the rendered config.yaml (otherwise INFO).
 # Affects /opt/data/logs/agent.log — kubectl logs -c log-tail <pod> tails it.
 hermes_debug_default: false
+# Default for per-user email gateway. When true, the webui pod gets an extra
+# `hermes-email` sidecar running `hermes gateway run` against EMAIL_* vars in
+# /opt/data/.env. Off by default — needs IMAP/SMTP credentials per user, and
+# enabling it without those will just have the gateway log "no platforms
+# configured" and idle. Implies webui_enabled (sidecar lives in that pod).
+hermes_email_enabled_default: false
 # Per-user list — real entries in group_vars/all/vault.yml.
 # Schema: { username, uid, gid, litellm_token,
 #           litellm_model?, basicauth_password?, webui_password?,
@@ -856,6 +862,17 @@ hermes_debug_default: false
 #           dashboard_tui?     (default true),
 #           webui_enabled?     (default false),
 #           hermes_debug?      (default false),
+#           email?: {           (default disabled — omit block to skip)
+#               enabled,        (default hermes_email_enabled_default)
+#               address, password, imap_host, smtp_host,
+#               imap_port?      (default 993),
+#               smtp_port?      (default 587),
+#               poll_interval?  (default 15),
+#               home_address?,
+#               allow_all_users?, allowed_users?,
+#               skip_attachments?,
+#               cpu_limit?, memory_limit?
+#           },
 #           enabled }
 # Hostnames: <username>.hermes-dashboard.<dns> (original)  +  <username>.hermes.<dns> (webui)
 hermes_users: []

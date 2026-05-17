@@ -3,7 +3,15 @@
    hostPath as /opt/data — sessions/skills/configs are visible to both UIs.
    The WebUI still spawns its own `hermes` subprocesses for chat/tools (see
    upstream limitation #681); the agent pod's running process is independent.
+
+   Optional `hermes-email` sidecar (gated on item.email.enabled): runs
+   `hermes gateway run` from the agent image to poll IMAP for incoming mail
+   and dispatch it through Hermes' messaging pipeline. Outbound mail goes
+   through tool-calls inside webui-spawned hermes subprocesses, which inherit
+   the same /opt/data/.env — no extra wiring needed.
 #}
+{%- set _email = item.email | default({}) -%}
+{%- set _email_enabled = _email.get('enabled', hermes_email_enabled_default) -%}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -236,6 +244,44 @@ spec:
               port: {{ hermes_webui_port }}
             initialDelaySeconds: 30
             periodSeconds: 10
+{% if _email_enabled %}
+        # Email gateway sidecar — polls IMAP and dispatches via SMTP using the
+        # EMAIL_* vars from /opt/data/.env (merged by the merge-config init).
+        # Uses the agent image because the `hermes` CLI lives there. The image
+        # entrypoint usermod's the baked-in `hermes` user to HERMES_UID/GID and
+        # `gosu`-drops before exec'ing `hermes gateway run`. No HTTP port — the
+        # gateway is daemon-only; rely on K8s restart-on-crash for liveness.
+        # Shares /opt/data with the webui container so both see the same
+        # sessions/skills/.env. Outbound mail from webui-spawned hermes
+        # subprocesses also works via the same .env, no extra wiring needed.
+        - name: hermes-email
+          image: "nousresearch/hermes-agent:{{ item.image_tag | default(hermes_image_tag) }}"
+          imagePullPolicy: Always
+          args:
+            - "gateway"
+            - "run"
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+          env:
+            - name: HERMES_UID
+              value: "{{ item.uid }}"
+            - name: HERMES_GID
+              value: "{{ item.gid }}"
+          resources:
+            requests:
+              cpu: "20m"
+              memory: "128Mi"
+            limits:
+              cpu: "{{ item.email.cpu_limit | default('500m') }}"
+              memory: "{{ item.email.memory_limit | default('512Mi') }}"
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+            - name: files
+              mountPath: /workspace
+{% endif %}
       volumes:
         - name: data
           hostPath:

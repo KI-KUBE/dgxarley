@@ -24,3 +24,14 @@ web:
 # `hermes_debug` on a user entry and rolling the pod is enough — ops wins.
 logging:
   level: "{{ 'DEBUG' if (item.hermes_debug | default(hermes_debug_default)) else 'INFO' }}"
+{% set email = item.email | default({}) %}
+{% if email.get('enabled', hermes_email_enabled_default) %}
+
+# Email gateway (IMAP/SMTP) — credentials live in /opt/data/.env as EMAIL_*.
+# The hermes-email sidecar in the webui pod runs `hermes gateway run` to poll
+# the inbox; outbound mail goes through tool-calls in webui-spawned hermes
+# subprocesses, which inherit the same .env.
+platforms:
+  email:
+    skip_attachments: {{ (email.skip_attachments | default(false)) | string | lower }}
+{% endif %}
