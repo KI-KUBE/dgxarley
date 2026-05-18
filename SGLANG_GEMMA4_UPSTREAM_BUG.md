@@ -1,6 +1,6 @@
 # SGLang Upstream Bug: Gemma-4 NVFP4 blocked on SM121
 
-## Status (re-verified 2026-05-10)
+## Status (re-verified 2026-05-18)
 
 - **BF16 variants — WORKING** on our **`xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121`**
   image (SGLang **v0.5.11** + SM121 sgl-kernel patches + flashinfer 0.6.11 +
@@ -20,14 +20,15 @@
 - **NVFP4 variants — STILL BLOCKED.** Both dense (`nvidia/Gemma-4-31B-IT-NVFP4`)
   and MoE (`bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4`) require four sm120/121-
   specific upstream PRs. Three (#22929, #22928, #22927) remain **stale since
-  2026-04-16 with no review activity** (re-verified 2026-05-10). The fourth,
+  2026-04-16 with no review activity** (re-verified 2026-05-18). The fourth,
   **#22615, was APPROVED by `kpham-sgl` on 2026-04-22** and rebased onto main
   on 2026-04-30 (CI re-run requested) — its known blocker
   ([flashinfer #2959](https://github.com/flashinfer-ai/flashinfer/pull/2959))
   has since been **merged and shipped** in flashinfer v0.6.10 / .post1 / 0.6.11,
   so the upstream-blocker reasoning kpham-sgl gave on the PR comments no
-  longer applies. **Re-checked 2026-05-10 via `gh pr view 22615`: state still
-  OPEN, last update 2026-04-30T01:16:18Z, mergeable=UNKNOWN, no merge.** The
+  longer applies. **Re-checked 2026-05-18: state still OPEN, no merge.** SGLang
+  **v0.5.12** (released 2026-05-16) ships without any of the four SM120/121
+  Gemma-4 NVFP4 PRs — release notes mention no Gemma-4 NVFP4/SM121 work. The
   three stale PRs continue to gate NVFP4 Gemma-4 on SM121.
 
 The original v0.5.10 blockers (Transformers fallback, dual head_dim, top_k_experts

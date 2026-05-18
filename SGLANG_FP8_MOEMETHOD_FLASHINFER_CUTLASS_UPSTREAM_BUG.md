@@ -2,12 +2,15 @@
 
 ## Status
 
-**Open upstream — no fix in flight for vanilla `Fp8MoEMethod` as of 2026-05-10.**
-Verified on SGLang `v0.5.11` ("The Tenacity Release", tagged 2026-05-05) with
-the upstream image `scitrera/dgx-spark-sglang:0.5.11` (FlashInfer 0.6.10,
+**Open upstream — no fix in flight for vanilla `Fp8MoEMethod` as of 2026-05-18.**
+Originally verified on SGLang `v0.5.11` ("The Tenacity Release", tagged 2026-05-05)
+with the upstream image `scitrera/dgx-spark-sglang:0.5.11` (FlashInfer 0.6.10,
 sgl-kernel 0.4.2). Reproduced on Qwen3.6-35B-A3B-FP8, 4×GB10 (SM12.0a), TP=4,
 during the matrix run on 2026-05-10 (case `07_fi_cutlass-moe_fi-attn` in
 `kikube/matrixtest/2026-05-10/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.11/`).
+**SGLang v0.5.12 released 2026-05-16** — release notes contain no
+`Fp8MoEMethod` + flashinfer_cutlass fix; PRs #21872 and #22627 both still open
+and unmerged, so the bug remains present in the latest tag.
 
 The bug is plainly visible in the source — `Fp8MoEMethod.create_moe_runner`
 ends with an explicit `# TODO(cwan): refactor other backends` for everything

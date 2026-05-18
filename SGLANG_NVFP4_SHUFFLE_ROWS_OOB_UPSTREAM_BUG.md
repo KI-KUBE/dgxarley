@@ -1,11 +1,14 @@
 # SGLang Upstream Bug: `cutlass_moe_fp4` `a_map` uninitialized-memory OOB under EP
 
-## Status (re-verified 2026-05-09)
+## Status (re-verified 2026-05-18)
 
 **Partial progress, semantic fix invalidated.** 2026-04-11 session outcome
 (no further investigation since; PR #20869 still stale at upstream — last
-activity 2026-03-18, re-checked 2026-05-09). Bug remains present in v0.5.11
-and our dev1 image (no fix PR has been merged or opened since). The cluster-level workaround
+activity 2026-03-18, re-checked 2026-05-18; PR #21630 also still open).
+Bug remains present in v0.5.11, v0.5.12 (released 2026-05-16; NVFP4
+weight-loading changes #25190/#25107 landed but **not** the
+`_shuffle_rows_torch` OOB fix), and our dev1 image (no fix PR has been
+merged or opened since). The cluster-level workaround
 remains: NVFP4 MoE profiles default to `moe_runner_backend: flashinfer_cutlass`,
 which avoids `cutlass_moe_fp4` entirely (see CLAUDE.md "NVFP4 MoE runner is
 model-specific, not global"):

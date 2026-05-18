@@ -1,9 +1,11 @@
-# Qwen3.5 vision_config dict bug (transformers 5.x + SGLang ≤ 0.5.11)
+# Qwen3.5 vision_config dict bug (transformers 5.x + SGLang ≤ 0.5.12)
 
-> **Re-verified 2026-05-09:** v0.5.11 (released 2026-05-05) does **not** fix this
-> — code at `python/sglang/srt/configs/qwen3_5.py` is structurally unchanged
-> (same hand-written `__init__` that gets bypassed by transformers 5.x's
-> auto-generated init for sub-configs). PR #22839 still open, no merge.
+> **Re-verified 2026-05-18:** v0.5.12 (released 2026-05-16) does **not** fix
+> this — release notes contain no vision_config / Qwen3.5 config fix. Code at
+> `python/sglang/srt/configs/qwen3_5.py` is structurally unchanged (same
+> hand-written `__init__` that gets bypassed by transformers 5.x's
+> auto-generated init for sub-configs). PR #22839 still open (last update
+> 2026-04-15), no merge. Monkey-patch in `sglang_launch.sh` still required.
 
 
 ## Summary
