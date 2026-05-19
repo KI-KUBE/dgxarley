@@ -227,4 +227,21 @@ hermes_users:
       process_existing: true           # true (default) → process pre-existing UNSEEN INBOX backlog on start
       cpu_limit: "500m"                # sidecar caps; defaults 500m / 512Mi
       memory_limit: "512Mi"
+    # Seed values for the webui Preferences panel. Written ONLY on first start
+    # to /opt/data/.webui/settings.json (when the file does not yet exist) —
+    # subsequent UI changes via POST /api/settings remain authoritative, so
+    # bumping these here will NOT overwrite a settings.json the user already
+    # touched. Upstream defaults live in nesquena/hermes-webui at
+    # api/config.py:_SETTINGS_DEFAULTS — only override what differs.
+    # Omit the key or set to {} to skip seeding entirely.
+    webui_settings:
+      simplified_tool_calling: true    # "Compact tool activity"        (upstream: true)
+      api_redact_enabled: true         # "Redact sensitive data"        (upstream: true)
+      sidebar_density: "compact"       # "Sidebar density"              (upstream: "compact") — "detailed"|"compact"|"minimal"
+      auto_title_refresh_every: "0"    # "Adaptive title refresh"       (upstream: "0" = Off)
+      busy_input_mode: "queue"         # "Busy input mode"              (upstream: "queue") — "queue"|"interrupt"|"steer"
+      show_cli_sessions: false         # "Show non-WebUI sessions"      (upstream: false) — set true to see Email/CLI sessions
+      sync_to_insights: false          # "Sync to insights"             (upstream: false)
+      check_for_updates: true          # "Check for updates"            (upstream: true)
+      whats_new_summary_enabled: false # "Summarize What's New with AI" (upstream: false)
     enabled: false

@@ -53,6 +53,13 @@ spec:
         # need to re-merge into /opt/data on update.
         checksum/config:      "{{ lookup('template', 'hermes/hermes_config.yaml.j2') | hash('sha256') }}"
         checksum/env:         "{{ lookup('template', 'hermes/hermes_env.j2')         | hash('sha256') }}"
+        # Hash the raw login secret so rotating basicauth_password (which is
+        # only referenced by the Caddy users.json ConfigMap and the
+        # WEBUI_PASSWORD Secret key — neither of which triggers a pod
+        # rollover on its own) forces a fresh pod. Hash the cleartext, not
+        # the bcrypt output: bcrypt re-salts on every render, which would
+        # cause a spurious rollover on every playbook run.
+        checksum/auth:        "{{ (item.basicauth_password | default(item.litellm_token)) | hash('sha256') }}"
 {% if _email_enabled %}
         # Auto-roll when the gateway/platforms/email.py patch changes —
         # subPath ConfigMap mounts don't surface updates without a pod restart.
@@ -150,6 +157,33 @@ spec:
                       f.write(f"{k}={v}\n")
               os.chown("/opt/data/.env", UID, GID)
               os.chmod("/opt/data/.env", 0o600)
+              # Seed STATE_DIR/settings.json with the WebUI preference
+              # defaults defined in `webui_settings` on this user. The nine
+              # Preferences-panel toggles (sidebar_density, show_cli_sessions,
+              # simplified_tool_calling, busy_input_mode, …) are server-side
+              # state in api/config.py:_SETTINGS_DEFAULTS — no env/config
+              # override exists upstream. We write the file only if it
+              # doesn't exist yet; subsequent UI-side changes via
+              # POST /api/settings remain authoritative.
+{% set _webui_settings = item.webui_settings | default({}) %}
+{% if _webui_settings %}
+              import base64, json
+              state_dir = "/opt/data/.webui"
+              settings_path = os.path.join(state_dir, "settings.json")
+              if not os.path.exists(settings_path):
+                  os.makedirs(state_dir, exist_ok=True)
+                  os.chown(state_dir, UID, GID)
+                  os.chmod(state_dir, 0o700)
+                  # base64 round-trip — the rendered JSON contains lowercase
+                  # `true`/`false`/`null` which are not valid Python literals;
+                  # parsing through json.loads avoids any quoting/escaping
+                  # corner cases (single quotes in values etc.).
+                  seed = json.loads(base64.b64decode("{{ _webui_settings | to_json | b64encode }}"))
+                  with open(settings_path, "w") as f:
+                      json.dump(seed, f, indent=2, sort_keys=True)
+                  os.chown(settings_path, UID, GID)
+                  os.chmod(settings_path, 0o600)
+{% endif %}
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
@@ -274,6 +308,15 @@ spec:
               value: "{{ item.uid }}"
             - name: HERMES_GID
               value: "{{ item.gid }}"
+            # Pin HERMES_HOME into the shared /opt/data hostPath so the
+            # gateway writes its gateway.pid / gateway_state.json / state.db
+            # where the webui pod can see them. Without this the sidecar
+            # falls back to a container-local default (~/.hermes) and the
+            # webui's /api/gateway/status always reports "Gateway not
+            # configured" — and gateway-originated sessions (Email etc.)
+            # never appear in the WebUI session list (see #1879).
+            - name: HERMES_HOME
+              value: "/opt/data"
           resources:
             requests:
               cpu: "20m"

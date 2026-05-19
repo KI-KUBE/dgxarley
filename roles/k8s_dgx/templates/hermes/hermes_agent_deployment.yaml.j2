@@ -46,6 +46,11 @@ spec:
         # the ConfigMap/Secret update alone leaves the pod on stale settings.
         checksum/config: "{{ lookup('template', 'hermes/hermes_config.yaml.j2') | hash('sha256') }}"
         checksum/env:    "{{ lookup('template', 'hermes/hermes_env.j2')         | hash('sha256') }}"
+        # Hash the raw login secret so rotating basicauth_password (which is
+        # only referenced by the Caddy users.json ConfigMap — no rollover
+        # on its own) forces a fresh pod. Hash the cleartext, not bcrypt:
+        # bcrypt re-salts each render and would roll the pod every run.
+        checksum/auth:   "{{ (item.basicauth_password | default(item.litellm_token)) | hash('sha256') }}"
     spec:
       restartPolicy: Always
       nodeSelector:
