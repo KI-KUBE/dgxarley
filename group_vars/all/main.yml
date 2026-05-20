@@ -227,13 +227,14 @@ hermes_users:
       process_existing: true           # true (default) → process pre-existing UNSEEN INBOX backlog on start
       cpu_limit: "500m"                # sidecar caps; defaults 500m / 512Mi
       memory_limit: "512Mi"
-    # Seed values for the webui Preferences panel. Written ONLY on first start
-    # to /opt/data/.webui/settings.json (when the file does not yet exist) —
-    # subsequent UI changes via POST /api/settings remain authoritative, so
-    # bumping these here will NOT overwrite a settings.json the user already
-    # touched. Upstream defaults live in nesquena/hermes-webui at
-    # api/config.py:_SETTINGS_DEFAULTS — only override what differs.
-    # Omit the key or set to {} to skip seeding entirely.
+    # Ops-managed overrides for the webui Preferences panel. Merged into
+    # /opt/data/.webui/settings.json on every pod start — the keys listed
+    # here ALWAYS win, any other keys the user has set via the UI
+    # (POST /api/settings) are preserved untouched. Mirrors the
+    # config.yaml/.env merge pattern. Upstream defaults live in
+    # nesquena/hermes-webui at api/config.py:_SETTINGS_DEFAULTS — only
+    # list keys here that you actually want to lock to a specific value.
+    # Omit the key or set to {} to leave settings.json entirely up to the user.
     webui_settings:
       simplified_tool_calling: true    # "Compact tool activity"        (upstream: true)
       api_redact_enabled: true         # "Redact sensitive data"        (upstream: true)

@@ -157,32 +157,38 @@ spec:
                       f.write(f"{k}={v}\n")
               os.chown("/opt/data/.env", UID, GID)
               os.chmod("/opt/data/.env", 0o600)
-              # Seed STATE_DIR/settings.json with the WebUI preference
-              # defaults defined in `webui_settings` on this user. The nine
-              # Preferences-panel toggles (sidebar_density, show_cli_sessions,
-              # simplified_tool_calling, busy_input_mode, …) are server-side
-              # state in api/config.py:_SETTINGS_DEFAULTS — no env/config
-              # override exists upstream. We write the file only if it
-              # doesn't exist yet; subsequent UI-side changes via
-              # POST /api/settings remain authoritative.
+              # Merge STATE_DIR/settings.json with the WebUI preferences
+              # defined in `webui_settings` on this user. Mirrors the
+              # config.yaml/.env merge above — ops-managed keys WIN, all
+              # other keys the user has set via the Preferences panel
+              # (POST /api/settings) are preserved. The nine ops-relevant
+              # toggles live in api/config.py:_SETTINGS_DEFAULTS upstream
+              # (sidebar_density, show_cli_sessions, simplified_tool_calling,
+              # busy_input_mode, …); none has an env/config override.
 {% set _webui_settings = item.webui_settings | default({}) %}
 {% if _webui_settings %}
               import base64, json
               state_dir = "/opt/data/.webui"
               settings_path = os.path.join(state_dir, "settings.json")
-              if not os.path.exists(settings_path):
-                  os.makedirs(state_dir, exist_ok=True)
-                  os.chown(state_dir, UID, GID)
-                  os.chmod(state_dir, 0o700)
-                  # base64 round-trip — the rendered JSON contains lowercase
-                  # `true`/`false`/`null` which are not valid Python literals;
-                  # parsing through json.loads avoids any quoting/escaping
-                  # corner cases (single quotes in values etc.).
-                  seed = json.loads(base64.b64decode("{{ _webui_settings | to_json | b64encode }}"))
-                  with open(settings_path, "w") as f:
-                      json.dump(seed, f, indent=2, sort_keys=True)
-                  os.chown(settings_path, UID, GID)
-                  os.chmod(settings_path, 0o600)
+              os.makedirs(state_dir, exist_ok=True)
+              os.chown(state_dir, UID, GID)
+              os.chmod(state_dir, 0o700)
+              # base64 round-trip — the rendered JSON contains lowercase
+              # `true`/`false`/`null` which are not valid Python literals;
+              # parsing through json.loads avoids any quoting/escaping
+              # corner cases (single quotes in values etc.).
+              ops_settings = json.loads(base64.b64decode("{{ _webui_settings | to_json | b64encode }}"))
+              try:
+                  user_settings = json.load(open(settings_path))
+                  if not isinstance(user_settings, dict):
+                      user_settings = {}
+              except (FileNotFoundError, json.JSONDecodeError):
+                  user_settings = {}
+              user_settings.update(ops_settings)  # ops keys win
+              with open(settings_path, "w") as f:
+                  json.dump(user_settings, f, indent=2, sort_keys=True)
+              os.chown(settings_path, UID, GID)
+              os.chmod(settings_path, 0o600)
 {% endif %}
           securityContext:
             runAsUser: 0
@@ -207,7 +213,14 @@ spec:
           command:
             - sh
             - -c
-            - "cp -a /opt/hermes/. /agent-src/ && chown -R {{ item.uid }}:{{ item.gid }} /agent-src"
+            # Also write a VERSION file with the image tag — upstream's
+            # _detect_agent_version() (api/updates.py:145) looks for
+            # <agent_dir>/VERSION first, falls back to `git describe` in the
+            # source tree. The Docker image ships neither, so without this
+            # the System page shows "Agent: not detected" even though the
+            # agent code is fully present and functional. Use the resolved
+            # image tag as the version label.
+            - "cp -a /opt/hermes/. /agent-src/ && printf '%s\\n' '{{ item.image_tag | default(hermes_image_tag) }}' > /agent-src/VERSION && chown -R {{ item.uid }}:{{ item.gid }} /agent-src"
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
