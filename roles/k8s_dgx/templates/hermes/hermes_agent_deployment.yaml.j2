@@ -4,6 +4,12 @@
    so /opt/data (sessions/skills/configs) is identical across them.
 #}
 {%- set _dashboard_tui = item.dashboard_tui | default(hermes_dashboard_tui_default) -%}
+{#- /workspace gate: when enabled, /workspace is a seadrive FUSE mount of the
+    user's Seafile `hermes-workspace` library (shared with the webui pod via
+    the Seafile server, with a sync lag of a few seconds). When disabled,
+    /workspace is the legacy NFS subdir hostPath. -#}
+{%- set _seafile = item.seafile | default({}) -%}
+{%- set _seafile_workspace = (_seafile.get('workspace_enabled', hermes_seafile_workspace_enabled_default)) | bool -%}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -51,6 +57,12 @@ spec:
         # on its own) forces a fresh pod. Hash the cleartext, not bcrypt:
         # bcrypt re-salts each render and would roll the pod every run.
         checksum/auth:   "{{ (item.basicauth_password | default(item.litellm_token)) | hash('sha256') }}"
+{% if _seafile_workspace %}
+        # Auto-roll when the user's Seafile credentials change so the seadrive
+        # sidecar picks them up; the hermes-seafile-<user> Secret is loaded
+        # via envFrom and only re-read on container start.
+        checksum/seafile: "{{ (hermes_seafile_server_url ~ '|' ~ (item.email.address | default('?')) ~ '|' ~ (item.seafile.web_password | default('none'))) | hash('sha256') }}"
+{% endif %}
     spec:
       restartPolicy: Always
       nodeSelector:
@@ -67,15 +79,23 @@ spec:
           command:
             - sh
             - -c
+{% if _seafile_workspace %}
+            # /workspace is FUSE-managed by the seadrive sidecar — POSIX
+            # owner is set by seadrive's mount options. Only fix /opt/data.
+            - "chown {{ item.uid }}:{{ item.gid }} /opt/data && chmod 0700 /opt/data"
+{% else %}
             - "chown {{ item.uid }}:{{ item.gid }} /opt/data /workspace && chmod 0700 /opt/data /workspace"
+{% endif %}
           securityContext:
             runAsUser: 0
             runAsNonRoot: false
           volumeMounts:
             - name: data
               mountPath: /opt/data
+{% if not _seafile_workspace %}
             - name: files
               mountPath: /workspace
+{% endif %}
         # Strategic merge of ops-managed keys into /opt/data/config.yaml +
         # /opt/data/.env. We can NOT mount them as subPath of a ConfigMap/Secret
         # directly — that makes them bind-mounts, and Hermes'
@@ -193,6 +213,96 @@ spec:
             - name: caddy-data
               mountPath: /caddy-data
       containers:
+{% if _seafile_workspace %}
+        # ===== seadrive FUSE sidecar =========================================
+        # Mirrors the same sidecar in hermes-webui — see that file for the
+        # design rationale. Both pods mount the same Seafile library via
+        # independent seadrive instances; the Seafile server is the source
+        # of truth, with a few-seconds sync lag between the pods.
+        - name: seadrive
+          image: "{{ hermes_seadrive_image }}:{{ hermes_seadrive_image_tag }}"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            privileged: true
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+          envFrom:
+            - secretRef:
+                name: "hermes-seafile-{{ item.username }}"
+          env:
+            - name: WANTED_UID
+              value: "{{ item.uid }}"
+            - name: WANTED_GID
+              value: "{{ item.gid }}"
+            - name: SEAFILE_LIBRARY_NAME
+              value: "{{ hermes_seafile_library_name }}"
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -euo pipefail
+              mkdir -p /etc /var/cache/seadrive /seadrive
+              grep -q '^user_allow_other' /etc/fuse.conf 2>/dev/null \
+                || echo 'user_allow_other' >> /etc/fuse.conf
+
+              cat > /tmp/seadrive.conf <<EOF
+              [account]
+              server = ${SEAFILE_SERVER}
+              username = ${SEAFILE_USER}
+              token = ${SEAFILE_TOKEN}
+              is_pro = false
+
+              [general]
+              client_name = hermes-${HOSTNAME}
+              EOF
+              chmod 0600 /tmp/seadrive.conf
+
+              seadrive \
+                -c /tmp/seadrive.conf \
+                -d /var/cache/seadrive \
+                -l /var/log/seadrive.log \
+                -o allow_other,uid=${WANTED_UID},gid=${WANTED_GID},umask=0077 \
+                /seadrive &
+              SEADRIVE_PID=$!
+
+              for i in $(seq 1 60); do
+                  if [ -d "/seadrive/${SEAFILE_LIBRARY_NAME}" ]; then
+                      break
+                  fi
+                  sleep 1
+              done
+              if [ ! -d "/seadrive/${SEAFILE_LIBRARY_NAME}" ]; then
+                  echo "seadrive: library '${SEAFILE_LIBRARY_NAME}' did not appear within 60s — check Seafile credentials/server reachability" >&2
+                  cat /var/log/seadrive.log >&2 || true
+                  kill ${SEADRIVE_PID} 2>/dev/null || true
+                  exit 1
+              fi
+
+              mount --bind "/seadrive/${SEAFILE_LIBRARY_NAME}" /workspace
+              echo "seadrive: ${SEAFILE_LIBRARY_NAME} mounted at /workspace (pid=${SEADRIVE_PID})"
+
+              trap 'umount /workspace 2>/dev/null || true; fusermount -u /seadrive 2>/dev/null || true; kill -TERM ${SEADRIVE_PID} 2>/dev/null || true' TERM INT
+              wait ${SEADRIVE_PID}
+          volumeMounts:
+            - name: workspace-fuse
+              mountPath: /workspace
+              mountPropagation: Bidirectional
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - "umount /workspace 2>/dev/null || true; fusermount -u /seadrive 2>/dev/null || true"
+          resources:
+            requests:
+              cpu: "20m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+{% endif %}
         - name: hermes
           image: "nousresearch/hermes-agent:{{ item.image_tag | default(hermes_image_tag) }}"
           imagePullPolicy: Always
@@ -255,8 +365,14 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /opt/data
+{% if _seafile_workspace %}
+            - name: workspace-fuse
+              mountPath: /workspace
+              mountPropagation: HostToContainer
+{% else %}
             - name: files
               mountPath: /workspace
+{% endif %}
             # Writable copy of /opt/hermes/ui-tui (image layer is root-owned;
             # see copy-ui-tui initContainer rationale).
             - name: ui-tui
@@ -364,12 +480,19 @@ spec:
           hostPath:
             path: "{{ hermes_data_base }}/{{ item.username }}"
             type: DirectoryOrCreate
+{% if _seafile_workspace %}
+        # /workspace is FUSE-managed by the seadrive sidecar; the emptyDir
+        # just provides a shared mountpoint across containers in the pod.
+        - name: workspace-fuse
+          emptyDir: {}
+{% else %}
         # User-managed input/output shelf, mounted at /workspace. Same per-user
         # NFS subdir isolation as the data volume.
         - name: files
           hostPath:
             path: "{{ hermes_files_base }}/{{ item.username }}"
             type: DirectoryOrCreate
+{% endif %}
         - name: seed-config
           configMap:
             name: "hermes-config-{{ item.username }}"

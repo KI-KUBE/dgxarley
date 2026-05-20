@@ -109,6 +109,17 @@
     kind: Namespace
     state: present
 
+# === Seafile workspace provisioning (gated) ==================================
+# Creates one Seafile account + library + token per user with
+# seafile.workspace_enabled (or the global default). Writes a K8s Secret
+# `hermes-seafile-<user>` consumed by the seadrive sidecar in agent + webui.
+
+- name: Provision Seafile users + libraries
+  import_tasks: hermes_seafile_provision.yml
+  tags:
+    - hermes_seafile
+    - hermes_seafile_provision
+
 # === Cluster-wide patch ConfigMap (subPath-overlaid onto the agent image) ===
 # Local fix for upstream gateway/platforms/email.py — adds Working/Done folder
 # lifecycle, IMAP APPEND to Sent, and EMAIL_PROCESS_EXISTING. File is pinned to

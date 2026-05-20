@@ -855,6 +855,24 @@ hermes_debug_default: false
 # enabling it without those will just have the gateway log "no platforms
 # configured" and idle. Implies webui_enabled (sidecar lives in that pod).
 hermes_email_enabled_default: false
+# Seafile-backed /workspace. When true: (1) the hermes role provisions a
+# Seafile user (using <hermes_users[*].email> + seafile.web_password) and a
+# `hermes-workspace` library via the Seafile REST API, (2) a seadrive FUSE
+# sidecar is injected into both the agent and webui pods, which mounts that
+# library at /workspace via mountPropagation. When false (default), /workspace
+# stays on the hermes_files_base NFS subpath. Per-user override via
+# hermes_users[*].seafile.workspace_enabled.
+hermes_seafile_workspace_enabled_default: false
+# Seafile API + admin credentials used during provisioning. URL is the same
+# external hostname the seadrive sidecar will sync against. Admin comes from
+# the seafile_admin_* vars in k8s_infra's vault — re-declared here as a hint
+# for the provisioning task and to allow per-environment override.
+hermes_seafile_server_url: "https://seafile.{{ dns_external_domain_suffix }}"
+hermes_seafile_library_name: "hermes-workspace"
+# seadrive client image (official, FUSE-mode). amd64-only — fine since hermes
+# pods are pinned to k3smaster anyway.
+hermes_seadrive_image: "seafileltd/seadrive-fuse"
+hermes_seadrive_image_tag: "latest"
 # Per-user list — real entries in group_vars/all/vault.yml.
 # Schema: { username, uid, gid, litellm_token,
 #           litellm_model?, basicauth_password?, webui_password?,

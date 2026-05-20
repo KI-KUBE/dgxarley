@@ -102,6 +102,14 @@
     - isk3smaster is defined
     - isk3smaster
 
+- name: import kubectlstuff_seafile.yml if isk3smaster is defined and true
+  import_tasks: databases/kubectlstuff_seafile.yml
+  tags:
+    - seafile
+  when:
+    - isk3smaster is defined
+    - isk3smaster
+
 # === MONITORING ===
 
 - name: Create monitoring namespace and shared middlewares

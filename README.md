@@ -165,7 +165,7 @@ via the primary gateway.
 ## K8s Infrastructure (`k8s_infra` role)
 
 Cluster-level services deployed via `k8s_infra.yml` (runs locally, applies manifests via `kubernetes.core.k8s`).
-All persistent data uses hostPath volumes under `/var/lib/k8s-data/` on k3smaster (no NFS, no Ceph).
+All persistent data uses hostPath volumes under `/var/lib/k8s-data/` on k3smaster (no NFS, no Ceph) — exception: Seafile's content-addressed file storage lives under `/mnt/nfs/seafile-data` (NFS-safe blobs), only its MariaDB datadir is local under `/var/lib/k8s-data/seafile-mariadb`.
 
 | Component | Namespace | Description |
 |-----------|-----------|-------------|
@@ -178,6 +178,7 @@ All persistent data uses hostPath volumes under `/var/lib/k8s-data/` on k3smaste
 | Smarter Device Manager | smarter-device-manager | Exposes `/dev` devices as K8s extended resources |
 | PostgreSQL | postgresql | Single instance (openwebui + openwebui_vectors DBs with pgvector) |
 | Redis | redis | Key-value store |
+| Seafile (CE) | seafile | Self-hosted file sync (server + MariaDB + Memcached). `/shared` on NFS, MariaDB datadir local. Used as backing store for Hermes per-user `/workspace`. |
 | Prometheus | monitoring | Metrics collection (scrapes kubelets, cAdvisor, CoreDNS, Traefik, KSM, node-exporter) |
 | Grafana | monitoring | Dashboards (local auth, auto-provisioned Kubernetes dashboards from dotdc) |
 | Alertmanager | monitoring | Alert routing (email + Gotify bridge via external cluster) |

@@ -1,0 +1,475 @@
+---
+# Seafile Community Edition + MariaDB + Memcached in the `seafile` namespace.
+#
+# Storage layout (decided in design discussion 2026-05-20):
+#   - Seafile-Server /shared            → {{ seafile.data_base }}  (NFS-safe,
+#                                          content-addressed write-once blobs)
+#   - MariaDB /var/lib/mysql            → {{ seafile.mariadb_data_base }}
+#                                          (LOCAL fast disk, InnoDB random I/O)
+#
+# Admin bootstrap is handled by the seafile-mc image itself via the
+# INIT_SEAFILE_ADMIN_EMAIL / INIT_SEAFILE_ADMIN_PASSWORD env vars on first
+# start of an empty /shared. We do NOT create a separate admin-token Secret
+# here — the per-user provisioning step (k8s_dgx/tasks/hermes_seafile_*) is
+# what consumes admin credentials, and pulls them straight from the vault.
+
+- name: Create seafile namespace
+  kubernetes.core.k8s:
+    name: "{{ seafile.namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+
+- name: Create seafile-db-secrets (consumed by both MariaDB and Seafile-Server)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: seafile-db-secrets
+        namespace: "{{ seafile.namespace }}"
+      type: Opaque
+      stringData:
+        MARIADB_ROOT_PASSWORD: "{{ seafile.db.root_password }}"
+        MARIADB_USER: "seafile"
+        MARIADB_PASSWORD: "{{ seafile.db.password }}"
+        SEAFILE_MYSQL_DB_USER: "seafile"
+        SEAFILE_MYSQL_DB_PASSWORD: "{{ seafile.db.password }}"
+        SEAFILE_MYSQL_ROOT_PASSWORD: "{{ seafile.db.root_password }}"
+
+- name: Create seafile-admin-secrets (init bootstrap + later API provisioning)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: seafile-admin-secrets
+        namespace: "{{ seafile.namespace }}"
+      type: Opaque
+      stringData:
+        INIT_SEAFILE_ADMIN_EMAIL: "{{ seafile.admin.email }}"
+        INIT_SEAFILE_ADMIN_PASSWORD: "{{ seafile.admin.password }}"
+        JWT_PRIVATE_KEY: "{{ seafile.jwt_secret }}"
+
+# ===========================================================================
+# MariaDB
+# ===========================================================================
+
+- name: Create seafile-mariadb Service
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: seafile-mariadb
+        namespace: "{{ seafile.namespace }}"
+        labels:
+          app: seafile-mariadb
+      spec:
+        selector:
+          app: seafile-mariadb
+        ports:
+          - port: 3306
+            name: mysql
+            targetPort: 3306
+
+- name: Create seafile-mariadb Deployment
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: seafile-mariadb
+        namespace: "{{ seafile.namespace }}"
+        labels:
+          app: seafile-mariadb
+      spec:
+        replicas: 1
+        strategy:
+          type: Recreate
+        selector:
+          matchLabels:
+            app: seafile-mariadb
+        template:
+          metadata:
+            labels:
+              app: seafile-mariadb
+          spec:
+            restartPolicy: Always
+            nodeSelector:
+              kubernetes.io/arch: "amd64"
+            containers:
+              - name: mariadb
+                image: "{{ seafile.images.mariadb.repo }}:{{ seafile.images.mariadb.tag }}"
+                imagePullPolicy: Always
+                ports:
+                  - containerPort: 3306
+                    name: mysql
+                envFrom:
+                  - secretRef:
+                      name: seafile-db-secrets
+                env:
+                  - name: MARIADB_DATABASE
+                    value: "seafile_db"
+                  - name: MARIADB_AUTO_UPGRADE
+                    value: "1"
+                  - name: TZ
+                    value: "{{ seafile.time_zone }}"
+                readinessProbe:
+                  exec:
+                    command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
+                  initialDelaySeconds: 10
+                  periodSeconds: 10
+                  timeoutSeconds: 3
+                livenessProbe:
+                  exec:
+                    command: ["healthcheck.sh", "--connect", "--innodb_initialized"]
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                resources:
+                  requests:
+                    memory: "{{ seafile.resources.mariadb.memory_request }}"
+                  limits:
+                    memory: "{{ seafile.resources.mariadb.memory_limit }}"
+                volumeMounts:
+                  - name: mariadb-data
+                    mountPath: /var/lib/mysql
+            volumes:
+              - name: mariadb-data
+                hostPath:
+                  path: "{{ seafile.mariadb_data_base }}"
+                  type: DirectoryOrCreate
+
+# ===========================================================================
+# Memcached (required by Seafile for session/page cache)
+# ===========================================================================
+
+- name: Create seafile-memcached Service
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: seafile-memcached
+        namespace: "{{ seafile.namespace }}"
+        labels:
+          app: seafile-memcached
+      spec:
+        selector:
+          app: seafile-memcached
+        ports:
+          - port: 11211
+            name: memcached
+            targetPort: 11211
+
+- name: Create seafile-memcached Deployment
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: seafile-memcached
+        namespace: "{{ seafile.namespace }}"
+        labels:
+          app: seafile-memcached
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app: seafile-memcached
+        template:
+          metadata:
+            labels:
+              app: seafile-memcached
+          spec:
+            restartPolicy: Always
+            nodeSelector:
+              kubernetes.io/arch: "amd64"
+            containers:
+              - name: memcached
+                image: "{{ seafile.images.memcached.repo }}:{{ seafile.images.memcached.tag }}"
+                imagePullPolicy: Always
+                args: ["memcached", "-m", "64"]
+                ports:
+                  - containerPort: 11211
+                    name: memcached
+                resources:
+                  limits:
+                    memory: "{{ seafile.resources.memcached.memory_limit }}"
+
+# ===========================================================================
+# Seafile-Server (Community Edition, all-in-one image)
+# ===========================================================================
+
+- name: Create seafile-server Service
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: seafile-server
+        namespace: "{{ seafile.namespace }}"
+        labels:
+          app: seafile-server
+      spec:
+        selector:
+          app: seafile-server
+        ports:
+          - port: 80
+            name: http
+            targetPort: 80
+          # File-sync protocol used by seadrive / seaf-cli for block upload/download.
+          # Traefik proxies this via the same HTTPS route (path /seafhttp), so
+          # we don't expose 8082 externally — but keep it on the Service for
+          # debugging via `kubectl port-forward`.
+          - port: 8082
+            name: fileserver
+            targetPort: 8082
+
+- name: Create seafile-server Deployment
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: seafile-server
+        namespace: "{{ seafile.namespace }}"
+        labels:
+          app: seafile-server
+        annotations:
+          keel.sh/policy: force
+          keel.sh/match-tag: "true"
+          keel.sh/pollSchedule: "@every 30m"
+          keel.sh/trigger: poll
+      spec:
+        replicas: 1
+        strategy:
+          type: Recreate
+        selector:
+          matchLabels:
+            app: seafile-server
+        template:
+          metadata:
+            labels:
+              app: seafile-server
+          spec:
+            restartPolicy: Always
+            nodeSelector:
+              kubernetes.io/arch: "amd64"
+            dnsConfig:
+              options:
+                - name: ndots
+                  value: "1"
+            containers:
+              - name: seafile
+                image: "{{ seafile.images.server.repo }}:{{ seafile.images.server.tag }}"
+                imagePullPolicy: Always
+                ports:
+                  - containerPort: 80
+                    name: http
+                  - containerPort: 8082
+                    name: fileserver
+                envFrom:
+                  - secretRef:
+                      name: seafile-db-secrets
+                  - secretRef:
+                      name: seafile-admin-secrets
+                env:
+                  - name: SEAFILE_MYSQL_DB_HOST
+                    value: "seafile-mariadb"
+                  - name: SEAFILE_MYSQL_DB_PORT
+                    value: "3306"
+                  - name: SEAFILE_MYSQL_DB_CCNET_DB_NAME
+                    value: "ccnet_db"
+                  - name: SEAFILE_MYSQL_DB_SEAFILE_DB_NAME
+                    value: "seafile_db"
+                  - name: SEAFILE_MYSQL_DB_SEAHUB_DB_NAME
+                    value: "seahub_db"
+                  - name: SEAFILE_SERVER_HOSTNAME
+                    value: "{{ seafile.hostname }}"
+                  - name: SEAFILE_SERVER_PROTOCOL
+                    value: "https"
+                  - name: SEAFILE_LOG_TO_STDOUT
+                    value: "true"
+                  - name: SITE_ROOT
+                    value: "/"
+                  - name: TIME_ZONE
+                    value: "{{ seafile.time_zone }}"
+                  - name: CACHE_PROVIDER
+                    value: "memcached"
+                  - name: CACHE_HOST
+                    value: "seafile-memcached"
+                  - name: CACHE_PORT
+                    value: "11211"
+                  - name: NON_ROOT
+                    value: "false"
+                startupProbe:
+                  httpGet:
+                    path: /api2/ping/
+                    port: 80
+                  failureThreshold: 60
+                  periodSeconds: 10
+                readinessProbe:
+                  httpGet:
+                    path: /api2/ping/
+                    port: 80
+                  periodSeconds: 15
+                  timeoutSeconds: 3
+                livenessProbe:
+                  httpGet:
+                    path: /api2/ping/
+                    port: 80
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+                resources:
+                  requests:
+                    memory: "{{ seafile.resources.server.memory_request }}"
+                  limits:
+                    memory: "{{ seafile.resources.server.memory_limit }}"
+                volumeMounts:
+                  - name: seafile-data
+                    mountPath: /shared
+            volumes:
+              - name: seafile-data
+                hostPath:
+                  path: "{{ seafile.data_base }}"
+                  type: DirectoryOrCreate
+
+# ===========================================================================
+# Ingress (Traefik) + TLS
+# ===========================================================================
+
+- name: Create seafile redirect-myhttps Middleware
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: redirect-myhttps
+        namespace: "{{ seafile.namespace }}"
+      spec:
+        redirectScheme:
+          scheme: https
+
+- name: Create seafile ip allowlist Middleware
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: seafile-ip-allowlist
+        namespace: "{{ seafile.namespace }}"
+      spec:
+        ipAllowList:
+          sourceRange: "{{ traefik_internal_allowlist }}"
+
+- name: Create seafile TLS certificate
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: "{{ seafile.hostname }}"
+        namespace: "{{ seafile.namespace }}"
+      spec:
+        dnsNames:
+          - "{{ seafile.hostname }}"
+        secretName: "{{ seafile.hostname }}"
+        issuerRef:
+          name: letsencrypt-production
+          kind: ClusterIssuer
+
+- name: Create seafile http IngressRoute (redirect to https)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: IngressRoute
+      metadata:
+        name: seafile-ingress
+        namespace: "{{ seafile.namespace }}"
+      spec:
+        entryPoints:
+          - web
+        routes:
+          - kind: Rule
+            match: "Host(`{{ seafile.hostname }}`)"
+            priority: 10
+            services:
+              - kind: Service
+                name: seafile-server
+                namespace: "{{ seafile.namespace }}"
+                passHostHeader: true
+                port: 80
+            middlewares:
+              - name: redirect-myhttps
+              - name: seafile-ip-allowlist
+
+- name: Create seafile https IngressRoute
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: IngressRoute
+      metadata:
+        name: seafile-https-ingress
+        namespace: "{{ seafile.namespace }}"
+      spec:
+        entryPoints:
+          - websecure
+        routes:
+          # /seafhttp/* is the block-transfer protocol used by all sync clients
+          # (seadrive, seaf-cli, desktop). The internal port (8082) speaks raw
+          # HTTP without the /seafhttp prefix, so we strip it before forwarding.
+          - kind: Rule
+            match: "Host(`{{ seafile.hostname }}`) && PathPrefix(`/seafhttp`)"
+            priority: 20
+            middlewares:
+              - name: seafile-ip-allowlist
+              - name: seafile-seafhttp-strip
+            services:
+              - kind: Service
+                name: seafile-server
+                namespace: "{{ seafile.namespace }}"
+                passHostHeader: true
+                port: 8082
+          - kind: Rule
+            match: "Host(`{{ seafile.hostname }}`)"
+            priority: 10
+            middlewares:
+              - name: seafile-ip-allowlist
+            services:
+              - kind: Service
+                name: seafile-server
+                namespace: "{{ seafile.namespace }}"
+                passHostHeader: true
+                port: 80
+        tls:
+          secretName: "{{ seafile.hostname }}"
+
+- name: Create seafile-seafhttp-strip Middleware (strips /seafhttp prefix)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: seafile-seafhttp-strip
+        namespace: "{{ seafile.namespace }}"
+      spec:
+        stripPrefix:
+          prefixes:
+            - /seafhttp

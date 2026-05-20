@@ -25,5 +25,6 @@
     - uptimekuma
     - litellm
     - policy-reporter
+    - seafile
   loop_control:
     label: "{{ item }}.{{ dns_external_domain_suffix }}"

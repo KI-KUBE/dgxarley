@@ -29,3 +29,35 @@ traefik_dashboard_password: "changeme"
 # KCEVE KVM RS232 serial device on k3smaster (USB-to-RS232 adapter)
 kceve_kvm_serial_device: "/dev/ttyACM0"
 
+# === Seafile (CE) ===
+# Public hostname rendered into Ingress + SEAFILE_SERVER_HOSTNAME.
+# Storage layout (see kubectlstuff_seafile.yml header for rationale):
+#   data_base         — /shared content-addressed blobs, NFS-safe
+#   mariadb_data_base — InnoDB random I/O, MUST be local fast disk
+# Secrets (admin, db, jwt_secret) are overridden by vault.
+# jwt_secret is the Django-SECRET_KEY equivalent — 50+ random chars,
+# used by Seafile to sign session cookies + JWT for the internal
+# notification/seadoc endpoints.
+seafile:
+  data_base: "/mnt/nfs/seafile-data"
+  mariadb_data_base: "/var/lib/k8s-data/seafile-mariadb"
+  namespace: "seafile"
+  hostname: "seafile.{{ dns_external_domain_suffix }}"
+  time_zone: "Europe/Berlin"
+  jwt_secret: "CHANGEME_50_CHARS_OF_RANDOM"
+  admin:
+    email: "admin@example.com"
+    password: "changeme"
+  db:
+    root_password: "changeme"
+    password: "changeme"
+  images:
+    server:    { repo: "seafileltd/seafile-mc", tag: "13.0-latest" }
+    mariadb:   { repo: "mariadb",               tag: "11.4" }
+    memcached: { repo: "memcached",             tag: "1.6-alpine" }
+  # Resource sizing for k3smaster (32GB box, shared with everything else).
+  resources:
+    server:    { memory_request: "512Mi", memory_limit: "2Gi" }
+    mariadb:   { memory_request: "256Mi", memory_limit: "1Gi" }
+    memcached: { memory_limit: "128Mi" }
+
