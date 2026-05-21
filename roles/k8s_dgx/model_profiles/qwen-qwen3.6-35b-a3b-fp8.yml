@@ -6,8 +6,8 @@ _model_profile:
     info_url: "https://huggingface.co/Qwen/Qwen3.6-35B-A3B-FP8"
     # 35B/3B MoE (Gated DeltaNet hybrid), fine-grained FP8 (block 128).
     # 256 experts, 8 routed + 1 shared activated per token. Native context 262K
-    # (extensible to ~1M via YaRN). MTP-trained — speculative decoding
-    # available via NEXTN but left disabled here pending validation.
+    # (extensible to ~1M via YaRN). MTP-trained — NEXTN speculative decoding
+    # active with num_steps=2 (sweet spot per the 0.5.12 sweep; see below).
     context_length: 262144
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.50"
@@ -48,24 +48,26 @@ _model_profile:
     #   set SGLANG_ENABLE_SPEC_V2=1.
     speculative_enabled: true
     speculative_algo: NEXTN
-    speculative_num_steps: 3
+    speculative_num_steps: 2
     speculative_eagle_topk: 1
-    speculative_num_draft_tokens: 4
+    speculative_num_draft_tokens: 3
     mamba_scheduler_strategy: extra_buffer
     enable_spec_v2: true
-    # operational defaults — Run #14 from the 24-case 0.5.11 sweep on
-    # 4× DGX Spark TP=4 EP=1 (TESTLOG ..._sglang-0.5.11_..._4n.md, run 2026-05-10):
-    #   triton MoE + fi-attn + CG on + piecewise on + MTP NEXTN s=3
-    #   → 93.47 / 261.66 / 379.34 tok/s @ n=1/4/8.
-    # No-MTP Case 03 with the same shape hits 71.14 / 261.70 / 402.62 — i.e.
-    # MTP costs ~6% throughput at n=8 but gains ~31% latency at n=1 and a
-    # ~12× lower n=1 TTFT (0.55 s vs 6.81 s) via draft prefill. Production
-    # default keeps MTP on for the latency benefit on single-stream workloads;
-    # for throughput-only workloads, set speculative_enabled=false to gain
-    # the n=8 headroom (Case 03 patches).
+    # operational defaults — Run #21 from the 24-case 0.5.12 sweep on
+    # 4× DGX Spark TP=4 EP=1 (TESTLOG ..._sglang-0.5.12_..._4n.md, run 2026-05-21):
+    #   triton MoE + fi-attn + CG on + piecewise on + MTP NEXTN s=2
+    #   → 77.24 / 280.09 / 426.76 tok/s @ n=1/4/8 (peak per-request sum).
+    # Aggregate n=8 is 401.45, basically tied with no-MTP Test 03 (405.86), but
+    # PEAK throughput is +5% over the best no-MTP peak (Test 01: 406.44).
+    # The Spec V2 fixes in SGLang 0.5.12 (#23456 stale-state, #25204 frozen-KV,
+    # #24635 stuck-MTP DSA, #24662 breakable CG bs>1) made MTP s=2 net-positive
+    # on this hybrid-mamba arch — on 0.5.11 every MTP depth was a regression
+    # vs no-MTP, on 0.5.12 s=2 flips that. Higher draft depth still regresses:
+    # s=3 → 398.52 peak, s=4 → 383.65, s=5 → 362.76. Sweet spot at s=2.
     # fi_cutlass MoE still crashes on FP8 ("Fp8MoEMethod has no attribute 'runner'",
-    # 6/6 cases on 0.5.11) — see SGLANG_FP8_MOEMETHOD_FLASHINFER_CUTLASS_UPSTREAM_BUG.md.
-    # fi_cutedsl MoE is FP4-only by upstream pre-check assertion.
+    # 6/6 cases on 0.5.12 — startup_crash for CG variants, bench_crash for eager;
+    # see SGLANG_FP8_MOEMETHOD_FLASHINFER_CUTLASS_UPSTREAM_BUG.md).
+    # fi_cutedsl MoE is FP4-only by upstream pre-check assertion (6/6 crash B).
     # Eager mode is 2-3.5× slower at every batch size.
     nccl_transport: roce
     moe_runner_backend: triton
