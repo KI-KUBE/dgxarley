@@ -79,13 +79,30 @@ BRANCH_NAME="sm121"
 # source patches (PRs #22929/#22928) are also applied — the underlying
 # build steps and SM121 sgl-kernel patches are identical.
 #
-# Current set (v0.5.11 line — DEFAULT):
-#   sglang-0.5.11-sm121.recipe         — SGLang v0.5.11 + six SM121 sgl-kernel
-#                                        patches + flashinfer 0.6.11 bump.
-#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.11-sm121
-#   sglang-0.5.11-gemma4-sm121.recipe  — same + Gemma-4 NVFP4 source patches
+# Current set (v0.5.12 line — DEFAULT):
+#   sglang-0.5.12-sm121.recipe         — SGLang v0.5.12 + six SM121 sgl-kernel
+#                                        patches + flashinfer 0.6.11.post1.
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.12-sm121
+#                                        This is what most workloads want
+#                                        (Gemma-4 BF16 + MTP are now native).
+#   sglang-0.5.12-gemma4-sm121.recipe  — same + Gemma-4 NVFP4 source patches
 #                                        (PRs #22929/#22928) stacked on top.
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.12-gemma4-sm121
+#                                        DO NOT BUILD PROACTIVELY — the four
+#                                        SM120/121 Gemma-4 NVFP4 PRs are still
+#                                        blocked upstream as of 2026-05-21;
+#                                        rebuilding only reproduces the blocked
+#                                        state. See SGLANG_GEMMA4_UPSTREAM_BUG.md.
+#
+# Previous set (v0.5.11 line — kept for rollback / A/B comparison, and as the
+# only working build for Gemma-4 BF16 vs the still-blocked NVFP4 variant):
+#   sglang-0.5.11-sm121.recipe         — SGLang v0.5.11 + same six SM121
+#                                        sgl-kernel patches + flashinfer 0.6.11.
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.11-sm121
+#   sglang-0.5.11-gemma4-sm121.recipe  — same + Gemma-4 NVFP4 source patches.
 #                                        Tag: xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121
+#                                        Production target for Gemma-4 NVFP4
+#                                        models until upstream PRs land.
 #
 # Legacy set (0.5.10-dev1 line — kept for rollback / A/B comparison):
 #   sglang-sm121-dev1.recipe           — SGLang main commit 2bbd30a (2026-04-29,
@@ -97,12 +114,18 @@ BRANCH_NAME="sm121"
 #                                        Tag: xomoxcc/dgx-spark-sglang:0.5.10-20260429-gemma4-sm121-dev1
 #
 # apply_patches() gates the Gemma-4 source patches and the gemma4 Dockerfile
-# patch by `RECIPE_NAME == *gemma4*`, so any of the four can be selected by
-# toggling the two lines below.
-RECIPE_NAME="sglang-0.5.11-gemma4-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121"
+# patch by `RECIPE_NAME == *gemma4*`. The Gemma-4 MTP cherry-pick (PR #24436)
+# is additionally version-gated and SKIPPED on SGLang >= v0.5.12, where
+# PR #24436 is merged into the release.
+RECIPE_NAME="sglang-0.5.12-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.12-sm121"
+#RECIPE_NAME="sglang-0.5.12-gemma4-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.12-gemma4-sm121"
+
 #RECIPE_NAME="sglang-0.5.11-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.11-sm121"
+#RECIPE_NAME="sglang-0.5.11-gemma4-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121"
 
 #RECIPE_NAME="sglang-gemma4-sm121-dev1"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.10-20260429-gemma4-sm121-dev1"
@@ -398,12 +421,26 @@ preflight() {
         sgl-kernel-skip-sm90-target.patch
         sgl-kernel-skip-flashmla.patch
         dockerfile-sm121.patch
-        dockerfile-gemma4-mtp.patch
-        sglang-gemma4-mtp-pr24436.patch
         build-image-sh-podman.patch
         "${RECIPE_NAME}.recipe"
     )
-    # Gemma-4 patches are only required when building the gemma4 recipe variant.
+    # Gemma-4 MTP cherry-pick is only required when the recipe pins SGLang
+    # < v0.5.12 (where PR #24436 is not yet upstream). The full SGLANG_VERSION
+    # comparison happens in apply_patches(); preflight is content with the
+    # coarser RECIPE_NAME pattern (any *0.5.12*, *0.5.13*, ... is post-PR).
+    local _recipe_sver=""
+    if [[ -f "${PATCHES_DIR}/${RECIPE_NAME}.recipe" ]]; then
+        _recipe_sver="$(grep -E '^SGLANG_VERSION=' "${PATCHES_DIR}/${RECIPE_NAME}.recipe" \
+            | head -1 | cut -d= -f2- | tr -d '"' || true)"
+    fi
+    if [[ -z "${_recipe_sver}" ]] \
+        || ! printf '0.5.12\n%s\n' "${_recipe_sver}" | sort -V -C 2>/dev/null; then
+        required_files+=(
+            dockerfile-gemma4-mtp.patch
+            sglang-gemma4-mtp-pr24436.patch
+        )
+    fi
+    # Gemma-4 NVFP4 patches are only required when building the gemma4 recipe variant.
     # See apply_patches() for the matching gating logic.
     if [[ "${RECIPE_NAME}" == *gemma4* ]]; then
         required_files+=(
@@ -652,10 +689,32 @@ apply_patches() {
     cd "${CUDA_CONTAINERS_DIR}"
 
     # Determine recipe variant once. The "*gemma4*" pattern matches our
-    # sglang-0.5.11-gemma4-sm121.recipe filename and any future gemma4 spinoff.
+    # sglang-0.5.{11,12}-gemma4-sm121.recipe filename and any future gemma4 spinoff.
     local apply_gemma4_patches=0
     if [[ "${RECIPE_NAME}" == *gemma4* ]]; then
         apply_gemma4_patches=1
+    fi
+
+    # Determine whether the Gemma-4 MTP cherry-pick (PR #24436) is needed.
+    # The PR is merged into upstream as of v0.5.12; applying it on top of
+    # v0.5.12+ would fail with "already applied" (or silently corrupt the
+    # tree, depending on patch detection). Source the recipe to read
+    # SGLANG_VERSION and gate accordingly. Falls back to "apply" on
+    # recipes without a parseable SGLANG_VERSION (legacy main-branch recipes
+    # like sglang-{,gemma4-}sm121-dev1 pin to commits before #24436, so the
+    # patch still applies cleanly there).
+    local recipe_sglang_version=""
+    if [[ -f "${PATCHES_DIR}/${RECIPE_NAME}.recipe" ]]; then
+        recipe_sglang_version="$(grep -E '^SGLANG_VERSION=' "${PATCHES_DIR}/${RECIPE_NAME}.recipe" \
+            | head -1 | cut -d= -f2- | tr -d '"' || true)"
+    fi
+    local apply_gemma4_mtp_patch=1
+    if [[ -n "${recipe_sglang_version}" ]] \
+        && printf '0.5.12\n%s\n' "${recipe_sglang_version}" \
+        | sort -V -C 2>/dev/null; then
+        # recipe_sglang_version >= 0.5.12 → MTP cherry-pick is already in
+        # the source tree, do not re-apply.
+        apply_gemma4_mtp_patch=0
     fi
 
     # 1. Drop sgl-kernel source patches into the build context.
@@ -675,6 +734,9 @@ apply_patches() {
     # build time by APPLY_SGL_KERNEL_* build-args) and the Gemma-4 MTP
     # cherry-pick of upstream PR #24436 (inert until --speculative-algorithm
     # FROZEN_KV_MTP or a gemma4_assistant drafter is loaded).
+    # Patches always copied (Dockerfile patch step is itself gated by
+    # build-args / version gates below — copying the file in regardless
+    # keeps the build context deterministic).
     local always_source_patches=(
         sgl-kernel-sm121.patch
         sgl-kernel-sm121-debug.patch
@@ -682,6 +744,10 @@ apply_patches() {
         sgl-kernel-disable-fa3.patch
         sgl-kernel-skip-sm90-target.patch
         sgl-kernel-skip-flashmla.patch
+    )
+    # Gemma-4 MTP cherry-pick — version-gated. Copy only when we will
+    # actually apply it, to avoid bloating the build context on 0.5.12+.
+    local mtp_source_patches=(
         sglang-gemma4-mtp-pr24436.patch
     )
     local gemma4_source_patches=(
@@ -689,6 +755,9 @@ apply_patches() {
         sglang-gemma4-geglu-nan-clamp.patch
     )
     local patches_to_copy=( "${always_source_patches[@]}" )
+    if (( apply_gemma4_mtp_patch )); then
+        patches_to_copy+=( "${mtp_source_patches[@]}" )
+    fi
     if (( apply_gemma4_patches )); then
         patches_to_copy+=( "${gemma4_source_patches[@]}" )
     fi
@@ -710,18 +779,24 @@ apply_patches() {
         || die "Dockerfile patch verification failed"
     echo "Dockerfile patched"
 
-    # 2a. Gemma-4 MTP (PR #24436) Dockerfile patch — applied unconditionally.
+    # 2a. Gemma-4 MTP (PR #24436) Dockerfile patch — version-gated.
     #     Adds a COPY + RUN step that cherry-picks upstream PR #24436 into
     #     the SGLang source before `uv pip install ./python`. Inert for
     #     non-Gemma-4 workloads (the new files only activate when
     #     --speculative-algorithm FROZEN_KV_MTP or a Gemma-4 drafter is loaded).
-    echo "Applying dockerfile-gemma4-mtp.patch..."
-    patch --dry-run -p1 < "${PATCHES_DIR}/dockerfile-gemma4-mtp.patch" \
-        || die "Gemma-4 MTP Dockerfile patch dry-run failed — upstream Dockerfile drifted; regenerate dockerfile-gemma4-mtp.patch"
-    patch -p1 < "${PATCHES_DIR}/dockerfile-gemma4-mtp.patch"
-    grep -q 'sglang-gemma4-mtp-pr24436.patch' container-build/Dockerfile.sglang-nightly \
-        || die "Gemma-4 MTP Dockerfile patch verification failed"
-    echo "Gemma-4 MTP Dockerfile patched"
+    #     PR #24436 is merged into v0.5.12 — on that and later releases we
+    #     skip the cherry-pick entirely (re-applying would fail).
+    if (( apply_gemma4_mtp_patch )); then
+        echo "Applying dockerfile-gemma4-mtp.patch..."
+        patch --dry-run -p1 < "${PATCHES_DIR}/dockerfile-gemma4-mtp.patch" \
+            || die "Gemma-4 MTP Dockerfile patch dry-run failed — upstream Dockerfile drifted; regenerate dockerfile-gemma4-mtp.patch"
+        patch -p1 < "${PATCHES_DIR}/dockerfile-gemma4-mtp.patch"
+        grep -q 'sglang-gemma4-mtp-pr24436.patch' container-build/Dockerfile.sglang-nightly \
+            || die "Gemma-4 MTP Dockerfile patch verification failed"
+        echo "Gemma-4 MTP Dockerfile patched"
+    else
+        echo "Skipping dockerfile-gemma4-mtp.patch (recipe SGLANG_VERSION='${recipe_sglang_version}' >= 0.5.12 — PR #24436 already upstream)"
+    fi
 
     # 2b. Gemma-4 NVFP4 Dockerfile patch — only for the gemma4 recipe variant.
     #     Adds COPY + apply steps for PR #22929 (per-expert weight loading) and
@@ -820,6 +895,8 @@ run_build() {
     echo "    disable-fa3        = $([ ${APPLY_DISABLE_FA3} -eq 1 ] && echo APPLY || echo skip)  (--keep-fa3 opts out)"
     echo "    skip-sm90-target   = $([ ${APPLY_SKIP_SM90_TARGET} -eq 1 ] && echo APPLY || echo skip)  (--keep-sm90-target opts out)"
     echo "    skip-flashmla      = $([ ${APPLY_SKIP_FLASHMLA} -eq 1 ] && echo APPLY || echo skip)  (--keep-flashmla opts out)"
+    echo "  source patches (in apply_patches stage on x86):"
+    echo "    gemma4-mtp PR24436 = (handled in apply_patches() — version-gated, see log above)"
 
     # The build context is container-build/ (contains Dockerfile + patches/
     # subdir). Podman streams it to the remote build host over the socket;
@@ -993,34 +1070,34 @@ Next steps (on the x86 control host in ~/pythondev_workspace/dgxarley):
 2. Bump SGLANG_EXPECTED_IMAGE in roles/k8s_dgx/files/sglang_launch.sh:
      SGLANG_EXPECTED_IMAGE="${IMAGE_TAG}"
 
-3. Pick a smoke-test profile override for Qwen3-235B-A22B-NVFP4
-   (e.g. temporarily edit the entry in defaults/main.yml):
-     moe_runner_backend: "triton"               # previously broken, now the target
-     fp4_gemm_backend:   "flashinfer_cutlass"
-     attention_backend:  "triton"
-     disable_cuda_graph: true
-     disable_piecewise_cuda_graph: true
+3. Smoke-test against a stable profile FIRST (recommended: Qwen3.6-35B-A3B-FP8,
+   our Hermes/LiteLLM default). Confirms image boots + NCCL/RoCE init works
+   + token output is coherent (pattern-grep + token distribution + tail
+   eyeball; see feedback_output_quality_evidence memory).
 
-4. Deploy:
+4. Then run the NVFP4-MoE matrix per TODO_0.5.12.md:
+     glm-4.7 → glm-5 → qwen3-235b → nemotron-3
+     → qwen3.5-397b-a17b-nvfp4 (crash candidate, re-test with flashinfer_cutlass)
+     → minimax-m2.5 PP=4    (crash candidate, re-test with flashinfer_cutlass)
+   For the two crash models also try moe_runner_backend=flashinfer_cute_dsl
+   (new in 0.5.12, Cute-DSL FP4 GEMM reland #23590).
+
+5. Deploy:
      ansible-playbook k8s_dgx.yml --tags sglang
 
-5. Watch logs:
+6. Watch logs:
      kubectl --context=ht@dgxarley -n sglang logs -f <head-pod>
-   Look for:
-     - NO 'nvfp4_blockwise_moe.cuh:78: CUDA error: device-side assert'
-     - Normal model-load progression
 
-6. Smoke-test inference:
-     sglang-test --n 1 --model nvidia/Qwen3-235B-A22B-NVFP4
+7. Record results in TESTLOG_nv580.142_sglang-0.5.12-sm121_*.md per
+   reference_testlog memory. Peak throughput, not aggregate (peak_not_agg).
 
-7. If n=1 works, reactivate Qwen3-235B matrix tests 1–6 and 25–30
-   (previously all startup_crash / infer_error) and record in a new
-   TESTLOG_nv580.142_sglang-0.5.11-sm121_*.md file.
+8. Env-var rename in 0.5.12: SGLANG_USE_JIT_ALL_REDUCE →
+   SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2 (#24297). Re-check launch scripts /
+   profiles for stale references before rollout.
 
-If the triton MoE path does not beat the current flashinfer_cutlass baseline
-(Qwen3-235B test 17: 42.70 tok/s @ n=8), roll back sglang_image to
-scitrera/dgx-spark-sglang:0.5.11 — the custom image is then proof-of-concept
-only and the upstream flashinfer_cutlass path remains the production default.
+If a profile regresses vs the 0.5.11-sm121 baseline, roll back sglang_image
+to xomoxcc/dgx-spark-sglang:0.5.11-sm121 (or the upstream scitrera/dgx-spark-
+sglang:0.5.11 if SM121 patches aren't critical for that workload).
 
 EOF
 }

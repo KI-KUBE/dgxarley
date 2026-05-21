@@ -1,0 +1,70 @@
+#
+# Custom recipe: SGLang v0.5.12 + our SM121 sgl-kernel patches.
+#
+# Pinned to upstream tag `v0.5.12` (released 2026-05-16) — i.e. v0.5.11 plus
+# the changes documented in SGLANG_v0.5.12_VERSION_CHANGES.md. Highlights
+# relevant to our cluster:
+#   - Gemma 4 MTP head support (PR #24436, merged into upstream) — the
+#     dockerfile-gemma4-mtp.patch / sglang-gemma4-mtp-pr24436.patch pair
+#     is therefore NO LONGER applied on 0.5.12 (build_sm121_image.sh gates
+#     them by recipe SGLANG_VERSION).
+#   - Gemma 4 MoE: fused Q/K/V RMSNorm + per-expert FP8 ckpt loader (#24696).
+#   - Spec V2 maturation: Adaptive Spec V2 (#23336), Overlap stale-state fix
+#     (#23456), MTP-on-DSA-models stuck fix (#24635), bonus_tokens=None MTP
+#     crash fix (#25204).
+#   - Cute-DSL FP4 dense GEMM reland (#23590) + Cute-DSL NVFP4 quantization
+#     kernels (#23745) — potential `flashinfer_cute_dsl` MoE backend on SM121,
+#     to be evaluated against our cutlass_moe_fp4 crash models.
+#   - JIT custom all-reduce default-on (#24363); env-var rename
+#     SGLANG_USE_JIT_ALL_REDUCE → SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2 (#24297).
+#   - SGLANG_OPT_FP8_WO_A_GEMM default-on (#25181) — affects FP8 paths
+#     (Qwen3.6-35B-A3B-FP8 is our Hermes/LiteLLM default).
+#   - sgl-kernel 0.4.2 → 0.4.2.post2 (#24457, #25326); DeepGEMM ausgegliedert
+#     in eigenes sgl-deep-gemm-Wheel (#24268, #24348, #24385) — Patch-Surface
+#     unserer SM121-Patches kann sich verschoben haben, dry-run-Schritt
+#     in apply_patches() fängt Drift früh ab.
+#   - FlashInfer upstream-Pin 0.6.8.post1 → 0.6.11.post1 (#24452, #25129,
+#     #25310, #25335).
+#   - DeepEP von community-fork (fzyzcjy) auf deepseek-ai/DeepEP@hybrid-ep
+#     umgestellt (#25113) — CUDA 13 compatibility.
+#
+# Status der SM121-NVFP4-cutlass_moe_fp4-Crashes: in 0.5.12 NICHT adressiert.
+# Modellspezifische moe_runner_backend-Workarounds (siehe CLAUDE.md, NVFP4-
+# Abschnitt) bleiben nötig.
+#
+# Delta gegenüber sglang-0.5.11-sm121.recipe:
+#   - SGLANG_VERSION 0.5.11 → 0.5.12, SGLANG_REF v0.5.11 → v0.5.12
+#   - FLASHINFER_VERSION 0.6.11 → 0.6.11.post1 (upstream-tested pin für 0.5.12)
+#   - dockerfile-gemma4-mtp.patch / sglang-gemma4-mtp-pr24436.patch werden
+#     vom Build-Script auf 0.5.12 automatisch übersprungen (PR #24436 ist
+#     ab v0.5.12 upstream — Re-apply würde "already applied" failen).
+#
+# Voraussetzungen unverändert (scripts/build_pytorch_base_image.sh muss die
+# xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132 Base auf spark4 vorliegen
+# haben — siehe ensure_base_image_present in build_sm121_image.sh).
+#
+DOCKERFILE=Dockerfile.sglang-nightly
+TARGET=runtime
+
+BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132
+
+# 0.6.11.post1 ist der upstream-getestete Pin für v0.5.12 (Release Notes:
+# "FlashInfer pinned at 0.6.11.post1"). Damit ist der head_dim=512-Fix
+# (flashinfer PR #2959) weiterhin enthalten — nötig für `attention_backend=
+# flashinfer` auf Gemma-4-Global-Attention. Roll-back auf 0.6.11 (ohne post1),
+# falls die post1-Änderungen lokal Regressionen auslösen.
+FLASHINFER_VERSION=0.6.11.post1
+
+# transformers 5.8.0 weiter pinning für Gemma-4-assistant-Drafter
+# (gemma4_assistant model_type, MTP/NEXTN). v0.5.12 enthält PR #24436 nativ
+# — der gemma4_assistant config-class wird also vom in-tree Model registriert,
+# trotzdem braucht der Drafter selber transformers >=5.8.0 für die AutoConfig-
+# Registrierung der Gemma-4-Assistant-Architektur-Subklasse.
+TRANSFORMERS_VERSION=5.8.0
+
+# Pinned to the v0.5.12 release tag (released 2026-05-16).
+# SGLANG_VERSION setzt setuptools-scm auf "0.5.12"; SGLANG_REF wählt den Tag.
+SGLANG_VERSION=0.5.12
+SGLANG_REF="v0.5.12"
+
+IMAGE_TAG=xomoxcc/dgx-spark-sglang:0.5.12-sm121
