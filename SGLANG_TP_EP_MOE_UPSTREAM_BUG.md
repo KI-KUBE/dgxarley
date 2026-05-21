@@ -113,12 +113,14 @@ the mainstream, well-tested code path. The monkey-patch documented here remains 
 anyone who does need `moe_wna16 + EP` (e.g., on GPUs with less memory headroom), but it may
 be solving a problem that doesn't need to exist.
 
-## Additional Bug: EPLB crashes with Qwen3MoE and Qwen3.5MoE
+## Additional Bug: EPLB crashes with Qwen3MoE and Qwen3.5MoE — **FIXED upstream, in v0.5.11+**
 
-**Upstream status** as of 2026-04-06:
+**Upstream status** (re-verified 2026-05-21):
 - Qwen3.5: fixed via [PR #19767](https://github.com/sgl-project/sglang/pull/19767) (merged 2026-03-09, included in v0.5.10)
 - Qwen3: [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — closed without merge 2026-03-30 (CI failure), superseded by #21822
-- Qwen3: [PR #21822](https://github.com/sgl-project/sglang/pull/21822) — **merged 2026-04-09 at 07:13 UTC**. Addresses `AttributeError: 'LazyValue' object has no attribute 'keys'` in `eplb_manager.py` for Qwen3 MoE. (Duplicate [PR #21820](https://github.com/sgl-project/sglang/pull/21820) was closed same day in favour of #21822.) **Not in v0.5.10.post1**: that tag was cut on 2026-04-09 at 03:21 UTC — ~4h *before* #21822 was merged — so the EPLB fix misses post1 by a few hours and will only land in the next release after post1
+- Qwen3: [PR #21822](https://github.com/sgl-project/sglang/pull/21822) — **merged 2026-04-09 at 07:13 UTC** and shipped in **v0.5.11 (2026-05-05)** plus v0.5.12 (2026-05-16). Addresses `AttributeError: 'LazyValue' object has no attribute 'keys'` in `eplb_manager.py` for Qwen3 MoE. (Duplicate [PR #21820](https://github.com/sgl-project/sglang/pull/21820) was closed same day in favour of #21822.) **Not in v0.5.10.post1**: that tag was cut on 2026-04-09 at 03:21 UTC — ~4h *before* #21822 was merged — so the EPLB fix missed post1 by a few hours but is now stable in every release we run.
+
+**Practical status on our cluster:** RESOLVED. The cluster runs v0.5.11+ images everywhere, so re-enabling `--enable-eplb` on Qwen3 MoE no longer requires the static-assignment workaround documented below. The original failure analysis below is retained for archaeological reference (and because the same `routed_experts_weights_of_layer` pattern can resurface in any future model class that omits the attribute).
 
 When `--enable-eplb` is active with EP, the `EPLBManager` crashes after its first rebalance
 interval (default: 1000 forward passes):

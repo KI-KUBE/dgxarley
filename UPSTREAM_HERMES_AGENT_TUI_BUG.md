@@ -24,11 +24,13 @@
 - **First tagged release with both fixes: v2026.5.7 / v0.13.0** ("The Tenacity
   Release"), published 2026-05-07T16:23 UTC — about 3 h after PR #21267 merged
   (2026-05-07T13:17 UTC) and 3 days after PR #19520 (2026-05-04). Both fixes are
-  in this tag. **Our deployment still requires the workaround** because (a) the
+  in this tag. **Current latest release: v2026.5.16** (re-verified 2026-05-21).
+  Trigger 2 (workspace-link entries) is **still unfixed** in v2026.5.16 — only
+  Trigger 1 is fixed by #19520; no follow-up PR has been opened since #18800
+  was closed. **Our deployment still requires the workaround** because (a) the
   build-time `chown` from #21267 doesn't propagate through our `usermod`-based
   UID remap (see "Why PR #21267 Alone …" below), and (b) Trigger 2 (workspace-link
-  entries) is still unfixed in `main` — #19520 only closes Trigger 1. Re-check
-  on next image bump regardless.
+  entries) is still unfixed. Re-check on next image bump regardless.
 
 - **Workaround applied** in this repo via `copy-ui-tui` initContainer in
   `roles/k8s_dgx/templates/hermes/hermes_agent_deployment.yaml.j2`. See
@@ -215,14 +217,16 @@ small (~50 MB) and the node has fast local storage.
   Adds `chown -R hermes:hermes /opt/hermes/ui-tui /opt/hermes/node_modules`
   to the Dockerfile. Validated with `tests/tools/test_dockerfile_node_modules_perms.py`.
 - First release containing both fixes: **v2026.5.7 / v0.13.0** (2026-05-07,
-  "The Tenacity Release"). Re-checked 2026-05-09.
+  "The Tenacity Release"). Current latest release: **v2026.5.16** —
+  Trigger 2 still unfixed there. Re-checked 2026-05-21.
 - Our Trigger 2 report (workspace-link entries) posted 2026-05-04 as
   comment on #18800:
   [#issuecomment-4371280956](https://github.com/NousResearch/hermes-agent/issues/18800#issuecomment-4371280956).
   Includes the diagnostic snippet from this document and a one-line
   patch suggestion (add `wanted[k].get("link")` to the missing-check
-  filter). Since #18800 is now closed, this report should be re-filed
-  as a fresh issue if upstream is to act on Trigger 2.
+  filter). Since #18800 is now closed and no follow-up issue has been
+  filed upstream, **this report still needs to be re-filed as a fresh
+  issue** if we want upstream to act on Trigger 2.
 
 ## Action Items on Next Image Bump
 

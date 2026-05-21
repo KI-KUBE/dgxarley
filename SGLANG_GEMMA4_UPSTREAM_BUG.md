@@ -20,16 +20,18 @@
 - **NVFP4 variants — STILL BLOCKED.** Both dense (`nvidia/Gemma-4-31B-IT-NVFP4`)
   and MoE (`bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4`) require four sm120/121-
   specific upstream PRs. Three (#22929, #22928, #22927) remain **stale since
-  2026-04-16 with no review activity** (re-verified 2026-05-18). The fourth,
-  **#22615, was APPROVED by `kpham-sgl` on 2026-04-22** and rebased onto main
-  on 2026-04-30 (CI re-run requested) — its known blocker
+  2026-04-16 with no review activity — over 5 weeks** (re-verified 2026-05-21).
+  The fourth, **#22615, was APPROVED by `kpham-sgl` on 2026-04-22** and rebased
+  onto main on 2026-04-30 (CI re-run requested) — its known blocker
   ([flashinfer #2959](https://github.com/flashinfer-ai/flashinfer/pull/2959))
   has since been **merged and shipped** in flashinfer v0.6.10 / .post1 / 0.6.11,
   so the upstream-blocker reasoning kpham-sgl gave on the PR comments no
-  longer applies. **Re-checked 2026-05-18: state still OPEN, no merge.** SGLang
-  **v0.5.12** (released 2026-05-16) ships without any of the four SM120/121
-  Gemma-4 NVFP4 PRs — release notes mention no Gemma-4 NVFP4/SM121 work. The
-  three stale PRs continue to gate NVFP4 Gemma-4 on SM121.
+  longer applies. **Re-checked 2026-05-21: state still OPEN, no merge — the
+  PR has now been approved+rebased and sitting idle for 3 weeks despite no
+  remaining blockers. Worth a polite nudge on the PR.** SGLang **v0.5.12**
+  (released 2026-05-16) ships without any of the four SM120/121 Gemma-4 NVFP4
+  PRs — release notes mention no Gemma-4 NVFP4/SM121 work. The three stale
+  PRs continue to gate NVFP4 Gemma-4 on SM121.
 
 The original v0.5.10 blockers (Transformers fallback, dual head_dim, top_k_experts
 naming) are no longer relevant for our deployment because we build the image
@@ -135,7 +137,7 @@ which is shared across all variants.
 
 ## Upstream PRs
 
-Last `gh pr view` check: 2026-05-09. Three SM120/121 PRs (#22929, #22928, #22927) still no movement since 2026-04-16. **#22615 was APPROVED by `kpham-sgl` on 2026-04-22** and rebased onto main 2026-04-30 (CI re-run requested) but is not yet merged. Its previous flashinfer-side blocker ([flashinfer #2959](https://github.com/flashinfer-ai/flashinfer/pull/2959)) shipped in flashinfer v0.6.10–v0.6.11 and is no longer a gating dependency.
+Last `gh pr view` check: 2026-05-21. Three SM120/121 PRs (#22929, #22928, #22927) still no movement since 2026-04-16 (5+ weeks). **#22615 was APPROVED by `kpham-sgl` on 2026-04-22** and rebased onto main 2026-04-30 (CI re-run requested) but is **still not merged 3+ weeks later** — flashinfer-side blocker ([flashinfer #2959](https://github.com/flashinfer-ai/flashinfer/pull/2959)) shipped in flashinfer v0.6.10–v0.6.11 and is no longer a gating dependency. Worth a polite nudge on the PR if it remains idle.
 
 | PR | Title | Status | Merged | Relevance |
 |----|-------|--------|--------|-----------|
