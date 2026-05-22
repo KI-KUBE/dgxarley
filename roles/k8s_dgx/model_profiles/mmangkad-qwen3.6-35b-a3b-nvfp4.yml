@@ -1,0 +1,72 @@
+---
+# Model profile: mmangkad/Qwen3.6-35B-A3B-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# mmangkad re-packaged NVFP4 of Qwen/Qwen3.6-35B-A3B (FP8 sibling: see
+# qwen-qwen3.6-35b-a3b-fp8.yml). This variant uses NVIDIA's modelopt
+# toolchain (TensorRT-Model-Optimizer 0.43.0) — verified via HF config.json
+# `quantization_config.quant_method == "modelopt"`. SGLang loader must
+# be told `quantization=modelopt_fp4`, NOT `compressed-tensors` (that's
+# the RedHatAI re-package, see redhatai-qwen3.6-35b-a3b-nvfp4.yml).
+#
+# Purpose of this profile: secondary candidate to RedHatAI/... for the
+# Qwen3.6-35B-A3B NVFP4 family. Useful as a fallback if RedHat's
+# compressed-tensors path runs into backend-specific crashes on our
+# hardware (GB10/SM121, SGLang 0.5.12). Validation matrix is
+# focused — see matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-nvfp4-mmangkad/.
+#
+# This is a SEED profile — once the focused sweep finishes, rewrite
+# with the winner config + measured throughput numbers.
+_model_profile:
+  "mmangkad/Qwen3.6-35B-A3B-NVFP4":
+    info_url: "https://huggingface.co/mmangkad/Qwen3.6-35B-A3B-NVFP4"
+    # 35B/3B MoE (Gated DeltaNet hybrid), NVFP4 quantization via modelopt.
+    # 256 experts, 8 routed + 1 shared activated per token. Native 262K context.
+    # Hybrid-mamba arch: SGLang classifies this under its mamba scheduler path.
+    context_length: 262144
+    # mmangkad uses modelopt (NVIDIA TRT-Model-Optimizer) — same loader path
+    # as nvidia/Qwen3.5-397B-A17B-NVFP4. NOT compatible with the
+    # `compressed-tensors` knob (that's RedHatAI's packaging).
+    quantization: "modelopt_fp4"
+    trust_remote_code: true
+    kv_cache_dtype: "fp8_e4m3"
+    # 0.6 matches the RedHatAI sibling (deliberately conservative on first
+    # contact — Spark Unified Memory is shared across GPU + cgroup, MTP needs
+    # extra KV headroom). Tune up if no OOMs observed.
+    mem_fraction_static: "0.6"
+    # Seed: cutlass MoE + triton attn + fi_cutlass-fp4 mirrors the 397B-NVFP4
+    # modelopt-native winner shape (Test 28/38 on 0.5.10, see
+    # nvidia-qwen3.5-397b-a17b-nvfp4.yml). Sweep will confirm.
+    nccl_transport: roce
+    moe_runner_backend: cutlass
+    attention_backend: triton
+    fp4_gemm_backend: flashinfer_cutlass
+    disable_deep_gemm: true
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    pp_async_batch_depth: 0
+    cuda_graph_max_bs: 8
+    jit_max_jobs: 4
+    ep_size: 1
+    tp_size: 4
+    num_experts: 256
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
+    reasoning_parser: "qwen3"
+    tool_call_parser: "qwen3_coder"
+    # Sampling: thinking-mode defaults (same as FP8 sibling)
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      presence_penalty: 1.5
+    # MTP / speculative decoding (NEXTN) — recommended by model card.
+    # mamba_scheduler_strategy=extra_buffer + enable_spec_v2=true required
+    # to avoid spec-v2-vs-radix-cache crash on this hybrid-mamba MoE arch.
+    speculative_enabled: true
+    speculative_algo: NEXTN
+    speculative_num_steps: 2
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 3
+    mamba_scheduler_strategy: extra_buffer
+    enable_spec_v2: true

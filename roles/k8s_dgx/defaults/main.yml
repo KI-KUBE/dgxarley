@@ -537,6 +537,8 @@ hf_token: "hf_CHANGEME"
 # HuggingFace model pre-download Job
 hf_preload_models:
   - "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+  - "mmangkad/Qwen3.6-35B-A3B-NVFP4"
+  - "mmangkad/Qwen3.6-27B-NVFP4"
   - "Qwen/Qwen3.6-35B-A3B-FP8"
   - "Qwen/Qwen3.6-27B-FP8"
   - "togethercomputer/Aurora-Spec-Minimax-M2.5"

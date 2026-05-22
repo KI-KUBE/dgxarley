@@ -1,0 +1,83 @@
+---
+# Model profile: mmangkad/Qwen3.6-27B-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# Community NVFP4 quantization of Qwen/Qwen3.6-27B (dense, hybrid Gated
+# DeltaNet + Gated Attention). Quantized with NVIDIA Model Optimizer v0.42.0rc1
+# → `modelopt_fp4` packaging (NOT compressed-tensors). FP8 sibling profile:
+# qwen-qwen3.6-27b-fp8.yml.
+#
+# Why mmangkad over unsloth/sakamakismile/vrfai NVFP4 27B variants:
+#   - Model card explicitly documents the SGLang serve command and the
+#     `--quantization modelopt_fp4` flag (other community repacks lean on
+#     vLLM as primary path).
+#   - No `nvidia/Qwen3.6-27B-NVFP4` exists upstream — community quant is
+#     the only option for SGLang first contact.
+#
+# This is a SEED profile for first-contact matrix testing. Quantization
+# plumbing (modelopt_fp4, fp4_gemm_backend, disable_deep_gemm) inherited
+# from nvidia-qwen3.5-397b-a17b-nvfp4.yml; arch defaults (parsers,
+# mamba scheduler, MTP knobs) inherited from the FP8 sibling. Rewrite
+# this file with the winner config + measured throughput once the 0.5.12
+# sweep finishes (matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-27b-nvfp4/).
+_model_profile:
+  "mmangkad/Qwen3.6-27B-NVFP4":
+    info_url: "https://huggingface.co/mmangkad/Qwen3.6-27B-NVFP4"
+    # 27B dense (hybrid Gated DeltaNet + Gated Attention), NVFP4 weights+activations
+    # (only linear ops in transformer blocks are quantized per the model card).
+    # On-device weights ~7-8 GB (vs ~27 GB BF16 / ~13 GB FP8). Native 262K context.
+    context_length: 262144
+    # mmangkad config.json uses ModelOpt's NVFP4 packaging — SGLang's
+    # `modelopt_fp4` quant method matches (verified via model card serve command).
+    # Do NOT use `compressed-tensors` (that's the RedHatAI packaging — different).
+    quantization: "modelopt_fp4"
+    trust_remote_code: true
+    kv_cache_dtype: "fp8_e4m3"
+    # 0.75 with MTP: draft tokens need extra KV-cache headroom.
+    # NVFP4 weights are ~3× smaller than FP8 so there is plenty of slack;
+    # 0.75 mirrors the 397B-NVFP4 / 35B-A3B-NVFP4 first-contact setting.
+    mem_fraction_static: "0.75"
+    # Conservative seed: fi-attn + fi_cutlass-fp4 + CG on + piecewise off.
+    # Mirrors the FP8-27B operational winner shape (Case 10 of the 0.5.11
+    # 18-case sweep — fi-attn + MTP + piecewise off) but with piecewise=true
+    # left as a question for the FP4 matrix to resolve. The 0.5.12 NVFP4
+    # matrix sweeps 2×2×3 = 12 baseline cases plus MTP variants.
+    nccl_transport: roce
+    attention_backend: flashinfer
+    fp4_gemm_backend: flashinfer_cutlass
+    disable_deep_gemm: true
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    pp_async_batch_depth: 0
+    cuda_graph_max_bs: 8
+    jit_max_jobs: 4
+    ep_size: 1
+    tp_size: 4
+    reasoning_parser: "qwen3"
+    tool_call_parser: "qwen3_coder"
+    # supports thinking (default) and non-thinking modes; control via
+    # chat_template_kwargs={"enable_thinking": False} per-request.
+    #   thinking:        temperature=1.0  top_p=0.95  top_k=20  presence_penalty=0.0
+    #   thinking_coding: temperature=0.6  top_p=0.95  top_k=20  presence_penalty=0.0
+    #   non_thinking:    temperature=0.7  top_p=0.80  top_k=20  presence_penalty=1.5
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      presence_penalty: 0.0
+    sampling_overrides: {}
+    # MTP / speculative decoding (NEXTN) — Qwen3.6 is MTP-trained.
+    # Two extra knobs (mamba_scheduler_strategy=extra_buffer + enable_spec_v2=true)
+    # required to avoid the spec-v2-vs-radix-cache crash on this hybrid Gated-
+    # DeltaNet arch (same constraint as on the FP8 sibling).
+    #
+    # speculative_num_steps=3 inherited from the FP8 sibling's measured sweet
+    # spot (0.5.11 27B-FP8 sweep). Actual NVFP4 sweet spot to be confirmed by
+    # the num_steps sweep in matrix Tests 15–18. Update this file once measured.
+    speculative_enabled: true
+    speculative_algo: NEXTN
+    speculative_num_steps: 3
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 4
+    mamba_scheduler_strategy: extra_buffer
+    enable_spec_v2: true
