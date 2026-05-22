@@ -1,11 +1,21 @@
 #!/usr/bin/env bash
 #
-# build_cudnn_image.sh — Build xomoxcc/dgx-spark-sglang:0.5.10-cudnn.
+# build_cudnn_image.sh — Build xomoxcc/dgx-spark-sglang:0.5.12-cudnn.
 #
-# Stacks nvidia-cudnn-cu12 + nvidia-cudnn-frontend Python wheels on top
-# of scitrera/dgx-spark-sglang:0.5.10 (or any other compatible base image
-# — override via BUILD_CUDNN_BASE_IMAGE) so that SGLang's fi_cudnn FP4
-# GEMM backend (fp4_gemm_backend=flashinfer_cudnn) becomes usable.
+# Default: stacks the nvidia-cudnn-frontend Python wheel on top of
+# scitrera/dgx-spark-sglang:0.5.12 (the 0.5.12 base already ships the
+# cuDNN runtime libs via apt — verified: /usr/lib/aarch64-linux-gnu/
+# contains libcudnn.so.9.20.0 et al). The frontend wheel provides the
+# python 'cudnn' module that flashinfer's _check_cudnn_availability
+# imports, which makes SGLang's fi_cudnn FP4 GEMM backend
+# (fp4_gemm_backend=flashinfer_cudnn) usable.
+#
+# Legacy 0.5.10 build: the 0.5.10 base lacked the apt cuDNN libs, so
+# its Dockerfile (patches/sglang-0.5.10-cudnn.Dockerfile) also pulls
+# nvidia-cudnn-cu12. To build that variant, set BUILD_CUDNN_DOCKERFILE
+# + BUILD_CUDNN_BASE_IMAGE + BUILD_CUDNN_IMAGE_TAG to the 0.5.10 values.
+# Override the base image entirely (any compatible scitrera/xomoxcc tag)
+# via BUILD_CUDNN_BASE_IMAGE.
 #
 # Base image choice: we deliberately build on the upstream scitrera image,
 # not on xomoxcc/dgx-spark-sglang:*-sm121-dev1. The sm121 CUTLASS MoE
@@ -64,10 +74,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PATCHES_DIR="${SCRIPT_DIR}/patches"
 
-DOCKERFILE="${PATCHES_DIR}/sglang-0.5.10-cudnn.Dockerfile"
+DOCKERFILE="${BUILD_CUDNN_DOCKERFILE:-${PATCHES_DIR}/sglang-0.5.12-cudnn.Dockerfile}"
 
-BASE_IMAGE="${BUILD_CUDNN_BASE_IMAGE:-scitrera/dgx-spark-sglang:0.5.10}"
-IMAGE_TAG="${BUILD_CUDNN_IMAGE_TAG:-xomoxcc/dgx-spark-sglang:0.5.10-cudnn}"
+BASE_IMAGE="${BUILD_CUDNN_BASE_IMAGE:-scitrera/dgx-spark-sglang:0.5.12}"
+IMAGE_TAG="${BUILD_CUDNN_IMAGE_TAG:-xomoxcc/dgx-spark-sglang:0.5.12-cudnn}"
 
 # Remote build host + podman connection. Defaults match
 # build_sm121_image.sh / build_pytorch_base_image.sh so the same registered
@@ -108,8 +118,11 @@ Usage: $(basename "$0") [--remote-host user@host] [--podman-connection NAME]
                         [--no-local-copy] [--no-push] [--help]
 
 Builds ${IMAGE_TAG} on the remote build host via the podman socket.
-Adds nvidia-cudnn-cu12 + nvidia-cudnn-frontend wheels on top of
-${BASE_IMAGE}. Expected duration: ~5-10 min cold.
+Adds the nvidia-cudnn-frontend wheel on top of ${BASE_IMAGE} (the 0.5.12
+base already ships the cuDNN runtime libs via apt). Expected duration:
+~5-10 min cold. To build the legacy 0.5.10 variant, point
+BUILD_CUDNN_DOCKERFILE at patches/sglang-0.5.10-cudnn.Dockerfile and
+override BASE_IMAGE/IMAGE_TAG to the 0.5.10 values.
 
 Options:
   --remote-host user@host
@@ -138,6 +151,8 @@ Environment overrides (lower precedence than flags):
                                  Default: ${BASE_IMAGE}
   BUILD_CUDNN_IMAGE_TAG          Output tag for the built image.
                                  Default: ${IMAGE_TAG}
+  BUILD_CUDNN_DOCKERFILE         Path to the Dockerfile to build.
+                                 Default: ${DOCKERFILE}
   BUILD_CUDNN_REMOTE_HOST        user@host for remote build SSH.
                                  Default: ${REMOTE_HOST}
   BUILD_CUDNN_PODMAN_CONNECTION  Registered podman connection name.

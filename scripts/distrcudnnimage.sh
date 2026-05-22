@@ -6,16 +6,21 @@
 # spark4 and the QSFP network (10.10.10.0/24, 200 GbE) for the heavy lifting.
 #
 # This is the distrsm121image.sh script adapted for
-# xomoxcc/dgx-spark-sglang:0.5.10-cudnn (built via scripts/build_cudnn_image.sh).
+# xomoxcc/dgx-spark-sglang:0.5.12-cudnn (built via scripts/build_cudnn_image.sh).
 # Flow, tmux/flat dispatcher, cleanup and --pull-local handling are identical
 # to distrsm121image.sh — only the image name and the registry reference
 # differ. See that script's header for the full rationale.
 #
+# Image tag is overridable via the DISTR_CUDNN_IMAGE_TAG env var (e.g.
+# `DISTR_CUDNN_IMAGE_TAG=xomoxcc/dgx-spark-sglang:0.5.10-cudnn`) to
+# distribute the legacy 0.5.10 build instead of the 0.5.12 default.
+#
 # Prerequisites
 # -------------
-# - The source host has `localhost/xomoxcc/dgx-spark-sglang:0.5.10-cudnn`
-#   in its local podman store (built via scripts/build_cudnn_image.sh,
-#   either with or without --no-push).
+# - The source host has `localhost/${IMAGE_REF}` (default
+#   xomoxcc/dgx-spark-sglang:0.5.12-cudnn) in its local podman store
+#   (built via scripts/build_cudnn_image.sh, either with or without
+#   --no-push).
 # - Root SSH from x86 control host to all 4 sparks (management) works.
 # - All target sparks can reach ${REGISTRY_HOST}:${REGISTRY_PORT} via QSFP.
 # - `podman` on the source host (registry:2 will be podman-pulled on first
@@ -24,8 +29,12 @@
 
 set -euo pipefail
 
-SRC_IMAGE="localhost/xomoxcc/dgx-spark-sglang:0.5.10-cudnn"
-IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.10-cudnn"
+# Single source of truth for the image tag. Everything else (SRC_IMAGE,
+# IMAGE, REGISTRY_REF below) derives from this. Override via env to
+# distribute a different tag (e.g. the legacy 0.5.10-cudnn build).
+IMAGE_REF="${DISTR_CUDNN_IMAGE_TAG:-xomoxcc/dgx-spark-sglang:0.5.12-cudnn}"
+SRC_IMAGE="localhost/${IMAGE_REF}"
+IMAGE="docker.io/${IMAGE_REF}"
 
 # Source host: where the built image lives in podman. Defaults to spark4
 # (the historical build host); override with --source when the image was
@@ -84,6 +93,10 @@ Options:
                          tmux enabled when interactive.
   --help                 Show this help.
 
+Environment overrides:
+  DISTR_CUDNN_IMAGE_TAG  Override the image tag to distribute.
+                         Default: xomoxcc/dgx-spark-sglang:0.5.12-cudnn
+
 Examples:
   # Default — image was built on spark4, distribute to all 4 sparks
   $(basename "$0")
@@ -141,7 +154,7 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
-REGISTRY_REF="xomoxcc/dgx-spark-sglang:0.5.10-cudnn"
+REGISTRY_REF="${IMAGE_REF}"
 REGISTRY_IMAGE="${REGISTRY_HOST}:${REGISTRY_PORT}/${REGISTRY_REF}"
 REGISTRY_IMAGE_LOCAL="127.0.0.1:${REGISTRY_PORT}/${REGISTRY_REF}"
 REGISTRY_CONTAINER="tmp-distr-registry"
