@@ -1,0 +1,78 @@
+---
+# Model profile: RedHatAI/Qwen3.6-35B-A3B-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# RedHatAI re-packaged NVFP4 quantization of Qwen/Qwen3.6-35B-A3B
+# (FP8 sibling: see qwen-qwen3.6-35b-a3b-fp8.yml). Selected over the
+# unsloth/mmangkad/sakamakismile NVFP4 variants — RedHatAI has by far
+# the most HF downloads (2.24M as of 2026-05-22).
+#
+# This is a SEED profile for first-contact matrix testing — values are
+# inherited from the FP8 sibling where the architecture demands it
+# (parsers, mamba scheduler, MTP knobs) and from nvidia-qwen3.5-397b-a17b-nvfp4.yml
+# for the NVFP4 axis (quantization, fp4_gemm_backend, modelopt-FP4 plumbing).
+# Once the 0.5.12 sweep finishes, this file should be rewritten with the
+# actual winner config + measured throughput numbers.
+_model_profile:
+  "RedHatAI/Qwen3.6-35B-A3B-NVFP4":
+    info_url: "https://huggingface.co/RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+    # 35B/3B MoE (Gated DeltaNet hybrid), NVFP4 quantization (~10–12 GB on-device
+    # weights, vs. ~35 GB for the FP8 sibling). 256 experts, 8 routed + 1 shared
+    # activated per token. Native 262K context (extensible to ~1M via YaRN).
+    # MTP-trained — NEXTN speculative decoding active.
+    # Hybrid-mamba arch: SGLang classifies this under its mamba scheduler path.
+    context_length: 262144
+    quantization: "modelopt_fp4"
+    trust_remote_code: true
+    kv_cache_dtype: "fp8_e4m3"
+    # 0.75 with MTP: draft tokens need extra KV-cache headroom.
+    # NVFP4 weights are ~3× smaller than FP8 so there is plenty of slack;
+    # 0.75 is the safe first-contact setting matching the 397B-NVFP4 profile.
+    mem_fraction_static: "0.6"
+    # Conservative seed: triton MoE + fi-attn + fi_cutlass-fp4. This mirrors
+    # the FP8-validated reliable path (triton MoE) and the most-validated
+    # NVFP4 GEMM backend. The 0.5.12 matrix sweeps the full 4×2×2×3 space
+    # (see matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-nvfp4/).
+    nccl_transport: roce
+    moe_runner_backend: triton
+    attention_backend: flashinfer
+    fp4_gemm_backend: flashinfer_cutlass
+    disable_deep_gemm: true
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: false
+    pp_async_batch_depth: 0
+    cuda_graph_max_bs: 8
+    jit_max_jobs: 4
+    ep_size: 1
+    tp_size: 4
+    num_experts: 256
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
+    reasoning_parser: "qwen3"
+    tool_call_parser: "qwen3_coder"
+    # supports thinking (default) and non-thinking modes; control via
+    # chat_template_kwargs={"enable_thinking": False} per-request.
+    #   thinking:        temperature=1.0  top_p=0.95  top_k=20  presence_penalty=1.5
+    #   thinking_coding: temperature=0.6  top_p=0.95  top_k=20  presence_penalty=0.0
+    #   non_thinking:    temperature=0.7  top_p=0.80  top_k=20  presence_penalty=1.5
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      presence_penalty: 1.5
+    # MTP / speculative decoding (NEXTN) — recommended by model card.
+    # Two extra knobs (mamba_scheduler_strategy=extra_buffer + enable_spec_v2=true)
+    # required to avoid the spec-v2-vs-radix-cache crash on this hybrid-mamba
+    # MoE arch (same as FP8 sibling, see Qwen3.6-35B-A3B-FP8 profile and the
+    # 397B-A17B-NVFP4 profile for the SGLang error message).
+    #
+    # speculative_num_steps=2 inherited from the FP8 sweet spot (0.5.12 FP8 run #21);
+    # actual NVFP4 sweet spot to be confirmed by the num_steps sweep in
+    # matrix Tests 45–48. Update this file once measured.
+    speculative_enabled: true
+    speculative_algo: NEXTN
+    speculative_num_steps: 2
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 3
+    mamba_scheduler_strategy: extra_buffer
+    enable_spec_v2: true
