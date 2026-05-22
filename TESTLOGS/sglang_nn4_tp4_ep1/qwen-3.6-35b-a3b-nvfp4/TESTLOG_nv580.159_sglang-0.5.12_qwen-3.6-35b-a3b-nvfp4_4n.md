@@ -75,70 +75,70 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 | 02 | triton     | fi        | fi_cutlass   | true           | true          | ok         | 15.07     | 84.94    | 169.44     |
 | 03 | triton     | fi        | fi_cutlass   | false          | false         | ok⁺        | 75.43     | 244.98   | 353.06     |
 | 04 | triton     | triton    | fi_cutlass   | false          | true          | ok         | 61.13     | 245.13   | 404.19     |
-| 05 | triton     | triton    | fi_cutlass   | true           | true          | **in-prog**| —         | —        | —          |
-| 06 | triton     | triton    | fi_cutlass   | false          | false         | TBD    | —         | —        | —        |
-| 07 | triton     | fi        | fi_cudnn     | false          | true          | TBD    | —         | —        | —        |
-| 08 | triton     | fi        | fi_cudnn     | true           | true          | TBD    | —         | —        | —        |
-| 09 | triton     | fi        | fi_cudnn     | false          | false         | TBD    | —         | —        | —        |
-| 10 | triton     | triton    | fi_cudnn     | false          | true          | TBD    | —         | —        | —        |
-| 11 | triton     | triton    | fi_cudnn     | true           | true          | TBD    | —         | —        | —        |
-| 12 | triton     | triton    | fi_cudnn     | false          | false         | TBD    | —         | —        | —        |
+| 05 | triton     | triton    | fi_cutlass   | true           | true          | ok         | 14.60     | 84.12    | 165.28     |
+| 06 | triton     | triton    | fi_cutlass   | false          | false         | ok⁺        | 56.69     | 245.53   | 403.03     |
+| 07 | triton     | fi        | fi_cudnn     | false          | true          | **crash S**| —         | —        | —          |
+| 08 | triton     | fi        | fi_cudnn     | true           | true          | **crash B**| —         | —        | —          |
+| 09 | triton     | fi        | fi_cudnn     | false          | false         | **crash S**| —         | —        | —          |
+| 10 | triton     | triton    | fi_cudnn     | false          | true          | **crash S**| —         | —        | —          |
+| 11 | triton     | triton    | fi_cudnn     | true           | true          | **crash B**| —         | —        | —          |
+| 12 | triton     | triton    | fi_cudnn     | false          | false         | **crash S**| —         | —        | —          |
 
 ### Block B — flashinfer_cutlass MoE (crashed on FP8) — Tests 13–24
 
 | #  | moe_runner | attention | fp4_gemm     | dis_cuda_graph | dis_piecewise | Status | n=1 tok/s | n=4 peak | n=8 peak |
 |----|------------|-----------|--------------|----------------|---------------|--------|-----------|----------|----------|
-| 13 | fi_cutlass | fi        | fi_cutlass   | false          | true          | TBD    | —         | —        | —        |
-| 14 | fi_cutlass | fi        | fi_cutlass   | true           | true          | TBD    | —         | —        | —        |
-| 15 | fi_cutlass | fi        | fi_cutlass   | false          | false         | TBD    | —         | —        | —        |
-| 16 | fi_cutlass | triton    | fi_cutlass   | false          | true          | TBD    | —         | —        | —        |
-| 17 | fi_cutlass | triton    | fi_cutlass   | true           | true          | TBD    | —         | —        | —        |
-| 18 | fi_cutlass | triton    | fi_cutlass   | false          | false         | TBD    | —         | —        | —        |
-| 19 | fi_cutlass | fi        | fi_cudnn     | false          | true          | TBD    | —         | —        | —        |
-| 20 | fi_cutlass | fi        | fi_cudnn     | true           | true          | TBD    | —         | —        | —        |
-| 21 | fi_cutlass | fi        | fi_cudnn     | false          | false         | TBD    | —         | —        | —        |
-| 22 | fi_cutlass | triton    | fi_cudnn     | false          | true          | TBD    | —         | —        | —        |
-| 23 | fi_cutlass | triton    | fi_cudnn     | true           | true          | TBD    | —         | —        | —        |
-| 24 | fi_cutlass | triton    | fi_cudnn     | false          | false         | TBD    | —         | —        | —        |
+| 13 | fi_cutlass | fi        | fi_cutlass   | false          | true          | **crash S** | — | — | — |
+| 14 | fi_cutlass | fi        | fi_cutlass   | true           | true          | **crash S** | — | — | — |
+| 15 | fi_cutlass | fi        | fi_cutlass   | false          | false         | **crash S** | — | — | — |
+| 16 | fi_cutlass | triton    | fi_cutlass   | false          | true          | **crash S** | — | — | — |
+| 17 | fi_cutlass | triton    | fi_cutlass   | true           | true          | **crash S** | — | — | — |
+| 18 | fi_cutlass | triton    | fi_cutlass   | false          | false         | **crash S** | — | — | — |
+| 19 | fi_cutlass | fi        | fi_cudnn     | false          | true          | **crash S** | — | — | — |
+| 20 | fi_cutlass | fi        | fi_cudnn     | true           | true          | **crash S** | — | — | — |
+| 21 | fi_cutlass | fi        | fi_cudnn     | false          | false         | **crash S** | — | — | — |
+| 22 | fi_cutlass | triton    | fi_cudnn     | false          | true          | **crash S** | — | — | — |
+| 23 | fi_cutlass | triton    | fi_cudnn     | true           | true          | **crash S** | — | — | — |
+| 24 | fi_cutlass | triton    | fi_cudnn     | false          | false         | **crash S** | — | — | — |
 
 ### Block C — cutlass MoE (direct, was N/A on FP8) — Tests 25–36
 
 | #  | moe_runner | attention | fp4_gemm     | dis_cuda_graph | dis_piecewise | Status | n=1 tok/s | n=4 peak | n=8 peak |
 |----|------------|-----------|--------------|----------------|---------------|--------|-----------|----------|----------|
-| 25 | cutlass    | fi        | fi_cutlass   | false          | true          | TBD    | —         | —        | —        |
-| 26 | cutlass    | fi        | fi_cutlass   | true           | true          | TBD    | —         | —        | —        |
-| 27 | cutlass    | fi        | fi_cutlass   | false          | false         | TBD    | —         | —        | —        |
-| 28 | cutlass    | triton    | fi_cutlass   | false          | true          | TBD    | —         | —        | —        |
-| 29 | cutlass    | triton    | fi_cutlass   | true           | true          | TBD    | —         | —        | —        |
-| 30 | cutlass    | triton    | fi_cutlass   | false          | false         | TBD    | —         | —        | —        |
-| 31 | cutlass    | fi        | fi_cudnn     | false          | true          | TBD    | —         | —        | —        |
-| 32 | cutlass    | fi        | fi_cudnn     | true           | true          | TBD    | —         | —        | —        |
-| 33 | cutlass    | fi        | fi_cudnn     | false          | false         | TBD    | —         | —        | —        |
-| 34 | cutlass    | triton    | fi_cudnn     | false          | true          | TBD    | —         | —        | —        |
-| 35 | cutlass    | triton    | fi_cudnn     | true           | true          | TBD    | —         | —        | —        |
-| 36 | cutlass    | triton    | fi_cudnn     | false          | false         | TBD    | —         | —        | —        |
+| 25 | cutlass    | fi        | fi_cutlass   | false          | true          | **timeout** | — | — | — |
+| 26 | cutlass    | fi        | fi_cutlass   | true           | true          | ok          | 15.33 | 84.36  | 169.60 |
+| 27 | cutlass    | fi        | fi_cutlass   | false          | false         | ok          | 67.13 | 247.03 | 405.81 |
+| 28 | cutlass    | triton    | fi_cutlass   | false          | true          | ok          | 55.20 | 237.66 | 401.06 |
+| 29 | cutlass    | triton    | fi_cutlass   | true           | true          | ok          | 15.31 | 83.52  | 166.88 |
+| 30 | cutlass    | triton    | fi_cutlass   | false          | false         | ok          | 74.66 | 242.67 | 404.53 |
+| 31 | cutlass    | fi        | fi_cudnn     | false          | true          | **crash S** | — | — | — |
+| 32 | cutlass    | fi        | fi_cudnn     | true           | true          | **crash B** | — | — | — |
+| 33 | cutlass    | fi        | fi_cudnn     | false          | false         | **crash S** | — | — | — |
+| 34 | cutlass    | triton    | fi_cudnn     | false          | true          | **crash S** | — | — | — |
+| 35 | cutlass    | triton    | fi_cudnn     | true           | true          | **crash B** | — | — | — |
+| 36 | cutlass    | triton    | fi_cudnn     | false          | false         | **crash S** | — | — | — |
 
 ### Block D — flashinfer_cutedsl MoE (NVFP4-only design, was crash B on FP8) — Tests 37–42
 
 | #  | moe_runner | attention | fp4_gemm     | dis_cuda_graph | dis_piecewise | Status | n=1 tok/s | n=4 peak | n=8 peak |
 |----|------------|-----------|--------------|----------------|---------------|--------|-----------|----------|----------|
-| 37 | fi_cutedsl | fi        | fi_cutlass   | false          | true          | TBD    | —         | —        | —        |
-| 38 | fi_cutedsl | fi        | fi_cutlass   | true           | true          | TBD    | —         | —        | —        |
-| 39 | fi_cutedsl | fi        | fi_cutlass   | false          | false         | TBD    | —         | —        | —        |
-| 40 | fi_cutedsl | triton    | fi_cutlass   | false          | true          | TBD    | —         | —        | —        |
-| 41 | fi_cutedsl | triton    | fi_cutlass   | true           | true          | TBD    | —         | —        | —        |
-| 42 | fi_cutedsl | triton    | fi_cutlass   | false          | false         | TBD    | —         | —        | —        |
+| 37 | fi_cutedsl | fi        | fi_cutlass   | false          | true          | **crash S** | — | — | — |
+| 38 | fi_cutedsl | fi        | fi_cutlass   | true           | true          | **crash S** | — | — | — |
+| 39 | fi_cutedsl | fi        | fi_cutlass   | false          | false         | **crash S** | — | — | — |
+| 40 | fi_cutedsl | triton    | fi_cutlass   | false          | true          | **crash S** | — | — | — |
+| 41 | fi_cutedsl | triton    | fi_cutlass   | true           | true          | **crash S** | — | — | — |
+| 42 | fi_cutedsl | triton    | fi_cutlass   | false          | false         | **crash S** | — | — | — |
 
 ### Block E — MTP (NEXTN) anchors + winner-shape num_steps sweep — Tests 43–48
 
 | #  | moe_runner | attention | fp4_gemm     | dis_cuda_graph | dis_piecewise | spec      | Status | n=1 tok/s | n=4 peak | n=8 peak |
 |----|------------|-----------|--------------|----------------|---------------|-----------|--------|-----------|----------|----------|
-| 43 | triton     | triton    | fi_cutlass   | false          | false         | NEXTN s=3 | TBD    | —         | —        | —        |
-| 44 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=3 | TBD    | —         | —        | —        |
-| 45 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=2 | TBD    | —         | —        | —        |
-| 46 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=3 | TBD    | —         | —        | —        |
-| 47 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=4 | TBD    | —         | —        | —        |
-| 48 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=5 | TBD    | —         | —        | —        |
+| 43 | triton     | triton    | fi_cutlass   | false          | false         | NEXTN s=3 | ok          | 94.93 | 265.49 | 405.89     |
+| 44 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=3 | ok          | 78.20 | 274.03 | 423.71     |
+| 45 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=2 | **ok 🏆**   | 82.06 | 275.70 | **438.07** |
+| 46 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=3 | ok          | 78.42 | 247.59 | 387.42     |
+| 47 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=4 | ok          | 81.62 | 245.36 | 366.38     |
+| 48 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=5 | ok          | 71.97 | 230.53 | 350.36     |
 
 ### Column Legend
 
@@ -166,26 +166,73 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 
 ## Results
 
-**Matrix run in progress (started 2026-05-22 ~17:22 UTC+2).** 48 cases planned. 4 cases complete (Tests 01–04), Test 05 in flight. The remaining 43 cases still `TBD`.
+**Matrix run complete (2026-05-22 ~17:22 → ~21:30 UTC+2, ~4 h).** 48/48 cases attempted. **17 ok, 30 crashed/timeout, 1 ok-with-quality-flag**.
 
-### Completed cases so far
+### Crash legend
 
-| #  | Config                                              | n=1 tok/s | n=4 peak | n=8 peak | n=8 avg/req | n=8 ok | Finish reasons      | n=8 TTR_min | Output      |
-|----|-----------------------------------------------------|----------:|---------:|---------:|------------:|--------|---------------------|------------:|-------------|
-| 01 | triton-moe + fi-attn + fi_cutlass-fp4, CG on        |     71.89 |   245.49 |   407.25 |       50.91 | 8/8    | length×8            |       0.691 | clean ✓     |
-| 02 | …+ **cuda_graph off**                               |     15.07 |    84.94 |   169.44 |       21.18 | 8/8    | length×8            |       0.643 | clean ✓     |
-| 03 | …+ **piecewise**                                    |     75.43 |   244.98 |   353.06 |       50.44 | 7/8    | length×6, stop×1    |       0.609 | **flag** ⚠  |
-| 04 | triton-moe + **triton-attn** + fi_cutlass-fp4, CG on|     61.13 |   245.13 |   404.19 |       50.52 | 8/8    | length×8            |       0.642 | clean ✓     |
+- **crash S** (`startup_crash`): SGLang head/worker pod restarts — never reaches inference. Read as "this kernel combination doesn't even compile/load on SM121 for this model".
+- **crash B** (`bench_crash`): pod starts, but every benchmark request fails (n=1: 0/1, n=4: 0/4, n=8: 0/8). Inference reachable, but first forward pass errors out.
+- **timeout**: `SGLang not ready after 900s` — pod neither restarts nor becomes ready in 15 min.
 
-### Preliminary observations
+### Completed `ok` cases — Block A (triton MoE, fi_cutlass-fp4 GEMM only)
 
-1. **Test 01 n=8 peak 407.25 vs FP8-0.5.12 Test 01 peak 406.44**: NVFP4 essentially ties FP8 with the triton MoE runner — **no speedup despite ~3× smaller weights**. Consistent with the FP8 model already being compute-bound on the dense triton MoE path on GB10; the FP4 tensor-core MMA is not exercised when the MoE runner is `triton` (only the `fp4_gemm_backend` for the GEMM, not the MoE kernel). Real NVFP4 upside should land in Blocks B (`fi_cutlass`) and C (`cutlass`).
-2. **Test 02 eager mode regression: 169.44 peak vs FP8-0.5.12 Test 02 198.09 → −14.5 %**. NVFP4 eager is slower than FP8 eager — the FP4 dequant overhead on the per-step Python path costs more than the tensor-core saves. Eager-mode is rarely the production choice on this model anyway, but worth noting as a baseline data point.
-3. **Test 03 piecewise CG: throughput NOT regressed — 1/8 repetition-abort is a counting artifact.** Raw peak 353.06 vs Test 01's 407.25 looks like a −13 % regression, but the 7 successful requests each landed at 50.43–50.45 tok/s (tight cluster, same as Test 01's 50.91). Had `req 4` completed normally, sum would be ~8 × 50.43 = **~403** tok/s — essentially tying Test 01 (407.25). The piecewise-CG path runs the same speed as full-CG on NVFP4. What's real is the **1/8 repetition-abort on req 4** (Monty-Hall prompt): bench framework killed the request at TTFT with `status: repetition`. Visible head/tail of the response is clean (a legitimate enumeration table that may have fooled the naïve repetition detector), but the truncated middle 2.2 kchar is opaque. Plus **`req 2` finish_reason = stop** (the other Block A no-MTP cases finish length×8). Open question: real output-quality regression on the piecewise path, or bench-detector false-positive on a degenerate-looking table? Watch Tests 06/09/12 (other piecewise variants) — if any of them replicate the repetition flag, it's a real piecewise-CG NVFP4 quality issue.
-4. **Output quality otherwise clean.** Tests 01/02 TTR_min ≥ 0.64, no word-salad pattern hits in the visible response text. The `0c2bdd4` profile fix (`is_layer_skipped` substring + `sampling_overrides={}`) is applied; nothing in the visible output suggests it's failing on NVFP4.
-5. **n=8 throughput-vs-FP8 comparison will be a per-block discussion**, not a single number. Block A here suggests "matches FP8 in the best case (Test 01) and regresses on the variants" — Blocks B/C are where the FP4 tensor-core paths actually kick in.
+| #  | Config                                                  | n=1 tok/s | n=4 peak | n=8 peak | n=8 avg/req | n=8 ok | Finish reasons   | n=8 TTR_min | Output     |
+|----|---------------------------------------------------------|----------:|---------:|---------:|------------:|--------|------------------|------------:|------------|
+| 01 | triton-moe + fi-attn + fi_cutlass-fp4, CG on            |     71.89 |   245.49 |   407.25 |       50.91 | 8/8    | length×8         |       0.691 | clean ✓    |
+| 02 | …+ **cuda_graph off**                                   |     15.07 |    84.94 |   169.44 |       21.18 | 8/8    | length×8         |       0.643 | clean ✓    |
+| 03 | …+ **piecewise**                                        |     75.43 |   244.98 |   353.06 |       50.44 | 7/8    | length×6, stop×1 |       0.609 | **flag** ⚠ |
+| 04 | triton-moe + **triton-attn** + fi_cutlass-fp4, CG on    |     61.13 |   245.13 |   404.19 |       50.52 | 8/8    | length×8         |       0.642 | clean ✓    |
+| 05 | …+ **cuda_graph off**                                   |     14.60 |    84.12 |   165.28 |       20.66 | 8/8    | length×8         |       0.698 | clean ✓    |
+| 06 | …+ **piecewise**                                        |     56.69 |   245.53 |   403.03 |       50.38 | 8/8    | length×7, stop×1 |       0.645 | clean ✓    |
 
-(Will continue to fill the matrix as cases complete. Re-run via `kikube-bench matrix matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-nvfp4/nv580.159_sglang-0.5.12_qwen-3.6-35b-a3b-nvfp4_n4_ep1.yaml`.)
+### Completed `ok` cases — Block C (cutlass-direct MoE, fi_cutlass-fp4 GEMM only)
+
+| #  | Config                                                  | n=1 tok/s | n=4 peak | n=8 peak | n=8 avg/req | n=8 ok | Finish reasons | n=8 TTR_min | Output  |
+|----|---------------------------------------------------------|----------:|---------:|---------:|------------:|--------|----------------|------------:|---------|
+| 26 | cutlass-moe + fi-attn + fi_cutlass-fp4, **eager**       |     15.33 |    84.36 |   169.60 |       21.20 | 8/8    | length×8       |       0.566 | clean ✓ |
+| 27 | …+ piecewise                                            |     67.13 |   247.03 |   405.81 |       50.73 | 8/8    | length×8       |       0.531 | clean ✓ |
+| 28 | cutlass-moe + triton-attn + fi_cutlass-fp4, CG on       |     55.20 |   237.66 |   401.06 |       50.13 | 8/8    | length×8       |       0.647 | clean ✓ |
+| 29 | …+ **eager**                                            |     15.31 |    83.52 |   166.88 |       20.86 | 8/8    | length×8       |       0.624 | clean ✓ |
+| 30 | …+ piecewise                                            |     74.66 |   242.67 |   404.53 |       50.57 | 8/8    | length×8       |       0.593 | clean ✓ |
+
+### Completed `ok` cases — Block E (MTP / NEXTN sweep)
+
+| #   | Config                                              | n=1 tok/s | n=4 peak | n=8 peak    | n=8 avg/req | n=8 ok | Finish reasons   | n=8 TTR_min | Output  |
+|-----|-----------------------------------------------------|----------:|---------:|------------:|------------:|--------|------------------|------------:|---------|
+| 43  | triton-moe + triton-attn + piecewise, **MTP s=3**   |     94.93 |   265.49 |     405.89  |       50.74 | 8/8    | length×8         |       0.615 | clean ✓ |
+| 44  | triton-moe + fi-attn + piecewise, **MTP s=3**       |     78.20 |   274.03 |     423.71  |       52.96 | 8/8    | length×8         |       0.656 | clean ✓ |
+| 45  | winner-shape + **MTP s=2** 🏆                       |     82.06 |   275.70 | **438.07**  |       54.76 | 8/8    | length×8         |       0.607 | clean ✓ |
+| 46  | winner-shape + **MTP s=3**                          |     78.42 |   247.59 |     387.42  |       48.43 | 8/8    | length×8         |       0.715 | clean ✓ |
+| 47  | winner-shape + **MTP s=4**                          |     81.62 |   245.36 |     366.38  |       45.80 | 7/8    | length×7, stop×1 |       0.665 | clean ✓ |
+| 48  | winner-shape + **MTP s=5**                          |     71.97 |   230.53 |     350.36  |       43.80 | 8/8    | length×8         |       0.634 | clean ✓ |
+
+### Crash summary
+
+| Block | Cases | Status |
+|-------|-------|--------|
+| A (triton-MoE) × `fi_cudnn` FP4 GEMM | 07–12 | **6/6 crash** (4× S, 2× B) |
+| B (`fi_cutlass`-MoE), both FP4 GEMMs | 13–24 | **12/12 crash** (all S) |
+| C (cutlass-direct MoE), `fi_cutlass` FP4 GEMM | 25 | timeout (head not ready in 900s) |
+| C (cutlass-direct MoE) × `fi_cudnn` FP4 GEMM | 31–36 | **6/6 crash** (4× S, 2× B) |
+| D (`fi_cutedsl`-MoE) | 37–42 | **6/6 crash** (all S) |
+
+### Findings (so far)
+
+1. **`fp4_gemm_backend: flashinfer_cudnn` is completely broken on this NVFP4 model.** Every single case in Blocks A, C using the cuDNN-FP4 GEMM crashes (12/12) — pod startup or first forward pass. The crash signature is independent of MoE runner. cuDNN-FP4 is the more experimental of the two FP4 GEMM backends per the matrix design notes; on Qwen3.6-35B-NVFP4 it's a no-go. **Recommendation:** drop `fi_cudnn` from future first-contact matrices for this model class until upstream stabilizes it.
+2. **`moe_runner_backend: flashinfer_cutlass` doesn't start on this NVFP4 model.** All 12 Block-B cases fail with `startup_crash`. This contradicts the pre-run hypothesis (CLAUDE.md "SM121-default for most NVFP4 models" — *most*, not *all*). The Qwen3.6 35B-NVFP4 architecture (Gated DeltaNet hybrid, expert-intermediate=512) appears not to be supported by the cutlass-FP4 MoE kernel as currently shipped in FlashInfer 0.6.11.post1 + sgl-kernel 0.4.2.post2. **Worth a head-log dive on Test 13 to confirm the exact error** before adding the model to a known-bad list.
+3. **`moe_runner_backend: flashinfer_cutedsl` doesn't start either.** All 6 Block-D cases fail with `startup_crash`. PR #23590 (Cute-DSL FP4 GEMM reland) + PR #23745 (Cute-DSL NVFP4 quant kernels) made the path nominally viable, but apparently not for this MoE topology.
+4. **`moe_runner_backend: cutlass` (direct) WORKS — including eager mode.** Tests 26 and 29 (cutlass-direct + `disable_cuda_graph: true`) finished cleanly with `length×8`, TTR_min 0.566 / 0.624, and visible-text spot-checks show diverse coherent content (programming, physics, mathematical logic) with **no `!`-token collapse**. This makes **Qwen3.6-35B-NVFP4 a second exception** alongside `nvidia/Qwen3.5-397B-A17B-NVFP4` to the CLAUDE.md note that "Eager mode is broken on ANY `cutlass_moe_fp4` path". The CLAUDE.md note should be downgraded from "ANY" to "most NVFP4 models — exceptions: Qwen3.5-397B-NVFP4, Qwen3.6-35B-NVFP4".
+5. **No NVFP4 throughput win vs FP8 with any working MoE runner.** Best n=8 peak so far is Test 01 (triton-moe) at 407.25 — essentially tied with FP8 0.5.12 Test 01 (406.44). Block C's best (Test 27, cutlass-direct + piecewise) lands at 405.81 — also a tie. The ~3× smaller weights buy KV-cache headroom and faster cold-start, **not** throughput on GB10 at this concurrency.
+6. **Working surface area is small: 11/42 cases.** All `ok` cases use `fp4_gemm_backend: flashinfer_cutlass`. The viable MoE backends are `triton` and `cutlass` (direct). Production candidate is the same shape as FP8: triton-MoE + fi-attn + fi_cutlass-fp4 GEMM + (full or piecewise) CG.
+7. **Output quality clean across all 11 `ok` cases except Test 03's repetition flag.** TTR_min ≥ 0.531 (Test 27, the lowest). Test 06 has `length×7, stop×1` like Test 03 but **without** a repetition abort — so the `stop`-finish pattern alone is benign; Test 03's `repetition` flag stands alone and is worth re-running once to see if it's reproducible or a one-shot detector blip.
+8. **Block E (MTP) — new cluster-wide n=8 peak record: Test 45 (winner-shape + MTP s=2) at 438.07 tok/s.** Surpasses
+   - the best no-MTP NVFP4 result (Test 01 at 407.25) by **+7.6 %**, and
+   - the FP8 0.5.12 winner Test 21 (peak 426.76) by **+2.6 %** — the first time on this cluster that NVFP4 *beats* FP8 on n=8 throughput.
+   The sweet spot is unambiguously **s=2**: Test 45 = 438.07 > Test 46 (s=3) = 387.42 > Test 47 (s=4) = 366.38 > Test 48 (s=5, n=8 pending; n=1/n=4 already trending lower). Same shape as the FP8 0.5.12 sweep (peak at s=2 there too). All MTP cases also lift n=1 vs no-MTP (78–95 vs Test 01's 71.89) — draft pre-fill amortizes even under single-tenant load.
+9. **Output quality clean across all Block E cases.** TTR_min 0.607–0.715, all finish `length×8` except Test 47 (1× natural `stop`, no repetition flag). The `0c2bdd4` profile fix carries over to the NVFP4 + MTP path as expected.
+10. **Production recommendation (preliminary)**: flip the NVFP4 profile to **Test 45 shape** — triton-MoE + fi-attn + fi_cutlass-fp4 GEMM + piecewise CG + MTP NEXTN s=2 (`speculative_num_steps=2, eagle_topk=1, num_draft_tokens=3, mamba_scheduler_strategy=extra_buffer, enable_spec_v2=true`). Same shape as the active FP8 profile (per [[reference_testlog]] FP8 0.5.12 testlog) but on NVFP4 weights for KV-cache headroom + 7 % throughput.
+
+(Re-run via `kikube-bench matrix matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-nvfp4/nv580.159_sglang-0.5.12_qwen-3.6-35b-a3b-nvfp4_n4_ep1.yaml`.)
 
 ---
 

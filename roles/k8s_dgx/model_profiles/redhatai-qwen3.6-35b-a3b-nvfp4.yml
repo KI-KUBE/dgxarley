@@ -7,12 +7,13 @@
 # unsloth/mmangkad/sakamakismile NVFP4 variants — RedHatAI has by far
 # the most HF downloads (2.24M as of 2026-05-22).
 #
-# This is a SEED profile for first-contact matrix testing — values are
-# inherited from the FP8 sibling where the architecture demands it
-# (parsers, mamba scheduler, MTP knobs) and from nvidia-qwen3.5-397b-a17b-nvfp4.yml
-# for the NVFP4 axis (quantization, fp4_gemm_backend, modelopt-FP4 plumbing).
-# Once the 0.5.12 sweep finishes, this file should be rewritten with the
-# actual winner config + measured throughput numbers.
+# Winner config from the 0.5.12 matrix sweep (Test 45):
+#   n=8 peak 438.07 tok/s (4n TP=4 EP=1) — best ever measured on this cluster,
+#   +7.6 % over the best no-MTP NVFP4 result (Test 01: 407.25), +2.6 % over the
+#   FP8 0.5.12 winner Test 21 (peak 426.76). First config where NVFP4 actually
+#   beats FP8 on throughput on this hardware.
+# See TESTLOGS/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-nvfp4/TESTLOG_nv580.159_sglang-0.5.12_qwen-3.6-35b-a3b-nvfp4_4n.md
+# for the full matrix and per-block findings.
 _model_profile:
   "RedHatAI/Qwen3.6-35B-A3B-NVFP4":
     info_url: "https://huggingface.co/RedHatAI/Qwen3.6-35B-A3B-NVFP4"
@@ -37,10 +38,15 @@ _model_profile:
     # NVFP4 weights are ~3× smaller than FP8 so there is plenty of slack;
     # 0.75 is the safe first-contact setting matching the 397B-NVFP4 profile.
     mem_fraction_static: "0.6"
-    # Conservative seed: triton MoE + fi-attn + fi_cutlass-fp4. This mirrors
-    # the FP8-validated reliable path (triton MoE) and the most-validated
-    # NVFP4 GEMM backend. The 0.5.12 matrix sweeps the full 4×2×2×3 space
-    # (see matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-nvfp4/).
+    # Winner shape: triton MoE + fi-attn + fi_cutlass-fp4 + piecewise CG.
+    # The 0.5.12 matrix swept moe_runner × attention × fp4_gemm × CG variant:
+    #   - fp4_gemm_backend: flashinfer_cudnn broke 12/12 (no cuDNN in image at the time)
+    #   - moe_runner_backend: flashinfer_cutlass + flashinfer_cutedsl broke 18/18 on
+    #     the SGLang server_args._handle_moe_kernel_config whitelist
+    #     ('compressed-tensors' rejected; only modelopt_* / bf16 accepted).
+    #   - moe_runner_backend: cutlass (direct) WORKED on this model — including
+    #     eager mode — but did not beat triton MoE at n=8.
+    # See matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-nvfp4/.
     nccl_transport: roce
     moe_runner_backend: triton
     attention_backend: flashinfer
@@ -68,15 +74,14 @@ _model_profile:
       top_p: 0.95
       top_k: 20
       presence_penalty: 1.5
-    # MTP / speculative decoding (NEXTN) — recommended by model card.
+    # MTP / speculative decoding (NEXTN) — required for the n=8 peak.
     # Two extra knobs (mamba_scheduler_strategy=extra_buffer + enable_spec_v2=true)
     # required to avoid the spec-v2-vs-radix-cache crash on this hybrid-mamba
-    # MoE arch (same as FP8 sibling, see Qwen3.6-35B-A3B-FP8 profile and the
-    # 397B-A17B-NVFP4 profile for the SGLang error message).
+    # MoE arch (same as FP8 sibling).
     #
-    # speculative_num_steps=2 inherited from the FP8 sweet spot (0.5.12 FP8 run #21);
-    # actual NVFP4 sweet spot to be confirmed by the num_steps sweep in
-    # matrix Tests 45–48. Update this file once measured.
+    # speculative_num_steps=2 is the validated NVFP4 sweet spot from matrix Tests 45–48
+    # (n=8 peak: s=2 → 438.07, s=3 → 387.42, s=4 → 366.38, s=5 → 350.36; monotonic
+    # decay with depth, same shape as the FP8 sweep where s=2 also won).
     speculative_enabled: true
     speculative_algo: NEXTN
     speculative_num_steps: 2
