@@ -32,6 +32,10 @@
   ansible.builtin.import_tasks: nvidia_device_plugin.yml
   tags: nvidia
 
+- name: Deploy NVIDIA DCGM exporter
+  ansible.builtin.import_tasks: dcgm_exporter.yml
+  tags: dcgm_exporter
+
 - name: Deploy Multus CNI
   ansible.builtin.import_tasks: multus.yml
   tags: multus

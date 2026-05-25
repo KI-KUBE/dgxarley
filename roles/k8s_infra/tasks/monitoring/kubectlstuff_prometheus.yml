@@ -133,6 +133,21 @@
                 - source_labels: [__meta_kubernetes_pod_node_name]
                   target_label: instance
 
+            - job_name: 'dcgm-exporter'
+              kubernetes_sd_configs:
+                - role: pod
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+                  action: keep
+                  regex: dcgm-exporter
+                - source_labels: [__meta_kubernetes_pod_container_port_name]
+                  action: keep
+                  regex: metrics
+                - source_labels: [__meta_kubernetes_pod_node_name]
+                  target_label: node
+                - source_labels: [__meta_kubernetes_pod_node_name]
+                  target_label: instance
+
             - job_name: 'coredns'
               kubernetes_sd_configs:
                 - role: pod
@@ -358,6 +373,35 @@
               annotations:
                 summary: "NUT exporter is unreachable"
                 description: "Cannot scrape UPS metrics — NUT exporter or NUT server may be down."
+
+          - name: gpu-alerts
+            rules:
+            - alert: GpuTempHigh
+              expr: DCGM_FI_DEV_GPU_TEMP > 85
+              for: 2m
+              labels:
+                severity: warning
+              annotations:
+                summary: "GPU temp high on {{ '{{' }} $labels.Hostname {{ '}}' }} (GPU {{ '{{' }} $labels.gpu {{ '}}' }})"
+                description: "GPU temperature is {{ '{{' }} $value {{ '}}' }}°C — sustained >85°C may throttle the card."
+
+            - alert: GpuXidErrors
+              expr: increase(DCGM_FI_DEV_XID_ERRORS[5m]) > 0
+              for: 1m
+              labels:
+                severity: critical
+              annotations:
+                summary: "GPU XID error on {{ '{{' }} $labels.Hostname {{ '}}' }} (GPU {{ '{{' }} $labels.gpu {{ '}}' }})"
+                description: "NVIDIA XID errors detected — usually a hardware/driver fault. Check dmesg."
+
+            - alert: DcgmExporterUnavailable
+              expr: up{job="dcgm-exporter"} == 0
+              for: 10m
+              labels:
+                severity: warning
+              annotations:
+                summary: "DCGM exporter is unreachable on {{ '{{' }} $labels.instance {{ '}}' }}"
+                description: "Cannot scrape GPU metrics — driver may have wedged; a PSU power-cycle may be required."
   register: prometheus_config
 
 - name: Create prometheus Deployment

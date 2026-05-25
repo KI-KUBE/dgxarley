@@ -574,7 +574,13 @@ hf_preload_models:
 
 hf_preload_ttl: 3600
 # NVIDIA GPU time-slicing: advertise each physical GPU as N logical replicas
-nvidia_gpu_timeslice_replicas: 4
+nvidia_gpu_timeslice_replicas: 5
+
+# NVIDIA DCGM exporter — per-GPU Prometheus metrics. Multi-arch (arm64 OK on GB10).
+# Tag schema: <DCGM-version>-<exporter-version>-<os>. Verified arm64 manifest present.
+# Check newer: curl -sH "Authorization: Bearer $(curl -s 'https://nvcr.io/proxy_auth?scope=repository:nvidia/k8s/dcgm-exporter:pull' | jq -r .token)" \
+#   https://nvcr.io/v2/nvidia/k8s/dcgm-exporter/tags/list | jq '.tags[] | select(test("ubuntu22.04$"))'
+dcgm_exporter_image: "nvcr.io/nvidia/k8s/dcgm-exporter:4.5.2-4.8.1-ubuntu22.04"
 
 # nsupdate DNS registration
 nsupdate_server: "198.51.100.1"

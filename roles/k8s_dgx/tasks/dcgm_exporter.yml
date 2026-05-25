@@ -1,0 +1,110 @@
+---
+# =============================================================================
+# NVIDIA DCGM EXPORTER — Per-GPU metrics for Prometheus
+#
+# Runs as a DaemonSet on every spark (selector nvidia.com/gpu.present=true,
+# set by NFD via hosts.yml). Consumes one time-slice via nvidia.com/gpu=1
+# (cluster has nvidia_gpu_timeslice_replicas={{ nvidia_gpu_timeslice_replicas }} per GPU).
+#
+# Mounts /var/lib/kubelet/pod-resources so DCGM can attach pod/namespace/container
+# labels to the GPU metrics — enables joining DCGM metrics with SGLang/vLLM pods.
+# =============================================================================
+
+- name: Create dcgm-exporter DaemonSet
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: DaemonSet
+      metadata:
+        name: dcgm-exporter
+        namespace: monitoring
+        labels:
+          app.kubernetes.io/name: dcgm-exporter
+      spec:
+        selector:
+          matchLabels:
+            app.kubernetes.io/name: dcgm-exporter
+        updateStrategy:
+          type: RollingUpdate
+        template:
+          metadata:
+            labels:
+              app.kubernetes.io/name: dcgm-exporter
+            annotations:
+              keel.sh/policy: patch
+              keel.sh/match-tag: "true"
+              keel.sh/pollSchedule: "@every 24h"
+              keel.sh/trigger: poll
+          spec:
+            nodeSelector:
+              nvidia.com/gpu.present: "true"
+            tolerations:
+              - operator: Exists
+                effect: NoSchedule
+            containers:
+              - name: dcgm-exporter
+                image: "{{ dcgm_exporter_image }}"
+                env:
+                  - name: DCGM_EXPORTER_LISTEN
+                    value: ":9400"
+                  - name: DCGM_EXPORTER_KUBERNETES
+                    value: "true"
+                  - name: DCGM_EXPORTER_KUBERNETES_GPU_ID_TYPE
+                    value: "uid"
+                  - name: NODE_NAME
+                    valueFrom:
+                      fieldRef:
+                        fieldPath: spec.nodeName
+                ports:
+                  - name: metrics
+                    containerPort: 9400
+                resources:
+                  requests:
+                    cpu: 50m
+                    memory: 128Mi
+                  limits:
+                    cpu: 500m
+                    memory: 512Mi
+                    nvidia.com/gpu: "1"
+                volumeMounts:
+                  - name: pod-resources
+                    mountPath: /var/lib/kubelet/pod-resources
+                    readOnly: true
+                readinessProbe:
+                  httpGet:
+                    path: /health
+                    port: metrics
+                  initialDelaySeconds: 10
+                  periodSeconds: 30
+                livenessProbe:
+                  httpGet:
+                    path: /health
+                    port: metrics
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+            volumes:
+              - name: pod-resources
+                hostPath:
+                  path: /var/lib/kubelet/pod-resources
+
+- name: Create dcgm-exporter Service
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: dcgm-exporter
+        namespace: monitoring
+        labels:
+          app.kubernetes.io/name: dcgm-exporter
+      spec:
+        type: ClusterIP
+        clusterIP: None  # Headless service for DaemonSet
+        ports:
+          - name: metrics
+            port: 9400
+            targetPort: metrics
+        selector:
+          app.kubernetes.io/name: dcgm-exporter
