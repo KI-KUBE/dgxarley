@@ -14,5 +14,11 @@ kubelet_image_gc_high_threshold: 95
 kubelet_image_gc_low_threshold: 90
 kubelet_image_minimum_gc_age: "24h"
 
+# Kubelet eviction thresholds — values below are the upstream kubelet defaults,
+# set explicitly so they are visible/tunable (e.g. a buildah/HF-cache spike on a
+# spark briefly dipping nodefs<10% triggers a DiskPressure taint + pod eviction).
+kubelet_eviction_hard: "memory.available<100Mi,nodefs.available<10%,nodefs.inodesFree<5%,imagefs.available<15%,imagefs.inodesFree<5%"
+kubelet_eviction_pressure_transition_period: "5m"
+
 # HAProxy stats password (overridden by vault)
 haproxy_stats_password: "changeme"

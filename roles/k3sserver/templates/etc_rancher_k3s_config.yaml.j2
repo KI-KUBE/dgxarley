@@ -22,6 +22,8 @@ kubelet-arg:
   - "image-gc-high-threshold={{ kubelet_image_gc_high_threshold }}"
   - "image-gc-low-threshold={{ kubelet_image_gc_low_threshold }}"
   - "minimum-image-ttl-duration={{ kubelet_image_minimum_gc_age }}"
+  - "eviction-hard={{ kubelet_eviction_hard }}"
+  - "eviction-pressure-transition-period={{ kubelet_eviction_pressure_transition_period }}"
 kube-proxy-arg:
   - "nodeport-addresses=127.0.0.0/8"
 {% if k3s_node_labels is defined %}
@@ -39,6 +41,8 @@ kubelet-arg:
   - "image-gc-high-threshold={{ kubelet_image_gc_high_threshold }}"
   - "image-gc-low-threshold={{ kubelet_image_gc_low_threshold }}"
   - "minimum-image-ttl-duration={{ kubelet_image_minimum_gc_age }}"
+  - "eviction-hard={{ kubelet_eviction_hard }}"
+  - "eviction-pressure-transition-period={{ kubelet_eviction_pressure_transition_period }}"
 kube-proxy-arg:
   - "nodeport-addresses=127.0.0.0/8"
 {% if k3s_node_labels is defined %}
