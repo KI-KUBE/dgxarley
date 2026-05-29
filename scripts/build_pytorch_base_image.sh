@@ -17,7 +17,7 @@
 #
 # Workflow (runs on the x86 control host, same pattern as build_sm121_image.sh)
 # ------------------------------------------------------------------------------
-# 1. Preflight: verify pytorch-2.11.0-dev-v1.recipe is present, podman is
+# 1. Preflight: verify the active pytorch-*-dev-v1.recipe is present, podman is
 #    installed locally, and the dedicated SSH identity for podman is usable.
 # 2. Ensure a registered podman connection to the arm64 build host (spark4).
 #    Reuses the same connection name as build_sm121_image.sh.
@@ -93,8 +93,10 @@ BRANCH_NAME="sm121"
 # runtime-only variant of the same source line). When updating, re-run:
 #   git -C ~/pythondev_workspace/cuda-containers fetch origin
 #   ls ~/pythondev_workspace/cuda-containers/container-recipes/*pytorch*
-RECIPE_NAME="pytorch-2.11.0-dev-v1"
-IMAGE_TAG="xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132"
+#RECIPE_NAME="pytorch-2.11.0-dev-v1"
+#IMAGE_TAG="xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132"
+RECIPE_NAME="pytorch-2.12.0-dev-v1"
+IMAGE_TAG="xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132"
 
 # Remote build host. Defaults match build_sm121_image.sh so the same
 # registered podman connection can be reused.

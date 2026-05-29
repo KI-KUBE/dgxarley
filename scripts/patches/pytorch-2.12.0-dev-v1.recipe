@@ -1,0 +1,72 @@
+#
+# Custom pytorch dev base recipe: xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
+#
+# Purpose: build the CUDA 13.2.1 + PyTorch 2.12.0 base image. Successor to
+# pytorch-2.11.0-dev-v1.recipe — same overall structure, version bumps only.
+#
+# Delta vs pytorch-2.11.0-dev-v1.recipe:
+#   - CUDA_VERSION 13.2.0 -> 13.2.1
+#       Plain patch bump on the same minor; identical cuDNN/cuBLAS generation.
+#       The nvidia/cuda:13.2.1-devel-ubuntu22.04 image is published on Docker Hub.
+#   - TORCH_VERSION 2.11.0 -> 2.12.0
+#       2.12.0 highlights relevant to our GB10/sm_121 cluster:
+#         * PR #175344  cuBLAS Blackwell 32 MiB workspaces (direct sm_120/121 win)
+#         * torch.accelerator.Graph unifies graph capture across CUDA/XPU/etc.
+#         * torch.cond control-flow can be captured into CUDA Graphs
+#         * Microscaling (MX) quantization formats can be exported via torch.export
+#         * Adagrad gained fused=True (matches Adam/AdamW/SGD)
+#       Breaking changes worth knowing for THIS image build:
+#         * C++20 minimum enforced in CMake (Ubuntu 22.04 gcc-11 is fine)
+#         * Stricter SVE-config checks in FindARM.cmake — on ARM (Spark) the
+#           toolchain SVE flags must accurately describe the target. If the
+#           build fails at the CMake-configure stage on SVE, either fix the
+#           gcc -march flags or pass -DCMAKE_DISABLE_FIND_PACKAGE_ARM=ON.
+#         * Source builds now require CUDA >= 12.6 (we're on 13.2.1, fine).
+#   - TORCH_AUDIO_VERSION 2.11.0 -> 2.11.0   (NO BUMP — torchaudio 2.12.0 was
+#       not published yet at recipe-create time (2026-05-29). pytorch/audio
+#       still tags v2.11.0 latest; PyPI same. Audio typically lags torch core
+#       by 1-2 weeks. Bump to 2.12.0 once it ships. ABI mismatch with torch
+#       2.12.0 is harmless for SGLang text-only inference — audio module is
+#       never imported. Vision 0.27.0 strict-requires torch==2.12.0 (PyPI
+#       requires_dist), so vision is the lockstep canary; audio isn't.
+#   - TORCH_VISION_VERSION 0.26.0 -> 0.27.0  (lockstep w/ torch 2.12.0)
+#   - IMAGE_TAG :2.11.0-v1-cu132 -> :2.12.0-v1-cu132
+#
+# Deliberately unchanged:
+#   - NCCL: zyang-dev/nccl#dgxspark-3node-ring (last commit 2026-03-13). The
+#     whole purpose of the fork is the "3 DGX Sparks in a ring topology via
+#     CX-7" patch. Upstream NCCL 2.30.4-1 exists (2026-04-22) but the fork
+#     hasn't rebased. Don't bump — would lose the 3-node-ring patch.
+#   - TORCH_CUDA_ARCH_LIST / NVCC_GENCODE: Spark-target arches (sm_120 + sm_121).
+#   - BUILD_JOBS: 8 is the safe ceiling on GB10 (see feedback_build_jobs_gb10).
+#
+# Follow-up after this image builds successfully:
+#   - sglang-0.5.12-sm121.recipe BASE_IMAGE line (currently pinned to
+#     xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132) needs to be bumped to
+#     :2.12.0-v1-cu132 in lockstep, otherwise the SGLang image continues to
+#     pull the old PyTorch base.
+#
+DOCKERFILE=Dockerfile.base
+TARGET=pytorch_builder
+
+CUDA_VERSION=13.2.1
+CUDA_SHORT=132
+
+NCCL_VERSION=2.29.7-1
+NCCL_REF=dgxspark-3node-ring
+NCCL_REPO=https://github.com/zyang-dev/nccl.git
+
+BUILD_JOBS=8
+
+#TORCH_CUDA_ARCH_LIST=12.1a
+#NVCC_GENCODE=-gencode=arch=compute_121,code=sm_121
+TORCH_CUDA_ARCH_LIST="12.0;12.1"
+NVCC_GENCODE="-gencode=arch=compute_120,code=sm_120 -gencode=arch=compute_121,code=sm_121"
+
+TORCH_VERSION=2.12.0
+# torchaudio 2.12.0 not released yet (PyPI latest = 2.11.0 as of 2026-05-29).
+# Bump when pytorch/audio tags v2.12.0. Safe for SGLang text-only.
+TORCH_AUDIO_VERSION=2.11.0
+TORCH_VISION_VERSION=0.27.0
+
+IMAGE_TAG=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132

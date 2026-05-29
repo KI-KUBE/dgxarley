@@ -42,7 +42,7 @@
 DOCKERFILE=Dockerfile.sglang-nightly
 TARGET=runtime
 
-BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132
+BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
 
 # 0.6.11.post1 ist der upstream-getestete Pin für v0.5.12. Enthält weiterhin
 # den head_dim=512-Fix (flashinfer PR #2959), wichtig für Gemma-4 Global-
@@ -54,7 +54,12 @@ FLASHINFER_VERSION=0.6.11.post1
 # gemma4_assistant Architektur-Subclass braucht weiterhin >=5.8.0.
 TRANSFORMERS_VERSION=5.8.0
 
-SGLANG_VERSION=0.5.12
-SGLANG_REF="v0.5.12"
+# SGLang auf v0.5.12.post1 gezogen, um den dokumentierten Invariant
+# "gleicher SGLang-Ref wie sglang-0.5.12-sm121.recipe" zu wahren.
+# Die post1-Cherry-Picks sind allesamt DSV4-Fixes, ohne Gemma4-Relevanz —
+# Bump ist hier nur Konsistenz, nicht inhaltlich getrieben. Build bleibt
+# vorerst blockiert wegen der Gemma4-NVFP4-Upstream-PRs (siehe Top-Kommentar).
+SGLANG_VERSION=0.5.12.post1
+SGLANG_REF="v0.5.12.post1"
 
-IMAGE_TAG=xomoxcc/dgx-spark-sglang:0.5.12-gemma4-sm121
+IMAGE_TAG=xomoxcc/dgx-spark-sglang:0.5.12.post1-gemma4-sm121

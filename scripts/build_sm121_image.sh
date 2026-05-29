@@ -117,10 +117,11 @@ BRANCH_NAME="sm121"
 # patch by `RECIPE_NAME == *gemma4*`. The Gemma-4 MTP cherry-pick (PR #24436)
 # is additionally version-gated and SKIPPED on SGLang >= v0.5.12, where
 # PR #24436 is merged into the release.
-#RECIPE_NAME="sglang-0.5.12-sm121"
-#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.12-sm121"
-RECIPE_NAME="sglang-0.5.12-gemma4-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.12-gemma4-sm121"
+RECIPE_NAME="sglang-0.5.12-sm121"
+# IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.12-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.12.post1-sm121"
+#RECIPE_NAME="sglang-0.5.12-gemma4-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.12.post1-gemma4-sm121"
 
 #RECIPE_NAME="sglang-0.5.11-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.11-sm121"
@@ -194,7 +195,7 @@ NO_LOCAL_COPY=0
 #
 # Any other --base VALUE is passed through verbatim as the BASE_IMAGE.
 # BUILD_SM121_BASE_IMAGE env var overrides --base for scripting.
-BASE_XOMOXCC_IMAGE="xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132"
+BASE_XOMOXCC_IMAGE="xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132"
 BASE_SCITRERA_IMAGE="scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131"
 BASE_IMAGE_ALIAS=""
 BASE_IMAGE_OVERRIDE="${BUILD_SM121_BASE_IMAGE:-}"
