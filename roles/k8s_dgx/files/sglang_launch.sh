@@ -924,38 +924,43 @@ else
   echo "MiniMax NEXTN patch: not needed or already applied, skipping"
 fi
 
-# Patch DeepSeekV4Config: allow kv_lora_rank=None for the DeepSeek-V4-Flash
-# variant. Flash uses q-LoRA + o-LoRA + GQA (config.json has kv_lora_rank: null,
-# i.e. NO MLA KV compression). sglang types the field as `int`, and under
-# transformers 5.x PretrainedConfig is a huggingface_hub strict dataclass, so
-# the null value fails validation at startup with:
+# Patch DeepseekV3Config.kv_lora_rank to allow None for the DeepSeek-V4-Flash
+# variant (config.json has kv_lora_rank: null — Flash uses q-LoRA + o-LoRA + GQA,
+# NO MLA KV compression). The class sglang actually instantiates for model_type
+# "deepseek_v4" is _DeepseekV4ConfigAlias in sglang/srt/utils/hf_transformers/
+# common.py, which SUBCLASSES transformers' DeepseekV3Config — so the strict
+# dataclass field `kv_lora_rank: int` (and its huggingface_hub @strict validator)
+# is declared in transformers/models/deepseek_v3/configuration_deepseek_v3.py,
+# NOT in sglang's own configs/deepseek_v4.py (that file is never used for this
+# model_type). Under transformers 5.x the null value fails at startup with:
 #   StrictDataclassFieldValidationError: Field 'kv_lora_rank' expected int,
 #   got NoneType (value: None)
-# Editing the annotation to Optional[int] BEFORE import makes the strict
-# validator accept None (Optional is already imported in that module). We keep
-# None — coercing to an int would push modeling onto the MLA KV-LoRA path the
-# Flash weights don't have. Upstream still ships `kv_lora_rank: int = 512` on
-# main as of v0.5.12.post1 (no fix); see sglang #25165 / #23743. NOTE: this
-# clears the config-parse blocker only — Flash serving may still hit further
-# upstream issues downstream. Remove when fixed upstream.
-DEEPSEEK_V4_CFG="/usr/local/lib/python3.12/dist-packages/sglang/srt/configs/deepseek_v4.py"
-if [ -f "$DEEPSEEK_V4_CFG" ] && grep -q 'kv_lora_rank: int = 512' "$DEEPSEEK_V4_CFG"; then
+# Widening the annotation to `int | None` BEFORE import makes @strict build a
+# Union validator that accepts None. This is a SAFE widening: DeepSeek-V3 / V3.2
+# / Kimi-K2 (the other models sharing this config) always supply an int, so they
+# are unaffected; only V4-Flash's null now passes. We keep None rather than
+# coercing to an int (an int would push modeling onto the MLA KV-LoRA path the
+# Flash weights don't have). pyc is timestamp-invalidated, so the edit takes on
+# reimport. NOTE: clears the config-parse blocker only — Flash serving may still
+# hit further upstream issues downstream (sglang #25165 / #23743).
+DEEPSEEK_V3_CFG="/usr/local/lib/python3.12/dist-packages/transformers/models/deepseek_v3/configuration_deepseek_v3.py"
+if [ -f "$DEEPSEEK_V3_CFG" ] && grep -q 'kv_lora_rank: int = 512' "$DEEPSEEK_V3_CFG"; then
   python3 << 'PATCH_DSV4_KVLORA_EOF'
-f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/configs/deepseek_v4.py"
+f = "/usr/local/lib/python3.12/dist-packages/transformers/models/deepseek_v3/configuration_deepseek_v3.py"
 with open(f) as fh:
     code = fh.read()
 old = "    kv_lora_rank: int = 512"
-new = "    kv_lora_rank: Optional[int] = 512"
+new = "    kv_lora_rank: int | None = 512"
 if old not in code:
-    print("DeepSeekV4Config kv_lora_rank patch: marker not found, skipping")
+    print("DeepseekV3Config kv_lora_rank patch: marker not found, skipping")
 else:
     code = code.replace(old, new, 1)
     with open(f, 'w') as fh:
         fh.write(code)
-    print("Patched DeepSeekV4Config: kv_lora_rank now Optional[int] (DeepSeek-V4-Flash kv_lora_rank=null support)")
+    print("Patched DeepseekV3Config: kv_lora_rank now int|None (DeepSeek-V4-Flash kv_lora_rank=null support)")
 PATCH_DSV4_KVLORA_EOF
 else
-  echo "DeepSeekV4 kv_lora_rank patch: not needed or already applied, skipping"
+  echo "DeepseekV3Config kv_lora_rank patch: not needed or already applied, skipping"
 fi
 
 args=(
