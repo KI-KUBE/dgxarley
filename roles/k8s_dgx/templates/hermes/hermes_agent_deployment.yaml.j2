@@ -75,7 +75,7 @@ spec:
       initContainers:
         # hostPath DirectoryOrCreate creates 0755 root:root; reset to <uid>:<gid> 0700.
         - name: fix-perms
-          image: busybox:1.37
+          image: busybox:latest
           command:
             - sh
             - -c
@@ -198,7 +198,7 @@ spec:
         # we are deliberately ephemeral about that — Ansible is the source of
         # truth, in-pod edits survive only until the next restart.
         - name: init-caddy-data
-          image: busybox:1.37
+          image: busybox:latest
           command:
             - sh
             - -c
@@ -457,7 +457,7 @@ spec:
         # (runs as <uid>:<gid>) and reads /opt/data RO. Logs don't exist until
         # hermes first writes them, so wait for the file before exec'ing tail.
         - name: log-tail
-          image: busybox:1.37
+          image: busybox:latest
           command:
             - sh
             - -c

@@ -537,6 +537,7 @@ hf_cache_path: "/var/lib/hf-cache"
 hf_token: "hf_CHANGEME"
 # HuggingFace model pre-download Job
 hf_preload_models:
+  - "RedHatAI/DeepSeek-V4-Flash-NVFP4-FP8"
   - "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
   - "mmangkad/Qwen3.6-35B-A3B-NVFP4"
   - "mmangkad/Qwen3.6-27B-NVFP4"

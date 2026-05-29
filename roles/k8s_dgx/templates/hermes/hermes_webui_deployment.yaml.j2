@@ -117,7 +117,7 @@ spec:
         # {{ item.uid }}) can write. Idempotent — agent pod's fix-perms does the
         # same thing; whichever runs first wins, the other is a no-op.
         - name: fix-perms
-          image: busybox:1.37
+          image: busybox:latest
           command:
             - sh
             - -c
