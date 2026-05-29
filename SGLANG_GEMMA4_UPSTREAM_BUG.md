@@ -1,6 +1,6 @@
 # SGLang Upstream Bug: Gemma-4 NVFP4 blocked on SM121
 
-## Status (re-verified 2026-05-18)
+## Status (re-verified 2026-05-29)
 
 - **BF16 variants — WORKING** on our **`xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121`**
   image (SGLang **v0.5.11** + SM121 sgl-kernel patches + flashinfer 0.6.11 +
@@ -20,16 +20,19 @@
 - **NVFP4 variants — STILL BLOCKED.** Both dense (`nvidia/Gemma-4-31B-IT-NVFP4`)
   and MoE (`bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4`) require four sm120/121-
   specific upstream PRs. Three (#22929, #22928, #22927) remain **stale since
-  2026-04-16 with no review activity — over 5 weeks** (re-verified 2026-05-21).
-  The fourth, **#22615, was APPROVED by `kpham-sgl` on 2026-04-22** and rebased
-  onto main on 2026-04-30 (CI re-run requested) — its known blocker
+  2026-04-16 with no review activity — over 6 weeks** (re-verified 2026-05-29).
+  The fourth, **#22615**, was approved by `kpham-sgl` on 2026-04-22 and rebased
+  onto main on 2026-04-30 — its known blocker
   ([flashinfer #2959](https://github.com/flashinfer-ai/flashinfer/pull/2959))
   has since been **merged and shipped** in flashinfer v0.6.10 / .post1 / 0.6.11,
   so the upstream-blocker reasoning kpham-sgl gave on the PR comments no
-  longer applies. **Re-checked 2026-05-21: state still OPEN, no merge — the
-  PR has now been approved+rebased and sitting idle for 3 weeks despite no
-  remaining blockers. Worth a polite nudge on the PR.** SGLang **v0.5.12**
-  (released 2026-05-16) ships without any of the four SM120/121 Gemma-4 NVFP4
+  longer applies. However, **a new commit landed on 2026-05-23 which invalidated
+  that approval** — `reviewDecision` reverted to `REVIEW_REQUIRED` (the old
+  `kpham-sgl` APPROVED review still appears in `latestReviews` but no longer
+  counts). **Re-checked 2026-05-29: state still OPEN, unmerged, now needs a
+  fresh review cycle. A polite nudge is still warranted, but note the PR
+  needs re-review, not just a merge click.** SGLang **v0.5.12.post1**
+  (released 2026-05-26) ships without any of the four SM120/121 Gemma-4 NVFP4
   PRs — release notes mention no Gemma-4 NVFP4/SM121 work. The three stale
   PRs continue to gate NVFP4 Gemma-4 on SM121.
 
@@ -137,7 +140,7 @@ which is shared across all variants.
 
 ## Upstream PRs
 
-Last `gh pr view` check: 2026-05-21. Three SM120/121 PRs (#22929, #22928, #22927) still no movement since 2026-04-16 (5+ weeks). **#22615 was APPROVED by `kpham-sgl` on 2026-04-22** and rebased onto main 2026-04-30 (CI re-run requested) but is **still not merged 3+ weeks later** — flashinfer-side blocker ([flashinfer #2959](https://github.com/flashinfer-ai/flashinfer/pull/2959)) shipped in flashinfer v0.6.10–v0.6.11 and is no longer a gating dependency. Worth a polite nudge on the PR if it remains idle.
+Last `gh pr view` check: 2026-05-29. Three SM120/121 PRs (#22929, #22928, #22927) still no movement since 2026-04-16 (6+ weeks). **#22615** was approved by `kpham-sgl` on 2026-04-22 and rebased onto main 2026-04-30, but a **new commit on 2026-05-23 invalidated that approval** — `reviewDecision` is now `REVIEW_REQUIRED` again. The flashinfer-side blocker ([flashinfer #2959](https://github.com/flashinfer-ai/flashinfer/pull/2959)) shipped in flashinfer v0.6.10–v0.6.11 and is no longer a gating dependency. Worth a polite nudge on the PR, noting it needs a fresh review cycle.
 
 | PR | Title | Status | Merged | Relevance |
 |----|-------|--------|--------|-----------|
@@ -146,7 +149,7 @@ Last `gh pr view` check: 2026-05-21. Three SM120/121 PRs (#22929, #22928, #22927
 | [#22929](https://github.com/sgl-project/sglang/pull/22929) | Add NVFP4 per-expert weight loading for Gemma 4 MoE | **open** | — | Per-expert → fused weight mapping for NVFP4 MoE checkpoints. **No movement since 2026-04-16.** |
 | [#22928](https://github.com/sgl-project/sglang/pull/22928) | fix(sm120): MoE GEGLU activation + FP4 block scale NaN clamp | **open** | — | GEGLU activation for `cutlass_moe_fp4()` + E4M3 NaN clamp. SM120/121 critical. **No movement since 2026-04-16.** |
 | [#22927](https://github.com/sgl-project/sglang/pull/22927) | fix(sm120): NVFP4 NaN from E4M3 scale overflow + 3D tensor shape crashes | **open** | — | Sister PR to #22928, also SM120/121-specific. Affects NVFP4 dense + MoE both. **No movement since 2026-04-16.** |
-| [#22615](https://github.com/sgl-project/sglang/pull/22615) | Fix fp8 KV cache crash with KV-shared layers in triton backend | **open, approved** | — | fp8 kv cache + `num_kv_shared_layers > 0` (Gemma-4 has KV-shared layers). Open since 2026-04-12. **APPROVED by `kpham-sgl` 2026-04-22**, rebased onto main 2026-04-30 — awaiting merge. |
+| [#22615](https://github.com/sgl-project/sglang/pull/22615) | Fix fp8 KV cache crash with KV-shared layers in triton backend | **open** | — | fp8 kv cache + `num_kv_shared_layers > 0` (Gemma-4 has KV-shared layers). Open since 2026-04-12. Approved by `kpham-sgl` 2026-04-22, rebased onto main 2026-04-30. **2026-05-23 push invalidated the approval** — `reviewDecision` is now `REVIEW_REQUIRED` again. Needs a fresh review cycle. |
 | [#22408](https://github.com/sgl-project/sglang/pull/22408) | [CI] Adding Gemma 4 to Nightly CI | **merged** | 2026-04-17 | Adds Gemma-4 to nightly accuracy tests. Increases pressure on the open NVFP4 PRs to land cleanly but doesn't itself fix anything for us. |
 | [#23575](https://github.com/sgl-project/sglang/pull/23575) | [AMD] fused qk gemma norm kernels | **merged** | 2026-04-25 | AMD-specific perf optimization, no impact on our NVIDIA SM121 deployment. |
 
@@ -181,8 +184,11 @@ All of the following must be present:
 6. PR #22615 — fp8 kv cache with KV-shared layers (**open**, may or may not apply)
 
 The three SM120/121-specific PRs (#22929, #22928, #22927) have been sitting
-since 2026-04-16 with no review activity through 2026-05-05. #22615 was
-APPROVED on 2026-04-22 and rebased on 2026-04-30, but has not been merged yet.
+since 2026-04-16 with no review activity through 2026-05-29. #22615 was
+approved on 2026-04-22 and rebased on 2026-04-30, but a 2026-05-23 push
+invalidated the approval — it is back to REVIEW_REQUIRED and has not been
+merged.
+
 Until they all merge upstream, we have three options:
 
 - **Wait** — most upstream-maintenance-friendly. No work for us until merge.

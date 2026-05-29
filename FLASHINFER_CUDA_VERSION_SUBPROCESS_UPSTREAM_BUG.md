@@ -13,7 +13,7 @@ chain is lazily triggered on the first `fp4_quantize()` call, and if that
 first call is inside a traced forward, the build-time filesystem/subprocess
 operations blow up dynamo.
 
-## Status (re-verified 2026-05-18)
+## Status (re-verified 2026-05-29)
 
 **Patch 1 shipped and stable. Patch 2 superseded by config decision —
 "option 2" from the 2026-04-15 evening update was adopted: all NVFP4
@@ -25,13 +25,14 @@ hot path. The on-disk `PATCH_FI_FP4_ALLOW_EOF` block in
 it cannot do harm because piecewise capture is off, but it serves no
 purpose either. Removal is still pending a small cleanup commit
 (unchanged since 2026-05-10 — flagged here as an outstanding action
-item). No upstream issue filed yet. FlashInfer has since shipped
+item). Upstream fix merged: flashinfer PR #3081 (merged 2026-05-22)
+implements Option 1 from this doc; not yet in a stable release
+(latest stable: v0.6.11.post3, 2026-05-15; fix ships in v0.6.12rc1+).
+See "Upstream status" for details. FlashInfer has since shipped
 v0.6.11.post1 (2026-05-13), v0.6.11.post2 (2026-05-14), and
-**v0.6.11.post3 (2026-05-15)**; all three still contain the unchanged
-`get_cuda_version()` → `subprocess` lookup and the unchanged
-`JitSpec.build_and_load() → is_aot → stat` chain, so the structural
-bug is still present in current upstream — our runtime patches remain
-required on every image that pins flashinfer.** 2026-04-15 morning session outcome:
+**v0.6.11.post3 (2026-05-15)** as the current stable; the structural
+bug is present in all stable releases — our runtime patches remain
+required on every image that pins flashinfer < v0.6.12.** 2026-04-15 morning session outcome:
 
 - **Issue 1 root cause**: `flashinfer.jit.cpp_ext.get_cuda_version()` calls
   `subprocess.check_output([nvcc, "--version"])` on its first invocation (it's
@@ -391,28 +392,36 @@ dynamo tracing.
 
 ## Upstream status
 
-**No known open PR or issue for this specific failure mode.** Adjacent work:
+**Fixed upstream; not yet in a stable release (as of 2026-05-29).**
+
+- **Issue #2999** ("fp4_quantize is incompatible with torch.compile (lazy JIT +
+  raw data_ptr access)") was filed independently on 2026-04-15 and closed on
+  2026-05-22 by **PR #3081** ("Add torch.compile-compatible custom op for
+  fp4_quantize"), which merged into `main` on 2026-05-22.
+- PR #3081 implements exactly **Option 1** from this doc's "Remaining options"
+  section: `torch.library.custom_op` + `register_fake`, making `fp4_quantize`
+  dynamo-safe without requiring piecewise-capture to be disabled.
+- The fix is **not yet in any stable release**. Latest stable is
+  **v0.6.11.post3** (2026-05-15). The fix first appears in release candidates:
+  v0.6.12rc1 / rc2 / rc3 (2026-05-26 .. 2026-05-29). No stable v0.6.12 yet.
+- **Migration note:** once v0.6.12 stable ships, images pinning
+  `flashinfer >= v0.6.12` can retire the local `PATCH_FI_FP4_*` block
+  (`allow_in_graph` revision) from `sglang_launch.sh`. Patch 1
+  (`get_cuda_version` subprocess bypass, `PATCH_FI_CUDA_VER_EOF`) is
+  independent and should be evaluated separately against the v0.6.12 sources.
+
+Background:
 
 - **flashinfer `get_cuda_version` history**: the subprocess-based implementation
   was introduced to support CUDA version gates for feature flags like
   `-DENABLE_FP4` (gated on CUDA ≥ 12.8). Previous versions used
-  `torch.version.cuda` directly, which is what our patch reverts to. A clean
-  upstream fix would either:
-  1. Call `get_cuda_version()` at module import time to warm the cache
-     unconditionally, or
-  2. Change the function body to prefer `torch.version.cuda` when available
-     and only fall back to `nvcc --version` when `torch.version.cuda is None`
-     (i.e., reverse the try/except priority — exactly what our runtime patch does).
+  `torch.version.cuda` directly, which is what our Patch 1 reverts to.
 
 - **torch.compile + subprocess** is a general dynamo limitation, not a torch
   bug — dynamo explicitly documents that side-effecting calls like
   `subprocess.Popen` are "unsupported". Any library that calls subprocess
   lazily from its hot path will eventually trip this when used from a
   `@torch.compile`'d function.
-
-**Report to file**: `flashinfer/issues` with the minimal repro above. Option
-(2) is the preferred fix (one-line reorder, no behavior change on happy path,
-fixes torch.compile compatibility).
 
 ## Relationship to other bugs
 
@@ -577,8 +586,9 @@ gives an unambiguous "which revision produced which error" timeline per pod.
 3. **Upstream fixes** in flashinfer: wrap `fp4_quantize` with `@torch.compile`'s
    `custom_op` machinery upstream, OR hoist `is_aot` / `build_and_load` out of
    the lazy path so a traced first-call doesn't trigger filesystem I/O. Either
-   fix would solve this cleanly for everyone; neither is in any open PR as of
-   2026-04-15.
+   fix would solve this cleanly for everyone. **Option 1 (`custom_op` +
+   `register_fake`) was implemented in PR #3081, merged 2026-05-22; ships in
+   flashinfer v0.6.12 (RC stage as of 2026-05-29).**
 
 ### Decision (taken 2026-04-15 evening, deployed by 2026-05-10)
 

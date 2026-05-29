@@ -2,9 +2,9 @@
 
 ## Status
 
-**Open upstream (vLLM only)** — re-verified 2026-05-18. Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447). Present in SGLang v0.5.10 (2026-04-06) and v0.5.10.post1 (2026-04-09, flashinfer bump only). SGLang v0.5.11 released 2026-05-05 ("The Tenacity Release"); **SGLang v0.5.12 released 2026-05-16** — now the latest tag. Contains the EPLB Qwen3 fix (PR #21822, merged 2026-04-09; verified ancestor of the v0.5.11 tag), but **does not contain a `moe_wna16` EP fix**: PR #21630 / #21612 / #20963 / #20869 are all still open and unchanged since their last activity (see below). vLLM v0.20.1 was tagged 2026-05-04 (point-release after v0.20.0 from 2026-04-27); **vLLM v0.21.0 released 2026-05-15** — does not contain a `moe_wna16` EP fix either; the bug is still unpatched there. All other referenced PRs re-verified 2026-05-18: vllm#35598 unchanged since 2026-04-13 author rebase (still only bot review), **vllm#36026 closed without merge by the author on 2026-04-25** after 8+ weeks with no maintainer review (author offered to reopen if needed); sglang#20869 stale since 2026-03-18, sglang#21630 stale since 2026-03-29, sglang#21612 stale since 2026-03-29, sglang#20963 last collaborator activity 2026-04-06 (no movement since — confirmed still OPEN today).
+**Open upstream (vLLM only)** — re-verified 2026-05-29. Bug exists in both SGLang and vLLM (code originated in vLLM PR #14447). Present in SGLang v0.5.10 (2026-04-06) and v0.5.10.post1 (2026-04-09, flashinfer bump only). SGLang v0.5.11 released 2026-05-05 ("The Tenacity Release"); **SGLang v0.5.12.post1 released 2026-05-26** — now the latest tag; still contains no `moe_wna16` EP fix. Contains the EPLB Qwen3 fix (PR #21822, merged 2026-04-09; verified ancestor of the v0.5.11 tag), but **does not contain a `moe_wna16` EP fix**: PR #21630 / #21612 / #20963 / #20869 are all still open and unchanged since their last activity (see below). vLLM v0.20.1 was tagged 2026-05-04 (point-release after v0.20.0 from 2026-04-27); **vLLM v0.21.0 released 2026-05-15** — does not contain a `moe_wna16` EP fix either; the bug is still unpatched there. All other referenced PRs re-verified 2026-05-29: vllm#35598 unchanged since 2026-04-13 author rebase (still only bot review, updated 2026-05-23, still no human review), **vllm#36026 closed without merge by the author on 2026-04-25** after 8+ weeks with no maintainer review (author offered to reopen if needed); sglang#20869 stale since 2026-03-18, sglang#21630 stale since 2026-03-29, sglang#21612 stale since 2026-03-29, sglang#20963 received fresh collaborator review from b8zhong on 2026-05-27 (still OPEN, not merged).
 
-- vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, not merged. Author rebased onto `main` on 2026-04-13 (commit `c56eae0e`, merge-from-main only, no code changes); prior rebase 2026-03-05. Still only the initial Gemini bot review from 2026-02-28 — no human reviewer has engaged
+- vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, not merged. Author rebased onto `main` on 2026-04-13 (commit `c56eae0e`, merge-from-main only, no code changes); prior rebase 2026-03-05. Still only the initial Gemini bot review from 2026-02-28 — no human reviewer has engaged (updated 2026-05-23, still no human review)
 - vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch. **Closed without merge 2026-04-25** by author (`weiguangli-io`) citing 8+ weeks with no maintainer review; offered to reopen if it becomes relevant. The sub-bug it fixed (kernel dispatch num_experts) remains unaddressed in vLLM `main`
 - SGLang: no upstream issue or PR filed
 
@@ -244,9 +244,9 @@ Monkey-patched in `sglang_launch.sh` and `sglang_shard_launch.sh` (same string-r
 
 ### Status
 
-**Reported** as of 2026-03-28: [sgl-project/sglang#21603](https://github.com/sgl-project/sglang/issues/21603). Bug exists in SGLang `sglang/srt/model_loader/loader.py`, class `ModelOptModelLoader`.
+**Reported** as of 2026-03-28: [sgl-project/sglang#21603](https://github.com/sgl-project/sglang/issues/21603). Bug exists in SGLang `sglang/srt/model_loader/loader.py`, class `ModelOptModelLoader`. **Issue auto-closed by stale bot 2026-05-28 — no fix merged; workaround still required.**
 
-- Fix PR: [#21612](https://github.com/sgl-project/sglang/pull/21612) — "fix: fix sharded state for ModelOptModelLoader", opened 2026-03-28 with unit tests. Delegates to `ShardedStateLoader` when `load_format=sharded_state` and model is already quantized. Stalled as of 2026-04-09 (only Gemini auto-review, no human review)
+- Fix PR: [#21612](https://github.com/sgl-project/sglang/pull/21612) — "fix: fix sharded state for ModelOptModelLoader", opened 2026-03-28 with unit tests. Delegates to `ShardedStateLoader` when `load_format=sharded_state` and model is already quantized. Stalled as of 2026-04-09 (only Gemini auto-review, no human review; still open/unmerged as of 2026-05-29)
 
 ### Affected Configuration
 
@@ -413,7 +413,7 @@ However, the CUDA kernel-level issue cannot be patched. For NVFP4 + EP > 1, use
   - Fix PR: [#21630](https://github.com/sgl-project/sglang/pull/21630) — narrower fix, else-branch only (open, 2026-03-29)
   - Fix PR: [#23531](https://github.com/sgl-project/sglang/pull/23531) — "[Quant] Fix NVFP4 MoE input scale EP sharding in generic post-load path" by `jybsuper` (open, 2026-04-23)
   - Cited by: [#24502](https://github.com/sgl-project/sglang/issues/24502) — Blackwell EP+NVFP4 runner-registry bug stacks on top of #21602; references our issue + PR #23531 as a prerequisite fix
-- SGLang [#21603](https://github.com/sgl-project/sglang/issues/21603) — our report: ModelOptModelLoader doesn't support sharded_state
+- SGLang [#21603](https://github.com/sgl-project/sglang/issues/21603) — our report: ModelOptModelLoader doesn't support sharded_state (**auto-closed by stale bot 2026-05-28, no fix merged; workaround still required**)
   - Fix PR: [#21612](https://github.com/sgl-project/sglang/pull/21612) — fix sharded state for ModelOptModelLoader (open, awaiting review)
 
 ### Related but not fixing our bugs
@@ -424,5 +424,5 @@ However, the CUDA kernel-level issue cannot be patched. For NVFP4 + EP > 1, use
 - SGLang PR #17137 — non-Marlin WNA16MoE port (does not fix EP bug)
 - SGLang #14158 — update_weights_from_tensor for WNA16MoE (unrelated)
 - SGLang [PR #13715](https://github.com/sgl-project/sglang/pull/13715) — fix EPLB + FP4 weight tensor filtering (merged, different issue)
-- SGLang [PR #20963](https://github.com/sgl-project/sglang/pull/20963) — Nvidia modelopt refactoring (1/N). Under active review: reviewer `Edwardf0t1` asked for end-to-end verification 2026-03-31, author `wenscarl` responded 2026-04-01 and posted 3 further inline review responses 2026-04-06. Not stalled but awaiting approval. Migrates the NVFP4 code as-is — expected vehicle for EP-awareness fixes (#20869, #21630). Watch this PR for resolution of the NVFP4 input_scale and CutlassMoEParams bugs
+- SGLang [PR #20963](https://github.com/sgl-project/sglang/pull/20963) — Nvidia modelopt refactoring (1/N). Under active review: reviewer `Edwardf0t1` asked for end-to-end verification 2026-03-31, author `wenscarl` responded 2026-04-01 and posted 3 further inline review responses 2026-04-06. Received fresh collaborator review from `b8zhong` on 2026-05-27 (still open/unmerged). Migrates the NVFP4 code as-is — expected vehicle for EP-awareness fixes (#20869, #21630). Watch this PR for resolution of the NVFP4 input_scale and CutlassMoEParams bugs
 - SGLang [PR #21822](https://github.com/sgl-project/sglang/pull/21822) — EPLB/Qwen3 fix. **Merged 2026-04-09**. Addresses `LazyValue.keys()` AttributeError. Will be in next release after v0.5.10.post1

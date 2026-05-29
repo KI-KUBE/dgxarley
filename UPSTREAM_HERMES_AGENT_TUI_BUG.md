@@ -24,10 +24,11 @@
 - **First tagged release with both fixes: v2026.5.7 / v0.13.0** ("The Tenacity
   Release"), published 2026-05-07T16:23 UTC — about 3 h after PR #21267 merged
   (2026-05-07T13:17 UTC) and 3 days after PR #19520 (2026-05-04). Both fixes are
-  in this tag. **Current latest release: v2026.5.16** (re-verified 2026-05-21).
-  Trigger 2 (workspace-link entries) is **still unfixed** in v2026.5.16 — only
-  Trigger 1 is fixed by #19520; no follow-up PR has been opened since #18800
-  was closed. **Our deployment still requires the workaround** because (a) the
+  in this tag. **Current latest release: v2026.5.29 / v0.15.1 (2026-05-29)** (re-checked 2026-05-29).
+  Trigger 2 (workspace-link entries) is **still unfixed** in v0.15.0 and v0.15.1 — only
+  Trigger 1 is fixed by #19520; no follow-up issue specifically for Trigger 2 has been
+  filed (two adjacent open issues #20739 and #25351 cover other TUI chat-tab bugs, not
+  Trigger 2). **Our deployment still requires the workaround** because (a) the
   build-time `chown` from #21267 doesn't propagate through our `usermod`-based
   UID remap (see "Why PR #21267 Alone …" below), and (b) Trigger 2 (workspace-link
   entries) is still unfixed. Re-check on next image bump regardless.
@@ -217,8 +218,9 @@ small (~50 MB) and the node has fast local storage.
   Adds `chown -R hermes:hermes /opt/hermes/ui-tui /opt/hermes/node_modules`
   to the Dockerfile. Validated with `tests/tools/test_dockerfile_node_modules_perms.py`.
 - First release containing both fixes: **v2026.5.7 / v0.13.0** (2026-05-07,
-  "The Tenacity Release"). Current latest release: **v2026.5.16** —
-  Trigger 2 still unfixed there. Re-checked 2026-05-21.
+  "The Tenacity Release"). Current latest release: **v2026.5.29 / v0.15.1** —
+  Trigger 2 still unfixed in v0.15.0 and v0.15.1. Workaround still required.
+  Re-checked 2026-05-29.
 - Our Trigger 2 report (workspace-link entries) posted 2026-05-04 as
   comment on #18800:
   [#issuecomment-4371280956](https://github.com/NousResearch/hermes-agent/issues/18800#issuecomment-4371280956).

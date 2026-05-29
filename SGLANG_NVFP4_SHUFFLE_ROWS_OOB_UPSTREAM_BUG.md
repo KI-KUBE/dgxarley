@@ -1,12 +1,12 @@
 # SGLang Upstream Bug: `cutlass_moe_fp4` `a_map` uninitialized-memory OOB under EP
 
-## Status (re-verified 2026-05-18)
+## Status (re-verified 2026-05-29)
 
 **Partial progress, semantic fix invalidated.** 2026-04-11 session outcome
 (no further investigation since; PR #20869 still stale at upstream — last
-activity 2026-03-18, re-checked 2026-05-18; PR #21630 also still open).
-Bug remains present in v0.5.11, v0.5.12 (released 2026-05-16; NVFP4
-weight-loading changes #25190/#25107 landed but **not** the
+activity 2026-03-18, re-checked 2026-05-29; PR #21630 also still open).
+Bug remains present in v0.5.11, v0.5.12, and v0.5.12.post1 (released
+2026-05-26; NVFP4 weight-loading changes #25190/#25107 landed but **not** the
 `_shuffle_rows_torch` OOB fix), and our dev1 image (no fix PR has been
 merged or opened since). The cluster-level workaround
 remains: NVFP4 MoE profiles default to `moe_runner_backend: flashinfer_cutlass`,
@@ -51,7 +51,9 @@ work is in progress — see "Open: semantic fix" below.
   overlapping fix for the same input-scale slicing, still unmerged.
 - [Issue #20011](https://github.com/sgl-project/sglang/issues/20011) — same
   class of bug on 8×B200 + Kimi-K2-Thinking-NVFP4, surfacing as an IMA via
-  NCCL watchdog instead of the device-side assert.
+  NCCL watchdog instead of the device-side assert. **Closed 2026-04-11** (same
+  day as our debug session) with no code fix merged — likely manual or duplicate
+  closure; the underlying `_shuffle_rows_torch` OOB remains unfixed upstream.
 
 Bug exists in SGLang v0.5.10 (and v0.5.10.post1 by inspection — same code path).
 

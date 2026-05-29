@@ -2,15 +2,17 @@
 
 ## Status
 
-**Open upstream — no fix in flight for vanilla `Fp8MoEMethod` as of 2026-05-18.**
+**Open upstream — no fix in flight for vanilla `Fp8MoEMethod` as of 2026-05-29.**
 Originally verified on SGLang `v0.5.11` ("The Tenacity Release", tagged 2026-05-05)
 with the upstream image `scitrera/dgx-spark-sglang:0.5.11` (FlashInfer 0.6.10,
 sgl-kernel 0.4.2). Reproduced on Qwen3.6-35B-A3B-FP8, 4×GB10 (SM12.0a), TP=4,
 during the matrix run on 2026-05-10 (case `07_fi_cutlass-moe_fi-attn` in
 `kikube/matrixtest/2026-05-10/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.11/`).
-**SGLang v0.5.12 released 2026-05-16** — release notes contain no
-`Fp8MoEMethod` + flashinfer_cutlass fix; PRs #21872 and #22627 both still open
-and unmerged, so the bug remains present in the latest tag.
+**SGLang v0.5.12.post1 released 2026-05-26** (DeepSeek-V4 / disaggregation
+stability patch) — release notes contain no `Fp8MoEMethod` + flashinfer_cutlass
+fix; PR #21872 still open and unmerged; PR #22627 merged 2026-05-26 in
+v0.5.12.post1 but only patches `ModelOptFp8MoEMethod` — does NOT fix the vanilla
+`Fp8MoEMethod` + `flashinfer_cutlass` bug described here, which remains present.
 
 The bug is plainly visible in the source — `Fp8MoEMethod.create_moe_runner`
 ends with an explicit `# TODO(cwan): refactor other backends` for everything
@@ -26,9 +28,10 @@ that is not triton/aiter/deep_gemm/fi_trtllm.
   vanilla `Fp8MoEMethod` we hit. Explicitly **SM90 only**.
 - [PR #22627](https://github.com/sgl-project/sglang/pull/22627)
   ("Fix flashinfer_cutlass MoE crash when intermediate_size_per_partition is
-  not 16-aligned") — open, last update 2026-05-02. Patches yet another class
-  (`ModelOptFp8MoEMethod` in `modelopt_quant.py`), and addresses a different
-  symptom (alignment, not missing `runner`).
+  not 16-aligned") — **merged 2026-05-26 in v0.5.12.post1**. Patches
+  `ModelOptFp8MoEMethod` in `modelopt_quant.py` and addresses a different
+  symptom (alignment, not missing `runner`). Does **not** touch vanilla
+  `Fp8MoEMethod`; the bug documented here is unaffected.
 - [Issue #20719](https://github.com/sgl-project/sglang/issues/20719)
   ("CompressedTensorsW4A4Nvfp4MoE bypasses MoeRunner, hardcodes kernel
   dispatch in apply_weights") — open since 2026-03-16. Diagnostic write-up

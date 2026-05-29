@@ -1,6 +1,6 @@
 # Hermes email gateway — local patch and upstream PRs
 
-Status as of 2026-05-19.
+Status as of 2026-05-29.
 
 ## Why this exists
 
@@ -149,6 +149,11 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
    plain env values in the secret.
 
 ### When `hermes_image_tag` is bumped before a PR merges
+
+> **2026-05-29 check:** Latest upstream release is v2026.5.29 (v0.15.1).
+> `gateway/platforms/email.py` blob SHA is **identical** at v2026.5.16 and
+> v2026.5.29 — no re-sync required. All three PRs (#28697, #28699, #28702)
+> are still open/unmerged.
 
 1. Download the new upstream file:
 
