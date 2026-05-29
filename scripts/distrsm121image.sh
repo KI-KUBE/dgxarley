@@ -49,10 +49,14 @@ set -euo pipefail
 #   sm121 (no Gemma-4 source patches):
 #SRC_IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.11-sm121"
 #IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.11-sm121"
+
+SRC_IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.12.post1-sm121"
+IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.12.post1-sm121"
+
 #
 #   gemma4-sm121 (with Gemma-4 source patches):
-SRC_IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121"
-IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121"
+#SRC_IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121"
+#IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121"
 #SRC_IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.11-sm121"
 #IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.11-sm121"
 
