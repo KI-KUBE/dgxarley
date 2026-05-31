@@ -77,8 +77,8 @@ See: `roles/k8s_dgx/tasks/ollama.yml` — ConfigMap `ollama-tls-haproxy-config`,
 
 ## Upstream Status
 
-**Still open** — re-verified 2026-05-29. No fix merged. LiteLLM is now at
-**v1.86.2** (stable, latest as of 2026-05-29, up from v1.85.2 on 2026-05-27 and v1.85.0 on 2026-05-17) —
+**Still open** — re-verified 2026-05-31. No fix merged. LiteLLM is still at
+**v1.86.2** (stable, latest as of 2026-05-31; published 2026-05-27) —
 the ollama embedding path has still not been migrated to the base handler;
 no PR addressing `ollama_aembeddings` + `ssl_verify` exists upstream as of
 today, and the v1.85.x / v1.86.x release notes contain no
