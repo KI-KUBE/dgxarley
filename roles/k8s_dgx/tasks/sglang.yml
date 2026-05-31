@@ -307,6 +307,7 @@
             initContainers:
               - name: model-download
                 image: "{{ sglang_image }}"
+                imagePullPolicy: Always
                 command: ["python3", "/scripts/download_models.py"]
                 env:
                   - name: HF_PRELOAD_MODELS
@@ -324,6 +325,7 @@
             containers:
               - name: sglang
                 image: "{{ sglang_image }}"
+                imagePullPolicy: Always
                 command: ["/bin/bash", "/scripts/launch.sh"]
                 envFrom:
                   - configMapRef:
@@ -453,6 +455,7 @@
             initContainers:
               - name: model-download
                 image: "{{ sglang_image }}"
+                imagePullPolicy: Always
                 command: ["python3", "/scripts/download_models.py"]
                 env:
                   - name: HF_PRELOAD_MODELS
@@ -486,6 +489,7 @@
             containers:
               - name: sglang
                 image: "{{ sglang_image }}"
+                imagePullPolicy: Always
                 command: ["/bin/bash", "/scripts/launch.sh"]
                 envFrom:
                   - configMapRef:

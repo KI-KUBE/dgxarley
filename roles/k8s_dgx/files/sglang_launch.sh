@@ -963,6 +963,25 @@ else
   echo "DeepseekV3Config kv_lora_rank patch: not needed or already applied, skipping"
 fi
 
+# DeepSeek-V4-Flash FlashMLA sparse-decode hook activation (sm_121a / GB10).
+# The image bakes deepseek_v4_kernel + sitecustomize_hook.py, but a
+# sitecustomize.py placed in dist-packages is SHADOWED: Ubuntu ships
+# /usr/lib/python3.12/sitecustomize.py (apport) earlier on sys.path, and Python
+# imports only the FIRST sitecustomize it finds — so our patch_flash_mla() never
+# ran and V4-Flash died with "Unsupported architecture for sparse decode fwd".
+# A .pth file is immune: site.py executes EVERY import-line in EVERY .pth across
+# ALL site dirs (no "first wins"), in main AND every spawned sglang worker. The
+# hook module is try/except-guarded, so a broken kernel just falls through to
+# stock flash_mla. Idempotent (also written by dockerfile-dsv4-flashmla.patch on
+# rebuilt images). See UPSTREAM_DSV4_BUGS.md §7.
+DSV4_PTH="/usr/local/lib/python3.12/dist-packages/zz_dsv4_autopatch.pth"
+if [ -d "/usr/local/lib/python3.12/dist-packages/deepseek_v4_kernel" ]; then
+  echo 'import deepseek_v4_kernel.sitecustomize_hook' > "$DSV4_PTH"
+  echo "Wrote DSV4 FlashMLA autopatch .pth: $DSV4_PTH"
+else
+  echo "DSV4 FlashMLA kernel not present in image, skipping autopatch .pth"
+fi
+
 args=(
   tini -s --
   python3 -m sglang.launch_server

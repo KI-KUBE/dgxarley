@@ -11,11 +11,19 @@ SGLang #23657, DeepGEMM #317.
 This installs stock flash_mla (the wrapper WRAPS its interface; flash_mla
 provides flash_mla_interface + FlashMLASchedMeta + host-side get_mla_metadata)
 and builds 0xSero/deepseek-v4-flash-sm120's `deepseek_v4_kernel` CUDA extension
-retargeted from sm_120a to DSV4_KERNEL_ARCH (sm_121a = GB10), then drops its
-top-level sitecustomize hook into dist-packages so every forked sglang worker
-monkey-patches flash_mla_with_kvcache before the first model forward. The hook
-only takes over the sparse-FP8-decode path on sm12x and otherwise falls through
-to stock flash_mla, so it is inert for non-V4 models.
+retargeted from sm_120a to DSV4_KERNEL_ARCH (sm_121a = GB10), then drops a
+`.pth` file into dist-packages so every sglang worker (main + spawned) runs the
+kernel's sitecustomize_hook (which monkey-patches flash_mla_with_kvcache) before
+the first model forward. The hook only takes over the sparse-FP8-decode path on
+sm12x and otherwise falls through to stock flash_mla, so it is inert for non-V4
+models.
+
+NOTE — why a `.pth`, NOT a `sitecustomize.py`: a sitecustomize.py placed in
+dist-packages is SHADOWED by Ubuntu's /usr/lib/python3.12/sitecustomize.py
+(apport), which sits earlier on sys.path; Python imports only the FIRST
+sitecustomize it finds, so our hook never ran ("Unsupported architecture for
+sparse decode fwd"). site.py instead executes EVERY import-line in EVERY `.pth`
+across ALL site dirs — no "first wins" — so the `.pth` is immune to the shadow.
 
 flash_mla is cloned + checked out + submodule-init'd explicitly (NOT
 `pip install git+`): FlashMLA's setup.py needs the csrc/cutlass git submodule,
@@ -27,7 +35,7 @@ build does not OOM the GB10 builder. The 0xSero kernel is built in ONE step
 would rebuild it with the sm_120a default and clobber the sm_121a .so.
 
 Placed AFTER the `uv pip install ./python` step and BEFORE the directory split,
-so the kernel + flash_mla + sitecustomize.py land in dist-packages and propagate
+so the kernel + flash_mla + the autopatch .pth land in dist-packages and propagate
 to the runtime stage via the existing COPY --from=builder dist-packages-N steps.
 
 FATAL: a build failure (flash_mla won't install / kernel won't compile) aborts
@@ -48,8 +56,10 @@ and dockerfile-kernels-pin.patch.
 +# dgxarley: DeepSeek-V4-Flash FlashMLA sparse-decode kernel for sm_121a (GB10).
 +# Stock flash_mla (interface + host get_mla_metadata; the 0xSero wrapper wraps
 +# it) + the 0xSero sm_120 sparse-decode extension retargeted to DSV4_KERNEL_ARCH.
-+# Drops a sitecustomize hook into dist-packages so every forked sglang worker
-+# patches flash_mla_with_kvcache before the first forward. Installed BEFORE the
++# Drops a .pth into dist-packages so every sglang worker runs the kernel's
++# sitecustomize_hook (patches flash_mla_with_kvcache) before the first forward.
++# A .pth (NOT sitecustomize.py) because Ubuntu's /usr/lib sitecustomize shadows
++# ours on sys.path; .pth import-lines all run regardless. Installed BEFORE the
 +# directory split so it propagates to the runtime stage. FATAL on failure (clear
 +# DSV4_KERNEL_REPO in the recipe to opt out). See UPSTREAM_DSV4_BUGS.md §7.
 +ARG FLASH_MLA_REPO=""
@@ -71,7 +81,7 @@ and dockerfile-kernels-pin.patch.
 +        git clone "${DSV4_KERNEL_REPO}" /tmp/dsv4; \
 +        git -C /tmp/dsv4 checkout "${DSV4_KERNEL_REF}"; \
 +        DSV4_KERNEL_ARCH="${DSV4_KERNEL_ARCH}" NVCC_THREADS=8 MAX_JOBS=8 uv pip install --no-deps --no-build-isolation /tmp/dsv4; \
-+        cp /tmp/dsv4/deepseek_v4_kernel/sitecustomize_hook.py /usr/local/lib/python3.12/dist-packages/sitecustomize.py; \
++        printf 'import deepseek_v4_kernel.sitecustomize_hook\n' > /usr/local/lib/python3.12/dist-packages/zz_dsv4_autopatch.pth; \
 +        rm -rf /tmp/dsv4 ); \
 +    else \
 +      echo "=== Skipping DSV4 FlashMLA kernel (DSV4_KERNEL_REPO empty) ==="; \
