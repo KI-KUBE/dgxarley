@@ -137,6 +137,18 @@
                     value: "{{ sglang_fp4_gemm_backend }}"
                   - name: SGLANG_MOE_RUNNER_BACKEND
                     value: "{{ sglang_moe_runner_backend }}"
+                  # Must match serving: false dequants wo_a fp8→bf16 so the saved
+                  # shards (and the param dtypes) line up with the bf16 checkpoint
+                  # wo_a. Without it the shard load dies "Downcasting not allowed".
+                  - name: SGLANG_OPT_FP8_WO_A_GEMM
+                    value: "{{ '1' if sglang_opt_fp8_wo_a_gemm | bool else '0' }}"
+                  # DeepGEMM SM121 kernel gaps (#317): hc_prenorm→TileLang,
+                  # paged_mqa_logits→torch. Must match serving so the shard Engine
+                  # init (kernel_warmup) doesn't assert "Unsupported architecture".
+                  - name: SGLANG_OPT_DEEPGEMM_HC_PRENORM
+                    value: "{{ '1' if sglang_opt_deepgemm_hc_prenorm | bool else '0' }}"
+                  - name: SGLANG_FP8_PAGED_MQA_LOGITS_TORCH
+                    value: "{{ '1' if sglang_fp8_paged_mqa_logits_torch | bool else '0' }}"
                   - name: QSFP_IP_SPARK1
                     value: "{{ _sglang_shard_qsfp_ips[0] }}"
                   - name: QSFP_PEER_IPS
@@ -160,6 +172,12 @@
                   - name: FORCE_RESHARD
                     value: "{{ force_sglang_shard | default(false) | string }}"
                 resources:
+                  # Burstable QoS (memory request, no memory limit) so the pod
+                  # qualifies for swap under kubelet swapBehavior=LimitedSwap.
+                  # The request also sets the swap ceiling: (request / node
+                  # capacity) × total swap. See sglang_shard_memory_request.
+                  requests:
+                    memory: "{{ sglang_shard_memory_request }}"
                   limits:
                     nvidia.com/gpu: "1"
                 securityContext:
@@ -271,6 +289,18 @@
                     value: "{{ sglang_fp4_gemm_backend }}"
                   - name: SGLANG_MOE_RUNNER_BACKEND
                     value: "{{ sglang_moe_runner_backend }}"
+                  # Must match serving: false dequants wo_a fp8→bf16 so the saved
+                  # shards (and the param dtypes) line up with the bf16 checkpoint
+                  # wo_a. Without it the shard load dies "Downcasting not allowed".
+                  - name: SGLANG_OPT_FP8_WO_A_GEMM
+                    value: "{{ '1' if sglang_opt_fp8_wo_a_gemm | bool else '0' }}"
+                  # DeepGEMM SM121 kernel gaps (#317): hc_prenorm→TileLang,
+                  # paged_mqa_logits→torch. Must match serving so the shard Engine
+                  # init (kernel_warmup) doesn't assert "Unsupported architecture".
+                  - name: SGLANG_OPT_DEEPGEMM_HC_PRENORM
+                    value: "{{ '1' if sglang_opt_deepgemm_hc_prenorm | bool else '0' }}"
+                  - name: SGLANG_FP8_PAGED_MQA_LOGITS_TORCH
+                    value: "{{ '1' if sglang_fp8_paged_mqa_logits_torch | bool else '0' }}"
                   - name: QSFP_IP_SPARK1
                     value: "{{ _sglang_shard_qsfp_ips[0] }}"
                   - name: QSFP_PEER_IPS
@@ -298,6 +328,12 @@
                   - name: HF_CACHE_HOST_PATH
                     value: "{{ hf_cache_path }}"
                 resources:
+                  # Burstable QoS (memory request, no memory limit) so the pod
+                  # qualifies for swap under kubelet swapBehavior=LimitedSwap.
+                  # The request also sets the swap ceiling: (request / node
+                  # capacity) × total swap. See sglang_shard_memory_request.
+                  requests:
+                    memory: "{{ sglang_shard_memory_request }}"
                   limits:
                     nvidia.com/gpu: "1"
                 securityContext:

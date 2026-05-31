@@ -1,0 +1,141 @@
+---
+# Disk-backed swapfile management for DGX sparks (KEP-2400 node swap).
+#
+# Gated by k3s_node_swap_enabled (set in group_vars/dgxsparks) — the SAME flag
+# the k3sserver role uses for the kubelet swapBehavior, so the swap *device*
+# (here) and the kubelet *policy* (there) toggle together. This task ONLY
+# manages the swapfile; it never touches k3s/kubelet config.
+#
+#   ansible-playbook dgx.yml --tags swap                                  # apply
+#   ansible-playbook dgx.yml --tags swap -e dgx_swap_size=64G             # resize
+#   ansible-playbook dgx.yml --tags swap -e k3s_node_swap_enabled=false   # remove
+#   ansible-playbook dgx.yml --tags swap -e dgx_swap_force=true           # skip disk guard
+#
+# Only Burstable pods with a memory request actually consume this swap under
+# swapBehavior=LimitedSwap (e.g. the sglang_shard Job); BestEffort serving pods
+# get memory.swap.max=0 and never swap. See reference_sglang_mem_fraction_static
+# for the adjacent KV-sizing knob.
+
+- name: Safety — refuse to manage swap on non-spark hosts
+  ansible.builtin.assert:
+    that: "inventory_hostname in groups['dgxsparks']"
+    fail_msg: "swap.yml targets dgxsparks only (got {{ inventory_hostname }})"
+    quiet: true
+
+- name: Stat current swapfile
+  ansible.builtin.stat:
+    path: "{{ dgx_swap_file }}"
+  register: _swap_stat
+
+- name: Query active swap devices
+  ansible.builtin.command: "swapon --noheadings --show=NAME"
+  register: _swap_active
+  changed_when: false
+
+# ─────────────────────────── ENABLE ───────────────────────────
+- name: Create and activate swapfile
+  when: k3s_node_swap_enabled | default(false)
+  block:
+    - name: Measure free space on the swapfile's filesystem
+      ansible.builtin.command: "df -B1 --output=avail,size {{ dgx_swap_file | dirname }}"
+      register: _df
+      changed_when: false
+
+    - name: Compute DiskPressure headroom (net new bytes vs eviction threshold)
+      ansible.builtin.set_fact:
+        _swap_avail_after: >-
+          {{ (_df.stdout_lines[1].split()[0] | int)
+             - ([ (dgx_swap_size | human_to_bytes) - (_swap_stat.stat.size | default(0) if _swap_stat.stat.exists else 0), 0 ] | max) }}
+        _swap_min_free: "{{ (_df.stdout_lines[1].split()[1] | int) * (dgx_swap_min_free_pct | int) // 100 }}"
+
+    - name: Guard — would this swapfile trip the kubelet nodefs eviction threshold?
+      ansible.builtin.assert:
+        that: "(_swap_avail_after | int) >= (_swap_min_free | int)"
+        fail_msg: >-
+          A {{ dgx_swap_size }} swapfile would leave only
+          {{ (_swap_avail_after | int / 1073741824) | round(1) }} GiB free on
+          {{ dgx_swap_file | dirname }} (< {{ dgx_swap_min_free_pct }}% =
+          {{ (_swap_min_free | int / 1073741824) | round(1) }} GiB), risking a
+          DiskPressure taint + pod eviction. Shrink dgx_swap_size or pass
+          -e dgx_swap_force=true.
+        quiet: true
+      when: not (dgx_swap_force | default(false))
+
+    - name: Deactivate swapfile before resize (size mismatch)
+      ansible.builtin.command: "swapoff {{ dgx_swap_file }}"
+      when:
+        - _swap_stat.stat.exists
+        - (_swap_stat.stat.size | int) != (dgx_swap_size | human_to_bytes | int)
+        - dgx_swap_file in _swap_active.stdout
+      changed_when: true
+
+    - name: Remove swapfile on size mismatch (forces re-allocation)
+      ansible.builtin.file:
+        path: "{{ dgx_swap_file }}"
+        state: absent
+      when:
+        - _swap_stat.stat.exists
+        - (_swap_stat.stat.size | int) != (dgx_swap_size | human_to_bytes | int)
+
+    - name: Allocate swapfile
+      ansible.builtin.command: "fallocate -l {{ dgx_swap_size }} {{ dgx_swap_file }}"
+      args:
+        creates: "{{ dgx_swap_file }}"
+      register: _swap_alloc
+
+    - name: Secure swapfile permissions
+      ansible.builtin.file:
+        path: "{{ dgx_swap_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+
+    - name: Format swapfile (only when freshly allocated)
+      ansible.builtin.command: "mkswap {{ dgx_swap_file }}"
+      when: _swap_alloc is changed
+      changed_when: true
+
+    - name: Activate swapfile
+      ansible.builtin.command: "swapon {{ dgx_swap_file }}"
+      when: dgx_swap_file not in _swap_active.stdout
+      changed_when: true
+
+    - name: Set vm.swappiness (push anon pages out under pressure)
+      ansible.posix.sysctl:
+        name: vm.swappiness
+        value: "{{ dgx_swap_swappiness | string }}"
+        sysctl_file: /etc/sysctl.d/99-dgx-swap.conf
+        state: present
+        reload: true
+
+    - name: Manage /etc/fstab persistence
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: "^{{ dgx_swap_file | regex_escape }}[[:space:]]"
+        line: "{{ dgx_swap_file }} none swap sw 0 0"
+        state: "{{ 'present' if (dgx_swap_persist | default(false)) else 'absent' }}"
+
+# ─────────────────────────── DISABLE ───────────────────────────
+- name: Remove swapfile
+  when: not (k3s_node_swap_enabled | default(false))
+  block:
+    - name: Deactivate swapfile
+      ansible.builtin.command: "swapoff {{ dgx_swap_file }}"
+      when: dgx_swap_file in _swap_active.stdout
+      changed_when: true
+
+    - name: Delete swapfile
+      ansible.builtin.file:
+        path: "{{ dgx_swap_file }}"
+        state: absent
+
+    - name: Drop /etc/fstab entry
+      ansible.builtin.lineinfile:
+        path: /etc/fstab
+        regexp: "^{{ dgx_swap_file | regex_escape }}[[:space:]]"
+        state: absent
+
+    - name: Remove swappiness drop-in
+      ansible.builtin.file:
+        path: /etc/sysctl.d/99-dgx-swap.conf
+        state: absent

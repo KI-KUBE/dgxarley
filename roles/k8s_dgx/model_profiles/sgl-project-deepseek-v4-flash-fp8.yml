@@ -58,7 +58,9 @@ _model_profile:
     # KV cache headroom matters because MTP draft tokens add per-batch slack.
     # Raise to 262144 / 524288 / 1048576 after the n=1 baseline confirms KV
     # cache fits at the chosen mem_fraction_static.
-    context_length: 131072
+    context_length: 128
+    load_format: "sharded_state"
+    # 131072
     # quantization: auto-detected from checkpoint (quant_method=fp8 block-wise,
     # ue8m0 scales) — NO explicit flag, same as zai-org/GLM-4.7-FP8. Do NOT set
     # compressed-tensors / modelopt_fp4 here; this is plain block FP8.
@@ -72,7 +74,7 @@ _model_profile:
     # disable_mmap avoids leaving mapped shard pages resident (charged to the
     # cgroup); drop_cache_after_load frees page-cache post-load. Best-effort —
     # the model is borderline on 4×GB10 and may still not fit.
-    weight_loader_disable_mmap: true
+    weight_loader_disable_mmap: false
     weight_loader_drop_cache_after_load: true
     # 0.70 first-contact: 256 experts × 43 layers + 1M ctx KV is hefty, and FP8
     # weights are ~2× the NVFP4 footprint. Adjust after first launch logs report
@@ -82,7 +84,7 @@ _model_profile:
     # context_length / mem_fraction_static (KV only) and, for the fixed weight
     # block, the quant size (FP8 → NVFP4) or more GPUs. EP=4 is a THROUGHPUT
     # lever (whole-expert GEMMs vs tiny TP shards), not a memory one.
-    mem_fraction_static: "0.50"
+    mem_fraction_static: "0.90"
     # Kernel choices for block-wise FP8 on SM121 (mirrors zai-org/GLM-4.7-FP8):
     #  - triton MoE: proven block-FP8 MoE path on this cluster.
     #  - flashinfer attention: standard, MLA-compatible (V4 MQA/DSA path).
@@ -93,11 +95,23 @@ _model_profile:
     moe_runner_backend: "triton"
     attention_backend: "flashinfer"
     fp8_gemm_runner_backend: "cutlass"
+    # SGLANG_OPT_FP8_WO_A_GEMM=0. V4-Flash ships the o-LoRA wo_a projection as
+    # bf16; with the opt default-on (#25181, 0.5.12) SGLang keeps the wo_a param
+    # fp8 and weight load dies "Downcasting not allowed: target fp8, loaded bf16"
+    # (deepseek_v4.py load_weights → copy_with_check). false dequants wo_a → bf16.
+    opt_fp8_wo_a_gemm: false
+    # DeepGEMM has no sm_121 variant for two V4 kernels (DeepGEMM #317, SGLang
+    # #23657) → "Unsupported architecture". Route both to their fallbacks:
+    #  - hc_prenorm (MHC) → TileLang (crashes at kernel_warmup otherwise)
+    #  - paged_mqa_logits (DSA Lightning-Indexer) → torch (crashes at decode)
+    # Independent of disable_deep_gemm (that's the JIT-MoE DeepGEMM switch).
+    opt_deepgemm_hc_prenorm: false
+    fp8_paged_mqa_logits_torch: true
     disable_deep_gemm: true
     disable_cuda_graph: true
     disable_piecewise_cuda_graph: true
     cuda_graph_max_bs: 8
-    jit_max_jobs: 4
+    jit_max_jobs: 1
     pp_async_batch_depth: 0
     num_experts: 256
     enable_eplb: false

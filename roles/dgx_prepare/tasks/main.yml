@@ -42,3 +42,7 @@
 - name: Ensure SSH keys and cross-trust between sparks
   ansible.builtin.import_tasks: ssh_keys.yml
   tags: ssh_keys
+
+- name: Manage disk-backed swapfile (node swap)
+  ansible.builtin.import_tasks: swap.yml
+  tags: swap

@@ -28,8 +28,8 @@ sglang_nnodes: 4
 
 # sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
 # sglang_model: "google/gemma-4-26B-A4B-it"
-sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
-# sglang_model: "sgl-project/DeepSeek-V4-Flash-FP8"
+# sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+sglang_model: "sgl-project/DeepSeek-V4-Flash-FP8"
 # sglang_model: "Qwen/Qwen3.6-35B-A3B-FP8"
 #sglang_model: "google/gemma-4-31B-it"
 # sglang_model: "nvidia/Qwen3-235B-A22B-NVFP4"
@@ -112,6 +112,14 @@ sglang_moe_runner_backend: "{{ sglang_model_profiles[sglang_model].moe_runner_ba
 # Load format: "auto" (default) or "sharded_state" (for pre-sharded models).
 # Use "sharded_state" after running sglang_shard Job to reduce peak GPU memory.
 sglang_load_format: "{{ sglang_model_profiles[sglang_model].load_format | default('auto') }}"
+# Memory request for the sglang_shard Job containers. Makes the pod Burstable so
+# it qualifies for swap under kubelet swapBehavior=LimitedSwap (BestEffort gets
+# none). Under LimitedSwap the container's swap ceiling is
+# (this request / node memory capacity) × total node swap — so a high request on
+# a ~121Gi node with a ~100Gi swapfile grants ~80Gi swap to absorb the
+# process_weights_after_loading peak. NO memory *limit* is set (the container may
+# exceed the request into RAM+swap). Only consumed by the shard Job, not serving.
+sglang_shard_memory_request: "100Gi"
 # Disable DeepGemm JIT (sets SGLANG_ENABLE_JIT_DEEPGEMM=false) — needed for
 # FP8 models on GB10/SM121 where DeepGemm lacks recipes for certain kernel
 # configs (crashes with "Unknown recipe" during CUDA graph capture).
@@ -120,6 +128,27 @@ sglang_disable_deep_gemm: "{{ sglang_model_profiles[sglang_model].disable_deep_g
 # On GB10/SM121, "auto" selects flashinfer which uses trtllm backend — unsupported
 # on SM121. FP8 models must use "cutlass" explicitly.
 sglang_fp8_gemm_runner_backend: "{{ sglang_model_profiles[sglang_model].fp8_gemm_runner_backend | default('auto') }}"
+# SGLANG_OPT_FP8_WO_A_GEMM (#25181) — default-on upstream since 0.5.12. Keeps the
+# DeepSeek o-LoRA `wo_a` projection in fp8 and runs an fp8 GEMM on it. On
+# DeepSeek-V4-Flash-FP8 the checkpoint delivers wo_a as bf16, so with the opt ON
+# the param stays fp8 and weight load dies with
+# "Downcasting not allowed: target fp8, loaded bf16" (deepseek_v4.py load_weights
+# → copy_with_check). Setting false dequants wo_a → bf16 params, matching the
+# checkpoint. Per-profile (V4-Flash sets false); leave true elsewhere so
+# Qwen3.6-A3B-FP8 etc. keep the optimization. Maps to env "1"/"0".
+sglang_opt_fp8_wo_a_gemm: "{{ sglang_model_profiles[sglang_model].opt_fp8_wo_a_gemm | default(true) }}"
+# DeepGEMM SM120/121 kernel gaps for DeepSeek-V4 (DeepGEMM #317, SGLang #23657):
+# two kernel families have NO sm_121 variant and assert "Unsupported architecture".
+#  - opt_deepgemm_hc_prenorm=false → SGLANG_OPT_DEEPGEMM_HC_PRENORM=0: routes the
+#    Manifold-Constrained Hyper-Connection (MHC) prenorm GEMM to the TileLang
+#    fallback (mhc.py) instead of deep_gemm.tf32_hc_prenorm_gemm. Hits at
+#    kernel_warmup. NOTE: independent of disable_deep_gemm (= SGLANG_ENABLE_JIT_DEEPGEMM).
+#  - fp8_paged_mqa_logits_torch=true → SGLANG_FP8_PAGED_MQA_LOGITS_TORCH=1: torch
+#    fallback for the DSA Lightning-Indexer paged_mqa_logits kernel (the next
+#    wall, at decode). Slower than the kernel but correct on SM121.
+# Defaults match upstream (hc_prenorm on, mqa_logits_torch off); V4-Flash flips both.
+sglang_opt_deepgemm_hc_prenorm: "{{ sglang_model_profiles[sglang_model].opt_deepgemm_hc_prenorm | default(true) }}"
+sglang_fp8_paged_mqa_logits_torch: "{{ sglang_model_profiles[sglang_model].fp8_paged_mqa_logits_torch | default(false) }}"
 # FP4 GEMM backend: "auto" (default), "flashinfer_cudnn", "cutlass".
 # Controls the GEMM kernel for W4A4 (FP4) quantized models. Not relevant for
 # AWQ (W4A16) or FP8 models — those use FP16/FP8 GEMM paths respectively.

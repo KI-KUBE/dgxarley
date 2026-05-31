@@ -24,6 +24,9 @@ kubelet-arg:
   - "minimum-image-ttl-duration={{ kubelet_image_minimum_gc_age }}"
   - "eviction-hard={{ kubelet_eviction_hard }}"
   - "eviction-pressure-transition-period={{ kubelet_eviction_pressure_transition_period }}"
+{% if k3s_node_swap_enabled | default(false) %}
+  - "config={{ k3s_kubelet_config_path }}"
+{% endif %}
 kube-proxy-arg:
   - "nodeport-addresses=127.0.0.0/8"
 {% if k3s_node_labels is defined %}
@@ -43,6 +46,9 @@ kubelet-arg:
   - "minimum-image-ttl-duration={{ kubelet_image_minimum_gc_age }}"
   - "eviction-hard={{ kubelet_eviction_hard }}"
   - "eviction-pressure-transition-period={{ kubelet_eviction_pressure_transition_period }}"
+{% if k3s_node_swap_enabled | default(false) %}
+  - "config={{ k3s_kubelet_config_path }}"
+{% endif %}
 kube-proxy-arg:
   - "nodeport-addresses=127.0.0.0/8"
 {% if k3s_node_labels is defined %}

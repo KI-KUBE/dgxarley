@@ -1,0 +1,13 @@
+# Managed by Ansible (k3sserver role) — node swap support, KEP-2400.
+# Rendered only when k3s_node_swap_enabled is true. Referenced from
+# /etc/rancher/k3s/config.yaml via `kubelet-arg: ["config=<this file>"]`.
+#
+# swapBehavior is NOT exposable as a kubelet command-line flag — it only exists
+# in the KubeletConfiguration struct, which is why this separate file exists.
+# failSwapOn lives here too (single source of truth; do NOT also pass
+# --fail-swap-on as a flag or kubelet errors on the duplicate).
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+failSwapOn: false
+memorySwap:
+  swapBehavior: "{{ k3s_node_swap_behavior }}"

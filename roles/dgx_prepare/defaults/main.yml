@@ -36,3 +36,23 @@ pytorch_packages:
   - torch
   - torchvision
   - torchaudio
+
+# Disk-backed swapfile (KEP-2400 node swap), managed by tasks/swap.yml (tag: swap).
+# Gated by k3s_node_swap_enabled — the SAME flag that drives the kubelet
+# swapBehavior in the k3sserver role, so the swap *device* and the kubelet
+# *policy* stay in lockstep (enabled in group_vars/dgxsparks). This task only
+# creates/activates (or removes) the swapfile; it does NOT touch kubelet config.
+# Purpose: absorb the transient weight-load peak of borderline models (only
+# Burstable pods with a memory request actually swap — see sglang_shard).
+#   ansible-playbook dgx.yml --tags swap                                 # apply state
+#   ansible-playbook dgx.yml --tags swap -e dgx_swap_size=64G            # resize
+#   ansible-playbook dgx.yml --tags swap -e k3s_node_swap_enabled=false  # disable
+dgx_swap_file: "/swapfile"
+dgx_swap_size: "100G"
+dgx_swap_swappiness: 100
+# Add an /etc/fstab entry so swap survives reboot. Off by default (transient).
+dgx_swap_persist: false
+# Refuse to create a swapfile that would drop free space on the swapfile's
+# filesystem below this % — mirrors the kubelet nodefs.available<10% eviction
+# threshold (a too-big file → DiskPressure taint). Override: -e dgx_swap_force=true.
+dgx_swap_min_free_pct: 10

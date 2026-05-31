@@ -20,5 +20,21 @@ kubelet_image_minimum_gc_age: "24h"
 kubelet_eviction_hard: "memory.available<100Mi,nodefs.available<10%,nodefs.inodesFree<5%,imagefs.available<15%,imagefs.inodesFree<5%"
 kubelet_eviction_pressure_transition_period: "5m"
 
+# Node swap (KEP-2400, GA since k8s 1.30 — we run 1.36). OFF by default; enable
+# per group (e.g. group_vars/dgxsparks) so a node can use a disk-backed swapfile
+# to absorb the transient weight-load peak of borderline models (DeepSeek-V4-
+# Flash-FP8 on 4×GB10). Requires a swap device on the node AND a k3s restart to
+# take effect; just rendering config.yaml does NOT restart k3s.
+#  - failSwapOn:false   → kubelet would otherwise refuse to start with swap on.
+#  - swapBehavior:LimitedSwap → only valid GA value besides NoSwap (UnlimitedSwap
+#    was removed). Grants swap ONLY to Burstable pods, capped at
+#    (container memory.request / node total) × total swap. BestEffort/Guaranteed
+#    get zero — the consumer pod must set a memory request (see sglang_shard).
+# Both fields are set via a KubeletConfiguration file (swapBehavior has no flag),
+# referenced from kubelet-arg `config=`.
+k3s_node_swap_enabled: false
+k3s_node_swap_behavior: "LimitedSwap"
+k3s_kubelet_config_path: "/etc/rancher/k3s/kubelet-config.yaml"
+
 # HAProxy stats password (overridden by vault)
 haproxy_stats_password: "changeme"
