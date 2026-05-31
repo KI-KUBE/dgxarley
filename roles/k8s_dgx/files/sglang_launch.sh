@@ -1099,6 +1099,12 @@ fi
 if [ "$SGLANG_DISABLE_PIECEWISE_CUDA_GRAPH" = "true" ]; then
   args+=(--disable-piecewise-cuda-graph)
 fi
+if [ "$SGLANG_WEIGHT_LOADER_DISABLE_MMAP" = "true" ]; then
+  args+=(--weight-loader-disable-mmap)
+fi
+if [ "$SGLANG_WEIGHT_LOADER_DROP_CACHE_AFTER_LOAD" = "true" ]; then
+  args+=(--weight-loader-drop-cache-after-load)
+fi
 if [ "$SGLANG_DISABLE_OVERLAP_SCHEDULE" = "true" ]; then
   args+=(--disable-overlap-schedule)
 fi

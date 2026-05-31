@@ -58,7 +58,9 @@ BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
 # (flashinfer PR #2959) weiterhin enthalten — nötig für `attention_backend=
 # flashinfer` auf Gemma-4-Global-Attention. Roll-back auf 0.6.11 (ohne post1),
 # falls die post1-Änderungen lokal Regressionen auslösen.
-FLASHINFER_VERSION=0.6.11.post1
+# FLASHINFER_VERSION=0.6.11.post1
+
+FLASHINFER_VERSION=0.6.12
 
 # transformers 5.8.0 weiter pinning für Gemma-4-assistant-Drafter
 # (gemma4_assistant model_type, MTP/NEXTN). v0.5.12 enthält PR #24436 nativ
