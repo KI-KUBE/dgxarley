@@ -12,11 +12,10 @@ This installs stock flash_mla (the wrapper WRAPS its interface; flash_mla
 provides flash_mla_interface + FlashMLASchedMeta + host-side get_mla_metadata)
 and builds 0xSero/deepseek-v4-flash-sm120's `deepseek_v4_kernel` CUDA extension
 retargeted from sm_120a to DSV4_KERNEL_ARCH (sm_121a = GB10), then drops a
-`.pth` file into dist-packages so every sglang worker (main + spawned) runs the
-kernel's sitecustomize_hook (which monkey-patches flash_mla_with_kvcache) before
-the first model forward. The hook only takes over the sparse-FP8-decode path on
-sm12x and otherwise falls through to stock flash_mla, so it is inert for non-V4
-models.
+`dsv4_autopatch.py` + a `.pth` into dist-packages so every sglang worker (main +
+spawned) installs the flash_mla_with_kvcache wrapper before the first model
+forward. The wrapper only takes over the sparse-FP8-decode path on sm12x and
+otherwise falls through to stock flash_mla, so it is inert for non-V4 models.
 
 NOTE — why a `.pth`, NOT a `sitecustomize.py`: a sitecustomize.py placed in
 dist-packages is SHADOWED by Ubuntu's /usr/lib/python3.12/sitecustomize.py
@@ -24,6 +23,15 @@ dist-packages is SHADOWED by Ubuntu's /usr/lib/python3.12/sitecustomize.py
 sitecustomize it finds, so our hook never ran ("Unsupported architecture for
 sparse decode fwd"). site.py instead executes EVERY import-line in EVERY `.pth`
 across ALL site dirs — no "first wins" — so the `.pth` is immune to the shadow.
+
+NOTE — why _patch_flash_mla_pkg() and NOT the kernel's patch_flash_mla()/
+install(): install() also calls _patch_sglang_indexer_fallbacks(), which imports
+sglang…nsa.tilelang_kernel → loads tilelang's libcudart_stub.so. At site-init
+that stub loads BEFORE flashinfer.comm, so flashinfer's
+find_loaded_library("libcudart") grabs the stub (no cudaDeviceReset) → hard
+AttributeError at import (NOT caught by sglang's `except ImportError`, unlike the
+benign cuda.tile ModuleNotFoundError). sglang imports tilelang itself LATER
+(after flashinfer), so the indexer fallback is not ours to bootstrap.
 
 flash_mla is cloned + checked out + submodule-init'd explicitly (NOT
 `pip install git+`): FlashMLA's setup.py needs the csrc/cutlass git submodule,
@@ -56,12 +64,14 @@ and dockerfile-kernels-pin.patch.
 +# dgxarley: DeepSeek-V4-Flash FlashMLA sparse-decode kernel for sm_121a (GB10).
 +# Stock flash_mla (interface + host get_mla_metadata; the 0xSero wrapper wraps
 +# it) + the 0xSero sm_120 sparse-decode extension retargeted to DSV4_KERNEL_ARCH.
-+# Drops a .pth into dist-packages so every sglang worker runs the kernel's
-+# sitecustomize_hook (patches flash_mla_with_kvcache) before the first forward.
-+# A .pth (NOT sitecustomize.py) because Ubuntu's /usr/lib sitecustomize shadows
-+# ours on sys.path; .pth import-lines all run regardless. Installed BEFORE the
-+# directory split so it propagates to the runtime stage. FATAL on failure (clear
-+# DSV4_KERNEL_REPO in the recipe to opt out). See UPSTREAM_DSV4_BUGS.md §7.
++# Drops dsv4_autopatch.py + a .pth into dist-packages so every sglang worker
++# installs the flash_mla_with_kvcache wrapper (_patch_flash_mla_pkg) before the
++# first forward. A .pth (NOT sitecustomize.py) because Ubuntu's /usr/lib
++# sitecustomize shadows ours on sys.path; .pth import-lines all run regardless.
++# Calls _patch_flash_mla_pkg() NOT install() — install() loads tilelang's
++# libcudart_stub early and breaks flashinfer.comm (see header). Installed BEFORE
++# the directory split so it propagates to the runtime stage. FATAL on failure
++# (clear DSV4_KERNEL_REPO in the recipe to opt out). See UPSTREAM_DSV4_BUGS.md §7.
 +ARG FLASH_MLA_REPO=""
 +ARG FLASH_MLA_REF=""
 +ARG DSV4_KERNEL_REPO=""
