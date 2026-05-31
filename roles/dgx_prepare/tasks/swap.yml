@@ -22,6 +22,17 @@
     fail_msg: "swap.yml targets dgxsparks only (got {{ inventory_hostname }})"
     quiet: true
 
+# Distributed UNCONDITIONALLY — no swap-state gate — so /root/dgx-swap.sh is present on
+# every spark even when k3s_node_swap_enabled is false, ready for manual per-node on/off.
+- name: Distribute per-node swap toggle script to /root
+  ansible.builtin.template:
+    src: dgx-swap.sh.j2
+    dest: /root/dgx-swap.sh
+    owner: root
+    group: root
+    mode: "0750"
+  tags: swapscript
+
 - name: Stat current swapfile
   ansible.builtin.stat:
     path: "{{ dgx_swap_file }}"

@@ -365,9 +365,9 @@
                     value: "{{ '1' if (sglang_jit_allreduce | bool) else '0' }}"
                   - name: SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2
                     value: "{{ '1' if (sglang_jit_allreduce | bool) else '0' }}"
-                resources:
-                  limits:
-                    nvidia.com/gpu: "1"
+                # Burstable iff sglang_memory_request is set (→ swap-eligible under
+                # kubelet LimitedSwap); empty "" → BestEffort (memory.swap.max=0, never swaps).
+                resources: "{{ {'limits': {'nvidia.com/gpu': '1'}} | combine({'requests': {'memory': sglang_memory_request}} if sglang_memory_request else {}) }}"
                 securityContext:
                   # privileged required for: (1) hostIPC NCCL shared memory,
                   # (2) RoCE transport — NCCL's IB plugin needs /dev/infiniband/uverbs*
@@ -528,9 +528,9 @@
                     value: "{{ '1' if (sglang_jit_allreduce | bool) else '0' }}"
                   - name: SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2
                     value: "{{ '1' if (sglang_jit_allreduce | bool) else '0' }}"
-                resources:
-                  limits:
-                    nvidia.com/gpu: "1"
+                # Burstable iff sglang_memory_request is set (→ swap-eligible under
+                # kubelet LimitedSwap); empty "" → BestEffort (memory.swap.max=0, never swaps).
+                resources: "{{ {'limits': {'nvidia.com/gpu': '1'}} | combine({'requests': {'memory': sglang_memory_request}} if sglang_memory_request else {}) }}"
                 securityContext:
                   # privileged required for: (1) hostIPC NCCL shared memory,
                   # (2) RoCE transport — NCCL's IB plugin needs /dev/infiniband/uverbs*

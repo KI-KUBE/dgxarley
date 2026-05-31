@@ -120,6 +120,15 @@ sglang_load_format: "{{ sglang_model_profiles[sglang_model].load_format | defaul
 # process_weights_after_loading peak. NO memory *limit* is set (the container may
 # exceed the request into RAM+swap). Only consumed by the shard Job, not serving.
 sglang_shard_memory_request: "100Gi"
+# Memory request for the SERVING head/worker pods. Empty "" = BestEffort (default;
+# memory.swap.max=0 → the inference pod NEVER swaps). Set non-empty (e.g. "100Gi")
+# → Burstable → eligible for swap under kubelet swapBehavior=LimitedSwap, ceiling
+# (request / node capacity) × total swap. Use ONLY to let a DIRECT serve load
+# (load_format=auto) survive the process_weights_after_loading fusion peak via
+# swap; at steady-state (weights < node RAM) it won't swap. No memory *limit* set.
+# Testweise: -e sglang_memory_request=100Gi. Reverting to "" may leave an orphan
+# requests.memory (strategic-merge) → kubectl delete deploy + redeploy to clear.
+sglang_memory_request: "{{ sglang_model_profiles[sglang_model].memory_request | default('') }}"
 # Disable DeepGemm JIT (sets SGLANG_ENABLE_JIT_DEEPGEMM=false) — needed for
 # FP8 models on GB10/SM121 where DeepGemm lacks recipes for certain kernel
 # configs (crashes with "Unknown recipe" during CUDA graph capture).
