@@ -33,7 +33,10 @@ _model_profile:
     nccl_transport: "roce"
     #nccl_transport: "roce"
     tp_size: 1  # PP=4 (nnodes/tp=4/1=4). TP=1 avoids KV head split issue (8 heads not divisible by 3 or 4 with EP).
-    context_length: 204800  # M2.7 model card ISL (M2.5 was 196608)
+    # config.json max_position_embeddings = 196608 (identical to M2.5). The model
+    # card's "204800" is its benchmark ISL, NOT the architectural context window —
+    # do not raise context_length above max_position_embeddings.
+    context_length: 196608
     quantization: "modelopt_fp4"
     # trust_remote_code: required because MiniMax-M2.7 ships custom model code
     # (minimax_m2.py, custom tokenizer) in the HF repo that SGLang must execute.
