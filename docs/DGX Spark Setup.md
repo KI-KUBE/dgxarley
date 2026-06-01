@@ -1104,9 +1104,9 @@ graph TB
 
 ```
 NAME      STATUS   ROLES                  AGE   VERSION
-k3smaster  Ready    control-plane,master   10d   v1.35.2+k3s1
-spark-1   Ready    <none>                 10d   v1.35.2+k3s1
-spark-2   Ready    <none>                 10d   v1.35.2+k3s1
+k3smaster  Ready    control-plane,master   10d   v1.36.1+k3s1
+spark-1   Ready    <none>                 10d   v1.36.1+k3s1
+spark-2   Ready    <none>                 10d   v1.36.1+k3s1
 ```
 
 **Wichtige Architektur-Unterschiede zur Standalone-Variante:**

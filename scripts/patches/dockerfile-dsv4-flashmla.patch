@@ -57,7 +57,7 @@ and dockerfile-kernels-pin.patch.
 
 --- a/container-build/Dockerfile.sglang-nightly
 +++ b/container-build/Dockerfile.sglang-nightly
-@@ -296,6 +296,38 @@ RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
+@@ -296,6 +296,51 @@ RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
  RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
      uv pip install --no-build-isolation --no-deps ./python
 

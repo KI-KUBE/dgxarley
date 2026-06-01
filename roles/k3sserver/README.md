@@ -55,7 +55,7 @@ Handles the full K3s cluster bootstrap:
 
 1. **Hosts file** -- adds `k3smaster` entry pointing to `{{ k3smasterip }}` on agents, or `127.0.0.1` on the master
 2. **K3s config** -- deploys `/etc/rancher/k3s/config.yaml` from template (different content for master vs agent)
-3. **Master installation** -- runs the K3s server installer script (version `v1.35.1+k3s1`), then copies Helm extension manifests to `/var/lib/rancher/k3s/server/manifests/`
+3. **Master installation** -- runs the K3s server installer script (version `v1.36.1+k3s1`), then copies Helm extension manifests to `/var/lib/rancher/k3s/server/manifests/`
 4. **Token distribution** -- reads the node token from the master and distributes it to all agent nodes
 5. **Agent installation** -- runs the K3s agent installer on non-master nodes using the distributed token
 
