@@ -1,21 +1,24 @@
 # Model profile: nvidia/MiniMax-M2.7-NVFP4
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 # NOTE: cloned from nvidia-minimax-m2.5-nvfp4.yml. Architecture is identical
-# (62 layers, hidden 3072, 256 experts / 8 active, num_key_value_heads=8), so the
-# PP=4 strategy + kernel choices carry over unchanged. The empirical tuning values
-# below (triton MoE, eager, flashinfer attn/fp4, mem_fraction, cuda_graph_max_bs)
-# come from the M2.5 SM121 TESTLOGS and are NOT yet re-measured for M2.7 — treat as
-# inherited defaults pending a fresh matrix run.
+# (62 layers, hidden 3072, 256 experts / 8 active, num_key_value_heads=8). UNLIKE the
+# M2.5 lineage (which ran PP=4/TP=1), this profile runs TP=4/PP=1: 8 KV heads divide
+# cleanly by 4 (2 per rank), so tensor parallelism is viable and drops the pipeline
+# bubbles. The empirical tuning values below (triton MoE, eager, flashinfer attn/fp4,
+# mem_fraction, cuda_graph_max_bs) were measured on the M2.5 *PP=4* SM121 TESTLOGS and
+# are NOT yet re-measured for M2.7 on TP=4 — treat as placeholder defaults pending the
+# sglang_nn4_tp4_ep1 matrix run (which exists to re-decide exactly these axes).
 _model_profile:
   "nvidia/MiniMax-M2.7-NVFP4":
     info_url: "https://huggingface.co/nvidia/MiniMax-M2.7-NVFP4"
     # 230B total / 10B active MoE (62 layers, hidden 3072, 256 experts, 8 active/token,
     # sigmoid routing), NVFP4 quantized (~139 GB weights, modelopt v0.43.0).
-    # num_key_value_heads=8 → not divisible by 3 → TP=3 impossible.
-    # Uses Pipeline Parallelism (PP=nnodes) instead: each GPU gets ~21 of 62 layers
-    # (~46 GB weights), leaving ~82 GB for KV cache. No head splitting needed (TP=1).
-    # Trade-off: higher per-request latency (pipeline bubbles) but same throughput
-    # with sufficient concurrency (micro-batching hides bubbles).
+    # num_key_value_heads=8 → not divisible by 3 (TP=3 impossible) but divisible by 4.
+    # Runs TP=4/PP=1: each of the 4 ranks holds 2 KV heads + a 1/4 shard of every
+    # layer's weights (~35 GB/GPU), leaving the bulk of the 128 GB unified memory for
+    # KV cache. No pipeline stages → no pipeline bubbles (the PP=4 per-request latency
+    # penalty is gone), at the cost of per-layer all-reduce traffic (RoCE-bound). The
+    # M2.5 PP=4/TP=1 alternative is kept in sglang_nn4_tp1_ep1 for comparison.
     # Recommended launch (NVIDIA model card):
     #   python3 -m sglang.launch_server --model nvidia/MiniMax-M2.7-NVFP4 --tensor-parallel-size 8 \
     #     --quantization modelopt_fp4 --trust-remote-code --reasoning-parser minimax-append-think \
@@ -32,7 +35,7 @@ _model_profile:
     # load_format: "sharded_state"
     nccl_transport: "roce"
     #nccl_transport: "roce"
-    tp_size: 1  # PP=4 (nnodes/tp=4/1=4). TP=1 avoids KV head split issue (8 heads not divisible by 3 or 4 with EP).
+    tp_size: 4  # TP=4/PP=1 (PP = nnodes/tp = 4/4 = 1). 8 KV heads / 4 = 2 per rank — divides cleanly, no PP bubbles.
     # config.json max_position_embeddings = 196608 (identical to M2.5). The model
     # card's "204800" is its benchmark ISL, NOT the architectural context window —
     # do not raise context_length above max_position_embeddings.
@@ -43,9 +46,13 @@ _model_profile:
     # Without it, transformers refuses to load the model class. Safe here because
     # the code comes from NVIDIA's official nvidia/MiniMax-M2.7-NVFP4 repo.
     trust_remote_code: true
-    # PP mode: triton MoE is mandatory — fi_cutlass MoE causes worker crashes
-    # and Xid 13 on SM121. All 16 fi_cutlass tests (17–32) failed on PP=4.
-    # PP=4 winner: Test 2 (triton moe, flashinfer attn, fi_cutlass fp4, eager) → 63.9 tok/s at 8∥.
+    # triton MoE inherited from the PP=4 winner. CAVEAT: the "fi_cutlass MoE crashes
+    # (Xid 13, all 16 PP=4 tests 17–32 failed)" finding was PP-specific. On TP=4,
+    # flashinfer_cutlass is the NVIDIA model-card recommended MoE backend and the
+    # proven NVFP4 path on our other TP models (qwen3-235b, glm-4.7) — so it is a
+    # winner-candidate here, NOT a known crash. The TP=4 matrix (Block A fi_cutlass
+    # vs Block B triton) decides; switch this to flashinfer_cutlass if A wins.
+    # PP=4 reference winner: triton moe + fi attn + fi_cutlass fp4 + eager → 63.9 tok/s at 8∥.
     moe_runner_backend: "triton"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.80"
@@ -57,13 +64,16 @@ _model_profile:
     # lower throughput (Test 9: 48.9 vs Test 1: 61.2 at 8∥).
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4
-    # Piecewise CUDA graphs: always OOM on PP (58 chunks × 256 experts per stage).
+    # Piecewise CUDA graphs OOM'd on PP (58 chunks × 256 experts per stage) — a
+    # PP-only failure. On TP=4/PP=1 there are no stages, so piecewise is viable; this
+    # PP-inherited disable is re-evaluated by the matrix CG-sweep (no-CG/piecewise/full).
     disable_piecewise_cuda_graph: true
-    # Eager mode: PP=4 winner. 1∥ is slower (5.5 vs 16.2 tok/s) but 8∥ is best
-    # (63.9 tok/s). CUDA graphs (Test 1: 61.2) are close — switch back if TTFT matters.
+    # Eager inherited from the PP=4 winner (eager won there because pipeline bubbles
+    # dominated). On TP=4/PP=1 that rationale is gone — CUDA graphs may well win, so
+    # the matrix re-decides. PP=4 ref: eager 63.9 vs full-CG 61.2 tok/s at 8∥.
     disable_cuda_graph: true
     cuda_graph_max_bs: 16
-    pp_async_batch_depth: 0  # pp_async hurts throughput on PP=4 (Test 4: 50.0 vs Test 2: 63.9)
+    pp_async_batch_depth: 0  # no-op at PP=1 (no pipeline stages). PP=4 ref: pp_async hurt throughput (50.0 vs 63.9).
     # DeepGemm is designed for FP8 with ue8m0 scale format. For NVFP4 models
     # (scale_fmt != ue8m0): JIT kernels not optimized, blocks scheduler watchdog,
     # exhausts system RAM. Disabled — FP4 GEMM falls to fp4_gemm_backend above.
@@ -74,7 +84,7 @@ _model_profile:
     tool_call_parser: "minimax-m2"
     num_experts: 256
     # ep_size: "{{ sglang_nnodes if (256 % (sglang_nnodes | int) == 0) else 1 }}"  # for TP=4 EP=4 mode
-    ep_size: 1  # PP mode: no expert parallelism, each pipeline stage has all 256 experts
+    ep_size: 1  # TP=4 EP=1: each rank holds all 256 experts. EP=4 (256 % 4 == 0) is a separate sglang_nn4_tp4_ep4 matrix.
     recommended_sampling:
       temperature: 1.0
       top_p: 0.95
