@@ -24,6 +24,7 @@ import os
 import sys
 import threading
 import time
+import traceback
 from typing import Any
 
 if os.environ.get("DSV4_MEMPROBE", "0") in ("1", "true", "yes"):
@@ -123,12 +124,38 @@ if os.environ.get("DSV4_MEMPROBE", "0") in ("1", "true", "yes"):
         sys.stderr.write("[memprobe] %-40s %s\n" % (tag, _fmt(_snap())))
         sys.stderr.flush()
 
+    # Sampling profiler: dump the live Python stack of every worker thread. This
+    # is the whole point — during the memory-explode phase sglang logs NOTHING,
+    # so we sample sys._current_frames() ourselves. The most frequent stack over
+    # the phase = the operation driving memory. A thread parked in a C call
+    # (NCCL all_reduce, cudaMalloc, a torch op) shows the Python frame that
+    # entered it, which still names the responsible action.
+    def _stacks(maxframes: int = 9) -> None:
+        me = threading.get_ident()
+        try:
+            main_id = threading.main_thread().ident
+        except Exception:
+            main_id = None
+        for tid, frame in list(sys._current_frames().items()):
+            if tid == me:  # don't profile the profiler
+                continue
+            try:
+                st = traceback.extract_stack(frame)[-maxframes:]
+                chain = " <- ".join(
+                    "%s:%d:%s" % (f.filename.rsplit("/", 1)[-1], f.lineno or 0, f.name) for f in reversed(st)
+                )
+            except Exception:
+                continue
+            tag = "MAIN" if tid == main_id else ("tid=%d" % tid)
+            sys.stderr.write("[memprobe.stack] %-8s %s\n" % (tag, chain))
+        sys.stderr.flush()
+
     _ticking = threading.Event()
 
     def _ticker() -> None:
-        # Detailed line every ~1.5s (whole NCCL-phase trajectory lands in Loki),
-        # plus immediately on a >0.5G cuda or >1G swap move. Runs only in the
-        # loading process (started from the load_model wrapper).
+        # Detailed memory line + a stack sample every ~1.5s (the whole silent
+        # NCCL/post-load phase trajectory lands in Loki), plus immediately on a
+        # >0.5G cuda or >1G swap move. Runs only in the loading process.
         n = 0
         lca = lsw = -99.0
         while True:
@@ -138,7 +165,7 @@ if os.environ.get("DSV4_MEMPROBE", "0") in ("1", "true", "yes"):
             sw = d.get("swapused", -1.0)
             if n % 3 == 0 or abs(ca - lca) > 0.5 or abs(sw - lsw) > 1.0:
                 sys.stderr.write("[memprobe.tick] %s\n" % _fmt(d))
-                sys.stderr.flush()
+                _stacks()
                 lca, lsw = ca, sw
             time.sleep(0.5)
 

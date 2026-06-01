@@ -308,7 +308,7 @@
             annotations:
               k8s.v1.cni.cncf.io/networks: "{{ '[{\"name\":\"qsfp-vf' ~ qsfp_sriov_assignments.sglang.vf ~ '\",\"ips\":[\"' ~ _sglang_qsfp_ips[worker_rank] ~ '/24\"]}]' if qsfp_sriov_enabled | default(false) else 'qsfp-direct-worker' ~ worker_rank }}"
               kubectl.kubernetes.io/default-container: sglang
-              checksum/launch-script: "{{ lookup('file', role_path ~ '/files/sglang_launch.sh') | hash('sha256') }}"
+              checksum/launch-script: "{{ (lookup('file', role_path ~ '/files/sglang_launch.sh') ~ lookup('file', role_path ~ '/files/dsv4_memprobe.py')) | hash('sha256') }}"
               checksum/config: "{{ (sglang_model ~ sglang_context_length ~ sglang_kv_cache_dtype ~ sglang_mem_fraction_static ~ sglang_quantization ~ sglang_load_format ~ sglang_attention_backend ~ sglang_ep ~ sglang_tp ~ sglang_pp ~ sglang_topk_transform_512_torch ~ (sglang_memprobe | default('0') | string)) | hash('sha256') }}"
           spec:
             enableServiceLinks: false         # prevent K8s SGLANG_PORT=tcp://... injection
@@ -455,7 +455,7 @@
             annotations:
               k8s.v1.cni.cncf.io/networks: "{{ '[{\"name\":\"qsfp-vf' ~ qsfp_sriov_assignments.sglang.vf ~ '\",\"ips\":[\"' ~ qsfp_sriov_assignments.sglang.head_ip ~ '/24\"]}]' if qsfp_sriov_enabled | default(false) else 'qsfp-direct' }}"
               kubectl.kubernetes.io/default-container: sglang
-              checksum/launch-script: "{{ lookup('file', role_path ~ '/files/sglang_launch.sh') | hash('sha256') }}"
+              checksum/launch-script: "{{ (lookup('file', role_path ~ '/files/sglang_launch.sh') ~ lookup('file', role_path ~ '/files/dsv4_memprobe.py')) | hash('sha256') }}"
               checksum/config: "{{ (sglang_model ~ sglang_context_length ~ sglang_kv_cache_dtype ~ sglang_mem_fraction_static ~ sglang_quantization ~ sglang_load_format ~ sglang_attention_backend ~ sglang_ep ~ sglang_tp ~ sglang_pp ~ sglang_topk_transform_512_torch ~ (sglang_memprobe | default('0') | string)) | hash('sha256') }}"
           spec:
             serviceAccountName: sglang-head
