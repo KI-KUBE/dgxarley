@@ -189,6 +189,10 @@ sglang_disable_piecewise_cuda_graph: "{{ sglang_model_profiles[sglang_model].dis
 # cudaErrorIllegalInstruction crashes seen on SM121 with moe_runner_backend=
 # flashinfer_cutlass at EP>1 (see Tests 13–15 in the EP=4 NVFP4 test log).
 sglang_disable_flashinfer_cutlass_moe_fp4_allgather: "{{ sglang_model_profiles[sglang_model].disable_flashinfer_cutlass_moe_fp4_allgather | default(false) }}"
+# Diagnostic: SGLANG_MEMPROBE=1 arms dsv4_memprobe.py (CUDA-allocator/RSS/swap
+# deltas around the post-weight-load lifecycle, to find the unified-memory
+# doubling action). Off by default; enable per-run via -e sglang_memprobe=1.
+sglang_memprobe: "0"
 # Disable Spec V2 Overlap-Scheduling (--disable-overlap-schedule).
 # In SGLang 0.5.11, Overlap-Scheduling became default (PR #21062). Diagnostic
 # switch for cases where the new scheduling causes correctness regressions

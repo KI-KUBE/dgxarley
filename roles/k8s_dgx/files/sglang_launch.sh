@@ -1032,6 +1032,22 @@ else
   echo "DSV4 FlashMLA kernel not present in image, skipping autopatch"
 fi
 
+# DSV4 unified-memory load probe (diagnostic, gated by SGLANG_MEMPROBE=1).
+# Copies /scripts/dsv4_memprobe.py into dist-packages and drops a .pth so every
+# sglang worker arms it at startup (env DSV4_MEMPROBE=1, read by the module). It
+# brackets ModelRunner.load_model / init_memory_pool / cuda-graph capture and the
+# per-call cuda-alloc delta of Fp8(MoE|Linear)Method.process_weights_after_loading,
+# plus a 0.2s ticker — to find which post-load action doubles GB10 unified memory.
+# Output → stderr → Loki (grep "[memprobe"). Inert unless SGLANG_MEMPROBE=1.
+if [ "${SGLANG_MEMPROBE:-0}" = "1" ] && [ -f /scripts/dsv4_memprobe.py ]; then
+  cp /scripts/dsv4_memprobe.py "$DSV4_DP/dsv4_memprobe.py"
+  echo 'import dsv4_memprobe' > "$DSV4_DP/zz_dsv4_memprobe.pth"
+  export DSV4_MEMPROBE=1
+  echo "Installed DSV4 memprobe (DSV4_MEMPROBE=1): $DSV4_DP/zz_dsv4_memprobe.pth"
+else
+  rm -f "$DSV4_DP/zz_dsv4_memprobe.pth" "$DSV4_DP/dsv4_memprobe.py" 2>/dev/null || true
+fi
+
 args=(
   tini -s --
   python3 -m sglang.launch_server
