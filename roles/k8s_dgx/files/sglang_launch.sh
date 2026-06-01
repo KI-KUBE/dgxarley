@@ -997,6 +997,67 @@ else
   echo "DSV4 indexer seq_lens patch: not needed or already applied, skipping"
 fi
 
+# fastsafetensors loader: make it usable on multi-node TP + no-GDS GB10 so the
+# weight load STREAMS disk→device through a bounded bounce buffer instead of
+# accumulating full shards in host memory (which is what swaps — confirmed by
+# memray/smaps: top allocator _load_file weight_utils.py:1060, swapped mapping
+# = safetensors-mmap). sglang's fastsafetensors_weights_iterator does a WORLD
+# collective load (→ Gloo connectFullMesh timeout across our 4 nodes) onto
+# cuda:{world_rank} (invalid on 1-GPU worker nodes). Rewrite to:
+#   - SingleGroup() : each rank loads its files independently (no collective)
+#   - device "cuda" : the local current device (not cuda:{world_rank})
+#   - nogds=True    : 16 MB bounce-buffer streaming (no GPU Direct Storage here)
+# TP slicing is unchanged — the per-param weight_loader slices the full tensors,
+# exactly as the normal safetensors iterator yields them. Inert unless
+# load_format=fastsafetensors. See UPSTREAM_DSV4_BUGS.md.
+FST_F="/usr/local/lib/python3.12/dist-packages/sglang/srt/model_loader/weight_utils.py"
+if [ -f "$FST_F" ] && grep -q 'device = torch.device(f"cuda:{rank}")' "$FST_F"; then
+  python3 << 'PATCH_DSV4_FST_EOF'
+f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/model_loader/weight_utils.py"
+code = open(f).read()
+old1 = (
+    '    if torch.distributed.is_initialized():\n'
+    '        pg = torch.distributed.group.WORLD\n'
+    '    else:\n'
+    '        pg = SingleGroup()\n'
+    '\n'
+    '    try:\n'
+    '        rank = pg.rank()\n'
+    '    except Exception:\n'
+    '        rank = 0\n'
+    '\n'
+    '    device = torch.device(f"cuda:{rank}")'
+)
+new1 = (
+    '    # dgxarley: per-rank independent load (no WORLD collective → no Gloo\n'
+    '    # connectFullMesh timeout across nodes) onto the LOCAL device (explicit\n'
+    '    # index — fastsafetensors set_device rejects bare "cuda"), nogds\n'
+    '    # bounce-buffer streaming (no GDS on GB10) → no host full-shard pileup.\n'
+    '    pg = SingleGroup()\n'
+    '    device = torch.device("cuda", torch.cuda.current_device())'
+)
+old2 = "        loader = SafeTensorsFileLoader(pg, device)"
+new2 = "        loader = SafeTensorsFileLoader(pg, device, nogds=True)"
+changed = False
+if "torch.cuda.current_device())" in code and "pg = SingleGroup()\n    device" in code:
+    print("fastsafetensors patch: already applied, skipping")
+else:
+    if old1 in code:
+        code = code.replace(old1, new1, 1); changed = True
+    else:
+        print("fastsafetensors patch: pg/device marker not found")
+    if old2 in code:
+        code = code.replace(old2, new2, 1); changed = True
+    else:
+        print("fastsafetensors patch: SafeTensorsFileLoader marker not found")
+    if changed:
+        open(f, "w").write(code)
+        print("Patched fastsafetensors_weights_iterator: SingleGroup + local device + nogds")
+PATCH_DSV4_FST_EOF
+else
+  echo "fastsafetensors patch: not needed or already applied, skipping"
+fi
+
 # DeepSeek-V4-Flash FlashMLA sparse-decode hook activation (sm_121a / GB10).
 # The image bakes deepseek_v4_kernel, but its sitecustomize.py is SHADOWED:
 # Ubuntu ships /usr/lib/python3.12/sitecustomize.py (apport) earlier on sys.path,
@@ -1043,6 +1104,9 @@ if [ "${SGLANG_MEMPROBE:-0}" = "1" ] && [ -f /scripts/dsv4_memprobe.py ]; then
   cp /scripts/dsv4_memprobe.py "$DSV4_DP/dsv4_memprobe.py"
   echo 'import dsv4_memprobe' > "$DSV4_DP/zz_dsv4_memprobe.pth"
   export DSV4_MEMPROBE=1
+  # memray for the HOST native+mmap allocation profiler (the probe uses it if
+  # importable). Best-effort install; absence just disables host profiling.
+  pip install -q memray >/dev/null 2>&1 && echo "memprobe: memray installed" || echo "memprobe: memray install failed (host profiling off)"
   echo "Installed DSV4 memprobe (DSV4_MEMPROBE=1): $DSV4_DP/zz_dsv4_memprobe.pth"
 else
   rm -f "$DSV4_DP/zz_dsv4_memprobe.pth" "$DSV4_DP/dsv4_memprobe.py" 2>/dev/null || true
@@ -1082,6 +1146,16 @@ if [ -n "$SGLANG_HOST" ]; then
 fi
 if [ -n "$SGLANG_LOAD_FORMAT" ] && [ "$SGLANG_LOAD_FORMAT" != "auto" ]; then
   args+=(--load-format "$SGLANG_LOAD_FORMAT")
+fi
+# Diagnostic/tuning knob for the weight-load read-buffer concurrency. The default
+# loader uses buffered_multi_thread_safetensors_weights_iterator with 8 workers
+# (DEFAULT_NUM_THREADS) — up to 8 shards buffered at once on top of the resident
+# weights. Pass e.g. {"enable_multithread_load": false} (no buffering pool) or
+# {"num_threads": 1} to shrink the load-time source-buffer peak. NOTE: prefetch
+# (weight_loader_prefetch_checkpoints) is OFF by default, so its num_threads is
+# inert — THIS is the active buffering control.
+if [ -n "$SGLANG_MODEL_LOADER_EXTRA_CONFIG" ]; then
+  args+=(--model-loader-extra-config "$SGLANG_MODEL_LOADER_EXTRA_CONFIG")
 fi
 if [ -n "$SGLANG_QUANTIZATION" ]; then
   args+=(--quantization "$SGLANG_QUANTIZATION")
