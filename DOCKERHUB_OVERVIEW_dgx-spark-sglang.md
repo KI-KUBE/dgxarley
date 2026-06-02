@@ -68,8 +68,13 @@ FlashMLA / cutlass kernel ecosystem does not yet ship kernels for.
   tok/s), drafter acceptance rate median ~0.68, 5/5 requests stopped on
   natural EOS. The 26B-A4B MoE sibling's MTP sweep is still in progress
   ([TESTLOG](https://github.com/vroomfondel/dgxarley/blob/main/TESTLOGS/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it/TESTLOG_nv580.142_sglang-0.5.11_gemma-4-26b-a4b-it_4n.md)).
-- Built on a CUDA 13.2 + PyTorch 2.12 base for the GB10 codegen path
-  (CUDA 13.1 / PyTorch 2.10 fallback is ~45 % slower end-to-end)
+- Built on a CUDA 13.2 + PyTorch 2.12 + NCCL 2.30.4 base for the GB10 codegen
+  path (CUDA 13.1 / PyTorch 2.10 fallback is ~45 % slower end-to-end). **Known
+  issue:** NCCL 2.30.4 has an NVLS-path regression that can silently hang
+  high-expert-count MoE weight loads (≥256 experts) on GB10/RoCE
+  ([NVIDIA/nccl#2167](https://github.com/NVIDIA/nccl/issues/2167)) — set
+  `NCCL_NVLS_ENABLE=0` when running these (free on non-NVLink hardware; the
+  Ansible role does this for you)
 
 ## Tags
 
