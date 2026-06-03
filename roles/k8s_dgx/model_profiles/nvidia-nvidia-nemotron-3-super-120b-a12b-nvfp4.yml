@@ -25,9 +25,25 @@ _model_profile:
     # mamba_num_heads=128. NVFP4 quantized (~67 GB weights, mixed precision:
     # expert FFN weights = FP4 group_size 16, attention/latent-proj/MTP/embeddings
     # = FP8/BF16 for stability).
-    # max_position_embeddings = 262144 (256K). The model card's "up to 1M" needs
-    # SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN=1 — do NOT raise context_length
-    # above 262144 without it.
+    # CONTEXT > 256K: config.json caps max_position_embeddings at 262144, but that is
+    # CONSERVATIVE — per the Technical Report (§2 "Long-Context Extension":
+    # https://research.nvidia.com/labs/nemotron/files/NVIDIA-Nemotron-3-Super-Technical-Report.pdf)
+    # the model was natively long-context-trained (LC-Phase CPT at 1,048,576 = 1M for
+    # 34B tokens), and the attention layers use NoPE (no positional embeddings — "we
+    # omit positional embeddings"; Mamba2 carries order). So there is NO RoPE/YaRN to
+    # scale: extending context is literally just raising the number. RULER (base, 0-shot)
+    # holds gracefully: 64K 92.3 / 128K 88.3 / 256K 84.6 / 512K 82.5 / 1M 71.0 (Report
+    # Table 4). To go past 262144 here, raise context_length AND
+    # lift the config cap via json_model_override_args (which auto-sets
+    # SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN=1 — see tasks/sglang.yml:46-54; without it
+    # SGLang's _derive_context_length clamps back to 262144). NO rope_scaling needed —
+    # contrast nvidia-qwen3-235b-a22b-nvfp4.yml which DOES need YaRN. Example for 512K:
+    #   context_length: 524288
+    #   json_model_override_args: '{"max_position_embeddings": 524288}'
+    # The ceiling is memory/prefill-compute, not quality: only 8 of 88 layers are
+    # attention (growing KV), the 80 Mamba layers keep constant recurrent state, so KV
+    # stays modest — but the 8 full-attention layers' prefill is still O(seq²). Pair long
+    # context with chunked_prefill_size (below). UNTESTED on this cluster.
     # Reasoning ON/OFF + low-effort via chat_template_kwargs (enable_thinking /
     # low_effort). Native Multi-Token Prediction (num_nextn_predict_layers=1,
     # mtp_hybrid_override_pattern "*E") → speculative decoding, see MTP block below.
@@ -57,7 +73,8 @@ _model_profile:
     # card's parallelism, at the cost of pipeline bubbles (see nvidia-glm-5-nvfp4.yml).
     # Both paths are UNVALIDATED here.
     tp_size: 4
-    context_length: 262144
+    context_length: 524288  #262144
+    json_model_override_args: '{"max_position_embeddings": 524288}'
     quantization: "modelopt_fp4"
     # trust_remote_code: required — NemotronH ships custom model + tokenizer code in
     # the HF repo that SGLang must execute. Safe: official nvidia/ repo.
@@ -71,10 +88,12 @@ _model_profile:
     # uses 0.80 for the single-GPU case; under PP=4 only ~17 GB/GPU is weights, so
     # 0.80 is conservative and could go higher once boot is confirmed.
     mem_fraction_static: "0.80"
-    # attention_backend: model card does NOT specify one. Keeping triton (the prior
-    # profile's choice); flashinfer is the alternative (head_dim=128 is supported).
+    # attention_backend: MUST NOT be triton — SGLang's apply_nemotron_h_defaults hook
+    # hard-asserts against it ("NemotronHForCausalLM does not support triton attention
+    # backend, as the first layer might not be an attention layer"; the hybrid pattern
+    # starts with Mamba, not attention). flashinfer works (head_dim=128 supported).
     # Mamba2 SSM layers use their own kernels regardless of this setting.
-    attention_backend: "triton"
+    attention_backend: "flashinfer"
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4
     # disable-piecewise-cuda-graph: set EXPLICITLY by the model card's SGLang launch
