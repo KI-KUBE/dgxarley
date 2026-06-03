@@ -132,17 +132,21 @@ _model_profile:
       temperature: 1.0
       top_p: 0.95
     # ---- Native MTP / speculative decoding (num_nextn_predict_layers=1) ----
-    # OFF by default (untested). The MTP head shares the target weights, so there is
-    # NO separate draft model (speculative_draft_model_path stays empty). On this
-    # MAMBA-HYBRID model, enabling spec decode requires the spec_v2 path together
-    # with the extra-buffer mamba scheduler (see defaults/main.yml:96-98). To enable,
-    # set ALL of: speculative_enabled: true, enable_spec_v2: true,
-    # mamba_scheduler_strategy: "extra_buffer" (and consider lowering mem_fraction_static).
-    speculative_enabled: false
+    # ENABLED (untested). The MTP head shares the target weights, so there is NO
+    # separate draft model (speculative_draft_model_path stays empty). On this
+    # MAMBA-HYBRID model, MTP requires the spec_v2 path together with the extra-buffer
+    # mamba scheduler (see defaults/main.yml:96-98) — both uncommented below.
+    # Values are the model-card recommendation: the card's vLLM speculative_config
+    # uses num_speculative_tokens=3, which maps to NEXTN num_steps=3 + num_draft_tokens=4
+    # (= steps+1) on a topk=1 chain (single MTP layer → no EAGLE tree; topk=1 is correct
+    # for NEXTN and does NOT trigger the EAGLE "topk=1 silently disables" path).
+    # NOTE: MTP draft buffers + the 512K KV (context_length above) both eat memory — if
+    # this OOMs at startup, drop mem_fraction_static (e.g. 0.60) or shorten context first.
+    speculative_enabled: true
     speculative_algo: NEXTN
     speculative_num_steps: 3
     speculative_num_draft_tokens: 4
     speculative_eagle_topk: 1
     speculative_draft_model_path: ""
-    # enable_spec_v2: true
-    # mamba_scheduler_strategy: "extra_buffer"
+    enable_spec_v2: true
+    mamba_scheduler_strategy: "extra_buffer"
