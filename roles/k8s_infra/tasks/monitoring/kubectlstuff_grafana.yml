@@ -229,15 +229,24 @@
           #     yaxes[0].format/min/max → fieldConfig.defaults.{unit,min,max}.
           #   * "gauge" panels use deprecated options.fieldOptions.defaults →
           #     promote to fieldConfig.defaults + options.reduceOptions.
-          # - Per-pod-attribution dedup: dcgm-exporter K8s integration emits one
-          #   series per GPU-holding pod (exporter itself + every time-sliced
-          #   consumer like sglang). The dashboard groups by `gpu` and gets
-          #   duplicate legend rows + sum() doubles. Inject `,container="dcgm-exporter"`
-          #   into all metric selectors — the exporter pod always holds a slot
-          #   via its own nvidia.com/gpu request, so this series always exists.
+          # - Per-pod-attribution dedup: dcgm-exporter's K8s integration USED to emit
+          #   one series per GPU-holding pod (exporter itself + every time-sliced
+          #   consumer like sglang/ollama) — identical gpu+instance, different
+          #   pod/container labels — so the panels showed duplicate legend rows and
+          #   sum() double-counted. Fixed at TWO layers (2026-06-05):
+          #     (a) SOURCE: dcgm_exporter.yml now runs DCGM_EXPORTER_KUBERNETES=false
+          #         → exactly one series per physical GPU, stable across pod restarts
+          #         (the dcgm scrape adds no `pod` label, so identity is restart-safe).
+          #     (b) DASHBOARD (here, belt-and-suspenders): wrap every DCGM selector in
+          #         `max by (gpu, instance)(…)`. Collapses any residual duplicate
+          #         series (e.g. if the K8s integration is ever re-enabled, or two
+          #         exporter pods overlap during a restart's staleness window) into
+          #         one line per GPU, and keeps avg()/sum() gauges from double-counting.
+          #   The old `,container="dcgm-exporter"` selector injection is REMOVED — with
+          #   K8s integration off there is no `container` label, so that filter would
+          #   match nothing and blank every panel.
           curl -s https://grafana.com/api/dashboards/12239/revisions/latest/download \
             | sed 's/${DS_PROMETHEUS}/Prometheus/g' \
-            | sed 's/gpu=~\\"\${gpu}\\"/gpu=~\\"${gpu}\\", container=\\"dcgm-exporter\\"/g' \
             | jq '
               def migrate_graph:
                 . + {
@@ -317,6 +326,12 @@
                     .query = "label_values(DCGM_FI_DEV_GPU_TEMP, gpu)"
                     | .definition = "label_values(DCGM_FI_DEV_GPU_TEMP, gpu)"
                   else . end
+                )
+              | .panels |= map(
+                  .targets |= map(
+                    .expr |= gsub("(?<m>DCGM_FI_[A-Z0-9_]+\\{.*\\})";
+                                  "max by (gpu, instance) (" + .m + ")")
+                  )
                 )
               | .panels |= map(
                   .targets |= map(

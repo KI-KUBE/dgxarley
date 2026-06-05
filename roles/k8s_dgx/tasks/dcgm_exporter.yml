@@ -6,8 +6,20 @@
 # set by NFD via hosts.yml). Consumes one time-slice via nvidia.com/gpu=1
 # (cluster has nvidia_gpu_timeslice_replicas={{ nvidia_gpu_timeslice_replicas }} per GPU).
 #
-# Mounts /var/lib/kubelet/pod-resources so DCGM can attach pod/namespace/container
-# labels to the GPU metrics — enables joining DCGM metrics with SGLang/vLLM pods.
+# SINGLE-SERIES-PER-GPU (changed 2026-06-05): DCGM_EXPORTER_KUBERNETES is set to
+# "false" so DCGM does NOT attach per-consumer pod/namespace/container labels.
+# With GPU time-slicing (nvidia_gpu_timeslice_replicas per physical GPU) the K8s
+# integration emitted the SAME physical GPU's metric once per GPU-holding pod
+# (the exporter itself + every time-sliced consumer: sglang, ollama, …) — identical
+# gpu+instance, different pod/container labels → duplicate Grafana legend rows
+# ("GPU 0 (spark1)" twice) and sum() double-counting. Disabling it yields exactly
+# one series per physical GPU. Because the dcgm scrape job adds no `pod` label
+# (only node→instance/node, see kubectlstuff_prometheus.yml), the series identity is
+# also stable across exporter pod restarts. Trade-off: we lose GPU↔pod attribution
+# joins — not used by any dashboard/alert here; GPU hardware metrics are physical-GPU
+# properties. To re-enable, flip the env back to "true" (the pod-resources mount and
+# GPU_ID_TYPE below are kept inert for exactly that). The dcgm-exporter-12239 dashboard
+# also wraps every selector in `max by (gpu, instance)(…)` as a second layer of dedup.
 # =============================================================================
 
 - name: Create dcgm-exporter DaemonSet
@@ -48,8 +60,12 @@
                 env:
                   - name: DCGM_EXPORTER_LISTEN
                     value: ":9400"
+                  # false → one series per physical GPU, no per-pod attribution
+                  # labels (see header). Flip to "true" to restore GPU↔pod joins.
                   - name: DCGM_EXPORTER_KUBERNETES
-                    value: "true"
+                    value: "false"
+                  # Inert while KUBERNETES=false; only consulted by the K8s
+                  # integration. Kept so re-enabling is a single-line flip.
                   - name: DCGM_EXPORTER_KUBERNETES_GPU_ID_TYPE
                     value: "uid"
                   - name: NODE_NAME
