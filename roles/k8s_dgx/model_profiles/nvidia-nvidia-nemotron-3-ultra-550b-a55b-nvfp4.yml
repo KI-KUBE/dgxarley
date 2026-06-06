@@ -205,3 +205,12 @@ _model_profile:
     speculative_draft_model_path: ""
     # enable_spec_v2: true                       # not in the cookbook recipe for NemotronH
     # mamba_scheduler_strategy: "extra_buffer"   # REJECTED on NemotronH — do not set
+
+
+#│ sglang SGLANG_CUDA_GRAPH_MAX_BS=16                                                                                                                                                                                                                                      │
+#│ sglang SGLANG_MAX_MAMBA_CACHE_SIZE=48                                                                                                                                                                                                                                   │
+#│ sglang SGLANG_MAX_RUNNING_REQUESTS=32                                                                                                                                                                                                                                   │
+#│ sglang tini -s -- python3 -m sglang.launch_server --model-path nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4 --context-length 262144 --kv-cache-dtype fp8_e4m3 --mem-fraction-static 0.9 --tp-size 4 --pp-size 1 --nnodes 4 --node-rank 0 --nccl-init-addr 10.10.100.1 │
+#│ sglang [2026-06-06 11:57:52] server_args=ServerArgs(model_path='nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4', tokenizer_path='nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4', tokenizer_mode='auto', tokenizer_backend='huggingface', tokenizer_worker_num=1, detok │
+#│ sglang [2026-06-06 12:06:23 TP0 EP0] Mamba Cache is allocated. max_mamba_cache_size: 48, conv_state size: 0.06GB, ssm_state size: 4.59GB                                                                                                                                │
+#│ sglang [2026-06-06 12:06:41 TP0 EP0] max_total_num_tokens=1576052, chunked_prefill_size=8192, max_prefill_tokens=16384, max_running_requests=16, context_len=262144, available_gpu_mem=13.12 GB
