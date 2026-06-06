@@ -116,7 +116,7 @@ _model_profile:
     # raise). Band 0.88–0.92 balances KV vs CG-capture headroom; 0.85 leaves KV thin
     # but positive. See >>> MEMORY <<<. (Super runs 0.80 with huge headroom — Ultra
     # has almost none.)
-    mem_fraction_static: "0.85"
+    mem_fraction_static: "0.9"
     # attention_backend: MUST NOT be triton — SGLang's apply_nemotron_h_defaults hook
     # hard-asserts against it ("NemotronHForCausalLM does not support triton attention
     # backend, as the first layer might not be an attention layer"; the hybrid pattern
@@ -134,7 +134,24 @@ _model_profile:
     # benefit. Keep true.
     disable_piecewise_cuda_graph: true
     disable_cuda_graph: false
-    cuda_graph_max_bs: 8
+    cuda_graph_max_bs: 16
+    # CONCURRENCY CEILING on this hybrid model is the Mamba state-cache pool, NOT
+    # KV/cuda_graph: SGLang sets max_running_requests = max_mamba_cache_size //
+    # mamba_ratio (ratio≈3, ~3 reserved slots/req). Measured EP=4 boot: pool=18 →
+    # 18//3 = 6 parallel (cuda_graph_max_bs:16 is then inert — capture caps at 6).
+    # To actually use cuda_graph_max_bs:16 you must lift the mamba pool so
+    # max_mamba_cache_size//3 >= 16, i.e. pool >= 48. Two levers (both OFF=auto-fit):
+    #   * mamba_full_memory_ratio (default 0.9 → mamba gets 47% of rest_memory): KV
+    #     here is wildly over-provisioned (full token usage 0.00), so shifting toward
+    #     mamba is near-free. Try 2.0–4.0 (→ 67–80% to mamba) and read the boot log's
+    #     "max_mamba_cache_size:" line. Preferred — doesn't touch mem_fraction_static.
+    #   * max_mamba_cache_size: explicit slot count, bypasses the ratio. NOT memory-
+    #     checked — too high steals from KV / OOMs at KV profiling. Targets: 24→8
+    #     parallel, 36→12, 48→16. ~0.1 GB/slot of mamba state.
+    # Validate via the boot log (max_mamba_cache_size: / max_running_requests=) after
+    # EACH change; both are UNTESTED on Ultra. Leave commented for auto-fit.
+    # mamba_full_memory_ratio: 3.0
+    max_mamba_cache_size: 48
     pp_async_batch_depth: 0
     # DeepGemm targets FP8/ue8m0 scale format; for NVFP4 (scale_fmt != ue8m0) its JIT
     # kernels aren't optimized, block the scheduler watchdog, and exhaust system RAM.
@@ -157,7 +174,9 @@ _model_profile:
     # ranks, no expert-parallel all-to-all). Matches Super + the model card. To switch
     # to EP=TP=4 (all-to-all MoE) use the dynamic form:
     # ep_size: "{{ sglang_nnodes if (512 % (sglang_nnodes | int) == 0) else 1 }}".
-    ep_size: 1
+    ep_size: 4
+    enable_expert_distribution_metrics: false # impossible -> NemotronHForCausalLM (nemotron_h.py) does not implement get_model_config_for_expert_location
+    enable_eplb: false          # nur messen, nicht rebalancen
     recommended_sampling:
       temperature: 1.0
       top_p: 0.95

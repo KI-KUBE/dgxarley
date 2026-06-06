@@ -94,6 +94,19 @@ sglang_speculative_adaptive_config: "{{ sglang_model_profiles[sglang_model].spec
 # compatibility with MTP. Empty string = SGLang default (no_buffer).
 sglang_mamba_scheduler_strategy: "{{ sglang_model_profiles[sglang_model].mamba_scheduler_strategy | default('') }}"
 
+# Mamba state-cache pool sizing (hybrid SSM models, e.g. NemotronH). On hybrid
+# models the mamba pool — not KV or cuda_graph — is usually the parallelism
+# ceiling: SGLang clamps max_running_requests to max_mamba_cache_size // mamba_ratio
+# (~3 reserved slots/req). See model_runner_kv_cache_mixin._resolve_max_num_reqs.
+#   * mamba_full_memory_ratio (SGLang default 0.9): mamba pool gets ratio/(1+ratio)
+#     of rest_memory (0.9 → 47%), KV gets the rest. Raise toward mamba when KV is
+#     over-provisioned (low full-token-usage) to buy concurrency near-free.
+#   * max_mamba_cache_size: explicit slot count, overrides the ratio-based auto-fit.
+#     NOT memory-checked — too high steals from KV / OOMs. 0/empty = auto-fit.
+# Empty = SGLang default (auto-fit) — no behavior change for models that omit them.
+sglang_mamba_full_memory_ratio: "{{ sglang_model_profiles[sglang_model].mamba_full_memory_ratio | default('') }}"
+sglang_max_mamba_cache_size: "{{ sglang_model_profiles[sglang_model].max_mamba_cache_size | default('') }}"
+
 # Enable MTP spec_v2 — required alongside mamba_scheduler_strategy=extra_buffer
 # for speculative decoding on hybrid-attention models. Sets SGLANG_ENABLE_SPEC_V2=1.
 sglang_enable_spec_v2: "{{ sglang_model_profiles[sglang_model].enable_spec_v2 | default(false) }}"

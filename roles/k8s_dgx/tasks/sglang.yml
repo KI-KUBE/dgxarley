@@ -86,6 +86,8 @@
         SGLANG_SPECULATIVE_ADAPTIVE: "{{ sglang_speculative_adaptive | string | lower }}"
         SGLANG_SPECULATIVE_ADAPTIVE_CONFIG_JSON: "{{ sglang_speculative_adaptive_config | to_json }}"
         SGLANG_MAMBA_SCHEDULER_STRATEGY: "{{ sglang_mamba_scheduler_strategy }}"
+        SGLANG_MAMBA_FULL_MEMORY_RATIO: "{{ sglang_mamba_full_memory_ratio | string }}"
+        SGLANG_MAX_MAMBA_CACHE_SIZE: "{{ sglang_max_mamba_cache_size | string }}"
         SGLANG_ENABLE_SPEC_V2: "{{ '1' if (sglang_enable_spec_v2 | bool) else '' }}"
         SGLANG_DIST_TIMEOUT: "{{ sglang_dist_timeout | string }}"
         SGLANG_WATCHDOG_TIMEOUT: "{{ sglang_watchdog_timeout | string }}"

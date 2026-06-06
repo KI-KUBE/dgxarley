@@ -1226,6 +1226,14 @@ fi
 if [ -n "$SGLANG_MAMBA_SCHEDULER_STRATEGY" ]; then
   args+=(--mamba-scheduler-strategy "$SGLANG_MAMBA_SCHEDULER_STRATEGY")
 fi
+# Mamba state-cache pool sizing (hybrid SSM models). Empty = SGLang auto-fit.
+# max_mamba_cache_size // mamba_ratio is the parallelism ceiling on hybrid models.
+if [ -n "$SGLANG_MAMBA_FULL_MEMORY_RATIO" ]; then
+  args+=(--mamba-full-memory-ratio "$SGLANG_MAMBA_FULL_MEMORY_RATIO")
+fi
+if [ -n "$SGLANG_MAX_MAMBA_CACHE_SIZE" ] && [ "$SGLANG_MAX_MAMBA_CACHE_SIZE" != "0" ]; then
+  args+=(--max-mamba-cache-size "$SGLANG_MAX_MAMBA_CACHE_SIZE")
+fi
 if [ -n "$SGLANG_MAX_RUNNING_REQUESTS" ] && [ "$SGLANG_MAX_RUNNING_REQUESTS" != "0" ]; then
   args+=(--max-running-requests "$SGLANG_MAX_RUNNING_REQUESTS")
 fi
