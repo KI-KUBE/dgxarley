@@ -1,6 +1,29 @@
 # NousResearch/hermes-agent Upstream Bug: Spurious npm install at every `dashboard --tui` launch breaks chat tab in non-root containers
 
-## Status (re-verified 2026-05-31)
+## Status (re-verified 2026-06-08)
+
+> **Update 2026-06-08 — the `--tui` flag itself was REMOVED upstream, and the
+> repo is now pinned past the chown fix.** Two material changes since the
+> 2026-05-31 check:
+>
+> 1. **`--tui` is gone.** [PR #38591](https://github.com/NousResearch/hermes-agent/pull/38591)
+>    (merged 2026-06-04, shipped in **v0.16.0 / v2026.6.5**) removed the
+>    `--tui` flag from `hermes dashboard`. Passing it now aborts with
+>    `unrecognized arguments: --tui` → pod crash-loop. This repo's
+>    `hermes_image_tag` is now **`v2026.6.5`**, so any user with
+>    `dashboard_tui: true` in vault would crash-loop. **Fixed in
+>    `hermes_agent_deployment.yaml.j2`**: the template no longer emits `--tui`
+>    (the `dashboard_tui` gate is now a documented no-op until an upstream
+>    replacement flag is identified). The original npm-reinstall bug this doc
+>    is named for is moot on v2026.6.5+ because the flag that triggered it no
+>    longer exists.
+> 2. **`copy-ui-tui` initContainer is now removable.** Condition (a) (PR #33045,
+>    entrypoint chown after UID remap) shipped in v0.15.0 and is present in our
+>    now-pinned v2026.6.5; the stage2-hook chowns `.venv`, `ui-tui`, `gateway`,
+>    `node_modules`. Trigger 2 stays structurally neutralised by
+>    `npm_config_install_links=false`. Drop the initContainer + its volume/mount
+>    and confirm chat still loads (see Action Items). Latest upstream release:
+>    **v0.16.0 / v2026.6.5**.
 
 > **Update 2026-05-31 — entrypoint chown fix has shipped (condition (a) met).**
 > [PR #33045](https://github.com/NousResearch/hermes-agent/pull/33045)
