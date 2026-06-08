@@ -1,5 +1,15 @@
 # TurboQuant — KV Cache Quantization for Extended Context
 
+> **Re-verified 2026-06-08** (status deltas vs the 2026-05-21 body below):
+> - **llama.cpp PR #21089 is now CLOSED without merge** (not "active again") —
+>   the CPU TBQ3/TBQ4 path did not land.
+> - **vLLM #40798 (share decode scratch workspace) is now CLOSED** (2026-06-01);
+>   tracking issue #40069 (which listed it as mandatory) and #42215 remain OPEN.
+> - **SGLang still has not merged TurboQuant.** PRs #23135 (last touched
+>   2026-06-08) and #21419 (2026-06-05) are still open and more recently active
+>   than the dates below; the overall "SGLang is the laggard" conclusion stands.
+> - Latest SGLang release is v0.5.12.post1; no v0.5.13.
+
 ## What It Is
 
 TurboQuant is a **KV cache quantization** method from Google Research (Zandieh et al., ICLR 2026).
