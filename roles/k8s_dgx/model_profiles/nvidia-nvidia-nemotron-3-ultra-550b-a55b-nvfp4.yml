@@ -24,13 +24,13 @@
 # (NVFP4-mixed: FP4 expert FFN + FP8/BF16 attn/latent/embeddings). At the same
 # density the 550B Ultra is ~430 GB total → ~107 GB/GPU sharded over TP=4, leaving
 # only ~21 GB/GPU of the 128 GB for KV + activations + CUDA graphs. This is TIGHT:
-#   * mem_fraction_static MUST exceed the weight fraction (~0.84) just to fit the
-#     weights; 0.85 is the floor, 0.88–0.92 is the realistic band. If the head
-#     OOMs on weight load or CUDA-graph capture, RAISE mem_fraction_static first.
+#   * mem_fraction_static realistic band 0.88–0.92. Under EP=4 the FLOOR is 0.88 —
+#     0.85 startup-crashes (matrix 2026-06-06, variant 01). 0.90 validated; throughput
+#     is ~flat across 0.88/0.90/0.92, so don't chase it. See the inline note below.
 #   * context_length defaults to the config-native 262144 (NO override) — boot-safe.
-#     512K/1M (the Super sibling's NoPE long-context trick) are MEMORY-GATED here,
-#     not free as on Super — only attempt after a clean 262144 boot, and expect to
-#     trade KV headroom. UNTESTED.
+#     512K is now TESTED on EP=4 (matrix variant 05, mfs0.90): boots + serves at n8 peak
+#     43.2 vs 42.0 tok/s (vs 262k) — essentially FREE on throughput, modest KV cost.
+#     Still set via context_length + json_model_override_args (see inline block).
 #   * TP=4 vs PP=4 (tp_size:1) shard the SAME ~107 GB/GPU either way (4 GPUs, 430 GB),
 #     so neither buys weight headroom; TP=4 is kept for KV/all-reduce parity with Super.
 #   * If 262144 still OOMs at high mem_fraction_static, drop context_length below the
@@ -54,15 +54,15 @@ _model_profile:
     # natively long-context-trained, so there is NO RoPE/YaRN to scale: extending
     # context is literally raising context_length AND lifting the config cap via
     # json_model_override_args (auto-sets SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN=1;
-    # see tasks/sglang.yml). NO rope_scaling. BUT unlike the Super sibling — where
-    # 512K/1M were essentially free — on the 550B Ultra long context is MEMORY-GATED
-    # (only ~21 GB/GPU left after weights). Example for 512K, ONLY after a clean
-    # 262144 boot confirms headroom:
+    # see tasks/sglang.yml). NO rope_scaling. On the 550B Ultra long context is
+    # MEMORY-GATED (only ~21 GB/GPU left after weights), but 512K is now VALIDATED on
+    # EP=4 (matrix variant 05, 2026-06-06, mfs0.90): boots + serves at ~the same peak
+    # throughput (43.2 vs 42.0 tok/s n8) as 262k — essentially free. Enable via BOTH keys:
     #   context_length: 524288
     #   json_model_override_args: '{"max_position_embeddings": 524288}'
     # config.json has rope_theta=10000 / partial_rotary_factor=1.0 present, but these
     # are vestigial defaults — the family is NoPE per the Technical Report (same as
-    # the Super profile's reasoning). UNTESTED on this cluster.
+    # the Super profile's reasoning). 1M still UNTESTED.
     # Reasoning ON/OFF + low-effort toggled PER REQUEST via extra_body chat_template_kwargs
     # (enable_thinking / low_effort) — NOT a launch flag (see chat_template_kwargs note).
     # Native Multi-Token Prediction (num_nextn_predict_layers=1, mtp_layers_block_type
@@ -113,20 +113,28 @@ _model_profile:
     # Weights load BEFORE this, so a real weight-load OOM is NOT fixable here (needs
     # more TP). The reserve covers activations + CUDA-graph capture (enabled here,
     # cuda_graph_max_bs:8) — so too HIGH starves CG capture → OOM (LOWER it, do not
-    # raise). Band 0.88–0.92 balances KV vs CG-capture headroom; 0.85 leaves KV thin
-    # but positive. See >>> MEMORY <<<. (Super runs 0.80 with huge headroom — Ultra
-    # has almost none.)
+    # raise). Band 0.88–0.92 balances KV vs CG-capture headroom. EP=4 FLOOR is 0.88,
+    # NOT 0.85: 0.85 startup-CRASHES under EP=4 (matrix variant 01 "EP4-FIT", 2026-06-06)
+    # — the EP dispatch buffers shrink rest_memory enough that 0.85 pushes the KV pool
+    # negative. 0.88/0.90/0.92 all boot with ~flat peak throughput (43.4/42.0/42.8 tok/s
+    # n8 peak, 8/8); 0.90 is the validated middle. See >>> MEMORY <<<. (Super runs 0.80 with huge
+    # headroom — Ultra has almost none.)
     mem_fraction_static: "0.9"
     # attention_backend: MUST NOT be triton — SGLang's apply_nemotron_h_defaults hook
     # hard-asserts against it ("NemotronHForCausalLM does not support triton attention
     # backend, as the first layer might not be an attention layer"; the hybrid pattern
     # starts with Mamba). flashinfer works (head_dim=128 supported). Validated on Super.
     attention_backend: "flashinfer"
-    # fp4_gemm_backend: flashinfer_cutlass — VALIDATED on Super (winner shape). Do NOT
-    # switch to flashinfer_cudnn on the scitrera base image: it startup-crashes with
-    # "RuntimeError: cuDNN is not available" (the nvidia-cudnn-cu12 wheel is not in this
-    # base; needs the cuDNN-layer image from scripts/build_cudnn_image.sh). fi_cutlass
-    # wins anyway, so cuDNN-FP4 is not worth the rebuild.
+    # fp4_gemm_backend: flashinfer_cutlass — Super-validated, and on the EP=4 matrix
+    # (2026-06-06) it TIES flashinfer_cudnn on PEAK throughput: n8 peak 42.0 vs 42.0
+    # tok/s (sum of per-request tok/s, the metric that counts). The matrix "winner"
+    # label put cudnn ahead (39.39 vs 35.66) but that was AGGREGATE (total_tokens /
+    # wall_time) — an artifact of the finish-reason/wall-time mix, NOT kernel speed.
+    # Zero peak gain → no reason to take cuDNN's risk: the Super sibling's Case 05 (SAME
+    # image label, 2026-06-04) startup-CRASHED in flashinfer's _check_cudnn_availability
+    # (wants the nvidia-cudnn-cu12 WHEEL — absent here; only native libcudnn.so.9 is
+    # present). cuDNN happened to boot on THIS Ultra run, but the Super/Ultra discrepancy
+    # is unexplained. Keep fi_cutlass — equal speed, no surprise. See TESTLOG.
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4
     # disable-piecewise-cuda-graph: set EXPLICITLY by the model card; the Mamba2/attn
@@ -148,8 +156,14 @@ _model_profile:
     #   * max_mamba_cache_size: explicit slot count, bypasses the ratio. NOT memory-
     #     checked — too high steals from KV / OOMs at KV profiling. Targets: 24→8
     #     parallel, 36→12, 48→16. ~0.1 GB/slot of mamba state.
-    # Validate via the boot log (max_mamba_cache_size: / max_running_requests=) after
-    # EACH change; both are UNTESTED on Ultra. Leave commented for auto-fit.
+    # max_mamba_cache_size: 48 is VALIDATED on EP=4 (matrix 2026-06-06): boot logged
+    # "max_mamba_cache_size: 48" → "max_running_requests=16" (48//3, exactly as the
+    # formula predicts), ssm_state 4.59 GB, served clean. mamba_full_memory_ratio is
+    # still UNTESTED — use it (commented) only if you want the KV→mamba shift instead.
+    # CAVEAT: the matrix winner ran cuda_graph_max_bs:8, but this profile sets 16
+    # (below). At 16 parallel the decode batch can exceed 8, so cuda_graph_max_bs:16
+    # captures bigger graphs (more CG-capture memory) — NOT matrix-tested; re-validate
+    # the boot log if you keep 16, or drop to 8 to match the validated winner.
     # mamba_full_memory_ratio: 3.0
     max_mamba_cache_size: 48
     pp_async_batch_depth: 0

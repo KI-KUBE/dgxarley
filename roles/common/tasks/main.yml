@@ -98,17 +98,30 @@
     - locale
   import_tasks: localestuff.yml
 
-- name: ensure net.ipv4.ip_nonlocal_bind=1 in /etc/sysctl.conf
-  lineinfile:
-    dest: /etc/sysctl.conf
-    line: "net.ipv4.ip_nonlocal_bind=1"
-    regexp: '^#?\s*net\.ipv4\.ip_nonlocal_bind.*$'
-    create: yes
-  notify: sysctl reload
+- name: ensure net.ipv4.ip_nonlocal_bind=1 (boot-persistent via /etc/sysctl.d)
+  sysctl:
+    name: net.ipv4.ip_nonlocal_bind
+    value: "1"
+    sysctl_file: /etc/sysctl.d/60-nonlocal-bind.conf
+    sysctl_set: true
+    state: present
+    reload: true
   tags:
     - sysctl
   when:
     - "'k3sserver' in group_names"
+
+#- name: ensure net.ipv4.ip_nonlocal_bind=1 in /etc/sysctl.conf
+#  lineinfile:
+#    dest: /etc/sysctl.conf
+#    line: "net.ipv4.ip_nonlocal_bind=1"
+#    regexp: '^#?\s*net\.ipv4\.ip_nonlocal_bind.*$'
+#    create: yes
+#  notify: sysctl reload
+#  tags:
+#    - sysctl
+#  when:
+#    - "'k3sserver' in group_names"
 
 - name: raise inotify limits for K3s/containerd/systemd
   sysctl:
