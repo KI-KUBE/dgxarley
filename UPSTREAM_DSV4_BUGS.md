@@ -1,11 +1,25 @@
 # SGLang Upstream Bugs / Gaps: DeepSeek-V4-Flash on SM121 (DGX Spark)
 
-## Status (verified 2026-05-31)
+## Status (verified 2026-05-31, upstream re-checked 2026-06-08)
+
+> **2026-06-08 — DSV4 is no longer the active default.** `defaults/main.yml`
+> has reverted to `sglang_model: RedHatAI/Qwen3.6-35B-A3B-NVFP4` on image
+> `scitrera/dgx-spark-sglang:0.5.12`; the DSV4-Flash-FP8 model and the
+> `xomoxcc/…0.5.12.post1-sm121` image are now **commented out**. This doc
+> applies when DSV4-Flash is (re-)selected. Upstream deltas since 2026-05-31:
+> **#26209 (FP4 Indexer for V4) is now MERGED** (2026-06-02, into `main`, not
+> yet in any release — post-dates v0.5.12.post1); **#19589 is now CLOSED**;
+> **DeepGEMM #317 is now CLOSED** (maintainer declined — no SM120 hardware —
+> and pointed at community PR #318, which is still open/unmerged). The NVFP4
+> MoE PR #25820 is still open, so a full NVFP4 V4 path is in-progress, not
+> entirely absent.
 
 Summary of everything that blocks or constrains serving **DeepSeek-V4-Flash** on
-our 4×GB10 / SM121 cluster under SGLang. Context: the active model
-(`roles/k8s_dgx/defaults/main.yml`) is **`sgl-project/DeepSeek-V4-Flash-FP8`** on
-image **`xomoxcc/dgx-spark-sglang:0.5.12.post1-sm121`** (SGLang v0.5.12.post1).
+our 4×GB10 / SM121 cluster under SGLang. Context (as written 2026-05-31): the
+then-active model (`roles/k8s_dgx/defaults/main.yml`) was
+**`sgl-project/DeepSeek-V4-Flash-FP8`** on image
+**`xomoxcc/dgx-spark-sglang:0.5.12.post1-sm121`** (SGLang v0.5.12.post1) — see
+the 2026-06-08 note above; this is no longer the default.
 `DeepseekV4ForCausalLM` is mainline since PR #23882 (shipped in v0.5.12), but
 Flash serving is still being stabilized upstream.
 
@@ -13,7 +27,7 @@ Flash serving is still being stabilized upstream.
 |---|-------|-------|---------------|
 | 1 | `kv_lora_rank=None` strict-dataclass crash at config parse | **Worked around** (launch patch) | Blocks ANY V4-Flash checkpoint until patched |
 | 2 | compressed-tensors `wqkv_a` vs `fused_wqa_wkv` target mismatch | **Open upstream** (#23724) | Makes RedHatAI / kylesayrs / canada-quant NVFP4 unloadable |
-| 3 | NVFP4 MoE / FP4 indexer for V4 not implemented | **Open upstream** (#25820, #26209) | No NVFP4 path on SGLang regardless of checkpoint |
+| 3 | NVFP4 MoE / FP4 indexer for V4 not implemented | **Partial** — FP4 indexer #26209 merged 2026-06-02 (main, unreleased); NVFP4 MoE #25820 still open | No usable NVFP4 path on SGLang yet regardless of checkpoint |
 | 4 | NVFP4 runner instability on V4-Flash/Pro | **Open / partly closed** (#26324, #25704) | Even where NVFP4 loads, output is NaN/garbage except EAGLE |
 | 5 | `nvidia/DeepSeek-V4-Pro-NVFP4` does not fit | N/A (capacity) | 913 GB weights vs 512 GB cluster RAM |
 
@@ -361,7 +375,7 @@ PD-disagg) may surface new walls if turned on.
 | #23602 | DeepSeek V4 Roadmap | open |
 | #23724 | Support DeepSeek-V4 Compressed-tensor W4A16 | open |
 | #25820 | [NVIDIA] Support NVFP4 MoE for DeepSeek-V4 | open |
-| #26209 | Add FP4 Indexer for DeepSeek V4 | open |
+| #26209 | Add FP4 Indexer for DeepSeek V4 | **merged 2026-06-02 (main, not yet released)** |
 | #26324 | flashinfer_trtllm MoE runner asserts on DeepSeek-V4-Flash NVFP4 (B200) | open |
 | #25704 | V4-Pro NVFP4 B200: NaN/garbage except EAGLE | closed |
 | #25165 | main branch broke with deepseek v4 flash deployment | open |
@@ -369,10 +383,10 @@ PD-disagg) may surface new walls if turned on.
 | #25526 | DSv4 Flash + HiCache breakable piecewise CUDA graph | open |
 | #26647 | Mooncake HiCache fails with DeepSeek-V4-Flash hybrid cache | open |
 | #24111 | About pre-converted FP8 checkpoints (sgl-project/DeepSeek-V4-Flash-FP8) | open |
-| DeepGEMM #317 | DeepSeek-V4 on SM120: `tf32_hc_prenorm_gemm` + `paged_mqa_logits` kernels missing | open |
+| DeepGEMM #317 | DeepSeek-V4 on SM120: `tf32_hc_prenorm_gemm` + `paged_mqa_logits` kernels missing | **closed 2026-04-30 (declined, no SM120 HW; community PR #318 open)** |
 | #23657 | DSv4 compressed attention: no SM120 fallback for Lightning Indexer | open |
 | #25181 | `SGLANG_OPT_FP8_WO_A_GEMM` default-on | merged (v0.5.12) |
-| #19589 | Qwen3.5 FP8 "Downcasting not allowed" (same error class as §6/2) | open |
+| #19589 | Qwen3.5 FP8 "Downcasting not allowed" (same error class as §6/2) | **closed 2026-05-02** |
 
 ## Local artifacts
 
