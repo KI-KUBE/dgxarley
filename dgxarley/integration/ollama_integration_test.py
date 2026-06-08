@@ -54,10 +54,14 @@ TIMEOUT: tuple[int, int] = (10, 120)
 # Models expected to be available.
 # Ollama native: from ollama_preload_models in defaults
 # LiteLLM: from litellm_model_list in defaults (only Ollama-backed models)
+# EXPECTED_MODELS_OLLAMA: list[str] = ["bge-m3", "qwen3-coder-next:latest"]
+# EXPECTED_MODELS_LITELLM: list[str] = ["bge-m3", "qwen3-coder-next:latest"]
 EXPECTED_MODELS_OLLAMA: list[str] = ["bge-m3", "qwen2.5-coder:latest"]
 EXPECTED_MODELS_LITELLM: list[str] = ["bge-m3", "qwen2.5-coder:latest"]
 EMBEDDING_MODEL_OLLAMA: str = "bge-m3"
 EMBEDDING_MODEL_LITELLM: str = "bge-m3"
+# CHAT_MODEL_OLLAMA: str = "qwen3-coder-next:latest"
+# CHAT_MODEL_LITELLM: str = "qwen3-coder-next:latest"
 CHAT_MODEL_OLLAMA: str = "qwen2.5-coder:latest"
 CHAT_MODEL_LITELLM: str = "qwen2.5-coder:latest"
 

@@ -115,7 +115,7 @@ Profile-header edits made after this run: fp4_gemm rationale (peak-tie + cuDNN d
 
 ## Action items / follow-ups
 
-- [ ] **`cuda_graph_max_bs` mismatch:** the matrix ran `cuda_graph_max_bs:8`, but the profile is set to `16`. At 16 parallel a decode batch can exceed 8 → bigger CG capture (more memory) — **NOT matrix-tested**. Either re-validate the boot log at 16, or drop to 8 to match the validated winner.
+- [x] **`cuda_graph_max_bs` aligned to validated value:** profile set to `8` (was 16) to match the matrix. NOTE: max_mamba 48 allows 16 parallel but the matrix only drove n8 (≤8 concurrent), so bs:8 covered every tested batch. To get CUDA-graph coverage for decode batches 9–16, run an **n16 matrix** at `cuda_graph_max_bs:16` first and check the boot log for CG-capture OOM headroom — UNVALIDATED until then.
 - [ ] Run an **EP=1 Ultra** matrix for a clean peak A/B vs EP=4 (the EP=4 mfs floor + dispatch-buffer cost may not be worth it if EP=1 serves equal peak at lower memory pressure).
 - [ ] Root-cause the cuDNN Super/Ultra discrepancy (Finding #4) only if fi_cudnn is ever actually wanted — low priority (no peak gain).
 - [ ] Revisit MTP once `--disable-radix-cache` is exposed AND upstream #21138 closes.
