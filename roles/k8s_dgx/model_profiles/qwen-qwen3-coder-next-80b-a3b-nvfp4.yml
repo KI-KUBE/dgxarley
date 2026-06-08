@@ -1,0 +1,90 @@
+# Model profile: Qwen3-Coder-Next-80B-A3B (NVFP4, RedHatAI) — FIRST CONTACT / UNVALIDATED
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles at runtime.
+#
+# WHAT — Qwen3-Coder-Next is an agentic-coder model built ON Qwen3-Next-80B-A3B-Base
+# (arch `Qwen3NextForCausalLM`). NOT the same MODEL as the Instruct sibling, but the
+# SAME ARCHITECTURE as the validated `qwen-qwen3-next-80b-a3b-instruct-fp8.yml`: hybrid
+# Gated DeltaNet (linear attention) + Gated Attention, MoE 512 experts / 10 active + 1
+# shared, 48 layers, hidden 2048, ~80B total / ~3B active, 256K native context. Coder
+# post-training only — NO thinking mode. Tool format = qwen3_coder.
+#
+# QUANT — this entry points at the OFFICIAL Red Hat NVFP4 quant `RedHatAI/...-NVFP4`
+# (~23k dl/mo, accuracy-validated on SWE-Bench Lite). Quantized with **LLM Compressor**
+# (compressed-tensors, FP4 weights+activations). Two consequences:
+#   * Do NOT pass `--quantization modelopt_fp4`; SGLang AUTO-DETECTS compressed-tensors
+#     NVFP4 from config.json. Hence there is no `quantization:` key below (intentional).
+#   * CONSERVATIVE ignore-list: keeps lm_head, mlp.gate, mlp.shared_expert_gate, and the
+#     ENTIRE `linear_attn.*` (DeltaNet) path in BF16 — so the linear-attention layers run
+#     full-precision (robust for the hybrid arch), only the Linear/MoE-FFN ops are FP4.
+# Chosen over the community GB10-tuned saricles quant for reliability + accuracy
+# validation (saricles is more aggressively quantized/smaller but unvalidated, ~40 dl/mo).
+#
+# >>> BOOT / VALIDATION RISK (read before deploying) <<<
+# RedHatAI validated this on **vLLM 0.14.1** (RHAIIS/RHOAI), NOT explicitly on SGLang —
+# no SGLang guidance in the card. compressed-tensors-NVFP4 IS read by SGLang, but the
+# `scitrera/dgx-spark-sglang:0.5.12` base is UNTESTED for it → it may startup-crash.
+#   * Because it's vLLM-validated and the cluster shares profiles across both engines,
+#     the SAFEST first smoke-test is actually the vLLM path (:8001).
+#   * If SGLang won't boot it, fall back to the OFFICIAL FP8 entry at the bottom
+#     (known-good on SGLang 0.5.8+, mirrors the validated Instruct-FP8 sibling).
+#
+# >>> UNVALIDATED on this cluster — no matrix run yet <<<
+# - attention_backend: triton = the cluster-validated value from the Instruct-FP8
+#   sibling. It governs the Gated-ATTENTION layers ONLY; DeltaNet/linear layers always
+#   use linear_attn_backend=triton regardless. flashinfer is a valid probe for the
+#   attention layers (NOT "required" either way) — A/B it in the first matrix run.
+# - moe_runner_backend / fp4_gemm_backend = SM121 NVFP4 defaults by analogy — UNCONFIRMED
+#   for this arch; re-confirm on the first matrix run.
+_model_profile:
+  "RedHatAI/Qwen3-Coder-Next-NVFP4":
+    info_url: "https://huggingface.co/RedHatAI/Qwen3-Coder-Next-NVFP4"
+    context_length_max: 262144
+    # 256K native, NO override — boot-safe first contact. YaRN to 1M possible later via
+    # json_model_override_args, memory permitting (untested here).
+    context_length: 262144
+    # NO quantization key — compressed-tensors NVFP4 is auto-detected from config.json.
+    # (modelopt checkpoints would need quantization: "modelopt_fp4"; this one must NOT.)
+    # kv_cache_dtype: our choice (card doesn't specify) — fp8 for KV memory savings.
+    kv_cache_dtype: "fp8_e4m3"
+    # triton = cluster-validated (Instruct-FP8 sibling). Governs the Gated-Attention
+    # layers only; DeltaNet uses linear_attn_backend=triton always. Card gives no SGLang
+    # guidance — probe flashinfer here in the first matrix run.
+    attention_backend: "triton"
+    # NVFP4 MoE on SM121/GB10: flashinfer_cutlass is the cluster default — UNVALIDATED
+    # for the Qwen3-Next arch; re-confirm on the first matrix run.
+    moe_runner_backend: "flashinfer_cutlass"
+    fp4_gemm_backend: "flashinfer_cutlass"
+    # NVFP4 scale_fmt != ue8m0 → DeepGemm JIT kernels not optimized; disable.
+    disable_deep_gemm: true
+    # ~11.5 GB/GPU weights after TP → massive headroom; 0.50 is a conservative first-
+    # contact start (matches the Instruct-FP8 sibling). DeltaNet means only the Gated-
+    # Attention layers grow KV, so KV is cheap — raise for more KV once a clean boot
+    # confirms headroom.
+    mem_fraction_static: "0.50"
+    # Coder, no thinking mode → no reasoning_parser. Tool format per the Qwen card.
+    tool_call_parser: "qwen3_coder"
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 40
+
+# ============================================================================
+# OFFICIAL FP8 ALTERNATIVE — safe / known-good. To use: comment out the NVFP4
+# `_model_profile` block above and uncomment this one. Mirrors the validated
+# `qwen-qwen3-next-80b-a3b-instruct-fp8.yml`; official Qwen release, SGLang 0.5.8+.
+# ============================================================================
+# _model_profile:
+#   "Qwen/Qwen3-Coder-Next-FP8":
+#     info_url: "https://huggingface.co/Qwen/Qwen3-Coder-Next-FP8"
+#     context_length_max: 262144
+#     context_length: 262144
+#     kv_cache_dtype: "fp8_e4m3"
+#     mem_fraction_static: "0.50"
+#     attention_backend: "triton"
+#     disable_deep_gemm: true
+#     fp8_gemm_runner_backend: "cutlass"
+#     tool_call_parser: "qwen3_coder"
+#     recommended_sampling:
+#       temperature: 1.0
+#       top_p: 0.95
+#       top_k: 40

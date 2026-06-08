@@ -613,6 +613,7 @@ hf_token: "hf_CHANGEME"
 # HuggingFace model pre-download Job
 hf_preload_models:
    - "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+   - "RedHatAI/Qwen3-Coder-Next-NVFP4"
    - "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
    - "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
    - "nvidia/MiniMax-M2.7-NVFP4"
