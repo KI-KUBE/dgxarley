@@ -341,7 +341,14 @@ spec:
             - "--port=9119"
             - "--no-open"
 {% if _dashboard_tui %}
-            - "--tui"
+            # NOTE: `--tui` was REMOVED upstream in v0.16.0 / hermes_image_tag
+            # v2026.6.5 (PR #38591, merged 2026-06-04). Passing it now aborts
+            # the dashboard with "unrecognized arguments: --tui" → pod
+            # crash-loop. We therefore do NOT emit the flag any more; the
+            # `dashboard_tui` gate is a documented no-op on v2026.6.5+ until an
+            # upstream replacement flag is identified. Re-add a real flag here
+            # if/when one lands. See UPSTREAM_HERMES_AGENT_TUI_BUG.md.
+            # - "--tui"
 {% endif %}
           # Container-level securityContext overrides pod-level. /init MUST
           # start as root to do the usermod + s6-setuidgid drop. After the

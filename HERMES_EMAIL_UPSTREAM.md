@@ -161,6 +161,14 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 > is still pinned at `hermes_image_tag: v2026.5.16` — if bumping to v2026.5.29.2,
 > re-check the email.py SHA at that tag first.
 
+> **2026-06-08 check:** Repo is now pinned at `hermes_image_tag: v2026.6.5`
+> (**v0.16.0**, released 2026-06-06). `gateway/platforms/email.py` is still
+> **byte-identical** across `v2026.5.16 .. v2026.6.5` and `main` (blob SHA
+> `0fffb82d0b949820c380019de646a46a0a6de678`, md5 `318ae8f3e6d4b26718784e0c94bf8458`,
+> 29097 bytes) — **no re-sync required**; the patch in
+> `roles/k8s_dgx/files/hermes_email_gateway_patched.py` stays clean (its header
+> already records this). All three PRs (#28697, #28699, #28702) remain open.
+
 1. Download the new upstream file:
 
    ```bash
