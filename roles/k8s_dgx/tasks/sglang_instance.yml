@@ -98,6 +98,7 @@
         SGLANG_WEIGHT_LOADER_DISABLE_MMAP: "{{ sglang_weight_loader_disable_mmap | string | lower }}"
         SGLANG_WEIGHT_LOADER_DROP_CACHE_AFTER_LOAD: "{{ sglang_weight_loader_drop_cache_after_load | string | lower }}"
         SGLANG_MAX_RUNNING_REQUESTS: "{{ sglang_max_running_requests | string }}"
+        SGLANG_MAX_TOTAL_TOKENS: "{{ sglang_max_total_tokens | string }}"
         SGLANG_SCHEDULE_POLICY: "{{ sglang_schedule_policy }}"
         SGLANG_SPECULATIVE_ENABLED: "{{ sglang_speculative_enabled | string | lower }}"
         SGLANG_SPECULATIVE_ALGO: "{{ sglang_speculative_algo }}"

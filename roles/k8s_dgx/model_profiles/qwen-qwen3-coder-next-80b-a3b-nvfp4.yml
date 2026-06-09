@@ -38,6 +38,7 @@
 _model_profile:
   "RedHatAI/Qwen3-Coder-Next-NVFP4":
     info_url: "https://huggingface.co/RedHatAI/Qwen3-Coder-Next-NVFP4"
+    nccl_transport: "roce"
     context_length_max: 262144
     # 256K native, NO override — boot-safe first contact. YaRN to 1M possible later via
     # json_model_override_args, memory permitting (untested here).

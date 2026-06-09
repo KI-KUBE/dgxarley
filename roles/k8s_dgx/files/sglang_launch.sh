@@ -1237,6 +1237,11 @@ fi
 if [ -n "$SGLANG_MAX_RUNNING_REQUESTS" ] && [ "$SGLANG_MAX_RUNNING_REQUESTS" != "0" ]; then
   args+=(--max-running-requests "$SGLANG_MAX_RUNNING_REQUESTS")
 fi
+# Absolute KV-cache pool cap (tokens). Unset/0 -> sized by mem_fraction_static.
+# Used to pin a co-located instance's memory footprint deterministically.
+if [ -n "$SGLANG_MAX_TOTAL_TOKENS" ] && [ "$SGLANG_MAX_TOTAL_TOKENS" != "0" ]; then
+  args+=(--max-total-tokens "$SGLANG_MAX_TOTAL_TOKENS")
+fi
 if [ -n "$SGLANG_SCHEDULE_POLICY" ]; then
   args+=(--schedule-policy "$SGLANG_SCHEDULE_POLICY")
 fi

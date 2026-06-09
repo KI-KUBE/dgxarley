@@ -75,6 +75,13 @@ _sglang_active_sriov_key: "sglang"
 _sglang_active_tp: ""
 _sglang_active_pp: ""
 _sglang_active_ep: ""
+# Per-instance max_total_tokens override ("" = unset -> pure mem_fraction_static
+# sizing, as before). Caps the KV-cache pool ABSOLUTELY (in tokens). On the GB10
+# unified memory, mem_fraction_static is computed against runtime-measured FREE
+# memory, so a co-located instance's KV pool otherwise depends on whether the
+# other instance is already up + launch order. A fixed max_total_tokens makes
+# the footprint deterministic. Precedence: inst override > profile > unset.
+_sglang_active_max_total_tokens: ""
 
 sglang_speculative_enabled: "{{ sglang_model_profiles[_sglang_active_model].speculative_enabled | default(false) }}"
 sglang_speculative_algo: "{{ sglang_model_profiles[_sglang_active_model].speculative_algo | default('NEXTN') }}"
@@ -335,6 +342,14 @@ sglang_watchdog_timeout: 3600
 # Set to 0 for unlimited (only bounded by KV-cache pool size).
 sglang_max_running_requests: 32
 
+# Absolute KV-cache pool cap in tokens ("" = unset -> sized purely by
+# mem_fraction_static). SGLang uses min(memory-derived, max_total_tokens). Set a
+# fixed value to make a co-located instance's memory footprint deterministic on
+# the shared GB10 unified memory (pair it with a HIGH mem_fraction_static so the
+# reserve is small and max_total_tokens is the binding cap). Precedence:
+# inst override > profile max_total_tokens > unset.
+sglang_max_total_tokens: "{{ _sglang_active_max_total_tokens if (_sglang_active_max_total_tokens | string | length > 0) else (sglang_model_profiles[_sglang_active_model].max_total_tokens | default('')) }}"
+
 # Schedule policy: "lpm" (longest prefix match) or "fcfs" (first come first served).
 # lpm reuses cached prefixes across requests (better for shared system prompts / RAG).
 # fcfs processes requests strictly in arrival order (fairer under heavy load).
@@ -388,6 +403,9 @@ sglang_moe_config_dir: "/root/.cache/huggingface/moe_configs"
 #                  must equal #nodes (1 GPU/node) — enforced by assert.
 #   ep_size:       expert-parallel override (default: profile ep_size, else 1).
 #                  Must divide tp — enforced by assert.
+#   max_total_tokens: absolute KV-cache cap in tokens (default: profile value,
+#                  else unset). Use for co-located instances to pin memory
+#                  deterministically on the shared GB10 unified memory.
 #   prefix:        K8s resource-name prefix AND the `app` label value. Default:
 #                  "sglang" for the "default" instance, "sglang-<key>" otherwise.
 #   hostname:      ingress/cert/DNS short name -> <hostname>.<dns_suffix>.
@@ -434,6 +452,8 @@ sglang_instances:
     tp_size: 4
     ep_size: 4
     pp_size: 1
+    mem_fraction_static: 0.9
+    max_total_tokens: 123456
 
 # Merged UNDER each sglang_instances entry (entry wins). _inst_key is the dict
 # key of the current instance, set by the loop in sglang.yml. Defaults that
