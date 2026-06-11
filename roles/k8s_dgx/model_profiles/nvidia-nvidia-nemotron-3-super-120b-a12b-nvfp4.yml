@@ -1,3 +1,4 @@
+---
 # Model profile: nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 #
@@ -123,7 +124,7 @@ _model_profile:
     # cleanly. Keep true until proven otherwise (cross-ref FLASHINFER_0.6.12_TODO §2).
     disable_piecewise_cuda_graph: true
     disable_cuda_graph: false
-    cuda_graph_max_bs: 8
+    cuda_graph_max_bs: 32
     pp_async_batch_depth: 0
     # DeepGemm targets FP8/ue8m0 scale format; for NVFP4 (scale_fmt != ue8m0) its JIT
     # kernels aren't optimized, block the scheduler watchdog, and exhaust system RAM.

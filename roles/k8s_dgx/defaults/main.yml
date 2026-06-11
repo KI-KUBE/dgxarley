@@ -26,8 +26,8 @@ sglang_nnodes: 4
 #sglang_model: "Qwen/Qwen3.5-35B-A3B-FP8"
 #sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
 
-sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
-# sglang_model: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+# sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+sglang_model: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
 # sglang_model: "Qwen/Qwen3.6-27B-FP8"
 # sglang_model: "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
 # sglang_model: "nvidia/MiniMax-M2.7-NVFP4"
@@ -139,7 +139,7 @@ sglang_max_mamba_cache_size: "{{ sglang_model_profiles[_sglang_active_model].max
 sglang_enable_spec_v2: "{{ sglang_model_profiles[_sglang_active_model].enable_spec_v2 | default(false) }}"
 
 # NOTE: you should never change the image directly here!
-sglang_image: "{{ sglang_model_profiles[_sglang_active_model].sglang_image | default(default_sglang_image) }}"
+sglang_image: "scitrera/dgx-spark-sglang:0.5.12"
 
 sglang_context_length: "{{ sglang_model_profiles[_sglang_active_model].context_length }}"
 sglang_kv_cache_dtype: "{{ sglang_model_profiles[_sglang_active_model].kv_cache_dtype }}"
@@ -445,15 +445,15 @@ sglang_instances:
   #   * sriov_key ("sglang_coder") -> only a lookup into qsfp_sriov_assignments
   #     (never a resource name), so it can be any string — it just has to match
   #     that dict's key exactly (underscore here is fine, unlike the KEY above).
-  coder:
-    model: "RedHatAI/Qwen3-Coder-Next-NVFP4"
-    nodes: [1, 2, 3, 4]
-    sriov_key: "sglang_coder"
-    tp_size: 4
-    ep_size: 4
-    pp_size: 1
-    mem_fraction_static: 0.9
-    max_total_tokens: 123456
+#  coder:
+#    model: "RedHatAI/Qwen3-Coder-Next-NVFP4"
+#    nodes: [1, 2, 3, 4]
+#    sriov_key: "sglang_coder"
+#    tp_size: 4
+#    ep_size: 4
+#    pp_size: 1
+#    mem_fraction_static: 0.9
+#    max_total_tokens: 123456
 
 # Merged UNDER each sglang_instances entry (entry wins). _inst_key is the dict
 # key of the current instance, set by the loop in sglang.yml. Defaults that
@@ -739,12 +739,12 @@ hf_cache_path: "/var/lib/hf-cache"
 hf_token: "hf_CHANGEME"
 # HuggingFace model pre-download Job
 hf_preload_models:
-   - "Qwen/Qwen3.6-27B-FP8"
-   - "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
-   - "RedHatAI/Qwen3-Coder-Next-NVFP4"
-   - "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
-   - "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
-   - "nvidia/MiniMax-M2.7-NVFP4"
+  - "Qwen/Qwen3.6-27B-FP8"
+  - "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+  - "RedHatAI/Qwen3-Coder-Next-NVFP4"
+  - "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
+  - "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+  - "nvidia/MiniMax-M2.7-NVFP4"
 #  - "canada-quant/DeepSeek-V4-Flash-W4A16-FP8-MTP"
 #  - "lmsys/Qwen3-235B-A22B-EAGLE3"
 #  - "sgl-project/DeepSeek-V4-Flash-FP8"
