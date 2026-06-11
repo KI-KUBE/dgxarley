@@ -268,9 +268,10 @@ small (~50 MB) and the node has fast local storage.
   Adds `chown -R hermes:hermes /opt/hermes/ui-tui /opt/hermes/node_modules`
   to the Dockerfile. Validated with `tests/tools/test_dockerfile_node_modules_perms.py`.
 - First release containing both fixes: **v2026.5.7 / v0.13.0** (2026-05-07,
-  "The Tenacity Release"). Current latest release: **v2026.5.29.2 / v0.15.2** —
-  Trigger 2 still unfixed in the reinstall logic in v0.15.x (but neutralised at
-  build time by `npm_config_install_links=false`). Re-checked 2026-05-31.
+  "The Tenacity Release"). Current latest release: **v2026.6.5 / v0.16.0
+  (2026-06-06)** — Trigger 2 still unfixed in the reinstall logic, but
+  neutralised at build time by `npm_config_install_links=false` (unchanged).
+  Re-checked 2026-06-11.
 - **Entrypoint chown fix:** [hermes-agent#33045](https://github.com/NousResearch/hermes-agent/pull/33045)
   — merged 2026-05-27, shipped in **v0.15.0 / v2026.5.28**. Adds
   `chown -R hermes:hermes $INSTALL_DIR/ui-tui $INSTALL_DIR/node_modules` to
@@ -283,19 +284,46 @@ small (~50 MB) and the node has fast local storage.
   patch suggestion (add `wanted[k].get("link")` to the missing-check
   filter). Since #18800 is now closed and no follow-up issue has been
   filed upstream, **this report still needs to be re-filed as a fresh
-  issue** if we want upstream to act on Trigger 2.
+  issue** if we want upstream to act on Trigger 2. Re-checked 2026-06-11:
+  no matching open issue found — filing is still pending.
+- **PR #38591** (removes `--tui` flag from `hermes dashboard`) — merged
+  2026-06-04, shipped in v0.16.0 / v2026.6.5. Re-verified 2026-06-11.
+- **PRs #19520 / #21267** — merged (2026-05-04 / 2026-05-07). Re-verified 2026-06-11.
+- **Issue #18800** — closed 2026-05-07 via PR #21267. Re-verified 2026-06-11.
+- **PR #19303** — closed unmerged. Re-verified 2026-06-11.
 
-## Action Items on Next Image Bump
+## Action Items
 
-1. Pull the new image tag once published; verify `_tui_need_npm_install()`
-   still returns `True` (it will, until Trigger 2 is fixed).
+> **2026-06-11 — NOW ACTIONABLE.** `hermes_image_tag` is pinned to
+> **v2026.6.5**, which contains **both** PR #33045 (entrypoint chowns
+> `$INSTALL_DIR/ui-tui` + `node_modules` after UID remap, merged 2026-05-27,
+> shipped v0.15.0) **and** the build-time `npm_config_install_links=false`
+> that neutralises Trigger 2. Items 1–4 below are therefore no longer
+> hypothetical — they can be executed now.
+>
+> **Pending config changes (do NOT make without explicit approval):**
+> - Test a pod with `copy-ui-tui` initContainer **disabled**; if EACCES is
+>   gone, drop the initContainer + its volume + mount from
+>   `roles/k8s_dgx/templates/hermes/hermes_agent_deployment.yaml.j2`.
+> - The comment block in that template around lines ~172-181 (which states
+>   the entrypoint only chowns `$HERMES_HOME`, not `/opt/hermes/`) is now
+>   **outdated** for the pinned image (v2026.6.5 chowns `ui-tui` +
+>   `node_modules` too). Update or remove that comment block when the
+>   initContainer is dropped. Note: the template itself is NOT edited here
+>   — this is a pending follow-up action.
+
+1. Verify `_tui_need_npm_install()` still returns `True` in v2026.6.5 (it
+   will, Trigger 2 is still unfixed in the reinstall logic — but
+   `npm_config_install_links=false` neutralises it at build time).
 2. Confirm `/opt/hermes/ui-tui` is owned by numeric UID 10000 inside
-   the new image (PR #21267 effect).
+   v2026.6.5 (PR #21267 + PR #33045 effect).
 3. Re-run a per-user pod with `hermes_users[*].uid != 10000` and the
-   `copy-ui-tui` initContainer **disabled**, expect EACCES → confirm
-   workaround still required, re-enable initContainer.
-4. If upstream additionally adds an entrypoint-level chown of
-   `/opt/hermes/ui-tui` to `$HERMES_UID:$HERMES_GID`, re-test without
-   the initContainer; if green, drop the workaround and update this doc.
-5. Open a fresh upstream issue referencing this document if Trigger 2
-   is still unfixed at that point (since #18800 has been closed).
+   `copy-ui-tui` initContainer **disabled**; if no EACCES → initContainer
+   is safe to drop. If EACCES still occurs → re-enable and investigate.
+4. Once step 3 is green: drop the `copy-ui-tui` initContainer + its
+   emptyDir volume + mount from `hermes_agent_deployment.yaml.j2`, and
+   update the now-outdated entrypoint comment block in that template
+   (lines ~172-181). Update this doc accordingly.
+5. Open a fresh upstream issue referencing this document for Trigger 2
+   (since #18800 is closed and no follow-up issue has been filed as of
+   2026-06-11).
