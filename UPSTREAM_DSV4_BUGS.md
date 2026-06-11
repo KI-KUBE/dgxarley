@@ -1,18 +1,26 @@
 # SGLang Upstream Bugs / Gaps: DeepSeek-V4-Flash on SM121 (DGX Spark)
 
-## Status (verified 2026-05-31, upstream re-checked 2026-06-08)
+## Status (verified 2026-05-31, upstream re-checked 2026-06-08, re-verified 2026-06-11)
 
-> **2026-06-08 — DSV4 is no longer the active default.** `defaults/main.yml`
-> has reverted to `sglang_model: RedHatAI/Qwen3.6-35B-A3B-NVFP4` on image
-> `scitrera/dgx-spark-sglang:0.5.12`; the DSV4-Flash-FP8 model and the
-> `xomoxcc/…0.5.12.post1-sm121` image are now **commented out**. This doc
-> applies when DSV4-Flash is (re-)selected. Upstream deltas since 2026-05-31:
-> **#26209 (FP4 Indexer for V4) is now MERGED** (2026-06-02, into `main`, not
-> yet in any release — post-dates v0.5.12.post1); **#19589 is now CLOSED**;
-> **DeepGEMM #317 is now CLOSED** (maintainer declined — no SM120 hardware —
-> and pointed at community PR #318, which is still open/unmerged). The NVFP4
-> MoE PR #25820 is still open, so a full NVFP4 V4 path is in-progress, not
-> entirely absent.
+> **2026-06-08 — DSV4 ist nicht mehr der aktive Default.** `defaults/main.yml`
+> hat auf `sglang_model: RedHatAI/Qwen3.6-35B-A3B-NVFP4` auf Image
+> `scitrera/dgx-spark-sglang:0.5.12` zurückgestellt; das DSV4-Flash-FP8-Modell
+> und das `xomoxcc/…0.5.12.post1-sm121`-Image sind jetzt **auskommentiert**.
+> Dieses Dokument gilt, wenn DSV4-Flash (wieder) aktiviert wird. Upstream-Deltas
+> seit 2026-05-31: **#26209 (FP4 Indexer for V4) ist MERGED** (2026-06-02, in
+> `main`, noch nicht released — nach v0.5.12.post1); **#19589 ist CLOSED**;
+> **DeepGEMM #317 ist CLOSED** (Maintainer abgelehnt — kein SM120-Hardware —
+> und hat auf Community-PR #318 verwiesen, der noch offen/ungemergt ist). Der
+> NVFP4-MoE-PR #25820 ist weiterhin offen, ein vollständiger NVFP4-V4-Pfad auf
+> SGLang ist also in Arbeit, aber nicht verfügbar.
+>
+> **2026-06-11 — SGLang-Tag v0.5.13 heute geschnitten** (2026-06-11T08:09:52Z,
+> nur Git-Tag, noch kein GitHub-Release). Enthält **PR #24692** (SM120-Support
+> für DeepSeek-V4-Inference, merged 2026-06-01) sowie **#26209** (FP4 Indexer).
+> Cluster-Images laufen weiterhin auf v0.5.12.post1-basierten Builds. PR #25820
+> (NVFP4 MoE) meldet laut letztem Kommentar vom 2026-06-11: „Flash NVFP4 is
+> working now" (GSM8K 96.21% auf B200) — PR noch offen/ungemergt, kein
+> SM120/121-Test erwähnt. Details zu den Wall-Auswirkungen von #24692 in §8.
 
 Summary of everything that blocks or constrains serving **DeepSeek-V4-Flash** on
 our 4×GB10 / SM121 cluster under SGLang. Context (as written 2026-05-31): the
@@ -27,7 +35,7 @@ Flash serving is still being stabilized upstream.
 |---|-------|-------|---------------|
 | 1 | `kv_lora_rank=None` strict-dataclass crash at config parse | **Worked around** (launch patch) | Blocks ANY V4-Flash checkpoint until patched |
 | 2 | compressed-tensors `wqkv_a` vs `fused_wqa_wkv` target mismatch | **Open upstream** (#23724) | Makes RedHatAI / kylesayrs / canada-quant NVFP4 unloadable |
-| 3 | NVFP4 MoE / FP4 indexer for V4 not implemented | **Partial** — FP4 indexer #26209 merged 2026-06-02 (main, unreleased); NVFP4 MoE #25820 still open | No usable NVFP4 path on SGLang yet regardless of checkpoint |
+| 3 | NVFP4 MoE / FP4 indexer for V4 not implemented | **Partial** — FP4 indexer #26209 merged 2026-06-02 (main, in v0.5.13-Tag); NVFP4 MoE #25820 open (Flash NVFP4 working on B200 per 2026-06-11 comment, kein SM121-Test) | Kein nutzbarer NVFP4-Pfad auf SGLang für uns bis #25820 gemergt |
 | 4 | NVFP4 runner instability on V4-Flash/Pro | **Open / partly closed** (#26324, #25704) | Even where NVFP4 loads, output is NaN/garbage except EAGLE |
 | 5 | `nvidia/DeepSeek-V4-Pro-NVFP4` does not fit | N/A (capacity) | 913 GB weights vs 512 GB cluster RAM |
 
@@ -131,7 +139,9 @@ support:
 - [#25820](https://github.com/sgl-project/sglang/issues/25820) **[NVIDIA] Support
   NVFP4 MoE for DeepSeek-V4** — open.
 - [#26209](https://github.com/sgl-project/sglang/issues/26209) **Add FP4 Indexer
-  for DeepSeek V4** — open (the DSA/index attention path).
+  for DeepSeek V4** — **merged 2026-06-02** (in `main`, merged_at
+  2026-06-02T07:14:39Z; enthalten im v0.5.13-Tag). Der DSA/Index-Attention-Pfad
+  ist damit upstream verfügbar, aber noch kein GitHub Release.
 - Roadmap: [#23602](https://github.com/sgl-project/sglang/issues/23602) DeepSeek V4
   Roadmap.
 
@@ -372,10 +382,11 @@ PD-disagg) may surface new walls if turned on.
 | Ref | Title | State |
 |-----|-------|-------|
 | PR #23882 | DeepSeek-V4 day-0 support (`DeepseekV4ForCausalLM`) | merged (v0.5.12) |
+| PR #24692 | feat: SM120 (Blackwell Desktop) support for DeepSeek-V4 inference | **merged 2026-06-01; im v0.5.13-Tag (2026-06-11) enthalten** |
 | #23602 | DeepSeek V4 Roadmap | open |
 | #23724 | Support DeepSeek-V4 Compressed-tensor W4A16 | open |
-| #25820 | [NVIDIA] Support NVFP4 MoE for DeepSeek-V4 | open |
-| #26209 | Add FP4 Indexer for DeepSeek V4 | **merged 2026-06-02 (main, not yet released)** |
+| #25820 | [NVIDIA] Support NVFP4 MoE for DeepSeek-V4 | open (2026-06-11: Flash NVFP4 working auf B200, GSM8K 96.21%; kein SM120/121-Test) |
+| #26209 | Add FP4 Indexer for DeepSeek V4 | **merged 2026-06-02 into main; im v0.5.13-Tag (2026-06-11) enthalten, noch kein GitHub Release** |
 | #26324 | flashinfer_trtllm MoE runner asserts on DeepSeek-V4-Flash NVFP4 (B200) | open |
 | #25704 | V4-Pro NVFP4 B200: NaN/garbage except EAGLE | closed |
 | #25165 | main branch broke with deepseek v4 flash deployment | open |
@@ -387,6 +398,46 @@ PD-disagg) may surface new walls if turned on.
 | #23657 | DSv4 compressed attention: no SM120 fallback for Lightning Indexer | open |
 | #25181 | `SGLANG_OPT_FP8_WO_A_GEMM` default-on | merged (v0.5.12) |
 | #19589 | Qwen3.5 FP8 "Downcasting not allowed" (same error class as §6/2) | **closed 2026-05-02** |
+
+## 8. PR #24692 — SM120-Support für DeepSeek-V4-Inference (update 2026-06-11)
+
+**PR:** [#24692](https://github.com/sgl-project/sglang/pull/24692) „feat: SM120
+(Blackwell Desktop) support for DeepSeek-V4 inference" — merged 2026-06-01,
+enthalten im v0.5.13-Tag (2026-06-11). Cluster läuft noch auf
+v0.5.12.post1-basierten Images; dieser Abschnitt dokumentiert, was sich mit
+einem v0.5.13-Image ändert.
+
+**Scope des PR:**
+- `flash_mla_sm120.py` — nativer SM120-FlashMLA-Triton-Kernel, aktiviert via
+  `_is_sm120=True` in `deepseek_v4_backend.py` (Check: `major==12`, gilt also
+  auch für SM121/GB10).
+- `fp8_paged_mqa_logits_torch_sm120` in `indexer.py` — SM120-Pfad für den
+  FP8-Paged-MQA-Indexer; handhabt den `seq_lens`-Squeeze intern.
+- MXFP4 MoE Triton-Fallback für SM120 (neu im V4-Modellpfad).
+
+**Auswirkung auf unsere Walls (Stand v0.5.12.post1 → v0.5.13):**
+
+| Wall | Titel | Status auf v0.5.12.post1 | Status ab v0.5.13 |
+|------|-------|--------------------------|-------------------|
+| 0 | FlashMLA sparse-decode (SM121) | 0xSero-vendored Kernel + `.pth`-Hook nötig (§7) | **Redundant** — nativ via `deepseek_v4_backend.py` (`_is_sm120=True`); Hook kann entfernt werden |
+| 1 | `kv_lora_rank=None` strict-dataclass crash | Launch-Patch nötig (`int → int\|None`) | **Weiterhin nötig** — `kv_lora_rank: int = 512` in `configuration_deepseek_v3.py` unverändert; `_DeepseekV4ConfigAlias` in v0.5.13 überschreibt das Feld nicht |
+| 2 | `wqkv_a` vs `fused_wqa_wkv` target mismatch | Nicht patchbar (§2) | **Unverändert** — kein Fix in #24692 |
+| 3 | NVFP4 MoE / FP4-Indexer | FP4-Indexer merged (#26209), MoE-Pfad offen | **Teilweise** — #26209 in v0.5.13; NVFP4 MoE (#25820) weiterhin offen |
+| 4 | DeepGEMM MHC-prenorm (SM121) | `SGLANG_OPT_DEEPGEMM_HC_PRENORM=0` nötig | **Weiterhin nötig** — `configurer.py` gated DeepGEMM bei exakt `sm_version==120`, nicht 121; `mhc.py` prüft nur `SGLANG_OPT_DEEPGEMM_HC_PRENORM`; kein Auto-Routing für SM121 in #24692 |
+| 5 | `paged_mqa_logits` DeepGEMM SM121-Lücke | `SGLANG_FP8_PAGED_MQA_LOGITS_TORCH=1` nötig | **Weiterhin nötig** (Env-Var-Routing unverändert) |
+| 6 | `seq_lens.shape`-Assert im torch-Fallback | Launch-Source-Patch nötig | **Redundant** — `fp8_paged_mqa_logits_torch_sm120` in v0.5.13 handhabt Squeeze intern; Patch kann entfernt werden |
+| 7 | TVM `topk_transform_512_v2` auf SM121 | `SGLANG_TOPK_TRANSFORM_512_TORCH=1` nötig | **Weiterhin nötig** — `SGLANG_TOPK_TRANSFORM_512_TORCH` hat kein SM120/121-Auto-Routing in v0.5.13, Default weiterhin False |
+
+**Zusammenfassung für den Image-Wechsel auf v0.5.13:**
+- Walls 0 und 6 werden durch #24692 nativ gelöst → die entsprechenden
+  Launch-Patches und der `.pth`-Hook können beim Wechsel auf v0.5.13 entfernt
+  werden.
+- Walls 1, 2, 4, 5, 7 bleiben unverändert und erfordern weiterhin die
+  bestehenden Workarounds.
+- Der 0xSero-vendored FlashMLA-Kernel im Image (`scripts/patches/`) wird mit
+  v0.5.13 redundant; der Build-Patch kann entfernt werden.
+
+---
 
 ## Local artifacts
 
