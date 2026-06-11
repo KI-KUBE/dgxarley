@@ -125,6 +125,26 @@ _model_profile:
     disable_piecewise_cuda_graph: true
     disable_cuda_graph: false
     cuda_graph_max_bs: 32
+    # CONCURRENCY CEILING on this hybrid model is the Mamba state-cache pool, NOT
+    # KV/cuda_graph: SGLang clamps max_running_requests = max_mamba_cache_size //
+    # mamba_ratio (ratio≈3, ~3 reserved slots/req). Without an explicit pool the
+    # auto-fit can land far lower (Ultra sibling booted at pool=18 → 6 parallel),
+    # which would make cuda_graph_max_bs:32 inert. 96//3 = 32 matches the CG cap
+    # above exactly. Two levers (both OFF=auto-fit):
+    #   * mamba_full_memory_ratio (default 0.9 → mamba gets 47% of rest_memory):
+    #     memory-checked KV→mamba shift, preferred in principle but UNTESTED on
+    #     both Nemotron-3 profiles. Read the boot log's "max_mamba_cache_size:" line.
+    #   * max_mamba_cache_size: explicit slot count, bypasses the ratio. NOT memory-
+    #     checked — too high steals from KV / OOMs at KV profiling.
+    # Memory estimate: Ultra logged 4.59 GB ssm_state for 48 slots (~0.1 GB/slot,
+    # TP=4-sharded); Super is much smaller per slot, so 96 slots ≈ a few GB —
+    # comfortable vs the validated ~23.6 GB free after CG capture at 0.80.
+    # STATUS: 48→16 is VALIDATED on the Ultra sibling (EP=4 matrix 2026-06-06);
+    # 96 here is UNVALIDATED (the 2026-06-04 Super matrix winner ran
+    # cuda_graph_max_bs:8 with auto-fit pool). On first boot verify the log lines
+    # "max_mamba_cache_size: 96" → "max_running_requests=32" and the ssm_state size.
+    # mamba_full_memory_ratio: 3.0
+    max_mamba_cache_size: 96
     pp_async_batch_depth: 0
     # DeepGemm targets FP8/ue8m0 scale format; for NVFP4 (scale_fmt != ue8m0) its JIT
     # kernels aren't optimized, block the scheduler watchdog, and exhaust system RAM.
