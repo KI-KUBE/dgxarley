@@ -39,7 +39,7 @@ Großes Release-Highlight, aber für unseren Cluster nur Hintergrund:
 - **EAGLE-3 SWA-Support** (#24664), neuere EAGLE-3-Drafter (#24663).
 - **Kimi K2.5 EAGLE-3 MLA** Spec-Decoding (#24826).
 - **Gemma 3/4 + EAGLE-3** Support (#23976).
-- **Gemma 4 MTP** — eigener MTP-Head für Gemma 4 (#24436, #24433). Cookbook-Recipe noch ausstehend.
+- **Gemma 4 MTP** — eigener MTP-Head für Gemma 4 (#24436, #24433). > **Update 2026-06-11:** Cookbook-Recipe verfügbar seit PR #24433 (merged 2026-05-05): [`docs_new/cookbook/autoregressive/Google/Gemma4.mdx`](https://github.com/sgl-project/sglang/blob/main/docs_new/cookbook/autoregressive/Google/Gemma4.mdx).
 - Custom Speculative-Algorithm Registry (#23991).
 - Overlap stale-state Fix (#23456); `trtllm` decode kernel für draft-extend (#24566).
 - Fix Kimi K2.5 MLA EAGLE + DP Attention (#25033); `ngram` off-by-1 in `num_accepted_drafts_per_req_cpu` (#24965); MTP-Crash bei `bonus_tokens=None` (#25204); stuck-MTP auf DSA-Modellen (#24635).
@@ -112,12 +112,12 @@ Mit Cookbook-Recipe:
 | **MiniCPM-V 4.6**       | #24855, #24876, #24991, #24998                 | [MiniCPM-V-4.6](https://docs.sglang.io/cookbook/autoregressive/OpenBMB/MiniCPM-V-4_6)                                 |
 | **Laguna-XS.2** (Poolside) | #24204, #24730                              | [Laguna-XS.2](https://docs.sglang.io/cookbook/autoregressive/Poolside/Laguna-XS.2)                                    |
 | **Ring-2.6-1T**         | #25360, #25370                                 | [Ring-2.6-1T](https://docs.sglang.io/cookbook/autoregressive/InclusionAI/Ring-2.6-1T)                                 |
-| **Gemma 4 MTP**         | #24436, #24433                                 | (Recipe ausstehend)                                                                                                   |
+| **Gemma 4 MTP**         | #24436, #24433                                 | [Gemma4.mdx](https://github.com/sgl-project/sglang/blob/main/docs_new/cookbook/autoregressive/Google/Gemma4.mdx) *(verfügbar seit 2026-05-05, PR #24433)*  |
 
 Ohne Cookbook-Recipe (oder nicht relevant): Trinity-mini (Ascend), HunyuanVideo / Qwen-Image ModelOpt FP8 (Diffusion).
 
 **Relevanz für unseren Cluster:**
-- **Gemma 4 MTP** ist die einzige direkt relevante Neuerung — bestehender `gemma4`-Profil-Patch könnte um MTP erweitert werden (sobald die Recipe da ist).
+- **Gemma 4 MTP** ist die einzige direkt relevante Neuerung — bestehender `gemma4`-Profil-Patch könnte um MTP erweitert werden. > **Update 2026-06-11:** Die Bedingung ist erfüllt — Recipe verfügbar seit PR #24433 (merged 2026-05-05) unter [`docs_new/cookbook/autoregressive/Google/Gemma4.mdx`](https://github.com/sgl-project/sglang/blob/main/docs_new/cookbook/autoregressive/Google/Gemma4.mdx). Args: `--speculative-algorithm NEXTN --speculative-draft-model-path google/gemma-4-<variant>-it-assistant --speculative-num-steps 5 --speculative-num-draft-tokens 6 --speculative-eagle-topk 1`.
 - **Ring-2.6-1T** (1-Trillion-Param Reasoning) und das **volle DeepSeek V4** (671B-Klasse) passen kapazitiv nicht auf 4×GB10. Die kleine **DeepSeek-V4-*Flash*-FP8**-Variante hingegen schon — sie ist seit 2026-05-31 unser Default-Versuch (siehe §2-Update).
 - **MiniCPM-V 4.6** / **Intern-S2-Preview** sind VLM/Embedding-Kandidaten — vermutlich Vision/Multimodal, nicht unser aktueller Use-Case.
 - **Laguna-XS.2** (Poolside) — Coding-Modell, eventuell interessant für Hermes-Tooling.
@@ -211,7 +211,7 @@ Wir fahren keine Bild-/Video-Diffusion auf dem Cluster. Wer trotzdem reinschauen
 2. **Env-Var-Rename**: `SGLANG_USE_JIT_ALL_REDUCE` → `SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2`. `grep -r SGLANG_USE_JIT roles/` durchführen.
 3. **`SGLANG_OPT_FP8_WO_A_GEMM` jetzt Default-on** — Qwen3.6-35B-A3B-FP8 (Hermes-LiteLLM-Default) könnte minimal schneller werden.
 4. **Cute-DSL FP4 GEMM Reland (#23590) + NVFP4 Cute-DSL Quant Kernels (#23745)** — `FlashInferCuteDslMoE` (aus 0.5.11) auf SM121 erneut testen. Crash-Modelle Qwen3.5-397B-NVFP4 und Minimax-M2.5 PP=4 sind Kandidaten.
-5. **Gemma 4 MTP** — `gemma4`-Profil könnte um MTP-Head erweitert werden (Recipe noch ausstehend).
+5. **Gemma 4 MTP** — `gemma4`-Profil könnte um MTP-Head erweitert werden. > **Update 2026-06-11:** Recipe verfügbar seit PR #24433 (merged 2026-05-05), siehe [`docs_new/cookbook/autoregressive/Google/Gemma4.mdx`](https://github.com/sgl-project/sglang/blob/main/docs_new/cookbook/autoregressive/Google/Gemma4.mdx).
 6. **Spec-V2-Polish** (Adaptive Spec-V2, Overlap-Stale-State-Fix, K2.5 MLA EAGLE Fix) — GLM-4.7/GLM-5 MTP-Profile nach Bump neu benchmarken.
 7. **Prometheus**: `fwd_occupancy` + `get_loads_duration_seconds` ins SGLang-Grafana-Dashboard ergänzen.
 8. **DeepEP** auf `deepseek-ai/DeepEP@hybrid-ep` umgestellt — relevant nur falls wir das Dockerfile selbst patchen; bei `scitrera`-Base ist das transparent.
@@ -219,6 +219,8 @@ Wir fahren keine Bild-/Video-Diffusion auf dem Cluster. Wer trotzdem reinschauen
 10. **Keine Security-PRs** in diesem Window — Standard-Patch-Hygiene reicht.
 
 ---
+
+> **Update 2026-06-11:** Git-Tag **v0.5.13** wurde heute (2026-06-11T08:09:52Z) geschnitten (~1081 Commits über v0.5.12.post1) — **noch kein GitHub-Release**, der neueste veröffentlichte Release bleibt v0.5.12.post1 (2026-05-26). Für dieses Dokument relevant: v0.5.13 enthält Gemma4-NVFP4-Fixes #25054 (merged 2026-05-21) und #26791 (merged 2026-06-09) sowie DSV4-SM120-Support #24692 (merged 2026-06-01). Die drei SM120-NaN-PRs #22929/#22928/#22927 sind **nicht** enthalten und weiter offen.
 
 ## Offene Fragen / Risiken
 
