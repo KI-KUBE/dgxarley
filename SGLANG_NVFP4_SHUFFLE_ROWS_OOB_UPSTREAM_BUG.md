@@ -1,22 +1,35 @@
 # SGLang Upstream Bug: `cutlass_moe_fp4` `a_map` uninitialized-memory OOB under EP
 
-## Status (re-verified 2026-05-31)
+## Status (re-verified 2026-06-11)
 
 **Partial progress, semantic fix invalidated.** 2026-04-11 session outcome
 (no further investigation since; PR #20869 still stale at upstream — last
-activity 2026-03-18, re-checked 2026-05-31; PR #21630 also still open, last
-activity 2026-03-29; issue #20011 closed 2026-04-11).
+activity 2026-03-18, re-checked 2026-06-11; PR #21630 also still open, last
+activity 2026-03-29, re-checked 2026-06-11; issue #20011 closed 2026-04-11).
 Bug remains present in v0.5.11, v0.5.12, and v0.5.12.post1 (released
 2026-05-26; NVFP4 weight-loading changes #25190/#25107 landed but **not** the
 `_shuffle_rows_torch` OOB fix), and our dev1 image. **Note (2026-05-31):**
-PR #19493 (perf, "improve cutlass_moe_fp4 performance by using
-apply_router_weight_on_input") merged to `main` 2026-05-26 — it replaces the
+PR #19493 ("improve cutlass_moe_fp4 performance by replacing post-GEMM shuffle_rows
+with fused apply_shuffle_mul_sum") merged to `main` 2026-05-26 — it replaces the
 post-GEMM `c2 = shuffle_rows(c2, c_map, …) + mul + sum` with
 `apply_shuffle_mul_sum(...)`, but does **not** touch the `a_map`/`c_map`
 `torch.empty` allocations or `_shuffle_rows_torch`, so the OOB is unaddressed.
 It is also NOT in 0.5.12.post1 (main-only), so the monkey-patch still applies.
-The "Open: semantic fix" candidate 2 below will need re-evaluation against the
-fused kernel if a fix is ever attempted on a 0.5.13+/main-based image. The cluster-level workaround
+
+**Update 2026-06-11:** SGLang v0.5.13 tag cut 2026-06-11T08:09:52Z (~1081 commits
+ahead of v0.5.12.post1, bare git tag, no GitHub Release page yet). v0.5.13 contains:
+- PR #26496 ("Changes for SM120 perf and usability for NVFP4", merged 2026-06-04) —
+  changes SM120 NVFP4 default backend to CUTLASS (does **not** fix the
+  `_shuffle_rows_torch` `a_map`/`c_map` `torch.empty` OOB)
+- PR #26861 ("Reduce transient allocations in NVFP4 MoE setup", merged 2026-06-04) —
+  reduces transient allocations in NVFP4 MoE setup (does **not** fix the OOB)
+- PR #19493 (merged 2026-05-26, replaces post-GEMM shuffle_rows with
+  `apply_shuffle_mul_sum`) — **IS** in v0.5.13; the "Open: semantic fix" candidate 2
+  (c_map-based scatter pollution) needs re-evaluation against the fused
+  `apply_shuffle_mul_sum` path on v0.5.13+ images before any semantic fix attempt
+
+The `_shuffle_rows_torch` OOB on `a_map` remains unaddressed in v0.5.13. The
+workaround (flashinfer_cutlass) is unchanged. The cluster-level workaround
 remains: NVFP4 MoE profiles default to `moe_runner_backend: flashinfer_cutlass`,
 which avoids `cutlass_moe_fp4` entirely (see CLAUDE.md "NVFP4 MoE runner is
 model-specific, not global"):
@@ -49,21 +62,21 @@ work is in progress — see "Open: semantic fix" below.
 
 - [PR #20869](https://github.com/sgl-project/sglang/pull/20869) ("fix(moe): support EP
   for modelopt FP4 MoE weight processing") — **open, unmerged, stale since 2026-03-18**
-  (re-verified 2026-05-04, no review activity in 6+ weeks). Fixes the two earlier errors in the chain
+  (re-verified 2026-06-11, no review activity). Fixes the two earlier errors in the chain
   (shape mismatch on input-scales, `num_experts != num_local_experts` assertion)
   with Python-level changes to `modelopt_quant.py`, but **does not fix the
   `_shuffle_rows_torch` OOB described here**. The PR author instead sidesteps
   it by changing `server_args.py` to auto-route SM120 to the `flashinfer_cutlass`
   backend, which bypasses `cutlass_moe_fp4` entirely.
 - [PR #21630](https://github.com/sgl-project/sglang/pull/21630) — narrower
-  overlapping fix for the same input-scale slicing, still unmerged.
+  overlapping fix for the same input-scale slicing, still unmerged (last activity 2026-03-29, re-checked 2026-06-11).
 - [Issue #20011](https://github.com/sgl-project/sglang/issues/20011) — same
   class of bug on 8×B200 + Kimi-K2-Thinking-NVFP4, surfacing as an IMA via
   NCCL watchdog instead of the device-side assert. **Closed 2026-04-11** (same
   day as our debug session) with no code fix merged — likely manual or duplicate
   closure; the underlying `_shuffle_rows_torch` OOB remains unfixed upstream.
 
-Bug exists in SGLang v0.5.10 (and v0.5.10.post1 by inspection — same code path).
+Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, and **v0.5.13** (tag cut 2026-06-11 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
 
 The final root cause (uninitialized `torch.empty` on `a_map`) was identified
 during our sm121 CUTLASS SMEM debug session on 2026-04-11 after chasing it

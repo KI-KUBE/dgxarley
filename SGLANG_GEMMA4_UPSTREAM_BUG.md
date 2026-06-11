@@ -1,6 +1,6 @@
 # SGLang Upstream Bug: Gemma-4 NVFP4 blocked on SM121
 
-## Status (re-verified 2026-05-31)
+## Status (re-verified 2026-06-11)
 
 - **BF16 variants — WORKING** on our **`xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121`**
   image (SGLang **v0.5.11** + SM121 sgl-kernel patches + flashinfer 0.6.11 +
@@ -17,24 +17,40 @@
   recipe is built on top of v0.5.11 — the older dev1 / `main-gemma4-sm121`
   images are no longer needed for BF16 variants and are kept for rollback only.
 
-- **NVFP4 variants — STILL BLOCKED.** Both dense (`nvidia/Gemma-4-31B-IT-NVFP4`)
-  and MoE (`bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4`) require four sm120/121-
-  specific upstream PRs. Three (#22929, #22928, #22927) remain **stale since
-  2026-04-16 with no review activity — over 6 weeks (45 days)** (re-verified 2026-05-31).
-  The fourth, **#22615**, was approved by `kpham-sgl` on 2026-04-22 and rebased
-  onto main on 2026-04-30 — its known blocker
-  ([flashinfer #2959](https://github.com/flashinfer-ai/flashinfer/pull/2959))
-  has since been **merged and shipped** in flashinfer v0.6.10 / .post1 / 0.6.11,
-  so the upstream-blocker reasoning kpham-sgl gave on the PR comments no
-  longer applies. However, **a new commit landed on 2026-05-23 which invalidated
-  that approval** — `reviewDecision` reverted to `REVIEW_REQUIRED` (the old
-  `kpham-sgl` APPROVED review still appears in `latestReviews` but no longer
-  counts). **Re-checked 2026-05-31: state still OPEN, unmerged, now needs a
-  fresh review cycle. A polite nudge is still warranted, but note the PR
-  needs re-review, not just a merge click.** SGLang **v0.5.12.post1**
-  (released 2026-05-26) ships without any of the four SM120/121 Gemma-4 NVFP4
-  PRs — release notes mention no Gemma-4 NVFP4/SM121 work. The three stale
-  PRs continue to gate NVFP4 Gemma-4 on SM121.
+- **NVFP4 variants — PARTIALLY UNBLOCKED UPSTREAM, LOCAL VALIDATION PENDING.**
+  Update 2026-06-11: Two significant upstream merges change the picture:
+  - **PR #25054** ("Support Gemma4 MoE NVFP4") merged to main **2026-05-21**.
+    Fixes NVFP4 per-expert weight loading (`FusedMoE.make_expert_params_mapping`
+    replaces the regex-based per-expert code in `gemma4_causal.py` /
+    `gemma4_mm.py`) and the GEGLU activation issue in `modelopt_quant.py` — the
+    weight-loading and GEGLU concerns tracked by PRs #22929/#22928 are partially
+    superseded by this. **Caveat: benchmarked only on B200, NOT on SM121/GB10.**
+  - **PR #26791** ("Fix Gemma4 NVFP4 MoE default attention backend") merged
+    **2026-06-09**, cherry-picked to `release/v0.5.13`. Fixes a `trtllm_mha`
+    default that caused MMLU 0.037 on Gemma4-26B-NVFP4 (completely broken output
+    quality).
+  - Both PRs are included in the **v0.5.13 tag** (cut 2026-06-11). Neither is
+    in v0.5.12.post1 (released 2026-05-26).
+  - **What remains unmerged:** the SM121-specific E4M3 block-scale NaN clamp
+    (#22928 part 2, #22927). These PRs remain open and stale since 2026-04-16
+    (now 8 weeks), though their weight-loading/GEGLU portions are partially
+    superseded by #25054. The NaN-clamp/SM121-specific portions are still
+    unmerged.
+  - **Bottom line:** NVFP4 Gemma4 MoE on SM121 moves from "blocked" to
+    **"needs local validation once a release image carries v0.5.13"**. The
+    E4M3 NaN-clamp question (#22928/#22927) remains the open risk for SM121.
+
+  *(Superseded framing, kept for history: previously stated "STILL BLOCKED" as of
+  2026-05-31. Three SM120/121 PRs #22929/#22928/#22927 were stale 45+ days, and
+  #22615 was back to REVIEW_REQUIRED after a 2026-05-23 push invalidated the
+  kpham-sgl approval. PRs #25054 and #26791 merged upstream since then
+  partially address #22929/#22928's concerns — see above.)*
+
+  SGLang **v0.5.12.post1** (released 2026-05-26) ships without any of the
+  SM120/121-specific Gemma-4 NVFP4 fixes. **v0.5.13** (tag cut 2026-06-11,
+  no GitHub Release page yet) contains PRs #25054 and #26791. PR **#22615**
+  (fp8 kv cache with KV-shared layers) remains open, REVIEW_REQUIRED, last
+  updated 2026-05-23 — no change needed there.
 
 The original v0.5.10 blockers (Transformers fallback, dual head_dim, top_k_experts
 naming) are no longer relevant for our deployment because we build the image
@@ -47,8 +63,8 @@ v0.5.11 as noted above. The remaining issues are NVFP4-MoE-on-SM121-specific.
 |-----------------------------------------------|------------------------------------|--------------|---------------------------------------------------------------------------------------------------------------------------------------------|
 | `google/gemma-4-26B-A4B-it`                   | MoE (128 experts, 26B/3.8B active) | BF16         | **STABLE ★** — 39.8 / 114.6 / **180.5** tok/s (n=1/4/8)                                                                                     |
 | `google/gemma-4-31B-it`                       | Dense (30.7B)                      | BF16         | **STABLE ★** — 10.6 / 36.8 / **70.6** tok/s (n=1/4/8)                                                                                       |
-| `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` | MoE (128 experts, 26B/3.8B active) | NVFP4        | **blocked** — `modelopt_quant.py` crash, needs PRs #22929 + #22928 + #22927                                                                 |
-| `nvidia/Gemma-4-31B-IT-NVFP4`                 | Dense (30.7B)                      | NVFP4        | **untested** — expected to need PR #22928 + #22927 (dense path skips per-expert loading, but the FP4-on-SM121 NaN/scale issues still apply) |
+| `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` | MoE (128 experts, 26B/3.8B active) | NVFP4        | **needs local validation** — weight loading + GEGLU partially fixed by PR #25054 (merged 2026-05-21); attention backend fixed by PR #26791 (merged 2026-06-09); both in v0.5.13. SM121 NaN-clamp (#22928/#22927) still unmerged. |
+| `nvidia/Gemma-4-31B-IT-NVFP4`                 | Dense (30.7B)                      | NVFP4        | **untested** — dense path skips per-expert loading; SM121 NaN/scale issues (#22928/#22927) still apply and remain unmerged. |
 
 All use `Gemma4ForConditionalGeneration` as architecture. The BF16 variants
 get a native SGLang model class via PR #21952 (merged 2026-04-07). The NVFP4
@@ -140,16 +156,18 @@ which is shared across all variants.
 
 ## Upstream PRs
 
-Last `gh pr view` check: 2026-05-31. Three SM120/121 PRs (#22929, #22928, #22927) still no movement since 2026-04-16 (45 days, 6+ weeks). **#22615** was approved by `kpham-sgl` on 2026-04-22 and rebased onto main 2026-04-30, but a **new commit on 2026-05-23 invalidated that approval** — `reviewDecision` is now `REVIEW_REQUIRED` again. The flashinfer-side blocker ([flashinfer #2959](https://github.com/flashinfer-ai/flashinfer/pull/2959)) shipped in flashinfer v0.6.10–v0.6.11 and is no longer a gating dependency. Worth a polite nudge on the PR, noting it needs a fresh review cycle.
+Last `gh pr view` check: 2026-06-11. PRs #22929/#22928/#22927 still open and stale since 2026-04-16 (now 8 weeks). Their weight-loading and GEGLU concerns are partially superseded by #25054 (merged 2026-05-21); the SM121-specific NaN-clamp portions remain unmerged. **#22615** remains open, REVIEW_REQUIRED (last updated 2026-05-23). The flashinfer-side blocker ([flashinfer #2959](https://github.com/flashinfer-ai/flashinfer/pull/2959)) shipped in flashinfer v0.6.10–v0.6.11 and is no longer a gating dependency.
 
 | PR | Title | Status | Merged | Relevance |
 |----|-------|--------|--------|-----------|
 | [#21952](https://github.com/sgl-project/sglang/pull/21952) | [New Model] Gemma 4 | **merged** | 2026-04-07 | Native `gemma4_causal.py`, `gemma4_mm.py`, `gemma4_vision.py`, `gemma4_audio.py`. Foundation for all Gemma-4 support. Fixes the dual head_dim issue. **In our `main-gemma4-sm121` image — BF16 variants run thanks to this.** |
 | [#22079](https://github.com/sgl-project/sglang/pull/22079) | [nvidia] Gemma4 nvfp4 fix | **merged** | 2026-04-10 | Triton attention PTX register exhaustion fix for NVFP4 on GB200/sm100a. fp8 kv cache dtype autodetection. In our image. |
-| [#22929](https://github.com/sgl-project/sglang/pull/22929) | Add NVFP4 per-expert weight loading for Gemma 4 MoE | **open** | — | Per-expert → fused weight mapping for NVFP4 MoE checkpoints. **No movement since 2026-04-16.** |
-| [#22928](https://github.com/sgl-project/sglang/pull/22928) | fix(sm120): MoE GEGLU activation + FP4 block scale NaN clamp | **open** | — | GEGLU activation for `cutlass_moe_fp4()` + E4M3 NaN clamp. SM120/121 critical. **No movement since 2026-04-16.** |
-| [#22927](https://github.com/sgl-project/sglang/pull/22927) | fix(sm120): NVFP4 NaN from E4M3 scale overflow + 3D tensor shape crashes | **open** | — | Sister PR to #22928, also SM120/121-specific. Affects NVFP4 dense + MoE both. **No movement since 2026-04-16.** |
-| [#22615](https://github.com/sgl-project/sglang/pull/22615) | Fix fp8 KV cache crash with KV-shared layers in triton backend | **open** | — | fp8 kv cache + `num_kv_shared_layers > 0` (Gemma-4 has KV-shared layers). Open since 2026-04-12. Approved by `kpham-sgl` 2026-04-22, rebased onto main 2026-04-30. **2026-05-23 push invalidated the approval** — `reviewDecision` is now `REVIEW_REQUIRED` again. Needs a fresh review cycle. |
+| [#22929](https://github.com/sgl-project/sglang/pull/22929) | Add NVFP4 per-expert weight loading for Gemma 4 MoE | **open** | — | Per-expert → fused weight mapping for NVFP4 MoE checkpoints. **No movement since 2026-04-16 (8 weeks).** Weight-loading concern partially superseded by #25054 (merged 2026-05-21) which uses `FusedMoE.make_expert_params_mapping`; SM121-specific NaN-clamp portion remains unmerged. |
+| [#22928](https://github.com/sgl-project/sglang/pull/22928) | fix(sm120): MoE GEGLU activation + FP4 block scale NaN clamp | **open** | — | GEGLU activation for `cutlass_moe_fp4()` + E4M3 NaN clamp. SM120/121 critical. **No movement since 2026-04-16 (8 weeks).** GEGLU concern partially superseded by #25054 (merged 2026-05-21); SM121 NaN-clamp portion still unmerged. |
+| [#22927](https://github.com/sgl-project/sglang/pull/22927) | fix(sm120): NVFP4 NaN from E4M3 scale overflow + 3D tensor shape crashes | **open** | — | Sister PR to #22928, also SM120/121-specific. Affects NVFP4 dense + MoE both. **No movement since 2026-04-16 (8 weeks).** SM121 NaN/scale-overflow portion still unmerged. |
+| [#22615](https://github.com/sgl-project/sglang/pull/22615) | Fix fp8 KV cache crash with KV-shared layers in triton backend | **open** | — | fp8 kv cache + `num_kv_shared_layers > 0` (Gemma-4 has KV-shared layers). Open since 2026-04-12. Approved by `kpham-sgl` 2026-04-22, rebased onto main 2026-04-30. **2026-05-23 push invalidated the approval** — `reviewDecision` is now `REVIEW_REQUIRED`. Re-verified 2026-06-11: still open, REVIEW_REQUIRED. |
+| [#25054](https://github.com/sgl-project/sglang/pull/25054) | Support Gemma4 MoE NVFP4 | **merged** | 2026-05-21 | Fixes NVFP4 per-expert weight loading (`FusedMoE.make_expert_params_mapping` replaces regex-based per-expert code in `gemma4_causal.py`/`gemma4_mm.py`) and the GEGLU activation issue in `modelopt_quant.py`. Partially supersedes #22929/#22928 weight-loading/GEGLU concerns. **Benchmarked only on B200, NOT on SM121/GB10.** In v0.5.13 (tag 2026-06-11). |
+| [#26791](https://github.com/sgl-project/sglang/pull/26791) | Fix Gemma4 NVFP4 MoE default attention backend | **merged** | 2026-06-09 | Fixes `trtllm_mha` default causing MMLU 0.037 on Gemma4-26B-NVFP4 (completely broken output quality). Cherry-picked to `release/v0.5.13`. In v0.5.13 (tag 2026-06-11). |
 | [#22408](https://github.com/sgl-project/sglang/pull/22408) | [CI] Adding Gemma 4 to Nightly CI | **merged** | 2026-04-17 | Adds Gemma-4 to nightly accuracy tests. Increases pressure on the open NVFP4 PRs to land cleanly but doesn't itself fix anything for us. |
 | [#23575](https://github.com/sgl-project/sglang/pull/23575) | [AMD] fused qk gemma norm kernels | **merged** | 2026-04-25 | AMD-specific perf optimization, no impact on our NVIDIA SM121 deployment. |
 
@@ -172,22 +190,28 @@ the BF16 profiles point at). Both `google/gemma-4-31B-it` (dense) and
 To activate: set `sglang_active_model` in your inventory and run
 `ansible-playbook k8s_dgx.yml --tags sglang -e sglang_enabled=true`.
 
-### NVFP4 variants (nvidia/*, bg-digitalservices/*) — STILL BLOCKED
+### NVFP4 variants (nvidia/*, bg-digitalservices/*) — NEEDS LOCAL VALIDATION (v0.5.13)
 
-All of the following must be present:
+Update 2026-06-11: The "STILL BLOCKED" framing is superseded. PRs #25054
+(merged 2026-05-21) and #26791 (merged 2026-06-09) are now in v0.5.13 (tag
+cut 2026-06-11). The remaining prerequisite list:
 
 1. PR #21952 — native Gemma-4 model implementation (merged ✓)
 2. PR #22079 — NVFP4 quantization + fp8 kv cache fixes (merged ✓)
-3. PR #22929 — per-expert NVFP4 weight loading for MoE (**open**)
-4. PR #22928 — GEGLU activation + FP4 block scale NaN clamp, SM120/121 (**open**)
-5. PR #22927 — NVFP4 NaN from E4M3 scale overflow + 3D tensor shape, SM120/121 (**open**)
-6. PR #22615 — fp8 kv cache with KV-shared layers (**open**, may or may not apply)
+3. PR #25054 — NVFP4 per-expert weight loading + GEGLU fix (merged ✓, v0.5.13; **B200 only, SM121 unvalidated**)
+4. PR #26791 — correct attention backend default for NVFP4 MoE (merged ✓, v0.5.13)
+5. PR #22928 — SM121-specific E4M3 NaN clamp (**open**, stale since 2026-04-16 — **remaining open risk**)
+6. PR #22927 — SM121-specific NaN from E4M3 scale overflow + 3D shape (**open**, stale since 2026-04-16 — **remaining open risk**)
+7. PR #22615 — fp8 kv cache with KV-shared layers (**open**, REVIEW_REQUIRED — may or may not apply)
 
-The three SM120/121-specific PRs (#22929, #22928, #22927) have been sitting
-since 2026-04-16 with no review activity through 2026-05-31. #22615 was
-approved on 2026-04-22 and rebased on 2026-04-30, but a 2026-05-23 push
-invalidated the approval — it is back to REVIEW_REQUIRED and has not been
-merged.
+Items 1–4 are now present in v0.5.13. Items 5–6 are the critical remaining
+unknowns for SM121/GB10: PR #25054 was benchmarked on B200 only, and the
+E4M3 block-scale NaN-clamp issue it doesn't cover may still crash or corrupt
+output on SM121. Item 7 is a possible but unconfirmed risk.
+
+*(Superseded: previously "All of the following must be present" listed #22929/#22928/#22927
+as open blockers through 2026-05-31. #25054 partially addresses #22929/#22928
+weight-loading/GEGLU; #22927/#22928 NaN-clamp portions still open.)*
 
 Until they all merge upstream, we have three options:
 
