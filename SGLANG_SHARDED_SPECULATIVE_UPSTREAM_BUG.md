@@ -2,18 +2,21 @@
 
 ## Status
 
-**Unreported** as of 2026-05-31 (re-verified: GitHub search for "sharded_state
+**Unreported** as of 2026-06-11 (re-verified: GitHub search for "sharded_state
 speculative" / "speculative_draft_load_format sharded" in `sgl-project/sglang`
 still returns no issues or PRs). Bug exists in SGLang v0.5.9, v0.5.10rc0, v0.5.10,
-v0.5.10.post1, v0.5.11 (2026-05-05), v0.5.12 (2026-05-16), and **v0.5.12.post1**
+v0.5.10.post1, v0.5.11 (2026-05-05), v0.5.12 (2026-05-16), **v0.5.12.post1**
 (released 2026-05-26 — a DeepSeek-V4/disaggregation point release that contains no
-sharded_state + speculative fix). The relevant code in v0.5.11
+sharded_state + speculative fix), and **v0.5.13 (tag cut 2026-06-11T08:09:52Z, bare
+tag, no GitHub Release page yet)**. Commit search over the v0.5.12.post1..v0.5.13
+delta found no fix for the sharded_state + speculative draft-load bug; still
+unreported upstream. The relevant code in v0.5.11
 (`scheduler.py:669–675`) still only overrides `load_format` when
 `speculative_draft_load_format` is explicitly set, leaving the draft model with
 inherited `sharded_state` whenever the user doesn't pass the override flag — same
 failure mode as in 0.5.10. The workaround in `sglang_launch.sh` (force
 `--speculative-draft-load-format auto` when main `load_format=sharded_state`) is
-therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / dev1 images.
+therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 images.
 
 > **Note (2026-05-31):** SGLang v0.5.12 brings several *Spec-V2* reliability
 > fixes that are accessible via this very workaround once it gets the draft
@@ -23,6 +26,12 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / dev1 images.
 > MTP profiles on 0.5.12 is warranted (see `TODO_0.5.12.md` §5). This does not
 > change the workaround requirement — it just makes the path it unblocks
 > meaningfully better than on 0.5.9.
+
+> **Note (2026-06-11):** SGLang v0.5.13 brings further Spec-V2 changes:
+> Spec V1 deprecation (PR #25464), EAGLE draft kv_indices OOB fixes
+> (#27338, #27460), and FA3 EAGLE crash fix (#25002). The sharded_state
+> workaround is unaffected by these changes — the bug is upstream of the
+> speculative algorithm selection and is still unreported.
 
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`

@@ -6,6 +6,12 @@
 > hand-written `__init__` that gets bypassed by transformers 5.x's
 > auto-generated init for sub-configs). PR #22839 still open (last update
 > 2026-04-15), no merge. Monkey-patch in `sglang_launch.sh` still required.
+>
+> **Re-verified 2026-06-11:** PR #22839 still open (last update 2026-04-15),
+> PR #22618 still open (last update 2026-04-14). `qwen3_5.py` untouched on
+> main and `release/v0.5.13` since 2026-04-16. **v0.5.13** (tag cut
+> 2026-06-11, no GitHub Release page yet) does **not** contain a fix.
+> Monkey-patch in `sglang_launch.sh` still required.
 
 
 ## Summary
@@ -115,10 +121,10 @@ Reported for `AxionML/Qwen3.5-35B-A3B-NVFP4` on DGX Spark. Different root cause:
 
 ### sgl-project/sglang#22618 — Qwen3.5 `linear_attn` quantization guard for compressed-tensors NVFP4
 
-PR opened 2026-04-12, status **OPEN** (re-verified 2026-05-09, last touched 2026-04-14 — no movement since). Fixes silent weight-dropping for `compressed-tensors` NVFP4 checkpoints of Qwen3.5 hybrid models (RedHatAI/Qwen3.5-35B-A3B-NVFP4, RedHatAI/Qwen3.5-122B-A10B-NVFP4). Related to #20973 (same `linear_attn.in_proj_a.input_scale` symptom, different checkpoint format). **Not the same bug as the vision_config dict issue documented here** — this is a quantization guard issue in `qwen3_5.py`, not a `sub_configs` / auto-generated `__init__` problem.
+PR opened 2026-04-12, status **OPEN** (re-verified 2026-06-11, last touched 2026-04-14 — no movement since). Fixes silent weight-dropping for `compressed-tensors` NVFP4 checkpoints of Qwen3.5 hybrid models (RedHatAI/Qwen3.5-35B-A3B-NVFP4, RedHatAI/Qwen3.5-122B-A10B-NVFP4). Related to #20973 (same `linear_attn.in_proj_a.input_scale` symptom, different checkpoint format). **Not the same bug as the vision_config dict issue documented here** — this is a quantization guard issue in `qwen3_5.py`, not a `sub_configs` / auto-generated `__init__` problem.
 
 ## Upstream references
 
-- [PR #22839](https://github.com/sgl-project/sglang/pull/22839) — "fix(config): Add from_dict() for Qwen3VL config classes" (opened 2026-04-15 by `libermeng`, **OPEN** as of 2026-05-09 — no movement since 2026-04-15 author push, not in v0.5.11). Addresses the same root cause this doc describes ("Transformers 5.5.0+ natively supports Qwen3-VL, causing `AutoConfig.from_pretrained()` to skip sglang's config conversion logic. This leaves nested `vision_config` and `text_config` as dicts instead of config objects."). Different fix vehicle than ours: adds a `from_dict()` classmethod to `Qwen3VLConfig`/`Qwen3VLMoeConfig`/`Qwen3_5Config`/`Qwen3_5MoeConfig` and registers them in `_CONFIG_REGISTRY`, instead of hooking `__post_init__`. Also fixes `Qwen3_5MoeTextConfig` MoE attributes. Includes 9 unit tests. CI re-run requested 2026-04-15 — no human review since. **Not yet merged → our monkey-patch is still required.**
+- [PR #22839](https://github.com/sgl-project/sglang/pull/22839) — "fix(config): Add from_dict() for Qwen3VL config classes" (opened 2026-04-15 by `libermeng`, **OPEN** as of 2026-06-11 — no movement since 2026-04-15 author push, not in v0.5.11/v0.5.12/v0.5.13). Addresses the same root cause this doc describes ("Transformers 5.5.0+ natively supports Qwen3-VL, causing `AutoConfig.from_pretrained()` to skip sglang's config conversion logic. This leaves nested `vision_config` and `text_config` as dicts instead of config objects."). Different fix vehicle than ours: adds a `from_dict()` classmethod to `Qwen3VLConfig`/`Qwen3VLMoeConfig`/`Qwen3_5Config`/`Qwen3_5MoeConfig` and registers them in `_CONFIG_REGISTRY`, instead of hooking `__post_init__`. Also fixes `Qwen3_5MoeTextConfig` MoE attributes. Includes 9 unit tests. CI re-run requested 2026-04-15 — no human review since. **Not yet merged → our monkey-patch is still required.**
 - Related: transformers 5.x `PretrainedConfig.__init_subclass__` auto-init behavior
 - Related: sgl-project/sglang#20973 (different Qwen3.5 NVFP4 checkpoint, different bug)
