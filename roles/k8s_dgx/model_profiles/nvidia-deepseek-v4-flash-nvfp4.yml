@@ -1,0 +1,173 @@
+---
+# Model profile: nvidia/DeepSeek-V4-Flash-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# UNTESTED + UPSTREAM-BLOCKED first-contact (written 2026-06-12) — pre-staged so
+# the model can be flipped on the moment the blocker clears. Read the BLOCKER
+# section before deploying. Background: UPSTREAM_DSV4_BUGS.md (esp. §3/§5/§8).
+#
+# WHAT THIS CHECKPOINT IS (verified against HF 2026-06-12; repo created
+# 2026-05-18, last modified 2026-06-10 in the PR #25820 quant-config fix cycle):
+#   NVIDIA's official ModelOpt repackage of deepseek-ai/DeepSeek-V4-Flash.
+#   hf_quant_config.json: producer modelopt, version dsv4-nvfp4-experts,
+#   quant_algo MIXED_PRECISION — NVFP4 (group 16) ONLY on layers.*.ffn.experts;
+#   exclude_modules = *.attn.*, *.ffn.shared_experts.*, head, mtp.* .
+#   config.json additionally embeds quantization_config quant_method="fp8"
+#   (weight_block_size [128,128], scale_fmt ue8m0) for the non-expert base —
+#   i.e. block-FP8 base + NVFP4 routed experts. config.json expert_dtype="fp4".
+#   (A cast_mxfp4_to_nvfp4.log in the repo shows the experts were cast from an
+#   MXFP4 master.) 168.3 GB safetensors total (46 shards) → ~42 GB/GPU at TP=4,
+#   vs ~73.5 GB/GPU for sgl-project/DeepSeek-V4-Flash-FP8. That makes this the
+#   lightest OFFICIAL V4-Flash variant: big KV headroom for long context, and
+#   the FP8 profile's host-RAM/swap load story should not bite (the ~2× MoE
+#   fusion spike starts from a much smaller resident set).
+#   This is NOT compressed-tensors → the wqkv_a/fused_wqa_wkv matcher gap that
+#   kills the RedHatAI/kylesayrs/canada-quant repos (UPSTREAM_DSV4_BUGS.md §2)
+#   does NOT apply here.
+#
+# ── BLOCKER: SGLang NVFP4-MoE support for V4 is not merged ─────────────────────
+#   PR sgl-project/sglang#25820 "[NVIDIA] Support NVFP4 MoE for DeepSeek-V4" is
+#   still OPEN (2026-06-12: CI-blocked, 13 reviewers requested). Per its
+#   2026-06-11 comment "Flash NVFP4 is working now" (GSM8K 96.21% on B200, after
+#   the 2026-06-10 HF-side quant-config fix) — but NO SM120/121 test, and the PR
+#   is not in any release. Our current images (0.5.12.post1-based) have NO NVFP4
+#   path in models/deepseek_v4.py (only a w4afp8 branch) → expect failure at
+#   quant/MoE dispatch, before any kernel runs. Also needed: the FP4 indexer
+#   (#26209, merged 2026-06-02) and SM120 inference support (#24692, merged
+#   2026-06-01) — both first shipped in v0.5.13 (PyPI 2026-06-11, no sm121 image
+#   built yet). DEPLOY PATH: build a v0.5.13+ sm121 image that contains a merged
+#   #25820, then re-validate every kernel choice below. Until then this profile
+#   exists for preload (hf_preload_models) and as the staging target.
+#
+# Architecture (DeepseekV4ForCausalLM, model_type=deepseek_v4) — identical to
+# the other Flash checkpoints: 43 layers, hidden=4096, MQA (num_attention_heads
+# =64, num_key_value_heads=1, head_dim=512; DSA index/sparse attention,
+# index_topk=512), 256 routed experts + 1 shared, 6 active/token,
+# moe_intermediate_size=2048, q_lora_rank=1024, o_lora_rank=1024, 3 hash_moe
+# layers, 1 MTP head, vocab=129280. max_position_embeddings=1M via yarn
+# (factor 16 over 65536). topk_method=noaux_tc, scoring_func=sqrtsoftplus.
+#
+# kv_lora_rank NOTE: unlike sgl-project's FP8 checkpoint (kv_lora_rank: null →
+# strict-dataclass crash, UPSTREAM_DSV4_BUGS.md §1), this config.json OMITS the
+# key entirely → transformers' DeepseekV3Config default (512) applies and the
+# §1 crash should not fire. The sglang_launch.sh int|None widening patch stays
+# harmless either way (no-op for absent/int values).
+#
+# SM121 walls: same arch as the validated FP8 deployment, so walls 4/5/7 of
+# UPSTREAM_DSV4_BUGS.md §6 (DeepGEMM MHC-prenorm, paged_mqa_logits, TVM topk_v2)
+# are pre-emptively flipped to their fallbacks below. On a v0.5.13+ image walls
+# 0 and 6 are solved natively (§8) — the FlashMLA .pth hook and the seq_lens
+# squeeze patch become redundant but stay harmless.
+_model_profile:
+  "nvidia/DeepSeek-V4-Flash-NVFP4":
+    info_url: "https://huggingface.co/nvidia/DeepSeek-V4-Flash-NVFP4"
+    nccl_transport: "roce"
+    tp_size: 4
+    ep_size: 1
+    # 131072 conservative first-contact (model supports 1M via yarn). NVFP4
+    # experts free ~31 GB/GPU vs the FP8 checkpoint, so KV headroom is large —
+    # raise to 262144 / 524288 / 1048576 once the n=1 baseline confirms KV fits
+    # at the chosen mem_fraction_static.
+    context_length: 131072
+    # quantization: UNSET — auto-detect, like zai-org/GLM-4.7-FP8 and the
+    # sgl-project FP8 profile. config.json quantization_config.quant_method is
+    # "fp8" (the NVFP4 experts ride on moe_quant_algo/quantized_layers inside
+    # it — exactly the mixed layout PR #25820 implements). Do NOT set
+    # modelopt_fp4 (this is not a pure-ModelOpt-FP4 checkpoint like the
+    # Nemotrons) and do NOT set compressed-tensors. Re-verify the detect path
+    # once #25820 is merged — first thing to check in the boot log.
+    trust_remote_code: true
+    kv_cache_dtype: "fp8_e4m3"
+    # Standard mmap loader first-contact. The FP8 checkpoint's host-RAM SIGKILL
+    # at end-of-load (fusion spike on 121 GiB unified memory) is unlikely at
+    # ~42 GB/GPU resident, but keep the page-cache drop as cheap insurance.
+    load_format: "auto"
+    weight_loader_disable_mmap: false
+    weight_loader_drop_cache_after_load: true
+    # mem_fraction_static = post-weight KV reserve (higher = more KV; see the
+    # FP8 profile's wall-3 note). FP8 needed 0.90 because weights ate 73.5 of
+    # 121 GiB; here weights are ~42 GB/GPU so 0.85 already yields a huge pool
+    # (MQA num_key_value_heads=1 → tiny per-token KV anyway) while keeping a
+    # real reserve for CUDA-graph capture — which, unlike the FP8 profile, is
+    # ON here (see disable_cuda_graph below). Back off toward 0.80 if capture
+    # OOMs; raise once the boot log shows the actual KV/free split.
+    mem_fraction_static: "0.85"
+    # Kernel choices — UNVALIDATED until #25820 lands; derived from (a) the
+    # validated FP8-Flash deployment (identical arch/base quant) and (b) our
+    # NVFP4 experience on other models:
+    #  - flashinfer_cutlass MoE: the proven NVFP4-MoE path on this cluster
+    #    (qwen3-235b, glm-4.7, minimax-m2.7, nemotron-3). flashinfer_trtllm is
+    #    OFF THE TABLE — it asserts on exactly this model on B200 (#26324).
+    #    Whether #25820 even honours the runner flag on the mixed fp8+nvfp4
+    #    path is unknown (on the Nemotron modelopt path the triton flag was
+    #    silently ignored) — read the boot log, don't trust the flag.
+    #  - flashinfer attention: MLA/MQA-compatible (V4 DSA path), same as FP8.
+    #  - fp8_gemm cutlass: for the block-FP8 base; SM121 auto-selects
+    #    flashinfer→trtllm which is unsupported here.
+    #  - fp4_gemm flashinfer_cutlass: same as every NVFP4 winner on SM121
+    #    (fi_cudnn needs the cudnn wheel absent from our base images).
+    moe_runner_backend: "flashinfer_cutlass"
+    attention_backend: "flashinfer"
+    fp8_gemm_runner_backend: "cutlass"
+    fp4_gemm_backend: "flashinfer_cutlass"
+    # wo_a (o-LoRA proj) is in the attn exclude set → quantization state in the
+    # shards unverified (FP8 base or bf16). The sgl-project checkpoint shipped
+    # it bf16 → opt-on crashed with "Downcasting not allowed" (§6 wall 2).
+    # false = always-safe dequant-to-bf16; try true once the model loads clean.
+    opt_fp8_wo_a_gemm: false
+    # DeepGEMM has no sm_121 variant for two V4 kernels (DeepGEMM #317, SGLang
+    # #23657) → route both to fallbacks, same as the FP8 profile (§6 walls 4/5).
+    # Still required on v0.5.13 (§8: the gates check sm_version==120, not 121):
+    #  - hc_prenorm (MHC) → TileLang (crashes at kernel_warmup otherwise)
+    #  - paged_mqa_logits (DSA Lightning-Indexer) → torch (crashes at decode)
+    opt_deepgemm_hc_prenorm: false
+    fp8_paged_mqa_logits_torch: true
+    # C4-indexer top-k transform: TVM jit topk_transform_512_v2 dies on sm_121
+    # at decode (topk_v2.cuh:472 invalid argument; §6 wall 7, still unrouted on
+    # v0.5.13 per §8). Route to the torch fallback.
+    topk_transform_512_torch: true
+    disable_deep_gemm: true
+    # CUDA graphs ON — deliberate flip vs the FP8 sibling (which runs eager):
+    # eager mode is broken on any cutlass_moe_fp4 path on SM121 (kernel-crash
+    # matrix in TURBOQUANT.md), and the NVFP4 MoE here is expected to dispatch
+    # through exactly that family. Piecewise capture stays off (DSV4 piecewise
+    # is a known upstream trouble spot, #25526, and full-CG is our validated
+    # mode on every NVFP4 model).
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    cuda_graph_max_bs: 8
+    jit_max_jobs: 1
+    pp_async_batch_depth: 0
+    num_experts: 256
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
+    # DeepSeek V4 is NOT a hybrid-mamba arch (standard MoE + MLA/MQA) — leave
+    # mamba_scheduler_strategy empty, enable_spec_v2 default (false).
+    # SGLang parser registry (v0.5.12): reasoning "deepseek-v4" →
+    # _DeepSeekV3Detector, tool-call "deepseekv4" → DeepSeekV4Detector.
+    reasoning_parser: "deepseek-v4"
+    tool_call_parser: "deepseekv4"
+    # This repo's generation_config.json: temperature=1.0, top_p=1.0
+    # (do_sample=true, no top_k) — same as sgl-project's FP8 checkpoint, NOT
+    # the generic DeepSeek 0.6/0.95.
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 1.0
+    # MTP speculative decoding via the single num_nextn_predict_layers head
+    # (mtp.* is excluded from quantization → draft head stays high-precision).
+    # Per the SGLang cookbook V4-Flash MTP runs under the EAGLE framework with
+    # env SGLANG_ENABLE_SPEC_V2=1; balanced preset = steps 1 / draft-tokens 2.
+    # Disabled for first-contact — but NOTE #25704: V4-Pro NVFP4 on B200
+    # produced NaN/garbage in NON-speculative decode and only EAGLE worked. If
+    # the n=1 baseline here emits garbage, enabling EAGLE-MTP is the first
+    # experiment, not a perf tweak.
+    speculative_enabled: false
+    speculative_algo: NEXTN
+    speculative_num_steps: 1
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 2
+    # 0.5.12.post1-sm121 is the only image with the DSV4 walls handled, but its
+    # SGLang predates #25820/#26209/#24692 → serving this model on it WILL fail
+    # at the NVFP4-MoE dispatch (see BLOCKER above). Replace with the first
+    # v0.5.13+ sm121 build that contains a merged #25820.
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.12.post1-sm121"
