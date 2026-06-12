@@ -311,6 +311,15 @@ the global flag.
 >
 > **Patch 2 — rationale changes on v0.0.35+.** v0.0.35 stopped bundling prebuilt Flash-Attention 3 and instead relies on PyTorch-index wheels ("Rely on upstream FA3"). This means the **build-time** `XFORMERS_DISABLE_FLASH_ATTN=1` disable may be unnecessary on v0.0.35+ (there is no bundled FA3 to suppress at build time). However, the **runtime belt-and-braces** patch in `flash3.py` may still be warranted as defence against a stray FA3 wheel from the pip cache or a post-build install. Verify against a v0.0.35 build before dropping either: confirm `flash3._C_flashattention3 is None` without the build-time env var, then decide. Do NOT drop Patch 2 until verified. `XFORMERS_REF` and both patches are **unchanged** — evaluate before bumping.
 
+> **2026-06-12 — upstream `main` heads-up: xformers `fmha` migrated to `mslk` package (commit `ca6d2aa0`, 2026-04-21; NOT in any release).**
+>
+> On xformers `main` the entire `fmha` implementation was moved into a new package `mslk`. After commit `ca6d2aa0`, `xformers/ops/fmha/cutlass.py` is a one-line stub (`from mslk.attention.fmha.cutlass import BwOp, FwOp`), `flash3.py` likewise re-exports from `mslk.attention.fmha.flash3`, and a new stub `cutlass_blackwell.py` (→ `mslk.attention.fmha.cutlass_blackwell`) appeared — likely the future native-Blackwell path. The latest release remains v0.0.35 (2026-02-20); this change is not yet in any release.
+>
+> **Consequences:**
+> - Both patches remain valid for v0.0.32–v0.0.35 (all released versions to date).
+> - The **next xformers release** will require full patch re-evaluation: `Patch 1` modifies `cutlass.py` directly — on the new layout the real logic lives in `mslk`; patching the stub file has no effect. `Patch 2` modifies `flash3.py` — same: the stub re-exports from `mslk`, so runtime guarding must move there too.
+> - The maintenance guidance "watch `xformers/ops/fmha/cutlass.py` for device-capability handling" **no longer works on `main`** — the real implementation lives in the `mslk` package. When bumping `XFORMERS_REF` past v0.0.35, re-evaluate both patches against the `mslk` source tree, not the stub files.
+
 ### How to verify a candidate xformers version
 
 ```bash

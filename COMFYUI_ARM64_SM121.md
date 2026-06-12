@@ -71,6 +71,8 @@ Acceptable cost for guaranteed correctness; see Section 11 for leaner
 options if image size is a hard constraint.
 
 > **2026-06-11 note — CUTLASS 4.5.0 and future NGC bases:** CUTLASS 4.5.0 (2026-05-13) added working SM120/SM121 block-scaled MMA ("Block Scaled MMA for SM120 now works on Spark"). NGC PyTorch monthlies post-26.03 that pick up CUTLASS 4.5.x are therefore worth testing as base images once available. The statement that NGC remains the only verified-correct PyTorch base for sm121 is still accurate as of 2026-06-11 — scitrera recipes still carry the broken sm_121-only `NVCC_GENCODE` flag at tag v0.5.12.post1.
+>
+> **2026-06-12 note — NGC table currency:** the table above lists `26.03-py3` as the default (verified 2026-04-26). As of 2026-06-12 this is likely 2–3 NGC monthly releases behind (26.04, 26.05, and possibly 26.06 may be out — NGC release cadence is not verifiable via GitHub API). Re-verify against the current NGC monthly before starting a new image build; post-26.03 monthlies that pick up CUTLASS 4.5.x (per the 2026-06-11 note above) are worth preferring.
 
 ---
 
@@ -216,6 +218,13 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 #     route to PyTorch's compiled CUTLASS-FMHA dispatcher and crash on
 #     sm121. See COMFYUI_SM121_PATCHES.md for the patch content and
 #     scripts/comfyui/patches/ for the actual diffs.
+#
+#     NOTE (2026-06-12): this snippet pins v0.0.32, but per
+#     COMFYUI_SM121_PATCHES.md the patches were validated against v0.0.35
+#     (patch-compatible across v0.0.32–v0.0.35). Consider bumping
+#     XFORMERS_REF to v0.0.35 (latest release as of 2026-06-12); see
+#     COMFYUI_SM121_PATCHES.md Maintenance section before bumping past
+#     v0.0.35 (upstream main restructured fmha into the mslk package).
 RUN --mount=type=cache,target=/root/.cache/pip \
     git clone --depth 1 --branch v0.0.32 --recurse-submodules \
         https://github.com/facebookresearch/xformers.git /tmp/xformers && \
