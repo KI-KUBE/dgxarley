@@ -119,8 +119,10 @@
           USE_AUTH = true
 
           [llm]
-          # OPENAI_API_KEY comes from env LLM_OPENAI_API_KEY (the LiteLLM key).
-          # Every openai-transport module below picks up this key by default.
+          # No global key here on purpose. Every module below sets its OWN
+          # `api_key_env` pointing at a per-feature env var (HONCHO_<FEATURE>_API_KEY)
+          # supplied from the honcho-env Secret. LLM_OPENAI_API_KEY still exists in
+          # the Secret as a fallback for any module that omits api_key_env.
 
           # ---- Embeddings: direct to ollama-embed (bge-m3, {{ honcho_embedding_dimensions }}-dim) ----
           # NOT routed through LiteLLM (avoids OpenAI->Ollama param translation).
@@ -134,76 +136,86 @@
 
           [embedding.model_config.overrides]
           base_url = "{{ honcho_embedding_base }}"
+          api_key_env = "HONCHO_EMBEDDING_API_KEY"
 
-          # ---- Deriver (background memory worker) -> LiteLLM ----
+          # ---- Deriver (background memory worker) ----
           [deriver]
           ENABLED = true
           WORKERS = 1
 
           [deriver.model_config]
           transport = "openai"
-          model = "{{ honcho_model }}"
+          model = "{{ honcho_deriver_model }}"
 
           [deriver.model_config.overrides]
-          base_url = "{{ honcho_litellm_base }}"
+          base_url = "{{ honcho_deriver_base }}"
+          api_key_env = "HONCHO_DERIVER_API_KEY"
 
-          # ---- Dialectic (chat reasoning) -> LiteLLM, all 5 levels ----
+          # ---- Dialectic (chat reasoning), all 5 levels share the dialectic endpoint ----
           [dialectic.levels.minimal.model_config]
           transport = "openai"
-          model = "{{ honcho_model }}"
+          model = "{{ honcho_dialectic_model }}"
           [dialectic.levels.minimal.model_config.overrides]
-          base_url = "{{ honcho_litellm_base }}"
+          base_url = "{{ honcho_dialectic_base }}"
+          api_key_env = "HONCHO_DIALECTIC_API_KEY"
 
           [dialectic.levels.low.model_config]
           transport = "openai"
-          model = "{{ honcho_model }}"
+          model = "{{ honcho_dialectic_model }}"
           [dialectic.levels.low.model_config.overrides]
-          base_url = "{{ honcho_litellm_base }}"
+          base_url = "{{ honcho_dialectic_base }}"
+          api_key_env = "HONCHO_DIALECTIC_API_KEY"
 
           [dialectic.levels.medium.model_config]
           transport = "openai"
-          model = "{{ honcho_model }}"
+          model = "{{ honcho_dialectic_model }}"
           [dialectic.levels.medium.model_config.overrides]
-          base_url = "{{ honcho_litellm_base }}"
+          base_url = "{{ honcho_dialectic_base }}"
+          api_key_env = "HONCHO_DIALECTIC_API_KEY"
 
           [dialectic.levels.high.model_config]
           transport = "openai"
-          model = "{{ honcho_model }}"
+          model = "{{ honcho_dialectic_model }}"
           [dialectic.levels.high.model_config.overrides]
-          base_url = "{{ honcho_litellm_base }}"
+          base_url = "{{ honcho_dialectic_base }}"
+          api_key_env = "HONCHO_DIALECTIC_API_KEY"
 
           [dialectic.levels.max.model_config]
           transport = "openai"
-          model = "{{ honcho_model }}"
+          model = "{{ honcho_dialectic_model }}"
           [dialectic.levels.max.model_config.overrides]
-          base_url = "{{ honcho_litellm_base }}"
+          base_url = "{{ honcho_dialectic_base }}"
+          api_key_env = "HONCHO_DIALECTIC_API_KEY"
 
-          # ---- Summary -> LiteLLM ----
+          # ---- Summary ----
           [summary]
           ENABLED = true
 
           [summary.model_config]
           transport = "openai"
-          model = "{{ honcho_model }}"
+          model = "{{ honcho_summary_model }}"
 
           [summary.model_config.overrides]
-          base_url = "{{ honcho_litellm_base }}"
+          base_url = "{{ honcho_summary_base }}"
+          api_key_env = "HONCHO_SUMMARY_API_KEY"
 
-          # ---- Dream (periodic consolidation) -> LiteLLM ----
+          # ---- Dream (periodic consolidation) ----
           [dream]
           ENABLED = true
 
           [dream.deduction_model_config]
           transport = "openai"
-          model = "{{ honcho_model }}"
+          model = "{{ honcho_dream_model }}"
           [dream.deduction_model_config.overrides]
-          base_url = "{{ honcho_litellm_base }}"
+          base_url = "{{ honcho_dream_base }}"
+          api_key_env = "HONCHO_DREAM_API_KEY"
 
           [dream.induction_model_config]
           transport = "openai"
-          model = "{{ honcho_model }}"
+          model = "{{ honcho_dream_model }}"
           [dream.induction_model_config.overrides]
-          base_url = "{{ honcho_litellm_base }}"
+          base_url = "{{ honcho_dream_base }}"
+          api_key_env = "HONCHO_DREAM_API_KEY"
 
           [vector_store]
           TYPE = "pgvector"
@@ -233,10 +245,19 @@
         # psycopg v3 driver prefix is REQUIRED (postgresql+psycopg://), not the
         # bare postgresql:// that litellm uses — SQLAlchemy async needs psycopg3.
         DB_CONNECTION_URI: "postgresql+psycopg://honcho:{{ honcho_db_password }}@postgresql.postgresql.svc.cluster.local:5432/honcho"
-        # openai-transport key for every text-gen module (-> LiteLLM). Ollama
-        # ignores it on the embedding path. Master key is fine on this airgapped
+        # Global fallback key for any module that omits api_key_env. Each module
+        # in config.toml sets its own api_key_env -> one of the per-feature keys
+        # below, so this is rarely consulted. Master key is fine on this airgapped
         # cluster; swap to a per-app LiteLLM virtual key for a less-trusted setup.
         LLM_OPENAI_API_KEY: "{{ litellm_master_key }}"
+        # Per-feature LLM keys, referenced by api_key_env in config.toml. Defaults
+        # all point at litellm_master_key (group_vars/all/vault.yml); change one
+        # there to repoint that single feature at another provider's key.
+        HONCHO_DERIVER_API_KEY: "{{ honcho_deriver_api_key }}"
+        HONCHO_DIALECTIC_API_KEY: "{{ honcho_dialectic_api_key }}"
+        HONCHO_SUMMARY_API_KEY: "{{ honcho_summary_api_key }}"
+        HONCHO_DREAM_API_KEY: "{{ honcho_dream_api_key }}"
+        HONCHO_EMBEDDING_API_KEY: "{{ honcho_embedding_api_key }}"
         # Signs API bearer JWTs (auth.use_auth=true). Treat as immutable —
         # changing it invalidates every issued token.
         AUTH_JWT_SECRET: "{{ honcho_jwt_secret }}"
@@ -286,7 +307,7 @@
             labels:
               app: honcho-api
             annotations:
-              checksum/config: "{{ (honcho_model ~ honcho_litellm_base ~ honcho_embedding_model ~ honcho_embedding_base ~ (honcho_embedding_dimensions | string)) | hash('sha256') }}"
+              checksum/config: "{{ (honcho_deriver_base ~ honcho_dialectic_base ~ honcho_summary_base ~ honcho_dream_base ~ honcho_deriver_model ~ honcho_dialectic_model ~ honcho_summary_model ~ honcho_dream_model ~ honcho_embedding_model ~ honcho_embedding_base ~ (honcho_embedding_dimensions | string) ~ honcho_deriver_api_key ~ honcho_dialectic_api_key ~ honcho_summary_api_key ~ honcho_dream_api_key ~ honcho_embedding_api_key) | hash('sha256') }}"
           spec:
             nodeSelector:
               kubernetes.io/arch: amd64
@@ -378,7 +399,7 @@
             labels:
               app: honcho-deriver
             annotations:
-              checksum/config: "{{ (honcho_model ~ honcho_litellm_base ~ honcho_embedding_model ~ honcho_embedding_base ~ (honcho_embedding_dimensions | string)) | hash('sha256') }}"
+              checksum/config: "{{ (honcho_deriver_base ~ honcho_dialectic_base ~ honcho_summary_base ~ honcho_dream_base ~ honcho_deriver_model ~ honcho_dialectic_model ~ honcho_summary_model ~ honcho_dream_model ~ honcho_embedding_model ~ honcho_embedding_base ~ (honcho_embedding_dimensions | string) ~ honcho_deriver_api_key ~ honcho_dialectic_api_key ~ honcho_summary_api_key ~ honcho_dream_api_key ~ honcho_embedding_api_key) | hash('sha256') }}"
           spec:
             nodeSelector:
               kubernetes.io/arch: amd64

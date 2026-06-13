@@ -128,6 +128,18 @@ postgresql_honcho_password: "changeme"
 # issued tokens. The LiteLLM key Honcho uses is litellm_master_key (above).
 honcho_jwt_secret: "changeme-honcho-jwt-secret"
 
+# Honcho per-feature LLM API keys — dummy values; real ones in
+# group_vars/all/vault.yml. Each Honcho feature picks up its OWN key via
+# `api_key_env` in config.toml (see roles/k8s_dgx/tasks/honcho.yml), so you can
+# point e.g. dream at a different provider/key than deriver. Currently every
+# feature routes through LiteLLM, so the real values all = litellm_master_key.
+# (The embedding key is set for completeness; ollama-embed ignores it.)
+honcho_deriver_api_key: "sk-changeme"
+honcho_dialectic_api_key: "sk-changeme"
+honcho_summary_api_key: "sk-changeme"
+honcho_dream_api_key: "sk-changeme"
+honcho_embedding_api_key: "sk-changeme"
+
 # LiteLLM
 litellm_master_key: "sk-changeme"
 litellm_salt_key: "changeme-salt-key"

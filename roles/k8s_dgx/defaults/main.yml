@@ -1217,19 +1217,38 @@ honcho_port: 8000
 # Postgres job queue with startup jitter (no external broker).
 honcho_deriver_replicas: 1
 
-# Text-generation routing — all features (deriver, dialectic, summary, dream)
-# go through LiteLLM at the stable hermes-default alias (survives SGLang model
-# swaps). NOTE: Honcho requires TOOL/FUNCTION-CALLING models — the SGLang model
+# Per-feature LLM endpoint routing — every Honcho feature (deriver, dialectic,
+# summary, dream, AND embedding) gets its OWN base_url + model + API key, broken
+# out explicitly so any single feature can be repointed at a different provider
+# WITHOUT touching the others. Replaces the old shared honcho_model /
+# honcho_litellm_base (split per-feature 2026-06).
+# The API KEYS are intentionally NOT here (sensitive): dummies live in
+# group_vars/all/main.yml, real values in group_vars/all/vault.yml. They are
+# injected per-feature into the honcho-env Secret and referenced from config.toml
+# via `api_key_env`, so credentials never land in this public file.
+#
+# Defaults below merely point at what the cluster runs today (text-gen → LiteLLM
+# hermes-default alias; embedding → ollama-embed). They are NOT hardwired — set
+# any *_base / *_model to another OpenAI-compatible endpoint and its key in vault.
+# NOTE: text-gen features need TOOL/FUNCTION-CALLING models — the SGLang model
 # behind hermes-default must have a working tool_call_parser, else the deriver
-# rejects/errors. The LLM key is litellm_master_key (airgapped cluster); swap to
-# a per-app LiteLLM virtual key for a less-trusted setup.
-honcho_model: "{{ litellm_hermes_alias_model }}"
-honcho_litellm_base: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
+# rejects/errors.
 
-# Embedding routing — direct to the ollama-embed service (the same path OpenWebUI
-# uses), NOT through LiteLLM, to avoid OpenAI→Ollama param-translation surprises.
-honcho_embedding_model: "{{ ollama_embed_model }}"
+# --- base URLs (OpenAI-compatible /v1) ---
+honcho_deriver_base: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
+honcho_dialectic_base: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
+honcho_summary_base: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
+honcho_dream_base: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
+# Embedding defaults to ollama-embed direct (the path OpenWebUI uses), NOT through
+# LiteLLM, to avoid OpenAI→Ollama param-translation surprises — but it's a plain
+# overridable endpoint like the rest: repoint it anywhere OpenAI-compatible.
 honcho_embedding_base: "{{ openwebui_embedding_ollama_url }}/v1"
+# --- models ---
+honcho_deriver_model: "{{ litellm_hermes_alias_model }}"
+honcho_dialectic_model: "{{ litellm_hermes_alias_model }}"
+honcho_summary_model: "{{ litellm_hermes_alias_model }}"
+honcho_dream_model: "{{ litellm_hermes_alias_model }}"
+honcho_embedding_model: "{{ ollama_embed_model }}"
 # CRITICAL: must equal the embedding model's native dimension (bge-m3 = 1024).
 # pgvector fixes the column dimension at the FIRST migration — changing this
 # later requires re-creating the honcho DB (wipe + re-provision). Default 1536
