@@ -1249,6 +1249,19 @@ honcho_dialectic_model: "{{ litellm_hermes_alias_model }}"
 honcho_summary_model: "{{ litellm_hermes_alias_model }}"
 honcho_dream_model: "{{ litellm_hermes_alias_model }}"
 honcho_embedding_model: "{{ ollama_embed_model }}"
+
+# --- per-feature API keys (DUMMIES) ---
+# Lowest-precedence dummies so the role is self-contained and never undefined.
+# Overridden by the public dummies in group_vars/all/main.yml and ultimately by
+# the REAL values in group_vars/all/vault.yml (defaults < group_vars main < vault).
+# Sensitive — never put a real key here. Referenced by api_key_env in config.toml
+# (HONCHO_<FEATURE>_API_KEY) via the honcho-env Secret.
+honcho_deriver_api_key: "sk-changeme"
+honcho_dialectic_api_key: "sk-changeme"
+honcho_summary_api_key: "sk-changeme"
+honcho_dream_api_key: "sk-changeme"
+honcho_embedding_api_key: "sk-changeme"
+
 # CRITICAL: must equal the embedding model's native dimension (bge-m3 = 1024).
 # pgvector fixes the column dimension at the FIRST migration — changing this
 # later requires re-creating the honcho DB (wipe + re-provision). Default 1536
