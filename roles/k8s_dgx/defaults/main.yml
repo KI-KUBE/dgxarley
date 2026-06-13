@@ -1186,3 +1186,52 @@ hermes_seadrive_image_tag: "latest"
 # Hostnames: <username>.hermes-dashboard.<dns> (original)  +  <username>.hermes.<dns> (webui)
 hermes_users: []
 
+
+
+# ============================================================================
+# Honcho — AI memory / ambient-agent personalization backend
+# ============================================================================
+# Deployed by roles/k8s_dgx/tasks/honcho.yml (tag: honcho). Two Deployments
+# from one pinned image (ghcr.io/plastic-labs/honcho, public multi-arch):
+#   honcho-api      — FastAPI on :8000 (/health), Alembic migrations run as an
+#                     initContainer (scripts/provision_db.py) before serving.
+#   honcho-deriver  — poll-based background worker (python -m src.deriver); no
+#                     HTTP port; derives memory + runs the periodic "dream"
+#                     consolidation against the LLM. Waits for honcho-api/health
+#                     via an initContainer so the schema is migrated first.
+# Postgres: dedicated `honcho` DB on the shared instance, pgvector enabled IN
+# that DB (VECTOR_STORE_TYPE=pgvector keeps embeddings in the app DB). Password
+# flows postgresql-secrets → k8s_info → app Secret, same as litellm.
+# Config: non-sensitive model routing lives in a mounted config.toml (ConfigMap);
+# only DB_CONNECTION_URI / LLM_OPENAI_API_KEY / AUTH_JWT_SECRET are env (Secret).
+# env overrides config.toml in Honcho's settings precedence.
+honcho_enabled: true
+honcho_namespace: "honcho"
+# PINNED — Honcho moves fast and auto-migrates the DB schema on api start, so a
+# pinned tag avoids surprise schema changes on pull. Bump deliberately; re-check
+# .env.template / config.toml.example for new/renamed keys when you do. No keel
+# auto-update annotations on this deployment by design.
+honcho_image: "ghcr.io/plastic-labs/honcho:v3.0.9"
+honcho_port: 8000
+# Number of deriver worker pods. Safe to scale >1 — derivers coordinate via the
+# Postgres job queue with startup jitter (no external broker).
+honcho_deriver_replicas: 1
+
+# Text-generation routing — all features (deriver, dialectic, summary, dream)
+# go through LiteLLM at the stable hermes-default alias (survives SGLang model
+# swaps). NOTE: Honcho requires TOOL/FUNCTION-CALLING models — the SGLang model
+# behind hermes-default must have a working tool_call_parser, else the deriver
+# rejects/errors. The LLM key is litellm_master_key (airgapped cluster); swap to
+# a per-app LiteLLM virtual key for a less-trusted setup.
+honcho_model: "{{ litellm_hermes_alias_model }}"
+honcho_litellm_base: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
+
+# Embedding routing — direct to the ollama-embed service (the same path OpenWebUI
+# uses), NOT through LiteLLM, to avoid OpenAI→Ollama param-translation surprises.
+honcho_embedding_model: "{{ ollama_embed_model }}"
+honcho_embedding_base: "{{ openwebui_embedding_ollama_url }}/v1"
+# CRITICAL: must equal the embedding model's native dimension (bge-m3 = 1024).
+# pgvector fixes the column dimension at the FIRST migration — changing this
+# later requires re-creating the honcho DB (wipe + re-provision). Default 1536
+# (OpenAI text-embedding-3-small) would NOT fit bge-m3 vectors.
+honcho_embedding_dimensions: 1024

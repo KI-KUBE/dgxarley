@@ -74,6 +74,10 @@
   ansible.builtin.import_tasks: litellm.yml
   tags: litellm
 
+- name: Deploy Honcho AI memory backend
+  ansible.builtin.import_tasks: honcho.yml
+  tags: honcho
+
 - name: Deploy ComfyUI image generation playground
   ansible.builtin.import_tasks: comfyui.yml
   tags: comfyui

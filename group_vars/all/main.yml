@@ -119,6 +119,14 @@ qsfp_sriov_assignments:
 postgresql_postgres_password: "changeme"
 postgresql_openwebui_password: "changeme"
 postgresql_litellm_password: "changeme"
+postgresql_honcho_password: "changeme"
+
+# Honcho (AI memory backend) — dummy values; override the real ones in
+# group_vars/all/vault.yml. honcho_jwt_secret signs the API's bearer JWTs
+# (AUTH_USE_AUTH=true); generate with `python scripts/generate_jwt_secret.py`
+# in the honcho repo, or any long random string. Changing it invalidates all
+# issued tokens. The LiteLLM key Honcho uses is litellm_master_key (above).
+honcho_jwt_secret: "changeme-honcho-jwt-secret"
 
 # LiteLLM
 litellm_master_key: "sk-changeme"

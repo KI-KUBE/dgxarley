@@ -1,0 +1,542 @@
+---
+# Honcho — AI memory / ambient-agent personalization backend.
+# Two Deployments from one pinned public image (honcho-api + honcho-deriver),
+# a dedicated pgvector-enabled Postgres DB on the shared instance, all model
+# routing through LiteLLM (text-gen) and ollama-embed (embeddings). See the
+# honcho_* block in defaults/main.yml for the knobs and rationale.
+
+- name: Create honcho namespace
+  kubernetes.core.k8s:
+    name: "{{ honcho_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+
+
+# ============================================================================
+# PostgreSQL database check/create (idempotent) + pgvector
+# ============================================================================
+# The init-script 5_createdb_honcho.sh (kubectlstuff_postgresql.yml) only runs
+# on a fresh PG data dir. For existing clusters we ensure the honcho role, DB
+# and the pgvector extension exist at runtime — same pattern as litellm, with
+# the added CREATE EXTENSION because Honcho keeps its embeddings in this DB.
+
+- name: Get honcho database password from postgresql-secrets
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: postgresql-secrets
+    namespace: postgresql
+  register: honcho_postgresql_secrets_info
+
+- name: Set honcho credential facts
+  ansible.builtin.set_fact:
+    honcho_db_password: "{{ honcho_postgresql_secrets_info.resources[0].data.HONCHO_POSTGRES_PASSWORD | b64decode }}"
+
+- name: Get PostgreSQL pod
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: postgresql
+    label_selectors:
+      - app=postgresql
+  register: honcho_postgresql_pods
+
+- name: Set PostgreSQL pod name fact
+  ansible.builtin.set_fact:
+    honcho_postgresql_pod_name: "{{ honcho_postgresql_pods.resources[0].metadata.name }}"
+
+- name: Ensure honcho user, database and pgvector extension exist in PostgreSQL
+  kubernetes.core.k8s_exec:
+    namespace: postgresql
+    pod: "{{ honcho_postgresql_pod_name }}"
+    command: |
+      bash -c '
+        set -e
+        HONCHO_PASSWORD="{{ honcho_db_password }}"
+
+        if psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='\''honcho'\''" | grep -q 1; then
+          psql -U postgres -c "ALTER USER honcho WITH PASSWORD '\''${HONCHO_PASSWORD}'\'';"
+          echo "User honcho: exists (password ensured)"
+        else
+          psql -U postgres -c "CREATE USER honcho WITH PASSWORD '\''${HONCHO_PASSWORD}'\'';"
+          echo "User honcho: created"
+        fi
+
+        if psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='\''honcho'\''" | grep -q 1; then
+          echo "Database honcho: exists"
+        else
+          psql -U postgres -c "CREATE DATABASE honcho OWNER honcho;"
+          psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE honcho TO honcho;"
+          echo "Database honcho: created"
+        fi
+
+        # pgvector lives in the honcho DB itself (VECTOR_STORE_TYPE=pgvector).
+        # Idempotent — IF NOT EXISTS.
+        psql -U postgres -d honcho -c "CREATE EXTENSION IF NOT EXISTS vector;"
+      '
+  register: honcho_db_ensure
+  changed_when: "'created' in honcho_db_ensure.stdout"
+
+
+# ============================================================================
+# Config (non-sensitive model routing) — mounted as /app/config.toml
+# ============================================================================
+# Honcho settings precedence is env > config.toml, so secrets (DB URI, LLM key,
+# JWT secret) are injected via the honcho-env Secret and deliberately kept OUT
+# of this ConfigMap. Everything here is non-sensitive endpoint/model routing.
+
+- name: Create honcho config (config.toml)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: honcho-config
+        namespace: "{{ honcho_namespace }}"
+      data:
+        config.toml: |
+          # Managed by Ansible (roles/k8s_dgx/tasks/honcho.yml). Do not edit in
+          # the cluster — changes are overwritten on the next playbook run.
+          # Secrets (db.connection_uri, llm.openai_api_key, auth.jwt_secret) are
+          # supplied via env from the honcho-env Secret and override this file.
+
+          [app]
+          LOG_LEVEL = "INFO"
+          NAMESPACE = "honcho"
+          EMBED_MESSAGES = true
+
+          [db]
+          # CONNECTION_URI comes from env DB_CONNECTION_URI (contains the password).
+          POOL_PRE_PING = true
+          POOL_SIZE = 10
+          MAX_OVERFLOW = 20
+          CONNECT_TIMEOUT_SECONDS = 5
+
+          [auth]
+          # JWT_SECRET comes from env AUTH_JWT_SECRET.
+          USE_AUTH = true
+
+          [llm]
+          # OPENAI_API_KEY comes from env LLM_OPENAI_API_KEY (the LiteLLM key).
+          # Every openai-transport module below picks up this key by default.
+
+          # ---- Embeddings: direct to ollama-embed (bge-m3, {{ honcho_embedding_dimensions }}-dim) ----
+          # NOT routed through LiteLLM (avoids OpenAI->Ollama param translation).
+          # VECTOR_DIMENSIONS is fixed into the pgvector column at first migration.
+          [embedding]
+          VECTOR_DIMENSIONS = {{ honcho_embedding_dimensions }}
+
+          [embedding.model_config]
+          transport = "openai"
+          model = "{{ honcho_embedding_model }}"
+
+          [embedding.model_config.overrides]
+          base_url = "{{ honcho_embedding_base }}"
+
+          # ---- Deriver (background memory worker) -> LiteLLM ----
+          [deriver]
+          ENABLED = true
+          WORKERS = 1
+
+          [deriver.model_config]
+          transport = "openai"
+          model = "{{ honcho_model }}"
+
+          [deriver.model_config.overrides]
+          base_url = "{{ honcho_litellm_base }}"
+
+          # ---- Dialectic (chat reasoning) -> LiteLLM, all 5 levels ----
+          [dialectic.levels.minimal.model_config]
+          transport = "openai"
+          model = "{{ honcho_model }}"
+          [dialectic.levels.minimal.model_config.overrides]
+          base_url = "{{ honcho_litellm_base }}"
+
+          [dialectic.levels.low.model_config]
+          transport = "openai"
+          model = "{{ honcho_model }}"
+          [dialectic.levels.low.model_config.overrides]
+          base_url = "{{ honcho_litellm_base }}"
+
+          [dialectic.levels.medium.model_config]
+          transport = "openai"
+          model = "{{ honcho_model }}"
+          [dialectic.levels.medium.model_config.overrides]
+          base_url = "{{ honcho_litellm_base }}"
+
+          [dialectic.levels.high.model_config]
+          transport = "openai"
+          model = "{{ honcho_model }}"
+          [dialectic.levels.high.model_config.overrides]
+          base_url = "{{ honcho_litellm_base }}"
+
+          [dialectic.levels.max.model_config]
+          transport = "openai"
+          model = "{{ honcho_model }}"
+          [dialectic.levels.max.model_config.overrides]
+          base_url = "{{ honcho_litellm_base }}"
+
+          # ---- Summary -> LiteLLM ----
+          [summary]
+          ENABLED = true
+
+          [summary.model_config]
+          transport = "openai"
+          model = "{{ honcho_model }}"
+
+          [summary.model_config.overrides]
+          base_url = "{{ honcho_litellm_base }}"
+
+          # ---- Dream (periodic consolidation) -> LiteLLM ----
+          [dream]
+          ENABLED = true
+
+          [dream.deduction_model_config]
+          transport = "openai"
+          model = "{{ honcho_model }}"
+          [dream.deduction_model_config.overrides]
+          base_url = "{{ honcho_litellm_base }}"
+
+          [dream.induction_model_config]
+          transport = "openai"
+          model = "{{ honcho_model }}"
+          [dream.induction_model_config.overrides]
+          base_url = "{{ honcho_litellm_base }}"
+
+          [vector_store]
+          TYPE = "pgvector"
+          NAMESPACE = "honcho"
+
+          [cache]
+          ENABLED = false
+
+          [metrics]
+          ENABLED = false
+
+          [telemetry]
+          ENABLED = false
+
+
+- name: Create honcho env secret (DB URL, LLM key, JWT secret)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: honcho-env
+        namespace: "{{ honcho_namespace }}"
+      type: Opaque
+      stringData:
+        # psycopg v3 driver prefix is REQUIRED (postgresql+psycopg://), not the
+        # bare postgresql:// that litellm uses — SQLAlchemy async needs psycopg3.
+        DB_CONNECTION_URI: "postgresql+psycopg://honcho:{{ honcho_db_password }}@postgresql.postgresql.svc.cluster.local:5432/honcho"
+        # openai-transport key for every text-gen module (-> LiteLLM). Ollama
+        # ignores it on the embedding path. Master key is fine on this airgapped
+        # cluster; swap to a per-app LiteLLM virtual key for a less-trusted setup.
+        LLM_OPENAI_API_KEY: "{{ litellm_master_key }}"
+        # Signs API bearer JWTs (auth.use_auth=true). Treat as immutable —
+        # changing it invalidates every issued token.
+        AUTH_JWT_SECRET: "{{ honcho_jwt_secret }}"
+
+
+- name: Create honcho-api service
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      kind: Service
+      apiVersion: v1
+      metadata:
+        name: honcho-api
+        namespace: "{{ honcho_namespace }}"
+        labels:
+          app: honcho-api
+      spec:
+        selector:
+          app: honcho-api
+        ports:
+          - port: "{{ honcho_port }}"
+            name: http
+            targetPort: "{{ honcho_port }}"
+            protocol: TCP
+
+
+- name: Create honcho-api deployment
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: honcho-api
+        namespace: "{{ honcho_namespace }}"
+        labels:
+          app: honcho-api
+      spec:
+        replicas: "{{ 1 if honcho_enabled else 0 }}"
+        strategy:
+          type: Recreate
+        selector:
+          matchLabels:
+            app: honcho-api
+        template:
+          metadata:
+            labels:
+              app: honcho-api
+            annotations:
+              checksum/config: "{{ (honcho_model ~ honcho_litellm_base ~ honcho_embedding_model ~ honcho_embedding_base ~ (honcho_embedding_dimensions | string)) | hash('sha256') }}"
+          spec:
+            nodeSelector:
+              kubernetes.io/arch: amd64
+            dnsConfig:
+              options:
+                - name: ndots
+                  value: "1"
+            initContainers:
+              # Alembic migrations (Honcho's docker/entrypoint.sh step). pgvector
+              # already exists (DB-provisioning task above / initdb script), so
+              # provision_db.py only creates/updates the schema. The api CMD does
+              # NOT migrate on its own, hence this explicit step.
+              - name: db-migrate
+                image: "{{ honcho_image }}"
+                imagePullPolicy: IfNotPresent
+                workingDir: /app
+                command: ["/app/.venv/bin/python", "scripts/provision_db.py"]
+                envFrom:
+                  - secretRef:
+                      name: honcho-env
+                volumeMounts:
+                  - name: config
+                    mountPath: /app/config.toml
+                    subPath: config.toml
+                    readOnly: true
+            containers:
+              - name: honcho-api
+                image: "{{ honcho_image }}"
+                imagePullPolicy: IfNotPresent
+                workingDir: /app
+                command: ["/app/.venv/bin/fastapi", "run", "--host", "0.0.0.0", "--port", "{{ honcho_port | string }}", "src/main.py"]
+                ports:
+                  - containerPort: "{{ honcho_port }}"
+                    protocol: TCP
+                envFrom:
+                  - secretRef:
+                      name: honcho-env
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 512Mi
+                  limits:
+                    cpu: "1"
+                    memory: 1Gi
+                readinessProbe:
+                  httpGet:
+                    path: /health
+                    port: "{{ honcho_port }}"
+                  initialDelaySeconds: 10
+                  periodSeconds: 15
+                livenessProbe:
+                  httpGet:
+                    path: /health
+                    port: "{{ honcho_port }}"
+                  initialDelaySeconds: 30
+                  periodSeconds: 30
+                volumeMounts:
+                  - name: config
+                    mountPath: /app/config.toml
+                    subPath: config.toml
+                    readOnly: true
+            restartPolicy: Always
+            volumes:
+              - name: config
+                configMap:
+                  name: honcho-config
+
+
+- name: Create honcho-deriver deployment
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: honcho-deriver
+        namespace: "{{ honcho_namespace }}"
+        labels:
+          app: honcho-deriver
+      spec:
+        replicas: "{{ honcho_deriver_replicas if honcho_enabled else 0 }}"
+        strategy:
+          type: Recreate
+        selector:
+          matchLabels:
+            app: honcho-deriver
+        template:
+          metadata:
+            labels:
+              app: honcho-deriver
+            annotations:
+              checksum/config: "{{ (honcho_model ~ honcho_litellm_base ~ honcho_embedding_model ~ honcho_embedding_base ~ (honcho_embedding_dimensions | string)) | hash('sha256') }}"
+          spec:
+            nodeSelector:
+              kubernetes.io/arch: amd64
+            dnsConfig:
+              options:
+                - name: ndots
+                  value: "1"
+            initContainers:
+              # Block until the api has migrated + is serving, so the deriver's
+              # schema validation does not crash-loop on a fresh/empty DB.
+              - name: wait-for-api
+                image: "{{ honcho_image }}"
+                imagePullPolicy: IfNotPresent
+                command:
+                  - sh
+                  - -c
+                  - >-
+                    until /app/.venv/bin/python -c
+                    "import urllib.request,sys; urllib.request.urlopen('http://honcho-api.{{ honcho_namespace }}.svc.cluster.local:{{ honcho_port }}/health', timeout=2)";
+                    do echo 'waiting for honcho-api /health'; sleep 5; done
+            containers:
+              - name: honcho-deriver
+                image: "{{ honcho_image }}"
+                imagePullPolicy: IfNotPresent
+                workingDir: /app
+                command: ["/app/.venv/bin/python", "-m", "src.deriver"]
+                envFrom:
+                  - secretRef:
+                      name: honcho-env
+                resources:
+                  requests:
+                    cpu: 100m
+                    memory: 512Mi
+                  limits:
+                    cpu: "2"
+                    memory: 2Gi
+                volumeMounts:
+                  - name: config
+                    mountPath: /app/config.toml
+                    subPath: config.toml
+                    readOnly: true
+            restartPolicy: Always
+            volumes:
+              - name: config
+                configMap:
+                  name: honcho-config
+
+
+- name: Create honcho ip-allowlist middleware
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: honcho-ip-allowlist
+        namespace: "{{ honcho_namespace }}"
+      spec:
+        ipAllowList:
+          sourceRange: "{{ traefik_internal_allowlist }}"
+
+
+- name: Create honcho http to https redirect middleware
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: redirect-myhttps
+        namespace: "{{ honcho_namespace }}"
+      spec:
+        redirectScheme:
+          scheme: https
+
+
+- name: Create honcho TLS certificate
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: "honcho.{{ dns_external_domain_suffix }}"
+        namespace: "{{ honcho_namespace }}"
+      spec:
+        dnsNames:
+          - "honcho.{{ dns_external_domain_suffix }}"
+        secretName: "honcho.{{ dns_external_domain_suffix }}"
+        issuerRef:
+          name: letsencrypt-production
+          kind: ClusterIssuer
+
+
+- name: Create honcho http ingressroute with redirect
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: IngressRoute
+      metadata:
+        name: honcho-ingress
+        namespace: "{{ honcho_namespace }}"
+      spec:
+        entryPoints:
+          - web
+        routes:
+          - kind: Rule
+            match: "Host(`honcho.{{ dns_external_domain_suffix }}`)"
+            priority: 10
+            services:
+              - kind: Service
+                name: honcho-api
+                namespace: "{{ honcho_namespace }}"
+                passHostHeader: true
+                port: "{{ honcho_port }}"
+            middlewares:
+              - name: redirect-myhttps
+              - name: honcho-ip-allowlist
+
+
+- name: Create honcho https ingressroute
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: IngressRoute
+      metadata:
+        name: honcho-https-ingress
+        namespace: "{{ honcho_namespace }}"
+      spec:
+        entryPoints:
+          - websecure
+        routes:
+          - kind: Rule
+            match: "Host(`honcho.{{ dns_external_domain_suffix }}`)"
+            priority: 10
+            middlewares:
+              - name: honcho-ip-allowlist
+            services:
+              - kind: Service
+                name: honcho-api
+                namespace: "{{ honcho_namespace }}"
+                passHostHeader: true
+                port: "{{ honcho_port }}"
+        tls:
+          secretName: "honcho.{{ dns_external_domain_suffix }}"
+
+
+- name: Register DNS A record for honcho
+  community.general.nsupdate:
+    server: "{{ nsupdate_server }}"
+    zone: "{{ nsupdate_zone }}"
+    key_name: "{{ nsupdate_tsig_key_name }}"
+    key_secret: "{{ nsupdate_tsig_key_secret }}"
+    key_algorithm: "{{ nsupdate_tsig_algorithm }}"
+    record: "honcho.{{ dns_external_domain_suffix }}."
+    type: A
+    ttl: "{{ nsupdate_ttl }}"
+    value: "{{ nsupdate_ingress_ip }}"
+    state: present
