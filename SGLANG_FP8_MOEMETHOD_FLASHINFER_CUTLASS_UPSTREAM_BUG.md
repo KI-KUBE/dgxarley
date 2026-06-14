@@ -41,6 +41,16 @@ The SM12.0a hardware constraint (no SM90 CUTLASS FP8-block kernel) is
 unchanged; the workaround (`moe_runner_backend: triton`) remains the correct
 cluster configuration.
 
+**Re-verified 2026-06-14:** SGLang **v0.5.13** was published as a full GitHub
+Release on 2026-06-13 (previously only a bare git tag as of 2026-06-12). The
+v0.5.13 release notes contain **no `Fp8MoEMethod` / `flashinfer_cutlass` fix**.
+PR #27968 remains **open and unmerged**; Issue #27951 remains **open**;
+PR #21872 remains **open** (last update 2026-04-01, stagnant). Bug is
+unresolved in v0.5.13. `scitrera/dgx-spark-sglang:0.5.13` does not yet exist
+on DockerHub (latest scitrera image remains `0.5.12`); cluster default stays
+`xomoxcc/dgx-spark-sglang:0.5.12.post1-sm121`. Workaround (`moe_runner_backend:
+triton`) stays in effect.
+
 Adjacent open work:
 
 - [PR #21872](https://github.com/sgl-project/sglang/pull/21872)

@@ -7,16 +7,29 @@ speculative" / "speculative_draft_load_format sharded" in `sgl-project/sglang`
 still returns no issues or PRs). Bug exists in SGLang v0.5.9, v0.5.10rc0, v0.5.10,
 v0.5.10.post1, v0.5.11 (2026-05-05), v0.5.12 (2026-05-16), **v0.5.12.post1**
 (released 2026-05-26 — a DeepSeek-V4/disaggregation point release that contains no
-sharded_state + speculative fix), and **v0.5.13 (tag cut 2026-06-11T08:09:52Z, bare
-tag, no GitHub Release page yet)**. Commit search over the v0.5.12.post1..v0.5.13
-delta found no fix for the sharded_state + speculative draft-load bug; still
-unreported upstream. The relevant code in v0.5.11
+sharded_state + speculative fix), and **v0.5.13 (official GitHub Release published
+2026-06-13)**. Commit search over the v0.5.12.post1..v0.5.13 delta found no fix for
+the sharded_state + speculative draft-load bug; `scheduler.py:maybe_init_draft_worker`
+is unchanged; still unreported upstream. The relevant code in v0.5.11
 (`scheduler.py:669–675`) still only overrides `load_format` when
 `speculative_draft_load_format` is explicitly set, leaving the draft model with
 inherited `sharded_state` whenever the user doesn't pass the override flag — same
 failure mode as in 0.5.10. The workaround in `sglang_launch.sh` (force
 `--speculative-draft-load-format auto` when main `load_format=sharded_state`) is
 therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 images.
+
+> **Re-verified 2026-06-14:** v0.5.13 is an official GitHub Release since
+> 2026-06-13. The sharded_state + speculative draft-load bug remains UNFIXED
+> (source-confirmed: `scheduler.py:maybe_init_draft_worker` unchanged). Bug
+> still unreported upstream. **New archaeological note:** Spec V1 was
+> deprecated/removed in v0.5.13 via PR #25464 (merged 2026-06-08) —
+> EAGLE/EAGLE3/MTP/NEXTN now run on the unified V2 worker. The traceback
+> path `speculative/eagle_worker.py` no longer exists in v0.5.13; V2 uses
+> a different worker class, but the root cause (draft model inheriting
+> `sharded_state` from main model's ServerArgs when
+> `speculative_draft_load_format` is unset) is upstream of algorithm
+> selection and applies equally to the V2 worker. The workaround
+> `--speculative-draft-load-format auto` is still valid and still required.
 
 > **Note (2026-05-31):** SGLang v0.5.12 brings several *Spec-V2* reliability
 > fixes that are accessible via this very workaround once it gets the draft
@@ -27,7 +40,7 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 i
 > change the workaround requirement — it just makes the path it unblocks
 > meaningfully better than on 0.5.9.
 
-> **Note (2026-06-11):** SGLang v0.5.13 brings further Spec-V2 changes:
+> **Note (2026-06-11):** SGLang v0.5.13 (official GitHub Release 2026-06-13) brings further Spec-V2 changes:
 > Spec V1 deprecation (PR #25464), EAGLE draft kv_indices OOB fixes
 > (#27338, #27460), FA3 EAGLE crash fix (#25077 "Fix(spec): Fix the crash
 > issue in the FA3 backend when running with top-k > 1 and page_size > 1",

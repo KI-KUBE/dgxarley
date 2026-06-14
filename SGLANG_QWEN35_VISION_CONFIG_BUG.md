@@ -9,9 +9,15 @@
 >
 > **Re-verified 2026-06-11:** PR #22839 still open (last update 2026-04-15),
 > PR #22618 still open (last update 2026-04-14). `qwen3_5.py` untouched on
-> main and `release/v0.5.13` since 2026-04-16. **v0.5.13** (tag cut
-> 2026-06-11, no GitHub Release page yet) does **not** contain a fix.
+> main and `release/v0.5.13` since 2026-04-16. **v0.5.13** (official GitHub
+> Release published 2026-06-13) does **not** contain a fix.
 > Monkey-patch in `sglang_launch.sh` still required.
+>
+> **Re-verified 2026-06-14:** v0.5.13 is an official GitHub Release since
+> 2026-06-13. PR #22839 still OPEN (last update 2026-06-11); PR #22618 still
+> OPEN. The v0.5.13 GitHub Release contains no Qwen3.5 vision_config fix —
+> `qwen3_5.py` still lacks `from_dict`/`__post_init__` upstream. Monkey-patch
+> in `sglang_launch.sh` still required.
 >
 > **Update 2026-06-12:** PR #22839 received a new third-party comment on
 > 2026-06-11T20:28Z (user `SeedSource`) confirming the bug is still present on
