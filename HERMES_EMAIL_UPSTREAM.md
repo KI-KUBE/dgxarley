@@ -194,6 +194,22 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 > (Schritt 2 der Re-Sync-Prozedur unten). Alle drei PRs (#28697, #28699,
 > #28702) bleiben offen.
 
+> **2026-06-14 check — ⚠ Weitere Upstream-Divergenz, Delta wächst:**
+> Zwei neue Commits auf `main` am 2026-06-14, beide im `_send_email*`-Bereich
+> (den auch unsere `[PATCH-N]`-Abschnitte berühren):
+> - `fix(email): use SMTP_SSL for port 465 and fall back to IPv4 on timeout`
+> - `fix(email): make IPv4 SMTP fallback use supported sockets`
+>
+> Neuer `main`-Blob-SHA: `7b247cdd`, **32736 Bytes** (+3151 gegenüber
+> `4eb4972b`, +3639 gegenüber `0fffb82d`). **Gepinnte Version v2026.6.5
+> ist weiterhin nicht betroffen** (Blob dort unverändert `0fffb82d`, 29097
+> Bytes) — kein sofortiger Handlungsbedarf. Beim nächsten Bump auf einen
+> Release, der diese Commits enthält, überschneiden sich die Upstream-Änderungen
+> mit unseren `[PATCH-N]`-Abschnitten in `_send_email*` — Re-Sync wird
+> aufwändiger als nach dem 2026-06-12-Delta. Alle drei PRs (#28697, #28699,
+> #28702) bleiben offen. Kein neues Release-Tag (v2026.6.5 ist weiterhin
+> das aktuellste).
+
 1. Download the new upstream file:
 
    ```bash
