@@ -1,0 +1,42 @@
+---
+# NVIDIA ConnectX-7 firmware tooling (MFT) — INSTALL + QUERY only, never flash.
+#
+# fwupd/LVFS does not carry Mellanox/NVIDIA NIC firmware, so `fwupdmgr` always
+# reports "no available firmware updates" for the MT2910 (ConnectX-7). That is
+# EXPECTED, not a sign the NIC is current — ConnectX firmware ships exclusively
+# via NVIDIA's MFT. The `mft` package (mst / flint / mlxfwmanager / mlxfwreset /
+# mlxconfig) is served from the CUDA sbsa repo
+# (developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/sbsa).
+#
+# This task INSTALLS MFT and QUERIES the installed firmware (offline, read-only).
+# It deliberately does NOT flash: a ConnectX firmware update is disruptive (must
+# be activated with `mlxfwreset` or a reboot — see feedback_no_reboot) and stays a
+# conscious manual step. To check for / apply a newer image by PSID, by hand:
+#   mlxfwmanager --online --query     # compare installed vs latest on NVIDIA's CDN
+#   mlxfwmanager -u --online -y       # download + flash, then: mlxfwreset -d <dev> -y
+
+- name: Install NVIDIA MFT (ConnectX firmware tooling)
+  ansible.builtin.apt:
+    name: "{{ dgx_mlxfw_package }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: dgx_mlxfw_enabled | default(true)
+
+# mlxfwmanager reads firmware over the PCI config space directly (mtcr), so it does
+# not need the `mst` service for a plain query. --query (no --online) is fully
+# offline and read-only: it just prints the installed FW version + PSID per device.
+- name: Query installed ConnectX firmware (read-only, no flash)
+  ansible.builtin.command:
+    cmd: mlxfwmanager --query
+  register: _mlxfw_query
+  changed_when: false
+  failed_when: false
+  when: dgx_mlxfw_enabled | default(true)
+
+- name: Report installed ConnectX firmware
+  ansible.builtin.debug:
+    var: _mlxfw_query.stdout_lines
+  when:
+    - dgx_mlxfw_enabled | default(true)
+    - _mlxfw_query.stdout_lines | default([]) | length > 0
