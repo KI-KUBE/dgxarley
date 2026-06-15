@@ -7,10 +7,22 @@ Uses IMAP to receive and SMTP to send messages.
 ------------------------------------------------------------------------------
 LOCAL PATCH (dgxarley) — synced to upstream tag v2026.5.16
 (commit 0fffb82d0b949820c380019de646a46a0a6de678 of gateway/platforms/email.py).
-Still current: upstream gateway/platforms/email.py is byte-identical
-(md5 318ae8f3e6d4b26718784e0c94bf8458) across v2026.5.16 .. v2026.6.5 and
-main — verified 2026-06-08. The s6-overlay image restructure (v2026.5.28)
-changed init/entrypoint, not this file, so no re-sync was needed for the bump.
+Current for the pinned image (hermes_image_tag v2026.6.5): upstream
+gateway/platforms/email.py is byte-identical (blob 0fffb82d, md5
+318ae8f3e6d4b26718784e0c94bf8458, 29097 bytes) across v2026.5.16 .. v2026.6.5,
+so NO re-sync is needed at the current pin. The s6-overlay image restructure
+(v2026.5.28) changed init/entrypoint, not this file.
+
+UPSTREAM HAS DIVERGED ON main (not in any release yet — v2026.6.5 is still the
+newest tag; main/latest rebuilt 2026-06-14). Re-sync is required the moment
+hermes_image_tag is bumped to a release containing these commits:
+  - f03f161b (2026-06-12): DOCUMENT attachment classification in
+    _dispatch_message() — touches the [PATCH-6] region (inherited code).
+  - two 2026-06-14 commits: SMTP_SSL for port 465 + IPv4 fallback in
+    _send_email* — directly overlaps [PATCH-7] (the SMTP block our
+    _append_to_sent calls hang off). This is the awkward one.
+  main blob is now 7b247cdd (32736 bytes, +3639 vs 0fffb82d). Full log of
+  the divergence checks: HERMES_EMAIL_UPSTREAM.md. Verified 2026-06-14.
 
 Adds three behaviours that upstream lacks:
 
