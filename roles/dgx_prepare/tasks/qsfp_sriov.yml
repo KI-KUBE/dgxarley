@@ -70,10 +70,29 @@
     state: started
   when: qsfp_sriov_enabled
 
+# netplan apply re-runs the OVS bridge units, which can fail on the OVS native/tagged
+# VLAN seam (a stale access tag makes ovs-vsctl report the PF as on the fake VLAN bridge,
+# so "add-port <bridge> <iface>" errors). Converging that state is the `common` role's job
+# (installnetplan.yml has the migration/cleanup + its own failed_when:false apply). Here we
+# only need the VF MTU/MAC stanzas applied, so tolerate a non-zero rc and warn rather than
+# hard-fail the play — the SR-IOV systemd service already created the VFs.
 - name: Apply netplan for VF MTU and MAC settings
   ansible.builtin.command: netplan apply
   when: qsfp_sriov_enabled
   changed_when: false
+  failed_when: false
+  register: _sriov_netplan_apply
+
+- name: Warn if netplan apply reported errors
+  ansible.builtin.debug:
+    msg: >-
+      netplan apply returned rc={{ _sriov_netplan_apply.rc }} on {{ inventory_hostname }}.
+      VF MTU/MAC may not be applied. This usually means the OVS bridge state has not been
+      converged — run `common.yml --tags netplan --limit {{ inventory_hostname }}` first.
+      stderr: {{ _sriov_netplan_apply.stderr | default('') | trim }}
+  when:
+    - qsfp_sriov_enabled
+    - _sriov_netplan_apply.rc | default(0) != 0
 
 - name: Read current VF count
   ansible.builtin.slurp:
