@@ -34,7 +34,16 @@
     - ipsetgeoblock.sh
     - blacklist.sh
     - blockbadhosts_ipset.sh
-    - savetablesandipsets.sh
+    # savetablesandipsets.sh moved to its own handler below. Defined AFTER this
+    # one so it runs LAST (handlers fire in definition order), i.e. after
+    # iptables.sh + ip6tables_setup.sh + the ipset scripts — not only after the
+    # ipset scripts. Otherwise a run that only changes iptables.sh/ip6tables_setup.sh
+    # never refreshes the .save snapshots, and a reboot before the 12:00 save-cron
+    # leaves stale/missing saves (notably an empty v6 firewall, since rc.local only
+    # restores v6 from the .save and never re-runs ip6tables_setup.sh).
+
+- name: savetablesandipsets
+  command: "/root/savetablesandipsets.sh"
 
 - name: sysctl reload
   command: sysctl -p

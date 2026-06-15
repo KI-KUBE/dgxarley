@@ -17,7 +17,9 @@
     owner: root
     group: root
     mode: '0755'
-  notify: execiptablessh
+  notify:
+    - execiptablessh
+    - savetablesandipsets
   when:
     - skip_common_iptables is not defined or not skip_common_iptables
 
@@ -31,7 +33,9 @@
   with_items:
     - ipsetgeoblock.sh
     - ipsetgeoallow.sh
-  notify: execrootscripts
+  notify:
+    - execrootscripts
+    - savetablesandipsets
 
 - name: copy script files
   copy:
@@ -47,7 +51,9 @@
     - blacklist.sh
     - blockbadhosts_ipset.sh
     - savetablesandipsets.sh
-  notify: execrootscripts
+  notify:
+    - execrootscripts
+    - savetablesandipsets
 
 - name: copy dyndns_ipset_iptables.sh from templates
   tags: iptables
@@ -67,4 +73,6 @@
     owner: root
     group: root
     mode: '0755'
-  notify: execip6tablessh
+  notify:
+    - execip6tablessh
+    - savetablesandipsets
