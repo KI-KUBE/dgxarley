@@ -1,0 +1,150 @@
+NemotronH speculative decoding (MTP) + radix (prefix) cache — upstream PR #27998.
+
+Source: https://github.com/sgl-project/sglang/pull/27998
+  "[NemotronH] Enable speculative decoding (MTP) with radix cache" (Kh4L:sglang)
+  Captured 2026-06-16 via `gh pr diff 27998` (4 commits, +~90 across 4 files).
+  PR base merge-base: 2a51479a (main, 2026-06-11T05:14Z); PR head cc582d2b.
+  PR state at capture: OPEN, CI red (both PR-test runs failing), NOT merged.
+  REGENERATE from the merged commit once it lands, then DROP this patch when a
+  release tag containing it is used (gate: recipe APPLY_NEMOTRONH_MTP_PR27998).
+
+Why: NemotronH could previously only serve MTP with --disable-radix-cache,
+  which re-prefills the (usually shared) context on every request. This makes
+  MTP + radix (prefix) cache work together. Removes our "blocker 1" entirely
+  (no --disable-radix-cache wiring needed in sglang_launch.sh). Validated by the
+  PR author on GB10 (= DGX Spark) with nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-
+  NVFP4: 98% prefix reuse with MTP active, no decode/accuracy regression.
+  See model_profiles/nvidia-nvidia-nemotron-3-super-120b-a12b-nvfp4.yml (MTP block).
+
+What it does:
+  - arg_groups/nemotron_h_hook.py: when spec + radix are both on and the mamba
+    scheduler strategy is the default no_buffer, auto-switch it to extra_buffer
+    (no_buffer raises in _handle_mamba_radix_cache; extra_buffer_lazy is not yet
+    supported with speculative decoding). NB: this CONTRADICTS the old profile
+    note "extra_buffer is rejected on NemotronH" — upstream now selects it here.
+  - managers/schedule_batch.py: guard mamba_next_track_idx == None on the
+    spec-v2 verify path (= #27324; drop that hunk if #27324 lands in the ref first).
+  - mem_cache/memory_pool.py + model_executor/model_runner_kv_cache_mixin.py:
+    log planned/per-request mamba allocation at startup (memory visibility on
+    tight unified-memory boxes like GB10).
+
+NOTE: captured against main merge-base 2a51479a but applied onto tag v0.5.13
+  (the recipe's SGLANG_REF) — v0.5.13 has diverged from that merge-base
+  (ahead 112 / behind 12). The four touched files are small + self-contained, so
+  `patch` fuzz should absorb the drift; if the in-container dry-run FAILS, check
+  out v0.5.13 and regenerate (apply the 4 PR commits / 3-way merge) before rebuild.
+
+diff --git a/python/sglang/srt/arg_groups/nemotron_h_hook.py b/python/sglang/srt/arg_groups/nemotron_h_hook.py
+index a4e17670f05a..f3a02b42bada 100644
+--- a/python/sglang/srt/arg_groups/nemotron_h_hook.py
++++ b/python/sglang/srt/arg_groups/nemotron_h_hook.py
+@@ -55,6 +55,23 @@ def apply_nemotron_h_defaults(server_args: "ServerArgs", model_arch: str) -> Non
+         else:
+             server_args.moe_runner_backend = "flashinfer_cutlass"
+
++    # NemotronH is MTP-centric. When speculative decoding and radix (prefix)
++    # cache are both enabled, the default no_buffer mamba scheduler strategy is
++    # incompatible (it raises in _handle_mamba_radix_cache), and
++    # extra_buffer_lazy is not yet supported with speculative decoding. Default
++    # to extra_buffer so MTP and prefix caching run together instead of forcing
++    # --disable-radix-cache (which re-prefills the shared context every request).
++    if (
++        server_args.speculative_algorithm is not None
++        and not server_args.disable_radix_cache
++        and server_args.mamba_scheduler_strategy == "no_buffer"
++    ):
++        server_args.mamba_scheduler_strategy = "extra_buffer"
++        logger.info(
++            f"Defaulting --mamba-scheduler-strategy to extra_buffer for {model_arch} "
++            "to enable speculative decoding (MTP) together with radix (prefix) cache."
++        )
++
+     server_args._handle_mamba_radix_cache(
+         model_arch=model_arch,
+         sm100_default_attention_backend="flashinfer",
+diff --git a/python/sglang/srt/managers/schedule_batch.py b/python/sglang/srt/managers/schedule_batch.py
+index 933015b2cfc9..2b1d667173a0 100755
+--- a/python/sglang/srt/managers/schedule_batch.py
++++ b/python/sglang/srt/managers/schedule_batch.py
+@@ -1529,9 +1529,15 @@ def set_mamba_track_indices_from_reqs(batch):
+     all_buffers = req_to_token_pool.req_index_to_mamba_ping_pong_track_buffer_mapping[
+         batch.req_pool_indices
+     ]  # (bs, ping_pong_size), int64, on device
++    # Guard: mamba_next_track_idx may be None for requests that haven't
++    # gone through _alloc_ping_pong_buffer yet (e.g., spec v2 verify path).
++    # Default to 0 (first ping-pong slot) to avoid TypeError.
+     idx = (
+         torch.tensor(
+-            [req.mamba_next_track_idx for req in batch.reqs],
++            [
++                req.mamba_next_track_idx if req.mamba_next_track_idx is not None else 0
++                for req in batch.reqs
++            ],
+             dtype=torch.int64,
+             pin_memory=True,
+         )
+diff --git a/python/sglang/srt/mem_cache/memory_pool.py b/python/sglang/srt/mem_cache/memory_pool.py
+index 704892e24074..42166da54e7c 100644
+--- a/python/sglang/srt/mem_cache/memory_pool.py
++++ b/python/sglang/srt/mem_cache/memory_pool.py
+@@ -625,6 +625,33 @@ def _init_mamba_pool(
+                     device=self.device,
+                 )
+             )
++            # Surface the extra_buffer memory footprint at startup. Each tracked
++            # request reserves `ping_pong_slots` mamba state slots (vs 1 for
++            # no_buffer), drawn from the fixed mamba pool of `mamba_size` slots,
++            # so this is the per-request memory cost of running radix cache with
++            # extra_buffer (lazy reserves 1 + allocs the 2nd on demand).
++            ping_pong_slots = (
++                1
++                if self.enable_mamba_extra_buffer_lazy
++                else self.mamba_ping_pong_track_buffer_size
++            )
++            per_slot_bytes = (
++                get_tensor_size_bytes(self.mamba_pool.mamba_cache.conv)
++                + get_tensor_size_bytes(self.mamba_pool.mamba_cache.temporal)
++            ) / (mamba_size + 1)
++            mode = (
++                "extra_buffer_lazy"
++                if self.enable_mamba_extra_buffer_lazy
++                else "extra_buffer"
++            )
++            logger.info(
++                f"Mamba {mode} enabled: {ping_pong_slots} ping-pong state slot(s) "
++                f"per tracked request, per-slot state size "
++                f"{per_slot_bytes / (1024 * 1024):.2f}MB "
++                f"(~{ping_pong_slots * per_slot_bytes / (1024 * 1024):.2f}MB extra "
++                f"per request); mamba pool = {mamba_size} slots / "
++                f"{self.mamba_pool.mem_usage:.2f}GB total."
++            )
+
+     def register_layer_transfer_counter(
+         self, layer_transfer_counter: "LayerDoneCounter"
+diff --git a/python/sglang/srt/model_executor/model_runner_kv_cache_mixin.py b/python/sglang/srt/model_executor/model_runner_kv_cache_mixin.py
+index 163acb8732ac..729e2044146c 100644
+--- a/python/sglang/srt/model_executor/model_runner_kv_cache_mixin.py
++++ b/python/sglang/srt/model_executor/model_runner_kv_cache_mixin.py
+@@ -89,6 +89,7 @@ def handle_max_mamba_cache(self: ModelRunner, total_rest_memory):
+             assert server_args.speculative_num_draft_tokens is not None
+             assert server_args.max_running_requests is not None
+
++        intermediate_size = 0  # bytes; set below when spec decoding is enabled
+         if server_args.max_mamba_cache_size is not None:
+             # Use explicitly set max_mamba_cache_size
+             server_args.max_mamba_cache_size = server_args.max_mamba_cache_size // (
+@@ -181,6 +182,14 @@ def handle_max_mamba_cache(self: ModelRunner, total_rest_memory):
+             * config.mamba2_cache_params.mamba_cache_per_req
+             / (1 << 30)
+         )
++        # Log the planned footprint before allocation; an OOM here can kill
++        # systems with shared memory.
++        logger.info(
++            f"Planned mamba state allocation: {server_args.max_mamba_cache_size} slots, "
++            f"main state ~{mamba_state_memory:.2f}GB, "
++            f"intermediate (spec) ~{intermediate_size / (1 << 30):.2f}GB, "
++            f"per-req {config.mamba2_cache_params.mamba_cache_per_req / (1 << 20):.2f}MB."
++        )
+         return total_rest_memory - mamba_state_memory
+
+     def calculate_mla_kv_cache_dim(self: ModelRunner) -> int:

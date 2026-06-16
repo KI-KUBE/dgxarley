@@ -1,0 +1,85 @@
+#
+# Custom recipe: SGLang v0.5.13 + our SM121 sgl-kernel patches
+#                + NemotronH MTP/radix-cache enablement (unmerged PR #27998).
+#
+# PURPOSE: first build that can run native MTP (speculative decoding) for
+# nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4 WITHOUT --disable-radix-cache.
+# See roles/k8s_dgx/model_profiles/nvidia-nvidia-nemotron-3-super-120b-a12b-nvfp4.yml
+# (the "Native MTP / speculative decoding" block) for the upstream status,
+# the two historical blockers, and the validation gates. Created 2026-06-16.
+#
+# This is a "0.5.13-dev" EXPERIMENT image, deliberately kept separate from the
+# production 0.5.13-sm121 tag: it differs from production by exactly one extra
+# source patch (PR #27998, 4 files, Python-only) so the MTP behaviour can be
+# A/B'd against production without touching the validated SM121 kernel stack.
+#
+# Pinned to upstream tag `v0.5.13` (same as sglang-0.5.13-sm121) so the SM121
+# sgl-kernel patches (sgl-kernel-sm121 / arch-prune / disable-fa3 /
+# skip-sm90-target / skip-flashmla) stay on their verified base — they were
+# verified against this tag 2026-06-12 and are the highest-risk-to-break
+# component. PR #27998 was captured against main merge-base 2a51479a (2026-06-11),
+# which has DIVERGED from v0.5.13 (ahead 112 / behind 12); the four touched
+# Python files are small + self-contained, so `patch` fuzz should absorb the
+# drift. If the in-container dry-run for sglang-nemotronh-mtp-pr27998.patch
+# FAILS, regenerate it against v0.5.13 (see that patch's header) before rebuild.
+#
+# DELTA vs sglang-0.5.13-sm121.recipe:
+#   - APPLY_DSV4_NVFP4_PR25820  1 -> 0  (DSV4 is a different model; its
+#     dockerfile patch anchors on the SAME Dockerfile region as the NemotronH
+#     one, so the two are mutually exclusive per recipe — do not enable both.)
+#   - NEW: APPLY_NEMOTRONH_MTP_PR27998=1 — build_sm121_image.sh applies
+#     dockerfile-nemotronh-mtp.patch, which COPY+RUNs sglang-nemotronh-mtp-
+#     pr27998.patch into the sglang source before `uv pip install ./python`.
+#     Set to 0 / delete once PR #27998 is merged into the pinned SGLANG_REF
+#     (re-applying a merged patch fails the in-container dry-run, by design).
+#   - IMAGE_TAG -> :0.5.13-dev-nemotronh-mtp-sm121
+#   - everything else (FLASHINFER/TRANSFORMERS/KERNELS pins, FLASH_MLA/DSV4
+#     kernel = empty) is identical to sglang-0.5.13-sm121.
+#
+# RUNTIME: after deploying this image for the Nemotron-3-Super stack, flip the
+# profile's speculative_enabled -> true and KEEP radix cache ON (no
+# --disable-radix-cache). Validate on first boot: accept_len > 1 (not ~0.33),
+# no NaN logits (NVFP4 MTP risk, sgl-project/sglang#27828), throughput gain.
+#
+# Voraussetzungen: xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132 Base
+# auf spark4 (scripts/build_pytorch_base_image.sh, siehe
+# ensure_base_image_present in build_sm121_image.sh).
+#
+DOCKERFILE=Dockerfile.sglang-nightly
+TARGET=runtime
+
+BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
+
+# Upstream-Pin von v0.5.13 (identisch zum 0.5.13-sm121-Recipe).
+FLASHINFER_VERSION=0.6.12
+
+# transformers 5.8.0 weiter pinning für Gemma-4-assistant-Drafter — unverändert.
+TRANSFORMERS_VERSION=5.8.0
+
+# `kernels` <0.13 pin — transformers-5.x hub_kernels.py inkompatibel mit
+# kernels>=0.13. Unverändert zum 0.5.13-sm121-Recipe.
+KERNELS_VERSION=0.12.3
+
+SGLANG_VERSION=0.5.13
+SGLANG_REF="v0.5.13"
+
+# ── DeepSeek-V4 FlashMLA kernel: not used here (NemotronH build) ─────────────
+FLASH_MLA_REPO=
+FLASH_MLA_REF=
+DSV4_KERNEL_REPO=
+DSV4_KERNEL_REF=
+DSV4_KERNEL_ARCH=
+
+# ── DeepSeek-V4 NVFP4 MoE (PR #25820): OFF for this NemotronH recipe ─────────
+# DSV4 is a different model and its dockerfile patch anchors on the same
+# Dockerfile region as the NemotronH one — never enable both in one build.
+APPLY_DSV4_NVFP4_PR25820=0
+
+# ── NemotronH MTP + radix cache (upstream PR #27998, unmerged) ──────────────
+# Gates dockerfile-nemotronh-mtp.patch in build_sm121_image.sh::apply_patches,
+# which adds the COPY+RUN step applying sglang-nemotronh-mtp-pr27998.patch to
+# the sglang source before `uv pip install ./python`. Set to 0 (or delete)
+# once PR #27998 is merged into the pinned SGLANG_REF.
+APPLY_NEMOTRONH_MTP_PR27998=1
+
+IMAGE_TAG=xomoxcc/dgx-spark-sglang:0.5.13-dev-nemotronh-mtp-sm121

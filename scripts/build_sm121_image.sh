@@ -132,8 +132,14 @@ BRANCH_NAME="sm121"
 # PR #24436 is merged into the release. The DSV4 NVFP4 patch (PR #25820) is
 # gated by the recipe variable APPLY_DSV4_NVFP4_PR25820=1 instead of a name
 # pattern — see apply_patches().
-RECIPE_NAME="sglang-0.5.13-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-sm121"
+#RECIPE_NAME="sglang-0.5.13-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-sm121"
+
+# NemotronH MTP experiment: v0.5.13 + unmerged PR #27998 (MTP + radix cache).
+# Enables native speculative decoding for Nemotron-3-Super-120B-NVFP4 without
+# --disable-radix-cache. See that model profile's MTP block + the recipe header.
+RECIPE_NAME="sglang-0.5.13-dev-nemotronh-mtp-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-dev-nemotronh-mtp-sm121"
 
 #RECIPE_NAME="sglang-0.5.12-sm121"
 ## IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.12-sm121"
@@ -478,6 +484,15 @@ preflight() {
             sglang-dsv4-nvfp4-pr25820.patch
         )
     fi
+    # NemotronH MTP patches (PR #27998) are only required when the recipe opts
+    # in via APPLY_NEMOTRONH_MTP_PR27998=1. See apply_patches() for the gate.
+    if [[ -f "${PATCHES_DIR}/${RECIPE_NAME}.recipe" ]] \
+        && grep -qE '^APPLY_NEMOTRONH_MTP_PR27998=1' "${PATCHES_DIR}/${RECIPE_NAME}.recipe"; then
+        required_files+=(
+            dockerfile-nemotronh-mtp.patch
+            sglang-nemotronh-mtp-pr27998.patch
+        )
+    fi
 
     local missing=0
     for f in "${required_files[@]}"; do
@@ -758,6 +773,17 @@ apply_patches() {
         apply_dsv4_nvfp4_patch=1
     fi
 
+    # NemotronH MTP (PR #27998) — gated like DSV4 by an explicit recipe
+    # variable. Drop APPLY_NEMOTRONH_MTP_PR27998 the moment the PR lands in the
+    # pinned SGLANG_REF (re-applying a merged patch fails the in-container
+    # dry-run and aborts the build). Anchors on the same Dockerfile region as
+    # the DSV4/gemma4 patches, so the two are mutually exclusive per recipe.
+    local apply_nemotronh_mtp_patch=0
+    if [[ -f "${PATCHES_DIR}/${RECIPE_NAME}.recipe" ]] \
+        && grep -qE '^APPLY_NEMOTRONH_MTP_PR27998=1' "${PATCHES_DIR}/${RECIPE_NAME}.recipe"; then
+        apply_nemotronh_mtp_patch=1
+    fi
+
     # 1. Drop sgl-kernel source patches into the build context.
     # The Dockerfile COPY steps read from container-build/patches/ and the
     # in-container `patch` invocations are conditionally gated by the
@@ -800,6 +826,11 @@ apply_patches() {
     local dsv4_nvfp4_source_patches=(
         sglang-dsv4-nvfp4-pr25820.patch
     )
+    # NemotronH MTP source patch (PR #27998) — copied only when the recipe
+    # opts in, same rationale as the dsv4/gemma4 patches.
+    local nemotronh_mtp_source_patches=(
+        sglang-nemotronh-mtp-pr27998.patch
+    )
     local patches_to_copy=( "${always_source_patches[@]}" )
     if (( apply_gemma4_mtp_patch )); then
         patches_to_copy+=( "${mtp_source_patches[@]}" )
@@ -809,6 +840,9 @@ apply_patches() {
     fi
     if (( apply_dsv4_nvfp4_patch )); then
         patches_to_copy+=( "${dsv4_nvfp4_source_patches[@]}" )
+    fi
+    if (( apply_nemotronh_mtp_patch )); then
+        patches_to_copy+=( "${nemotronh_mtp_source_patches[@]}" )
     fi
     for p in "${patches_to_copy[@]}"; do
         if [[ -f "${PATCHES_DIR}/${p}" ]]; then
@@ -915,6 +949,24 @@ apply_patches() {
         echo "DSV4 NVFP4 Dockerfile patched"
     else
         echo "Skipping dockerfile-dsv4-nvfp4.patch (recipe does not set APPLY_DSV4_NVFP4_PR25820=1)"
+    fi
+
+    # 2d. NemotronH MTP (PR #27998) Dockerfile patch — recipe-gated (see the
+    #     apply_nemotronh_mtp_patch determination above). Adds the COPY + RUN
+    #     step that applies sglang-nemotronh-mtp-pr27998.patch to the sglang
+    #     source before `uv pip install ./python`. NOTE: anchors on the same
+    #     Dockerfile region as the dsv4/gemma4 patches — mutually exclusive per
+    #     recipe; the dry-run below catches it if that ever changes.
+    if (( apply_nemotronh_mtp_patch )); then
+        echo "Applying dockerfile-nemotronh-mtp.patch..."
+        patch --dry-run -p1 < "${PATCHES_DIR}/dockerfile-nemotronh-mtp.patch" \
+            || die "NemotronH MTP Dockerfile patch dry-run failed — regenerate dockerfile-nemotronh-mtp.patch"
+        patch -p1 < "${PATCHES_DIR}/dockerfile-nemotronh-mtp.patch"
+        grep -q 'sglang-nemotronh-mtp-pr27998.patch' container-build/Dockerfile.sglang-nightly \
+            || die "NemotronH MTP Dockerfile patch verification failed"
+        echo "NemotronH MTP Dockerfile patched"
+    else
+        echo "Skipping dockerfile-nemotronh-mtp.patch (recipe does not set APPLY_NEMOTRONH_MTP_PR27998=1)"
     fi
 
     # 3. Drop in the recipe file. run_build() parses it inline and calls

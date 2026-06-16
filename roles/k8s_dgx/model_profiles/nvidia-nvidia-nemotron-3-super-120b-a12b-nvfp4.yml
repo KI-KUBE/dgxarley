@@ -175,33 +175,57 @@ _model_profile:
       temperature: 1.0
       top_p: 0.95
     # ---- Native MTP / speculative decoding (1 built-in MTP layer) ----
-    # The values below follow the SGLang Cookbook recipe for Nemotron-3-Super
-    # (https://docs.sglang.io/cookbook/autoregressive/NVIDIA/Nemotron3-Super):
-    #   --speculative-algorithm EAGLE --speculative-num-steps 3
-    #   --speculative-eagle-topk 1 --speculative-num-draft-tokens 4 --disable-radix-cache
-    # NOTE the corrections vs the first attempt:
+    # EAGLE recipe per the NVIDIA Advanced Deployment Guide (2026-06, authoritative):
+    #   https://docs.nvidia.com/nemotron/latest/usage-cookbook/Nemotron-3-Super/AdvancedDeploymentGuide/README.html
+    #   --speculative-algorithm EAGLE --speculative-num-steps 5
+    #   --speculative-eagle-topk 1 --speculative-num-draft-tokens 5
+    # UPDATED 2026-06-16 (research): the cookbook bumped the recipe from 3-step/4-draft
+    # to 5/5; the values below were updated to match. Reported accept-length 3.45 @
+    # draft-len 7 on SPEED-Bench (TRT-LLM figure). The guide warns: "MTP does not work
+    # with NVFP4/FP8 on the v0.5.9 image" — the fix is on main; it recommends a recent
+    # nightly + --disable-radix-cache.
     #   * algo is EAGLE, NOT NEXTN — SGLang drives Nemotron's embedded MTP layer as an
     #     EAGLE-style tail draft; no external draft model (speculative_draft_model_path "").
-    #   * mamba_scheduler_strategy "extra_buffer" is REJECTED on NemotronH (hard assert
-    #     "mamba extra_buffer is not supported for NemotronHForCausalLM" in
-    #     apply_nemotron_h_defaults → _handle_mamba_radix_cache). Leave it UNSET
-    #     (default no_buffer). The defaults/main.yml:96-98 extra_buffer↔spec_v2 note is
-    #     for OTHER hybrids, not NemotronH. enable_spec_v2 is likewise not in the recipe.
-    # >>> TWO OPEN BLOCKERS before MTP actually works/pays off here:
-    #   1. The recipe needs `--disable-radix-cache`, which our sglang_launch.sh does NOT
-    #      currently expose (no profile key — only disable_overlap_schedule). Without it
-    #      the mamba radix-cache path runs; needs a launch-script addition.
-    #   2. Upstream bug sgl-project/sglang#21138 — MTP on NemotronH rejects ~all draft
-    #      tokens (accept_rate≈0.33), i.e. boots but gives little/no speedup.
-    # Until both are resolved, speculative_enabled stays false (decision 2026-06-03:
-    # boot base + 512K first, MTP is a documented follow-up — the EAGLE values below are
-    # already correct, just flip speculative_enabled + wire --disable-radix-cache). Memory
-    # note: MTP draft buffers + the 512K KV both eat memory; drop mem_fraction_static if OOM.
+    #
+    # >>> UPSTREAM STATUS — researched 2026-06-16 (supersedes the old "two open blockers") <<<
+    # Heavy NemotronH-MTP activity landed in June 2026; RE-TEST on a current main/nightly
+    # build before trusting the old "boots but doesn't pay off" verdict:
+    #   * sgl-project/sglang#24955 "Support Nemotron DP attention and MTP" — MERGED 2026-06-12.
+    #   * sgl-project/sglang#28102 "Fix DP attention + EP mode of Nemotron" — MERGED 2026-06-13.
+    #   * sgl-project/sglang#27184 "docs: fix Nemotron Super MTP deploy (spec-v2+B200)" — MERGED 2026-06-03.
+    #   * sgl-project/sglang#27998 "[NemotronH] Enable speculative decoding (MTP) with
+    #     radix cache" — OPEN (CI red as of 2026-06-16, not merged). KILLS blocker 1:
+    #     makes MTP work WITHOUT --disable-radix-cache. VALIDATED on GB10 (= our DGX
+    #     Spark) with THIS model (Nemotron-3-Super-120B-NVFP4): 98% prefix reuse, MTP
+    #     active, no decode/accuracy regression — i.e. MTP + accept work in that branch.
+    #     It also AUTO-SELECTS mamba extra_buffer for NemotronH when spec+radix are both
+    #     on — which CONTRADICTS the old "extra_buffer is rejected on NemotronH" note.
+    #     Watch this PR; once it lands in an image we can run, both blockers are gone.
+    # BLOCKER 1 (radix cache): the recipe needs --disable-radix-cache, which our
+    #   sglang_launch.sh does NOT expose (only disable_overlap_schedule). #27998 removes
+    #   the need entirely; until it lands, a launch-script addition is required.
+    # BLOCKER 2 (accept rate): sgl-project/sglang#21138 — MTP on NemotronH rejected ~all
+    #   draft tokens (accept_rate≈0.33). The issue was AUTO-CLOSED for inactivity
+    #   2026-06-14 (NOT fixed). A fresh root-cause comment (seongyun1104, 2026-06-14)
+    #   pins it to the MTP weight loader filtering lm_head.weight + backbone.embeddings
+    #   out (neither contains "mtp") → MTP runs on random-init head/embed → 0.33 exactly
+    #   (vLLM whitelists both → 63%). Current main STILL carries that filter
+    #   (nemotron_h.py ~L1043 `if "mtp" not in name: continue`); the proposed 5-LOC fix is
+    #   unverified and in NO merged PR. So plain main may still be broken on this path —
+    #   but #27998's GB10 validation shows a working combo exists. Verify accept_len on boot.
+    # >>> NVFP4 CAVEAT (our quant): sgl-project/sglang#27828 (closed DO-NOT-MERGE debug)
+    #   chased a Nemotron NVFP4 MTP target-logits NaN on release/v0.5.13 — the NVFP4 MTP
+    #   path is the riskiest. Watch for NaN logits on first boot.
+    # Decision 2026-06-03 (still holds): speculative_enabled stays false until validated on
+    # a build with the fixes above. To enable: flip speculative_enabled, run on a build
+    # with #27998 (or wire --disable-radix-cache), verify accept_len>1 AND no NaN.
+    # Memory: MTP draft buffers + 512K KV both eat memory; drop mem_fraction_static if OOM.
     speculative_enabled: false
     speculative_algo: EAGLE
-    speculative_num_steps: 3
-    speculative_num_draft_tokens: 4
+    speculative_num_steps: 5            # cookbook 2026-06 (was 3)
+    speculative_num_draft_tokens: 5     # cookbook 2026-06 (was 4)
     speculative_eagle_topk: 1
     speculative_draft_model_path: ""
-    # enable_spec_v2: true                       # not in the cookbook recipe for NemotronH
-    # mamba_scheduler_strategy: "extra_buffer"   # REJECTED on NemotronH — do not set
+    # enable_spec_v2: true                       # not in the recipe; see #27184 (spec-v2 / B200)
+    # mamba_scheduler_strategy: "extra_buffer"   # was "REJECTED on NemotronH"; #27998 now
+    #   auto-selects it for spec+radix — re-validate before ever setting it manually.
