@@ -49,6 +49,19 @@
 > - `scitrera/dgx-spark-sglang:0.5.13` noch nicht auf DockerHub; Cluster-Default
 >   bleibt 0.5.12.
 >
+> **Update 2026-06-16 — PR #25820 vorangekommen (weiterhin offen/ungemergt).**
+> Status hat sich seit dem 2026-06-12-Snapshot („`mergeable_state: blocked`,
+> CI ausstehend, letzter Kommentar ‚update cookbook'") deutlich verändert:
+> `mergeStateStatus: DIRTY` (Merge-Konflikt, NICHT mehr CI-pending),
+> `reviewDecision: CHANGES_REQUESTED`. Neue Kommentare 2026-06-15: User SkqLiao
+> bestätigt **sowohl DSV4-Flash-NVFP4 als auch DSV4-Pro-NVFP4 funktionierend**
+> mit `flashinfer_trtllm_routed` (auf PR-Commit `29ac249be`); trevor-m bestätigt
+> und verweist auf Begleit-PR #25702 für Performance. **Weiterhin OFFEN,
+> ungemergt, kein SM120/121-Test im Thread** — der `flashinfer_cutlass`-Pin im
+> Modellprofil bleibt für SM121 die richtige Wahl (PR default-routet auf
+> `flashinfer_trtllm_routed`, B200/SM100-only, vgl. #26324). Lokales Recipe
+> `APPLY_DSV4_NVFP4_PR25820=1` bleibt nötig.
+>
 > **Update 2026-06-12 — `nvidia/DeepSeek-V4-Flash-NVFP4` existiert.** Das HF-Repo
 > `nvidia/DeepSeek-V4-Flash-NVFP4` (createdAt 2026-05-18T00:02Z) existiert —
 > die Aussage in §5 „kein nvidia/DeepSeek-V4-Flash-NVFP4" war falsch. Siehe §5
