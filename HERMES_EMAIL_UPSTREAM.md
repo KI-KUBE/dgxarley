@@ -209,6 +209,17 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 > aufwändiger als nach dem 2026-06-12-Delta. Alle drei PRs (#28697, #28699,
 > #28702) bleiben offen. Kein neues Release-Tag (v2026.6.5 ist weiterhin
 > das aktuellste).
+>
+> **2026-06-16 check — PRs unter aktiver Review (nicht mehr ruhend):** Alle drei
+> PRs (#28697, #28699, #28702) sind weiterhin offen/ungemergt, aber **nicht
+> dormant** — am 2026-06-15 gab es neue Review-Aktivität: Upstream-Reviewer
+> (hermes-sweeper-Bot + Maintainer) haben Inline-Kommentare gesetzt, der
+> PR-Autor hat am selben Tag geantwortet. Tenor des Feedbacks: die ENV-Vars
+> (`EMAIL_SENT_FOLDER` etc.) sollen nach `config.yaml` unter
+> `platforms.email.*` wandern (passt zur laufenden config.yaml-Migration).
+> Die frühere Formulierung „keine Bewegung seit 2026-05-19" ist damit überholt.
+> `main`-Blob-SHA unverändert `7b247cdd` (32736 Bytes); gepinnte v2026.6.5
+> weiterhin nicht betroffen, kein neues Release-Tag.
 
 1. Download the new upstream file:
 
