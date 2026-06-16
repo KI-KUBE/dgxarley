@@ -18,7 +18,9 @@ the `a_map`/`c_map`
 It is also NOT in 0.5.12.post1 (main-only), so the monkey-patch still applies.
 
 **Update 2026-06-11:** SGLang v0.5.13 tag cut 2026-06-11T08:09:52Z (~1081 commits
-ahead of v0.5.12.post1, bare git tag, no GitHub Release page yet). v0.5.13 contains:
+ahead of v0.5.12.post1; published as a full GitHub Release on 2026-06-13 — the
+earlier "bare git tag, no GitHub Release page yet" wording is superseded).
+v0.5.13 contains:
 - PR #26496 ("Changes for SM120 perf and usability for NVFP4", merged 2026-06-04) —
   changes SM120 NVFP4 default backend to CUTLASS (does **not** fix the
   `_shuffle_rows_torch` `a_map`/`c_map` `torch.empty` OOB)
