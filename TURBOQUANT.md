@@ -8,7 +8,10 @@
 > - **SGLang still has not merged TurboQuant.** PRs #23135 (last touched
 >   2026-06-08) and #21419 (2026-06-05) are still open and more recently active
 >   than the dates below; the overall "SGLang is the laggard" conclusion stands.
-> - Latest SGLang release is v0.5.12.post1; no v0.5.13.
+> - Latest SGLang release is **v0.5.13** (full GitHub Release 2026-06-13).
+>   v0.5.13's changelog lists no TurboQuant merge; PRs #23135 / #21419 were
+>   still open as of the 2026-06-08 check above — re-verify against v0.5.13
+>   before assuming the "SGLang is the laggard" conclusion still holds.
 
 ## What It Is
 
