@@ -28,6 +28,13 @@
 #   * Cases 05 (fi_cudnn fp4_gemm) + 06 (triton MoE) STILL startup-crash on this image too.
 #   * enable_spec_v2 (Case 14) + manual mamba extra_buffer (Case 13) showed NO benefit → OFF.
 #
+# EP=4 NOW DEFAULT 2026-06-17 — EP=4 MTP matrix (same image, MTP 3/4 recipe held identical,
+# only ep_size flipped 1→4): TESTLOGS/sglang_nn4_tp4_ep4/nemotron-3-super-120b-a12b-nvfp4/
+#   TESTLOG_nv580.159_sglang-0.5.13-mtp_nemotron-3-super-120b-a12b-nvfp4_4n.md
+# EP=4 beats EP=1, win at LOW concurrency: n=1 +9% (58.85 vs 53.99), n=4 +3.5%, n=8 ~tie
+# (EP=4 @ctx524k = 201.5 clean 8/8). Spec conclusions (3/4 wins, no NaN, 05/06 crash) all
+# carry over. ep_size set to 4 below; revert to 1 for the simpler TP-MoE path (n=8 wash).
+#
 # >>> IMAGE CAVEAT — RESOLVED 2026-06-04 <<<  Although the model card serves this on a
 # DEDICATED dev image (lmsysorg/sglang:dev-cu13-nemotronh-nano-omni-reasoning-v3), the
 # mainline UPSTREAM base scitrera/dgx-spark-sglang:0.5.12 DOES carry the
@@ -185,11 +192,22 @@ _model_profile:
     #   enable_thinking: true
     #   low_effort: false
     num_experts: 512
-    # ep_size: 1 with TP=4 → MoE runs tensor-parallel (experts sharded across the 4
-    # ranks, no expert-parallel all-to-all). Matches the model card's EP=1. To switch
-    # to EP=TP=4 (all-to-all MoE, attention stays TP) use the dynamic form:
-    # ep_size: "{{ sglang_nnodes if (512 % (sglang_nnodes | int) == 0) else 1 }}".
-    ep_size: 1
+    # ep_size: 4 with TP=4 → MoE runs EXPERT-PARALLEL (each rank owns full experts,
+    # all-to-all dispatch + combine per MoE layer via DeepEP; attention stays TP).
+    # WINNER 2026-06-17 (full MTP matrix, same image — see
+    #   TESTLOGS/sglang_nn4_tp4_ep4/nemotron-3-super-120b-a12b-nvfp4/TESTLOG_..._4n.md):
+    # at the MTP 3/4 recipe EP=4 beats EP=1, the win concentrated at LOW concurrency —
+    #   n=1 +9% (58.85 vs 53.99), n=4 +3.5% (141.6 vs 136.8), n=8 ~TIE (~200 both; EP=4
+    #   @ctx524k = 201.5 clean 8/8, Case 09). accept_len (~2.7), NaN profile, and the
+    #   Cases 05/06 crashes are identical to EP=1, and cookbook 5/5 still loses → all spec
+    #   conclusions carry over unchanged. EP=4 set as the default for the single-stream win.
+    # The TP-MoE EP=1 alternative is a wash at n=8 aggregate and one fewer parallelism axis;
+    #   revert `ep_size: 1` if the all-to-all ever proves troublesome. NB: the matrix tested
+    #   ONLY n<=8 — at higher concurrency the all-to-all may amortize even better (untested).
+    # Literal 4 matches the validated run; the dynamic form
+    #   ep_size: "{{ sglang_nnodes if (512 % (sglang_nnodes | int) == 0) else 1 }}"
+    #   evaluates identically here (512 % 4 == 0) and is safer if sglang_nnodes ever changes.
+    ep_size: 4
     recommended_sampling:
       temperature: 1.0
       top_p: 0.95
