@@ -124,7 +124,7 @@
           # supplied from the honcho-env Secret. LLM_OPENAI_API_KEY still exists in
           # the Secret as a fallback for any module that omits api_key_env.
 
-          # ---- Embeddings: direct to ollama-embed (bge-m3, {{ honcho_embedding_dimensions }}-dim) ----
+          # ---- Embeddings: direct to ollama-embed ({{ ollama_embed_model }}, {{ honcho_embedding_dimensions }}-dim) ----
           # NOT routed through LiteLLM (avoids OpenAI->Ollama param translation).
           # VECTOR_DIMENSIONS is fixed into the pgvector column at first migration.
           [embedding]

@@ -517,7 +517,7 @@ vllm_wait_timeout: 1200
 # Max concurrent sequences (equivalent to sglang_max_running_requests)
 vllm_max_num_seqs: 16
 
-ollama_replicas: 1
+ollama_replicas: 0
 ollama_embed_replicas: 1
 
 # Ollama model profiles
@@ -541,9 +541,20 @@ ollama_model_profiles:
 
 # Ollama embedding model profiles
 ollama_embed_model_profiles:
+  "qwen3-embedding:4b-q8_0":
+    info_url: "https://ollama.com/library/qwen3-embedding"
+    # Qwen3-Embedding-4B q8_0 (~4.3 GB). Native 2560-dim (set
+    # honcho_embedding_dimensions: 2560 to match), Qwen3 decoder w/ last-token
+    # pooling, multilingual + code, up to 32K context. q8_0 ≈ fp16 quality for
+    # embeddings at ~half the VRAM. NOTE :latest = 8B (4096-dim) — always pin
+    # the explicit tag here. 0.6b alternative: "qwen3-embedding:0.6b-fp16" (1024-dim).
+    context_length: 32768
+  # Previous default — BAAI BGE-M3 multilingual embedding (~1.2 GB), 1024-dim,
+  # XLM-RoBERTa. Kept as a fallback profile; switch ollama_embed_model back to
+  # "bge-m3" to restore. (Note: bge-m3 hits sglang#7590 on Blackwell, but works
+  # fine under Ollama.)
   "bge-m3":
     info_url: "https://ollama.com/library/bge-m3"
-    # BAAI BGE-M3 multilingual embedding (~1.2 GB)
     context_length: 8192
 
 # Active ollama model — parameters pulled from ollama_model_profiles
@@ -554,7 +565,8 @@ ollama_preload_models:
   - "{{ ollama_model }}"
 
 # Active ollama embedding model — parameters pulled from ollama_embed_model_profiles
-ollama_embed_model: "bge-m3"
+#ollama_embed_model: "bge-m3"
+ollama_embed_model: "qwen3-embedding:4b-q8_0"
 ollama_embed_preload_models:
   - "{{ ollama_embed_model }}"
 
@@ -1284,11 +1296,11 @@ honcho_summary_api_key: "sk-changeme"
 honcho_dream_api_key: "sk-changeme"
 honcho_embedding_api_key: "sk-changeme"
 
-# CRITICAL: must equal the embedding model's native dimension (bge-m3 = 1024).
+# CRITICAL: must equal the embedding model's native dimension
+# (Qwen3-Embedding-4B = 2560; was 1024 for bge-m3 / Qwen3-Embedding-0.6B).
 # pgvector fixes the column dimension at the FIRST migration — changing this
-# later requires re-creating the honcho DB (wipe + re-provision). Default 1536
-# (OpenAI text-embedding-3-small) would NOT fit bge-m3 vectors.
-honcho_embedding_dimensions: 1024
+# later requires re-creating the honcho DB (wipe + re-provision).
+honcho_embedding_dimensions: 2560
 
 
 # ============================================================================
@@ -1343,9 +1355,10 @@ hindsight_llm_model: "{{ litellm_hermes_alias_model }}"
 # --- Embeddings → ollama-embed direct (same path OpenWebUI/honcho use) ---
 # Provider `openai` against ollama's OpenAI-compatible /v1 endpoint. Dimensions
 # are intentionally NOT sent (HINDSIGHT_API_EMBEDDINGS_OPENAI_DIMENSIONS unset):
-# ollama returns bge-m3's native 1024-dim vectors and rejecting an unsupported
-# `dimensions` param is avoided. Hindsight fixes the pgvector column on first
-# migration — changing the embedding model later means wiping the hindsight DB.
+# ollama returns the model's native-dim vectors (Qwen3-Embedding-4B = 2560) and
+# rejecting an unsupported `dimensions` param is avoided. Hindsight fixes the
+# pgvector column on first migration — changing the embedding model later means
+# wiping the hindsight DB.
 hindsight_embeddings_provider: "openai"
 hindsight_embeddings_base_url: "{{ openwebui_embedding_ollama_url }}/v1"
 hindsight_embeddings_model: "{{ ollama_embed_model }}"
