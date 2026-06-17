@@ -1,11 +1,11 @@
 # SGLang Test Log — MiniMax-M3-v0-NVFP4 (multimodal MoE + MSA), 4 Nodes, TP=4 PP=1 EP=1, mm:v0 (first serving contact)
 
-> ⚠️ **MATRIX IN PROGRESS — 3 of 7 cases recorded (as of 2026-06-17 19:14 CEST).**
-> Block A (01–02) + the first Block B case (03, ctx128k) are in
-> `MATRIX_SUMMARY_…_4n_1pp_4tp_ep1.json`. **Case 04 is deploying now.** Remaining
-> Block B context-push (04–05), the triton-MoE probe (06) and the cuDNN-FP4 probe
-> (07) not yet recorded. This log is updated as cases land — see
-> [§ Completeness](#completeness-vs-matrix-definition).
+> ⚠️ **MATRIX IN PROGRESS — 4 of 7 cases recorded (as of 2026-06-17 19:30 CEST).**
+> Block A (01–02) + Block B 03 (ctx128k, **new winner**) + 04 (ctx128k/mfs0.60,
+> **startup crash** — see §6) are in `MATRIX_SUMMARY_…_4n_1pp_4tp_ep1.json`.
+> **Case 05 (256k/mfs0.60) is loading and is expected to crash the same way.**
+> Triton probe (06) and cuDNN-FP4 probe (07) pending. This log is updated as cases
+> land — see [§ Completeness](#completeness-vs-matrix-definition).
 
 ## Environment
 
@@ -50,10 +50,10 @@ Run window: 2026-06-17 15:48–16:45 UTC.
 
 ---
 
-## Matrix shape (7 cases defined; **3 recorded, matrix in progress**)
+## Matrix shape (7 cases defined; **4 recorded, matrix in progress**)
 
 - **Block A** (01–02): `flashinfer_cutlass` MoE + fi-attn + fi_cutlass FP4, ctx64k/mfs0.70 — CG variant (01 piecewise = live config, 02 full-CG). ✅ **both ran**
-- **Block B** (03–05): context-ceiling co-fit — ctx128k/mfs0.70, ctx128k/mfs0.60, ctx256k/mfs0.60. 🟡 **03 ran (new winner); 04 deploying; 05 pending** (the matrix's stated main prize)
+- **Block B** (03–05): context-ceiling co-fit — ctx128k/mfs0.70, ctx128k/mfs0.60, ctx256k/mfs0.60. 🟡 **03 ran (new winner); 04 crashed (mfs0.60 too low, §6); 05 loading (crash expected)** (the matrix's stated main prize — but the mfs-DOWN axis is backwards, §6)
 - **Block C** (06): `triton` MoE probe @ ctx64k. ⏳ **pending**
 - **Block D** (07): `flashinfer_cudnn` FP4 delta @ ctx64k. ⏳ **pending**
 
@@ -68,6 +68,7 @@ Run window: 2026-06-17 15:48–16:45 UTC.
 | 03 | fi_cutlass | fi | fi_cutlass | piecewise | **128k** | 0.70 | 20.34 | 56.36 | 84.96 | **119.68** | **107.30** | **16/16** | **new overall winner** — more ctx, higher tput, clean |
 | 02 | fi_cutlass | fi | fi_cutlass | **full-CG** | 64k | 0.70 | 21.17 | 54.88 | 79.60 | 107.20 | 100.87 | **16/16** | best 64k config, clean 16/16 |
 | 01 | fi_cutlass | fi | fi_cutlass | **piecewise** (live) | 64k | 0.70 | 21.29 | 59.60 | 84.24 | 108.36 | 92.65 | **14/16** | live config; dropped 2/16 @ n16 |
+| 04 | fi_cutlass | fi | fi_cutlass | piecewise | 128k | **0.60** | — | — | — | **CRASH** | — | — | `Not enough memory` — mfs0.60 starves the 128K KV pool (see §6) |
 
 ## Results — TTFT & single-stream (n=1 first, cold server)
 
@@ -94,7 +95,16 @@ n1 ~21 tok/s (M2.7 ~36); n8 peak ~80–84 (M2.7 ~136). Expected for 428B/23B-act
 n1 runs first on a fresh server, so its 16–25 s TTFT bundles one-time MSA/compile/graph warm. At n≥4 TTFT settles to **~0.95 s** for both cases. Read n1 TTFT as warmup, not interactive latency.
 
 ### 5. Block B opens strong: 128K context is the NEW winner, and throughput went UP
-Case 03 (ctx **128k**, piecewise, mfs0.70) is the new overall winner: **n16 peak 119.68 / agg 107.30, clean 16/16** — beating both 64K cases (02 agg 100.87, 01 agg 92.65). Counter-intuitively, **doubling the context window improved n16 throughput** rather than costing it. The reason is the failures, not the context: at 64K the KV pool is tight enough that piecewise (01) evicted/dropped 2/16 at n16; at 128K the larger `max_total_num_tokens` gives the scheduler enough KV headroom to keep all 16 in flight, so aggregate rises with no fails. So 128K co-fits comfortably at mfs0.70 — the ceiling is higher than 64K, and the live 64K cap is conservative. n1 cold-start TTFT was also the lowest of the three (11.05 s). **Open:** how far it pushes — case 04 (128k/mfs0.60) and 05 (256k/mfs0.60) will find the actual ceiling; triton fallback (06) and cuDNN-FP4 (07) still pending.
+Case 03 (ctx **128k**, piecewise, mfs0.70) is the new overall winner: **n16 peak 119.68 / agg 107.30, clean 16/16** — beating both 64K cases (02 agg 100.87, 01 agg 92.65). Counter-intuitively, **doubling the context window improved n16 throughput** rather than costing it. The reason is the failures, not the context: at 64K the KV pool is tight enough that piecewise (01) evicted/dropped 2/16 at n16; at 128K the larger `max_total_num_tokens` gives the scheduler enough KV headroom to keep all 16 in flight, so aggregate rises with no fails. So 128K co-fits comfortably at mfs0.70 — the ceiling is higher than 64K, and the live 64K cap is conservative. n1 cold-start TTFT was also the lowest of the three (11.05 s).
+
+### 6. Case 04 crashed — and exposes a backwards premise in the Block B design
+Case 04 (128k, **mfs0.60**, labelled "KV-HEADROOM") died at pool-config after weight load:
+```
+RuntimeError: Not enough memory. Please try to increase --mem-fraction-static.
+```
+The matrix's Block B intent — *"push context UP and mem_fraction_static DOWN to find what co-fits"* — is **inverted for SGLang**. Unlike vLLM's `gpu_memory_utilization` (lower = less used), SGLang's `mem_fraction_static` is the **static pool that must hold weights + KV**; lowering it *shrinks* the KV budget. With ~60 GB weights, mfs0.60 (≈77 GB static budget on 128 GB) left too little for a 128K KV pool → crash. Case 03 fit 128K **because** it used the *higher* 0.70. **Corrective:** to push context further you must **raise** mfs (toward 0.80–0.85), not lower it.
+
+**Prediction:** case 05 (256k @ **mfs0.60**) will crash the same way — bigger context, same starved fraction, even less viable. The real 256K test needs mfs ≥ 0.80. The Block B 04/05 axis as written cannot find the upper ceiling; it only re-proves the floor. **A corrected sweep (128k/256k at mfs 0.80→0.90) is the actual open item.**
 
 ---
 
@@ -105,8 +115,8 @@ Case 03 (ctx **128k**, piecewise, mfs0.70) is the new overall winner: **n16 peak
 | 01 | A | fi_cutlass / fi / fi_cutlass / **piecewise** / ctx64k / mfs0.70 (LIVE) | ✅ ran (as `ARCH-LOAD-LITMUS`) |
 | 02 | A | fi_cutlass / fi / fi_cutlass / **full-CG** / ctx64k / mfs0.70 | ✅ ran |
 | 03 | B | piecewise / **ctx128k** / mfs0.70 | ✅ ran (new winner) |
-| 04 | B | piecewise / ctx128k / **mfs0.60** (KV-headroom) | 🟡 deploying (19:14 CEST) |
-| 05 | B | piecewise / **ctx256k** / mfs0.60 (ctx-push) | ⏳ pending |
+| 04 | B | piecewise / ctx128k / **mfs0.60** (KV-headroom) | ❌ **startup crash** — mfs too low (§6) |
+| 05 | B | piecewise / **ctx256k** / mfs0.60 (ctx-push) | 🟡 loading — crash expected (same starved mfs) |
 | 06 | C | **triton** MoE / ctx64k / mfs0.70 (probe) | ⏳ pending |
 | 07 | D | **fi_cudnn** FP4 / ctx64k / mfs0.70 (probe) | ⏳ pending |
 
