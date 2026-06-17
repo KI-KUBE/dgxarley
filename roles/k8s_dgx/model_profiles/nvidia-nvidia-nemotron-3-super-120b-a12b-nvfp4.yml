@@ -14,6 +14,20 @@
 # MoE + fi_cutlass fp4_gemm + ctx524k → n=8 peak 135.06 tok/s, 8/8 clean) — so the
 # serving values are unchanged; only the caveats below were downgraded to facts.
 #
+# RE-VALIDATED + MTP VALIDATED 2026-06-16 — 14-case matrix on the dedicated MTP image
+# (sglang 0.5.13-dev-nemotronh-mtp, RoCE, TP=4):
+#   TESTLOG_nv580.159_sglang-0.5.13-mtp_nemotron-3-super-120b-a12b-nvfp4_4n.md
+# Outcomes that set the values below:
+#   * MTP NOW PAYS OFF — EAGLE steps=3/draft=4 (Case 09) is the WINNER: accept_len ≈ 2.7,
+#     1.70× n=1 (53.99 vs no-spec 31.67) and 1.37× n=8 (peak 199.7 vs 146.3), 8/8 clean,
+#     NO NaN. This 3/4 setting BEATS the NVIDIA cookbook 5/5 (Case 10), which ran slower
+#     (n=8 152.7) AND lost a request to the repetition detector. So the recipe stays 3/4,
+#     NOT the cookbook 5/5. R2 (NVFP4 MTP NaN) + R3 (accept_len>1 loader fix) both PASS on
+#     this image — #21138/#27998/#24955/#28102 are in it; no --disable-radix-cache needed.
+#   * No-spec image delta: ~8% faster than 0.5.12 (Case 03 ctx524k 145.8 vs 135.1).
+#   * Cases 05 (fi_cudnn fp4_gemm) + 06 (triton MoE) STILL startup-crash on this image too.
+#   * enable_spec_v2 (Case 14) + manual mamba extra_buffer (Case 13) showed NO benefit → OFF.
+#
 # >>> IMAGE CAVEAT — RESOLVED 2026-06-04 <<<  Although the model card serves this on a
 # DEDICATED dev image (lmsysorg/sglang:dev-cu13-nemotronh-nano-omni-reasoning-v3), the
 # mainline UPSTREAM base scitrera/dgx-spark-sglang:0.5.12 DOES carry the
@@ -99,6 +113,8 @@ _model_profile:
     # ignored on the NVFP4 modelopt path, which always dispatches the FFN through
     # cutlass_moe_fp4, and the LatentMoE/512-expert shape trips a hard assertion there
     # (moe/cutlass_moe.py:427 `nx2_w1 == intermediate_size_per_partition*2`).
+    # RE-CONFIRMED 2026-06-16 on the 0.5.13-mtp image: Case 06 triton STILL crashes with
+    # `AssertionError: mismatch in expected n` (cutlass_moe.py:428). Stays flashinfer_cutlass.
     moe_runner_backend: "flashinfer_cutlass"
     kv_cache_dtype: "fp8_e4m3"
     # mem_fraction_static = post-weight KV reserve fraction (higher = more KV).
@@ -118,6 +134,8 @@ _model_profile:
     # "RuntimeError: cuDNN is not available" (the nvidia-cudnn-cu12 wheel is not in this
     # base; it needs the cuDNN-layer image from scripts/build_cudnn_image.sh). fi_cutlass
     # already wins on the Qwen3.6-NVFP4 comparison, so cuDNN-FP4 is not worth the rebuild.
+    # RE-CONFIRMED 2026-06-16: the dev MTP image ALSO lacks the cuDNN-FP4 wheel — Case 05
+    # startup-crashes identically (`RuntimeError: cuDNN is not available`). Stays fi_cutlass.
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4
     # disable-piecewise-cuda-graph: set EXPLICITLY by the model card's SGLang launch
@@ -176,58 +194,42 @@ _model_profile:
       temperature: 1.0
       top_p: 0.95
     # ---- Native MTP / speculative decoding (1 built-in MTP layer) ----
-    # EAGLE recipe per the NVIDIA Advanced Deployment Guide (2026-06, authoritative):
-    #   https://docs.nvidia.com/nemotron/latest/usage-cookbook/Nemotron-3-Super/AdvancedDeploymentGuide/README.html
-    #   --speculative-algorithm EAGLE --speculative-num-steps 5
-    #   --speculative-eagle-topk 1 --speculative-num-draft-tokens 5
-    # UPDATED 2026-06-16 (research): the cookbook bumped the recipe from 3-step/4-draft
-    # to 5/5; the values below were updated to match. Reported accept-length 3.45 @
-    # draft-len 7 on SPEED-Bench (TRT-LLM figure). The guide warns: "MTP does not work
-    # with NVFP4/FP8 on the v0.5.9 image" — the fix is on main; it recommends a recent
-    # nightly + --disable-radix-cache.
-    #   * algo is EAGLE, NOT NEXTN — SGLang drives Nemotron's embedded MTP layer as an
-    #     EAGLE-style tail draft; no external draft model (speculative_draft_model_path "").
+    # VALIDATED 2026-06-16 (MTP matrix, 14 cases) — see the 0.5.13-mtp TESTLOG. The values
+    # below are the MEASURED WINNER (Case 09: steps=3, draft=4, topk=1), which beat every
+    # other draft depth AND the NVIDIA cookbook 5/5:
+    #   * steps=3 / draft=4 (this profile): accept_len ≈ 2.7, 1.70× n=1, 1.37× n=8 over
+    #     no-spec, 8/8 clean, no NaN.  <-- WINNER
+    #   * steps=5 / draft=5 (NVIDIA cookbook recipe): SLOWER (n=8 152.7 vs 199.7) AND lost
+    #     a request to the repetition detector (7/8). Higher accept_len (2.97) did NOT beat
+    #     net throughput — the extra draft-compute per step costs more than it saves here.
+    #   * steps=5 / draft=7 (TRT accept-3.45 point): also slower (n=8 175.1). Deeper draft =
+    #     more accept but more wasted draft compute.
+    #   So DO NOT bump this to the cookbook 5/5 — 3/4 is the empirical optimum on this model.
     #
-    # >>> UPSTREAM STATUS — researched 2026-06-16 (supersedes the old "two open blockers") <<<
-    # Heavy NemotronH-MTP activity landed in June 2026; RE-TEST on a current main/nightly
-    # build before trusting the old "boots but doesn't pay off" verdict:
-    #   * sgl-project/sglang#24955 "Support Nemotron DP attention and MTP" — MERGED 2026-06-12.
-    #   * sgl-project/sglang#28102 "Fix DP attention + EP mode of Nemotron" — MERGED 2026-06-13.
-    #   * sgl-project/sglang#27184 "docs: fix Nemotron Super MTP deploy (spec-v2+B200)" — MERGED 2026-06-03.
-    #   * sgl-project/sglang#27998 "[NemotronH] Enable speculative decoding (MTP) with
-    #     radix cache" — OPEN (CI red as of 2026-06-16, not merged). KILLS blocker 1:
-    #     makes MTP work WITHOUT --disable-radix-cache. VALIDATED on GB10 (= our DGX
-    #     Spark) with THIS model (Nemotron-3-Super-120B-NVFP4): 98% prefix reuse, MTP
-    #     active, no decode/accuracy regression — i.e. MTP + accept work in that branch.
-    #     It also AUTO-SELECTS mamba extra_buffer for NemotronH when spec+radix are both
-    #     on — which CONTRADICTS the old "extra_buffer is rejected on NemotronH" note.
-    #     Watch this PR; once it lands in an image we can run, both blockers are gone.
-    # BLOCKER 1 (radix cache): the recipe needs --disable-radix-cache, which our
-    #   sglang_launch.sh does NOT expose (only disable_overlap_schedule). #27998 removes
-    #   the need entirely; until it lands, a launch-script addition is required.
-    # BLOCKER 2 (accept rate): sgl-project/sglang#21138 — MTP on NemotronH rejected ~all
-    #   draft tokens (accept_rate≈0.33). The issue was AUTO-CLOSED for inactivity
-    #   2026-06-14 (NOT fixed). A fresh root-cause comment (seongyun1104, 2026-06-14)
-    #   pins it to the MTP weight loader filtering lm_head.weight + backbone.embeddings
-    #   out (neither contains "mtp") → MTP runs on random-init head/embed → 0.33 exactly
-    #   (vLLM whitelists both → 63%). Current main STILL carries that filter
-    #   (nemotron_h.py ~L1043 `if "mtp" not in name: continue`); the proposed 5-LOC fix is
-    #   unverified and in NO merged PR. So plain main may still be broken on this path —
-    #   but #27998's GB10 validation shows a working combo exists. Verify accept_len on boot.
-    # >>> NVFP4 CAVEAT (our quant): sgl-project/sglang#27828 (closed DO-NOT-MERGE debug)
-    #   chased a Nemotron NVFP4 MTP target-logits NaN on release/v0.5.13 — the NVFP4 MTP
-    #   path is the riskiest. Watch for NaN logits on first boot.
-    # Decision 2026-06-03 (still holds): speculative_enabled stays false until validated on
-    # a build with the fixes above. To enable: flip speculative_enabled, run on a build
-    # with #27998 (or wire --disable-radix-cache), verify accept_len>1 AND no NaN.
-    # Memory: MTP draft buffers + 512K KV both eat memory; drop mem_fraction_static if OOM.
+    # algo is EAGLE, NOT NEXTN — SGLang drives Nemotron's embedded MTP layer as an
+    # EAGLE-style tail draft; no external draft model (speculative_draft_model_path "").
+    # NVIDIA Advanced Deployment Guide (2026-06, where the cookbook 5/5 comes from):
+    #   https://docs.nvidia.com/nemotron/latest/usage-cookbook/Nemotron-3-Super/AdvancedDeploymentGuide/README.html
+    #
+    # >>> PRIOR BLOCKERS — ALL RESOLVED on xomoxcc:0.5.13-dev-nemotronh-mtp-sm121 <<<
+    # (kept for provenance; these were the pre-run risks, now confirmed cleared)
+    #   * sgl-project/sglang#24955 (DP attn + MTP, MERGED), #28102 (DP+EP fix, MERGED),
+    #     #27184 (spec-v2/B200 docs, MERGED), #27998 (MTP + radix cache, GB10-validated):
+    #     all present in this image. MTP boots, no --disable-radix-cache needed.
+    #   * Old BLOCKER 2 / #21138 (accept_rate≈0.33 from the MTP loader filtering
+    #     lm_head.weight + backbone.embeddings out) — FIXED in this image: accept_len > 1
+    #     on EVERY MTP case (1.81 → 3.07), the loader-bug signature (accept≈1) is gone.
+    #   * #27828 (NVFP4 MTP target-logits NaN, the riskiest path) — NOT present: zero NaN
+    #     in any MTP head log.
+    # Memory: MTP draft buffers + 512K KV co-fit (Case 12 ran 5/5 @ ctx524k 8/8); the
+    # lighter 3/4 winner fits ctx524288 with more headroom. Drop mem_fraction_static if OOM.
     speculative_enabled: true
     speculative_algo: EAGLE
-    speculative_num_steps: 3  # cookbook 2026-06: 5
-    speculative_num_draft_tokens: 4  # cookbook 2026-06: 5
+    speculative_num_steps: 3  # VALIDATED WINNER 2026-06-16 — beats cookbook 5/5; do NOT raise
+    speculative_num_draft_tokens: 4  # VALIDATED WINNER 2026-06-16 — beats cookbook 5/5 + 5/7
     speculative_eagle_topk: 1
     speculative_draft_model_path: ""
-    # enable_spec_v2: true                       # not in the recipe; see #27184 (spec-v2 / B200)
-    # mamba_scheduler_strategy: "extra_buffer"   # was "REJECTED on NemotronH"; #27998 now
-    #   auto-selects it for spec+radix — re-validate before ever setting it manually.
+    # enable_spec_v2: true                       # Case 14: boots but NO win over 3/4 default → leave OFF
+    # mamba_scheduler_strategy: "extra_buffer"   # Case 13: NO benefit (degenerate n=1 repetition);
+    #   #27998 auto-selects it for spec+radix anyway → never set manually. Leave OFF.
     sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-dev-nemotronh-mtp-sm121"
