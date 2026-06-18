@@ -33,8 +33,10 @@ Token-level stream inspection with per-chunk breakdown in a structured table. Co
 |---------|-------------|
 | `sglang-raw` | Interactive SSE stream viewer with dual-panel Rich display (interpreted output + raw JSON chunks) |
 | `sglang-test` | Direct SGLang client with sequential and parallel load testing (live Rich TUI) |
+| `sglang-bench` | Benchmark launcher for SGLang with persistent dataset caching and concurrency-sweep mode |
 | `openwebui-test` | OpenWebUI / LLM client with preset management and streaming |
 | `ollama-test` | Ollama API health, model, embedding, and chat completions tests |
+| `comfyui-test` | ComfyUI integration tests for the local image-generation playground |
 | `kceve-kvm` | RS232 serial control for KCEVE KVM1001A 10-port KVM switches (switch ports, query state, sniff) |
 | `kceve-kvm-web` | Web UI for KCEVE KVM control (FastAPI, requires `dgxarley[web]`) |
 | `kceve-kvm-web-plain` | Lightweight web UI for KCEVE KVM control (stdlib `http.server`, no extra dependencies) |

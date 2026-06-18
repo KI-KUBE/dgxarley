@@ -2,6 +2,10 @@
 
 Standalone helper scripts that are run manually outside of Ansible playbooks.
 
+> **Note:** the `sglang-bench` launcher moved into the Python package at
+> `dgxarley/integration/sglang_bench.py` (console script `sglang-bench`,
+> `pip install -e '.[sglang-bench]'`). See its module docstring for usage.
+
 ## luks_encrypt_spark.sh
 
 In-place LUKS encryption for DGX Spark (ARM64) root partitions **without requiring a live USB boot**. The entire process runs from the live system using a two-phase approach that backs up the root filesystem to RAM, repartitions, encrypts, and restores.
