@@ -32,8 +32,8 @@ from collections import defaultdict
 from pathlib import Path
 
 import torch
-from safetensors import safe_open  # type: ignore[import-not-found]
-from safetensors.torch import save_file  # type: ignore[import-not-found]
+from safetensors import safe_open
+from safetensors.torch import save_file
 
 AWQ_SUFFIXES: tuple[str, ...] = ("qweight", "qzeros", "scales")
 """AWQ weight component suffixes present on every quantized linear layer."""

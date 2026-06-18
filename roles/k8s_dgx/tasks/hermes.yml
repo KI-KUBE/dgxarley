@@ -141,6 +141,25 @@
       data:
         email.py: "{{ lookup('file', 'hermes_email_gateway_patched.py') }}"
 
+# Gateway-status refresher script — consumed by the gateway-state-refresh
+# sidecar in the webui pod. Keeps gateway_state.json's updated_at fresh WHILE
+# the email gateway holds its runtime flock, so the WebUI badge stays green
+# without shareProcessNamespace (which would crashloop the s6-based email
+# sidecar). Cosmetic only; see the script header for full rationale.
+- name: Render hermes gateway-state refresher ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: hermes-gw-refresh
+        namespace: "{{ hermes_namespace }}"
+        labels:
+          app: hermes
+      data:
+        hermes_gateway_state_refresher.py: "{{ lookup('file', 'hermes_gateway_state_refresher.py') }}"
+
 # === Per-user shared ConfigMaps + Secrets (used by both agent + webui pods) ===
 
 - name: Render per-user hermes config.yaml ConfigMap

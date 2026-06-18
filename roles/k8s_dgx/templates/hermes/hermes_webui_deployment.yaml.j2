@@ -70,6 +70,8 @@ spec:
         # Auto-roll when the gateway/platforms/email.py patch changes —
         # subPath ConfigMap mounts don't surface updates without a pod restart.
         checksum/email-patch: "{{ lookup('file', 'hermes_email_gateway_patched.py') | hash('sha256') }}"
+        # Auto-roll when the gateway-state refresher script changes.
+        checksum/gw-refresh:  "{{ lookup('file', 'hermes_gateway_state_refresher.py') | hash('sha256') }}"
 {% endif %}
 {% if _seafile_workspace %}
         # Auto-roll when the user's Seafile credentials change so the seadrive
@@ -79,16 +81,23 @@ spec:
 {% endif %}
     spec:
       restartPolicy: Always
-      # Cross-container gateway-liveness fix (#1879 in nesquena/hermes-webui):
-      # WebUI's `api/agent_health.py` first calls `os.kill(pid, 0)` on the PID
-      # written to `gateway_state.json` by the hermes-email sidecar. Without a
-      # shared PID namespace that always fails (PID lives in the other
-      # container) and the dashboard falls back to a 120 s freshness check on
-      # the state file — which v2026.5.x agent only updates on platform
-      # lifecycle changes, so it goes stale within minutes and the UI shows
-      # "Gateway not configured". Sharing the PID namespace makes the PID
-      # check succeed directly. Side effect: pause-container becomes PID 1.
-      shareProcessNamespace: true
+      # MUST stay false: the hermes-email sidecar runs the agent image's
+      # s6-overlay /init entrypoint (since v2026.5.28), and s6-overlay-suexec
+      # refuses to start unless it is PID 1 ("fatal: can only run as pid 1").
+      # shareProcessNamespace makes the pause-container PID 1, so enabling it
+      # crashloops the email sidecar. The two are mutually exclusive; s6 wins
+      # (it performs the hermes-user drop), so PID-namespace sharing is OFF.
+      #
+      # Trade-off: this disables the #1879 cross-container gateway-liveness fix
+      # (WebUI's api/agent_health.py does os.kill(pid, 0) on the gateway PID
+      # from gateway_state.json). Without a shared PID ns that check fails and
+      # the WebUI falls back to a 120 s freshness check on gateway_state.json
+      # — only a cosmetic "Gateway not configured" badge if the file goes
+      # stale; the IMAP/SMTP gateway process itself polls/sends fine regardless.
+      #
+      # Explicit `false` (not a removed key) because kubernetes.core.k8s does a
+      # strategic-merge: a deleted field would NOT prune the live `true`.
+      shareProcessNamespace: false
       nodeSelector:
         node-role: k3smaster
       # Pod-level securityContext: the webui image's hermeswebui_init.bash
@@ -504,6 +513,47 @@ spec:
               mountPath: /opt/hermes/gateway/platforms/email.py
               subPath: email.py
               readOnly: true
+        # Gateway-status refresher — keeps the WebUI "Gateway configured" badge
+        # green WHILE the email gateway genuinely runs. The agent only writes
+        # gateway_state.json on lifecycle changes, so its updated_at goes stale
+        # within 120 s and the WebUI's freshness check (api/agent_health.py)
+        # flips to "not configured". We can't use the upstream cross-container
+        # os.kill(pid,0) liveness because shareProcessNamespace must stay false
+        # (s6 in the email sidecar needs PID 1). Instead this sidecar bumps
+        # updated_at periodically, gated on the SAME crash-safe flock the gateway
+        # holds for its lifetime (kernel auto-releases it on OOM/SIGKILL → we
+        # stop refreshing → badge correctly goes stale). command: overrides the
+        # agent image's s6 /init (this helper needs no hermes-user drop; it runs
+        # directly as the per-user uid and only touches uid-owned /opt/data).
+        # Purely cosmetic: the IMAP/SMTP gateway itself is unaffected either way.
+        - name: gateway-state-refresh
+          image: "nousresearch/hermes-agent:{{ item.image_tag | default(hermes_image_tag) }}"
+          imagePullPolicy: Always
+          command:
+            - /opt/hermes/.venv/bin/python
+            - /opt/gw-refresh/hermes_gateway_state_refresher.py
+          securityContext:
+            runAsUser: {{ item.uid }}
+            runAsGroup: {{ item.gid }}
+            runAsNonRoot: true
+          env:
+            - name: HERMES_HOME
+              value: "/opt/data"
+            - name: REFRESH_INTERVAL_S
+              value: "30"
+          resources:
+            requests:
+              cpu: "5m"
+              memory: "32Mi"
+            limits:
+              cpu: "50m"
+              memory: "64Mi"
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+            - name: hermes-gw-refresh
+              mountPath: /opt/gw-refresh
+              readOnly: true
 {% endif %}
       volumes:
         - name: data
@@ -538,4 +588,10 @@ spec:
             items:
               - key: email.py
                 path: email.py
+        - name: hermes-gw-refresh
+          configMap:
+            name: hermes-gw-refresh
+            items:
+              - key: hermes_gateway_state_refresher.py
+                path: hermes_gateway_state_refresher.py
 {% endif %}
