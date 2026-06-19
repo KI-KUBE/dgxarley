@@ -148,8 +148,9 @@ to be **still required** on the current image generation, not just
   flashinfer to 0.6.8.post1 — also still affected (one version below the
   0.6.11 we tested, but even 0.6.11 doesn't fix the dispatch gap).
 - Legacy dev1 recipes (`sglang-sm121-dev1.recipe`,
-  `sglang-gemma4-sm121-dev1.recipe`) still pin 0.6.8.post1 — still affected,
-  kept for rollback only.
+  `sglang-gemma4-sm121-dev1.recipe`) pinned 0.6.8.post1 — still affected.
+  (Both recipes removed 2026-06-19; recover from git history. The
+  `0.5.10-20260429-*-sm121-dev1` images remain on Docker Hub for rollback.)
 
 ## What PR #2959 actually fixed vs. what's still missing
 

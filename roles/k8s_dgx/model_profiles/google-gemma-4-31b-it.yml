@@ -75,6 +75,10 @@ _model_profile:
     cuda_graph_max_bs: 8
     pp_async_batch_depth: 0
     disable_deep_gemm: false
+    # Parsers for the Gemma 4 family (built-in thinking mode + tool calling).
+    # Required for Hermes tool/function calling behind hermes-default.
+    reasoning_parser: "gemma4"
+    tool_call_parser: "gemma4"
     recommended_sampling:
       # Gemma family defaults — verify against latest model card before production.
       temperature: 1.0

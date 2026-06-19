@@ -140,15 +140,15 @@ BRANCH_NAME="sm121"
 #RECIPE_NAME="sglang-0.5.13-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-sm121"
 
-RECIPE_NAME="sglang-0.5.13-gemma4-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121"
+#RECIPE_NAME="sglang-0.5.13-gemma4-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121"
 
 # NemotronH MTP experiment: v0.5.13 + unmerged PR #27998 (MTP + radix cache).
 # Enables native speculative decoding for Nemotron-3-Super-120B-NVFP4 without
 # --disable-radix-cache. See that model profile's MTP block + the recipe header.
 
-#RECIPE_NAME="sglang-0.5.13-dev-nemotronh-mtp-sm121"
-#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-dev-nemotronh-mtp-sm121"
+RECIPE_NAME="sglang-0.5.13-dev-nemotronh-mtp-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-dev-nemotronh-mtp-sm121"
 
 #RECIPE_NAME="sglang-0.5.12-sm121"
 ## IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.12-sm121"

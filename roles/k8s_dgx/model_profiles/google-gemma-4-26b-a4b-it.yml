@@ -79,6 +79,10 @@ _model_profile:
     disable_deep_gemm: false
     num_experts: 128
     ep_size: 1
+    # Parsers for the Gemma 4 family (built-in thinking mode + tool calling).
+    # Required for Hermes tool/function calling behind hermes-default.
+    reasoning_parser: "gemma4"
+    tool_call_parser: "gemma4"
     recommended_sampling:
       temperature: 1.0
       top_p: 0.95

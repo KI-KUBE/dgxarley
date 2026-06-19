@@ -4,21 +4,26 @@
 #
 # Official NVIDIA ModelOpt NVFP4 quant of google/gemma-4-26B-A4B-it. Same
 # `nvfp4_experts_only` recipe and on-device shape as the community
-# bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4 (see that profile) — only the
-# MoE expert FFN weights are FP4; attention, router, lm_head stay BF16.
-# Quantized with NVIDIA Model Optimizer v0.43.0 → `modelopt_fp4` packaging
-# (NOT compressed-tensors — that's the RedHatAI W4A4 repack, a different
-# format + a measurable accuracy drop, e.g. AIME 82.8% recovery).
+# bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4, which this profile REPLACED in
+# this repo on 2026-06-19 — only the MoE expert FFN weights are FP4; attention,
+# router, lm_head stay BF16. Quantized with NVIDIA Model Optimizer v0.43.0 →
+# `modelopt_fp4` packaging (NOT compressed-tensors — that's the RedHatAI W4A4
+# repack, a different format + a measurable accuracy drop, e.g. AIME 82.8% recovery).
 #
-# Why nvidia over bg-digitalservices: identical recipe, but the official card
-# documents the parsers (gemma4 tool-call + reasoning) and reports ~BF16
-# parity (AIME 88.95→90.00, IFBench 77.77→78.1). Both load through our
-# validated flashinfer_cutlass FP4 path; this is the upstream of the shape we
-# already run.
+# Why nvidia over the community bg-digitalservices quant: identical recipe, but
+# the official card documents the parsers (gemma4 tool-call + reasoning) and
+# reports ~BF16 parity (AIME 88.95→90.00, IFBench 77.77→78.1).
 #
-# Quantization/runtime plumbing mirrors the validated bg-digitalservices
-# profile exactly. Throughput NOT yet measured on SM121 — rewrite with the
-# winner config once a matrix sweep runs.
+# ── VALIDATION STATUS: UNVALIDATED on this cluster ──────────────────────────
+# Neither this nor the former bg-digitalservices profile was ever validated on
+# SM121 — both testlogs are "Run pending" (no throughput numbers). The
+# flashinfer_cutlass FP4 GEMM path is the established working FP4 path on SM121
+# (per the sibling NVFP4 models), but this model has not been booted or swept
+# here. Backend values below are inherited sibling defaults, NOT matrix winners
+# — re-run the matrix on the current image before trusting them. The head_dim=512
+# / flashinfer-attention caveat in nvidia-gemma-4-31b-it-nvfp4.yml applies here
+# too (attention_backend: flashinfer is now shipped via 0.6.13rc2/PR #3576 but
+# unvalidated; triton is the proven fallback).
 _model_profile:
   "nvidia/Gemma-4-26B-A4B-NVFP4":
     knowledge_cutoff: "2025-01"  # official HF/Google model card (Gemma 4 corpus); month precision
