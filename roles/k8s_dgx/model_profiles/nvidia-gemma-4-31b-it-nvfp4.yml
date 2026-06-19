@@ -32,23 +32,19 @@ _model_profile:
     # from the 26B-A4B NVFP4 / Qwen3-235B NVFP4 winners), NOT matrix winners for
     # this model — re-run the matrix on the current image before trusting them.
     #
-    # ── flashinfer head_dim=512 / image situation (READ before touching attention) ──
-    # Gemma-4's global-attention layers use head_dim=512, which the flashinfer
-    # FA2 prefill/decode kernel REJECTED outright on SM121 (register-budget
-    # guard KTraits::IsInvalid(), not a missing dispatch entry) up to and
-    # including flashinfer 0.6.12 / 0.6.13rc1. On any image ≤ that,
-    # attention_backend=flashinfer is a GUARANTEED crash for Gemma-4 (startup
-    # CUDA-graph capture on the decode tuple, or first forward in eager on the
-    # prefill/extend tuple). Full root cause: FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md.
-    # flashinfer PR #3576 (merged 2026-06-15, first shipped in v0.6.13rc2,
-    # 2026-06-17) adds head_dim=512 to the fa2 path for SM120/121 — and THIS
-    # profile's image (0.5.13-gemma4-sm121) pins flashinfer 0.6.13rc2, so
-    # head_dim=512 flashinfer attention is present for the first time. BUT it is
-    # UNVALIDATED here: the §7 boot test (BOTH crash paths — CG-on decode tuple
-    # AND --disable-cuda-graph prefill/extend tuple) has not been run. If first
-    # boot still crashes at prefill.cuh on a global-attention layer, fall back to
-    # attention_backend: "triton" (proven head_dim=512 workaround, used by the
-    # BF16 siblings). See FLASHINFER_0.6.12_TODO.md §7 + the bug-doc Follow-up.
+    # ── attention_backend MUST be triton/trtllm_mha — SGLang allowlist (READ) ──
+    # SGLang's _handle_model_specific_adjustments (server_args.py) hard-rejects
+    # flashinfer for Gemma4ForConditionalGeneration with an AssertionError at
+    # server-arg parsing, BEFORE any weight load / CUDA-graph capture / forward:
+    #   "Gemma4 only supports trtllm_mha, triton, or intel_xpu attention backend,
+    #    got prefill=flashinfer, decode=flashinfer"
+    # So the flashinfer head_dim=512 kernel situation below is MOOT for Gemma-4:
+    # it doesn't matter that flashinfer PR #3576 (v0.6.13rc2, in this image) now
+    # supports head_dim=512 on SM120/121 — SGLang won't let flashinfer be selected
+    # for Gemma4 at all. The only allowed backends are trtllm_mha | triton |
+    # intel_xpu. triton is the proven head_dim=512 path used by the BF16 siblings.
+    # (Background on the now-irrelevant flashinfer head_dim=512 register-budget
+    # guard KTraits::IsInvalid(): FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md.)
     nccl_transport: "roce"
     tp_size: 4  # num_kv_heads=16 → 4 per GPU
     context_length: 262144
@@ -56,10 +52,10 @@ _model_profile:
     trust_remote_code: true
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.90"
-    # attention_backend=flashinfer — now potentially-supported via flashinfer
-    #   0.6.13rc2 / PR #3576 in this image, but UNVALIDATED (see header). triton
-    #   is the proven fallback if it crashes on the head_dim=512 global layers.
-    attention_backend: "flashinfer"
+    # attention_backend=triton — SGLang hard-rejects flashinfer for Gemma4
+    #   (allowlist: trtllm_mha | triton | intel_xpu; see header). triton is the
+    #   proven head_dim=512 path used by the BF16 siblings.
+    attention_backend: "triton"
     # fp4_gemm_backend=flashinfer_cutlass — flashinfer_cudnn FP4 GEMM is broken
     #   on SM121 (100% startup crash across sibling NVFP4 matrices — same
     #   regression as GLM-4.7 / Qwen3.5-397B / Qwen3-235B). cutlass is the only

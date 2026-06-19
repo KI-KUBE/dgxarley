@@ -20,10 +20,10 @@
 # flashinfer_cutlass FP4 GEMM path is the established working FP4 path on SM121
 # (per the sibling NVFP4 models), but this model has not been booted or swept
 # here. Backend values below are inherited sibling defaults, NOT matrix winners
-# — re-run the matrix on the current image before trusting them. The head_dim=512
-# / flashinfer-attention caveat in nvidia-gemma-4-31b-it-nvfp4.yml applies here
-# too (attention_backend: flashinfer is now shipped via 0.6.13rc2/PR #3576 but
-# unvalidated; triton is the proven fallback).
+# — re-run the matrix on the current image before trusting them. SGLang
+# hard-rejects flashinfer for Gemma4 (server_args allowlist: trtllm_mha | triton
+# | intel_xpu), so attention_backend MUST be triton/trtllm_mha here regardless of
+# the flashinfer head_dim=512 situation — see nvidia-gemma-4-31b-it-nvfp4.yml.
 _model_profile:
   "nvidia/Gemma-4-26B-A4B-NVFP4":
     knowledge_cutoff: "2025-01"  # official HF/Google model card (Gemma 4 corpus); month precision
@@ -45,7 +45,7 @@ _model_profile:
     moe_runner_backend: "cutlass"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.90"
-    attention_backend: "flashinfer"
+    attention_backend: "triton"  # SGLang allowlist: flashinfer rejected for Gemma4
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4
     disable_piecewise_cuda_graph: true  # fp4_quantize has no fake-tensor impl
