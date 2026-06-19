@@ -1,0 +1,85 @@
+---
+# Model profile: nvidia/Qwen3.5-122B-A10B-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# NVIDIA modelopt NVFP4 re-package of Qwen/Qwen3.5-122B-A10B (FP8 sibling:
+# see qwen-qwen3.5-122b-a10b-fp8.yml). Same architecture as the FP8 build,
+# just quantized: 122B/10B MoE (Gated DeltaNet hybrid attention), 256 experts,
+# multimodal (text+image+video), native 262K context. Quantized with NVIDIA
+# TensorRT-Model-Optimizer v0.44.0 → quant_method "modelopt", so the SGLang
+# loader must be told `quantization=modelopt_fp4` (same loader path as
+# nvidia/Qwen3.5-397B-A17B-NVFP4 and the mmangkad NVFP4 builds), NOT
+# `compressed-tensors` (that's the RedHatAI packaging).
+#
+# Smaller sibling of nvidia/Qwen3.5-397B-A17B-NVFP4: only routed-expert MoE FFN
+# weights are FP4; attention, shared expert, vision encoder, lm_head stay BF16.
+# NVFP4 footprint is well under the FP8 build's ~127 GB, so it fits comfortably
+# on the 4× DGX Spark (the model card's example even runs TP=1).
+#
+# Recommended launch (NVIDIA model card, vLLM form):
+#   vllm serve nvidia/Qwen3.5-122B-A10B-NVFP4 --trust-remote-code \
+#     --quantization modelopt_fp4 --kv-cache-dtype fp8 --tensor-parallel-size 1 \
+#     --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder
+# Card does NOT specify moe_runner_backend / attention_backend / EP.
+#
+# This is a SEED profile — config mirrors the validated 397B-NVFP4 winner shape
+# (flashinfer_cutlass MoE + triton attn + fi_cutlass FP4, EP=1) adapted to this
+# model's 256-expert / no-MTP arch. NOT yet matrix-validated on this cluster;
+# rewrite with the winning config + measured throughput once swept.
+_model_profile:
+  "nvidia/Qwen3.5-122B-A10B-NVFP4":
+    knowledge_cutoff: null  # no published cutoff found (HF card/tech report/aggregators checked 2026-06)
+    info_url: "https://huggingface.co/nvidia/Qwen3.5-122B-A10B-NVFP4"
+    nccl_transport: "roce"
+    tp_size: 4
+    context_length: 262144
+    quantization: "modelopt_fp4"
+    trust_remote_code: true
+    kv_cache_dtype: "fp8_e4m3"
+    # Smaller weights than the FP8 build → plenty of free Unified Memory for KV.
+    # 0.80 mirrors the 397B-NVFP4 no-MTP setting; tune up if no OOMs observed.
+    mem_fraction_static: "0.80"
+    # NVFP4 MoE backend mirrors the current 397B-NVFP4 winner: the standalone
+    # "cutlass" runner was REMOVED in 0.5.12 (NotImplementedError at load_model),
+    # so use flashinfer_cutlass. FP4 GEMM + triton attention to match.
+    moe_runner_backend: "flashinfer_cutlass"
+    attention_backend: "triton"
+    fp4_gemm_backend: "flashinfer_cutlass"
+    disable_deep_gemm: true
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    pp_async_batch_depth: 0
+    cuda_graph_max_bs: 16
+    jit_max_jobs: 4
+    num_experts: 256
+    # EP=1 required for the NVFP4 family: flashinfer_cutlass/triton/cutlass MoE
+    # all crash at EP>1 due to the StandardDispatcher EP combine bug (see
+    # SGLANG_NVFP4_SHUFFLE_ROWS_OOB_UPSTREAM_BUG.md). At EP=1 each GPU holds all
+    # 256 experts (TP-sharded intermediate), no per-layer EP all-reduce. This is
+    # why we DON'T inherit the FP8 sibling's ep_size: 4.
+    ep_size: 1
+    # EPLB disabled: Qwen3_5MoeForConditionalGeneration lacks
+    # 'routed_experts_weights_of_layer' (same as the FP8 sibling).
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
+    reasoning_parser: "qwen3"
+    # Whole Qwen3.5/3.6 family emits XML-style <tool_call><function=…> calls →
+    # qwen3_coder (Qwen3CoderDetector). Do NOT use qwen25/hermes (JSON parsers) —
+    # they leak tags into content. Required for tool-calling behind hermes-default.
+    tool_call_parser: "qwen3_coder"
+    # Qwen3.5 thinks by default (no separate -Thinking variant); control via
+    # enable_thinking=false / chat_template_kwargs per request. Sampling below is
+    # the thinking-mode default (matches the FP8 sibling).
+    #   thinking:        temperature=1.0 top_p=0.95 top_k=20 presence_penalty=1.5
+    #   thinking_coding: temperature=0.6 top_p=0.95 top_k=20 presence_penalty=0.0
+    #   non_thinking:    temperature=0.7 top_p=0.8  top_k=20 presence_penalty=1.5
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      presence_penalty: 1.5
+    # No MTP head documented for the 122B-A10B (unlike the 397B-A17B, which has a
+    # 1-layer MTP). Speculative decoding left OFF, matching the FP8 sibling. If a
+    # NEXTN head turns up, enable spec with mamba_scheduler_strategy=extra_buffer
+    # + enable_spec_v2=true (the hybrid-mamba arch needs both, see 397B profile).
+    speculative_enabled: false

@@ -67,7 +67,7 @@ _model_profile:
       temperature: 1.0
       top_p: 0.95
       top_k: 64
-    speculative_enabled: true
+    speculative_enabled: false
     speculative_algo: "NEXTN"  # auto-promoted to FROZEN_KV_MTP at runtime
     speculative_draft_model_path: "google/gemma-4-26B-A4B-it-assistant"
     speculative_num_steps: 3
