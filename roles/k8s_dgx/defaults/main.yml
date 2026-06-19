@@ -21,38 +21,47 @@ sglang_nnodes: 4
 
 
 # Select the active model — parameters are pulled from sglang_model_profiles
-#sglang_model: "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
-#sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
-#sglang_model: "Qwen/Qwen3.5-35B-A3B-FP8"
-#sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
-
-sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
-# sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
-# sglang_model: "sparkarena/Minimax-M3-v0-NVFP4"
-# sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
-# sglang_model: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
-# sglang_model: "Qwen/Qwen3.6-27B-FP8"
-# sglang_model: "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
-# sglang_model: "nvidia/MiniMax-M2.7-NVFP4"
-# sglang_model: "canada-quant/DeepSeek-V4-Flash-W4A16-FP8-MTP"
-# sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
-# sglang_model: "google/gemma-4-26B-A4B-it"
+# Sorted by model family; exactly ONE line uncommented = the active model.
+#
+# --- DeepSeek-V4 ---
 # sglang_model: "sgl-project/DeepSeek-V4-Flash-FP8"
-# sglang_model: "Qwen/Qwen3.6-35B-A3B-FP8"
-#sglang_model: "google/gemma-4-31B-it"
-# sglang_model: "nvidia/Qwen3-235B-A22B-NVFP4"
+# sglang_model: "canada-quant/DeepSeek-V4-Flash-W4A16-FP8-MTP"
+#
+# --- Gemma-4 ---
+sglang_model: "nvidia/Gemma-4-31B-IT-NVFP4"                      # ACTIVE — 30.7B dense NVFP4, multimodal, 256K ctx
+# sglang_model: "google/gemma-4-31B-it"                          # 30.7B dense BF16, multimodal, 256K ctx
+# sglang_model: "nvidia/Gemma-4-26B-A4B-NVFP4"                   # 26B/3.8B-active MoE NVFP4, multimodal, 256K ctx
+# sglang_model: "google/gemma-4-26B-A4B-it"                      # 26B/3.8B-active MoE BF16, multimodal, 256K ctx
+# sglang_model: "nvidia/diffusiongemma-26B-A4B-it-NVFP4"         # 26B/3.8B MoE NVFP4, DISCRETE-DIFFUSION — vLLM-only per card, SGLang UNVERIFIED
+#
+# --- GLM ---
 # sglang_model: "zai-org/GLM-4.7-FP8"
-
-# sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
-# sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
 # sglang_model: "nvidia/GLM-4.7-NVFP4"
 # sglang_model: "nvidia/GLM-5-NVFP4"
-#sglang_model: "nvidia/MiniMax-M2.5-NVFP4"
-#sglang_model: "Qwen/Qwen3.5-122B-A10B-FP8"
-#sglang_model: "QuantTrio/Qwen3-235B-A22B-Thinking-2507-AWQ"
-#sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
-#sglang_model: "google/gemma-4-31B-it"        # 30.7B dense, multimodal, 256K ctx
-#sglang_model: "google/gemma-4-26B-A4B-it"    # 26B/3.8B-active MoE, multimodal, 256K ctx
+#
+# --- MiniMax ---
+# sglang_model: "nvidia/MiniMax-M2.5-NVFP4"
+# sglang_model: "nvidia/MiniMax-M2.7-NVFP4"
+# sglang_model: "sparkarena/Minimax-M3-v0-NVFP4"
+#
+# --- Nemotron-3 ---
+# sglang_model: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+# sglang_model: "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
+#
+# --- Qwen3 ---
+# sglang_model: "nvidia/Qwen3-235B-A22B-NVFP4"
+# sglang_model: "QuantTrio/Qwen3-235B-A22B-Instruct-2507-AWQ"
+# sglang_model: "QuantTrio/Qwen3-235B-A22B-Thinking-2507-AWQ"
+# sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+# sglang_model: "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
+# --- Qwen3.5 ---
+# sglang_model: "Qwen/Qwen3.5-35B-A3B-FP8"
+# sglang_model: "Qwen/Qwen3.5-122B-A10B-FP8"
+# sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
+# --- Qwen3.6 ---
+# sglang_model: "Qwen/Qwen3.6-27B-FP8"
+# sglang_model: "Qwen/Qwen3.6-35B-A3B-FP8"
+# sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
 
 # Model profiles are loaded from individual files in model_profiles/
 # by the merge task at the top of tasks/main.yml. See model_profiles/*.yml.
@@ -343,7 +352,9 @@ sglang_watchdog_timeout: 3600
 
 # Max concurrent requests. Limits how many requests SGLang processes in parallel.
 # Set to 0 for unlimited (only bounded by KV-cache pool size).
-sglang_max_running_requests: 32
+# Per-model override via the profile's max_running_requests key (e.g. the
+# diffusiongemma card pins --max-num-seqs 4); falls back to 32 when unset.
+sglang_max_running_requests: "{{ sglang_model_profiles[_sglang_active_model].max_running_requests | default(32) }}"
 
 # Absolute KV-cache pool cap in tokens ("" = unset -> sized purely by
 # mem_fraction_static). SGLang uses min(memory-derived, max_total_tokens). Set a
@@ -754,6 +765,9 @@ hf_cache_path: "/var/lib/hf-cache"
 hf_token: "hf_CHANGEME"
 # HuggingFace model pre-download Job
 hf_preload_models:
+  - "nvidia/Gemma-4-31B-IT-NVFP4"
+  - "nvidia/Gemma-4-26B-A4B-NVFP4"
+  - "nvidia/diffusiongemma-26B-A4B-it-NVFP4"
   - "nvidia/Qwen3.5-397B-A17B-NVFP4"
   - "sparkarena/Minimax-M3-v0-NVFP4"
   - "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
