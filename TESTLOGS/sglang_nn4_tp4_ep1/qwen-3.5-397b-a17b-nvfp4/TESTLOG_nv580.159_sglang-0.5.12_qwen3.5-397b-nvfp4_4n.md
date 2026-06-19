@@ -1,6 +1,6 @@
 # SGLang Test Log — Qwen3.5 397B-A17B NVFP4, 4 Nodes, TP=4 EP=1, v0.5.12 (base image)
 
-> ⏳ **RUN IN PROGRESS** — 9 / 21 cases complete as of 2026-06-19 ~12:53. fi_cutlass-MoE in progress (07 still best, 147.8 n=16); case 10 running. Numbers for cases 10–21 are pending; this log will be filled as the matrix advances.
+> ⏳ **RUN IN PROGRESS** — 10 / 21 cases complete as of 2026-06-19 ~13:20. fi_cutlass-MoE block nearly done (07 still best, 147.8 n=16); case 11 running. Numbers for cases 11–21 are pending; this log will be filled as the matrix advances.
 
 ## Environment
 
@@ -48,8 +48,8 @@ All cases: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4, kv
 | 07 | fi_cutlass | fi     | fi_cutlass | on  | —       | **DONE**    | 21.3     | 69.3     | 103.6    | 147.8     |
 | 08 | fi_cutlass | fi     | fi_cutlass | off | —       | **DONE**    | 19.9     | 65.6     | 100.3    | 143.8     |
 | 09 | fi_cutlass | fi     | fi_cutlass | pw  | —       | **DONE**    | 21.6     | 68.3     | 103.6    | 143.0     |
-| 10 | fi_cutlass | triton | fi_cutlass | on  | —       | ⏳ running   | —        | —        | —        | —         |
-| 11 | fi_cutlass | triton | fi_cutlass | off | —       | pending     | —        | —        | —        | —         |
+| 10 | fi_cutlass | triton | fi_cutlass | on  | —       | **DONE**    | 22.8     | 68.6     | 105.0    | 146.6     |
+| 11 | fi_cutlass | triton | fi_cutlass | off | —       | ⏳ running   | —        | —        | —        | —         |
 | 12 | fi_cutlass | triton | fi_cutlass | pw  | —       | pending     | —        | —        | —        | —         |
 | 13 | fi_cutlass | fi     | fi_cudnn   | on  | —       | pending ‡   | —        | —        | —        | —         |
 | 14 | fi_trtllm  | fi     | fi_cutlass | on  | —       | pending ‡   | —        | —        | —        | —         |
