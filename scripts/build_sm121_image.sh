@@ -143,18 +143,20 @@ BRANCH_NAME="sm121"
 #RECIPE_NAME="sglang-0.5.13-gemma4-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121"
 
-# DiffusionGemma experiment: 0.5.13-gemma4 + unmerged PR #28054 (dLLM
-# Gemma4Renoise). Serves google/diffusiongemma-26B-A4B-it via the diffusion
-# decode path. See DIFFUSIONGEMMA_SGLANG_SCOPE.md + the model profile.
-#RECIPE_NAME="sglang-0.5.13-gemma4-diffusion-sm121"
-#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-gemmadiffusion-sm121"
+# THE UNIFIED GEMMA-4 IMAGE: main-ahead pin (commit 3a1417a, 2026-06-12) →
+# FROZEN_KV_MTP fix (#28081) native + DiffusionGemma dLLM bake (#28054) +
+# gemma4-NVFP4 patch. Serves ALL five Gemma-4 profiles (BF16 MTP, NVFP4,
+# diffusion) off one build. First-contact / main-ahead — see the recipe header
+# for the sgl-kernel-patch re-validation caveat. SCOPE: DIFFUSIONGEMMA_SGLANG_SCOPE.md.
+RECIPE_NAME="sglang-0.5.14-gemma4-diffusion-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"
 
 # NemotronH MTP experiment: v0.5.13 + unmerged PR #27998 (MTP + radix cache).
 # Enables native speculative decoding for Nemotron-3-Super-120B-NVFP4 without
 # --disable-radix-cache. See that model profile's MTP block + the recipe header.
 
-RECIPE_NAME="sglang-0.5.13-dev-nemotronh-mtp-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-dev-nemotronh-mtp-sm121"
+#RECIPE_NAME="sglang-0.5.13-dev-nemotronh-mtp-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-dev-nemotronh-mtp-sm121"
 
 #RECIPE_NAME="sglang-0.5.12-sm121"
 ## IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.12-sm121"
@@ -880,10 +882,27 @@ apply_patches() {
     if (( apply_nemotronh_mtp_patch )); then
         patches_to_copy+=( "${nemotronh_mtp_source_patches[@]}" )
     fi
+    # sgl-kernel patch variant: a main-ahead SGLANG_REF (post-v0.5.13) can drift
+    # the sgl-kernel CMakeLists out from under the SM121 sgl-kernel patches (e.g.
+    # the mscclpp link refactor that broke sgl-kernel-skip-sm90-target.patch on
+    # commit 3a1417a). A recipe pinned forward sets SGL_KERNEL_MAINAHEAD=1; for
+    # any patch that has a "<base>-mainahead.patch" sibling we then install THAT
+    # under the canonical name, so the Dockerfile applies it transparently while
+    # the v0.5.13 recipes keep using the originals.
+    local sgl_kernel_variant=""
+    if [[ -f "${PATCHES_DIR}/${RECIPE_NAME}.recipe" ]] \
+        && grep -qE '^SGL_KERNEL_MAINAHEAD=1' "${PATCHES_DIR}/${RECIPE_NAME}.recipe"; then
+        sgl_kernel_variant="-mainahead"
+    fi
     for p in "${patches_to_copy[@]}"; do
-        if [[ -f "${PATCHES_DIR}/${p}" ]]; then
-            install -m 0644 "${PATCHES_DIR}/${p}" "container-build/patches/${p}"
-            echo "Installed container-build/patches/${p}"
+        local src="${PATCHES_DIR}/${p}"
+        if [[ -n "${sgl_kernel_variant}" \
+            && -f "${PATCHES_DIR}/${p%.patch}${sgl_kernel_variant}.patch" ]]; then
+            src="${PATCHES_DIR}/${p%.patch}${sgl_kernel_variant}.patch"
+        fi
+        if [[ -f "${src}" ]]; then
+            install -m 0644 "${src}" "container-build/patches/${p}"
+            echo "Installed container-build/patches/${p} (from $(basename "${src}"))"
         fi
     done
 
