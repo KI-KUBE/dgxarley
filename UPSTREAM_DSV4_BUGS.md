@@ -473,7 +473,7 @@ PD-disagg) may surface new walls if turned on.
 | #26647 | Mooncake HiCache fails with DeepSeek-V4-Flash hybrid cache | open |
 | #24111 | About pre-converted FP8 checkpoints (sgl-project/DeepSeek-V4-Flash-FP8) | open |
 | DeepGEMM #317 | DeepSeek-V4 on SM120: `tf32_hc_prenorm_gemm` + `paged_mqa_logits` kernels missing | **closed 2026-04-30 (declined, no SM120 HW; community PR #318 open)** |
-| #23657 | DSv4 compressed attention: no SM120 fallback for Lightning Indexer | open |
+| #23657 | DSv4 compressed attention: no SM120 fallback for Lightning Indexer | **closed 2026-06-16** |
 | #25181 | `SGLANG_OPT_FP8_WO_A_GEMM` default-on | merged (v0.5.12) |
 | #19589 | Qwen3.5 FP8 "Downcasting not allowed" (same error class as §6/2) | **closed 2026-05-02** |
 
@@ -514,6 +514,19 @@ einem v0.5.13-Image ändert.
   bestehenden Workarounds.
 - Der 0xSero-vendored FlashMLA-Kernel im Image (`scripts/patches/`) wird mit
   v0.5.13 redundant; der Build-Patch kann entfernt werden.
+
+> **Update 2026-06-19 — Issue #23657 geschlossen; Wall 5 zu untersuchen.**
+> SGLang-Issue #23657 („DSv4 compressed attention: no SM120 fallback for
+> Lightning Indexer") wurde am **2026-06-16 geschlossen**. Da Wall 5
+> (`SGLANG_FP8_PAGED_MQA_LOGITS_TORCH=1`) denselben Lightning-Indexer-Pfad
+> betrifft (kein SM120-Fallback für `paged_mqa_logits`), ist es möglich, dass
+> der in #23657 enthaltene Fix Wall 5 in v0.5.13 oder einem späteren Build
+> nativ löst — `SGLANG_FP8_PAGED_MQA_LOGITS_TORCH=1` wäre dann nicht mehr
+> nötig. **Noch nicht geprüft.** Beim nächsten Test auf v0.5.13 sollte
+> Wall 5 explizit verifiziert werden: erst mit `SGLANG_FP8_PAGED_MQA_LOGITS_TORCH=1`
+> (aktuelle Absicherung), dann testweise ohne, um festzustellen, ob der
+> DeepGEMM-Pfad auf SM121 nun sauber läuft. Kein Änderungsbedarf am
+> bestehenden Workaround, bis dies bestätigt ist.
 
 ---
 

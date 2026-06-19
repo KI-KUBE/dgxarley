@@ -51,6 +51,10 @@ on DockerHub (latest scitrera image remains `0.5.12`); cluster default stays
 `xomoxcc/dgx-spark-sglang:0.5.12.post1-sm121`. Workaround (`moe_runner_backend:
 triton`) stays in effect.
 
+**Re-verifiziert 2026-06-19:** PR #27968 und Issue #27951 weiterhin **offen**,
+kein Merge. Kein Fix in v0.5.13 (letztes SGLang-Release 2026-06-13). Workaround
+(`moe_runner_backend: triton`) unverändert aktiv. Stand identisch zu 2026-06-14.
+
 Adjacent open work:
 
 - [PR #21872](https://github.com/sgl-project/sglang/pull/21872)

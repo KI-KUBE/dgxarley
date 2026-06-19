@@ -222,6 +222,8 @@ Wir fahren keine Bild-/Video-Diffusion auf dem Cluster. Wer trotzdem reinschauen
 
 > **Update 2026-06-11:** Git-Tag **v0.5.13** wurde heute (2026-06-11T08:09:52Z) geschnitten (~1081 Commits über v0.5.12.post1) — **noch kein GitHub-Release**, der neueste veröffentlichte Release bleibt v0.5.12.post1 (2026-05-26). Für dieses Dokument relevant: v0.5.13 enthält Gemma4-NVFP4-Fixes #25054 (merged 2026-05-21) und #26791 (merged 2026-06-09) sowie DSV4-SM120-Support #24692 (merged 2026-06-01). Die drei SM120-NaN-PRs #22929/#22928/#22927 sind **nicht** enthalten und weiter offen.
 
+> **Update 2026-06-19:** **v0.5.13 ist jetzt ein vollständiges GitHub-Release** (veröffentlicht 2026-06-13). Inhalt für uns relevant: FlashInfer-Bump auf **0.6.12** (PR #26854), sgl-kernel **0.4.3** (#26421/#26132), Gemma4-NVFP4-Fixes **#25054** (merged 2026-05-21) + **#26791** (merged 2026-06-09), SM120-DSV4-Support **#24692** (merged 2026-06-01), Spec-V2 jetzt Default (V1 deprecated, #25464 merged 2026-06-08). — Die drei SM120-NaN-PRs **#22929 / #22928 / #22927 sind weiterhin OPEN** (verifiziert 2026-06-19, alle drei mergedAt: null). Außerdem: v0.5.13.post1 existiert nur als reiner Git-Tag (kein veröffentlichtes GitHub-Release, Stand 2026-06-19).
+
 ## Offene Fragen / Risiken
 
 - **`cutlass_moe_fp4`-Crash auf SM121** wird im Changelog nicht adressiert. Vermutlich weiter mit den modellspezifischen Workarounds in den Profilen (Triton für Minimax-M2.5 PP=4; direktes `cutlass` für Qwen3.5-397B-NVFP4; `flashinfer_cutlass` als Default für die übrigen NVFP4-MoEs).

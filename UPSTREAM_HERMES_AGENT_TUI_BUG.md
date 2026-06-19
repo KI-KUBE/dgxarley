@@ -291,6 +291,11 @@ small (~50 MB) and the node has fast local storage.
 - **PRs #19520 / #21267** — merged (2026-05-04 / 2026-05-07). Re-verified 2026-06-11.
 - **Issue #18800** — closed 2026-05-07 via PR #21267. Re-verified 2026-06-11.
 - **PR #19303** — closed unmerged. Re-verified 2026-06-11.
+- **Re-verified 2026-06-19:** hermes-agent **v2026.6.5** (2026-06-06) is still
+  the latest release — no newer tag published. All tracked merges (#33045,
+  #38591, #19520, #21267 merged; #18800 closed) still hold. The `copy-ui-tui`
+  initContainer-removal action item (Action Items §1–4) remains pending —
+  not yet executed.
 
 ## Action Items
 

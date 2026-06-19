@@ -1,6 +1,6 @@
 # Hermes email gateway — local patch and upstream PRs
 
-Status as of 2026-06-11.
+Status as of 2026-06-16.
 
 ## Why this exists
 
@@ -220,6 +220,9 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 > Die frühere Formulierung „keine Bewegung seit 2026-05-19" ist damit überholt.
 > `main`-Blob-SHA unverändert `7b247cdd` (32736 Bytes); gepinnte v2026.6.5
 > weiterhin nicht betroffen, kein neues Release-Tag.
+
+> **Re-verified 2026-06-19:** hermes-agent v2026.6.5 still latest; PRs
+> #28697 / #28699 / #28702 still open.
 
 1. Download the new upstream file:
 

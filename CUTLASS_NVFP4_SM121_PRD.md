@@ -192,6 +192,18 @@ Patch the NVFP4 blockwise MoE kernel source in the SGLang clone during the `scit
 > **Action:** keep `flashinfer_cutlass` as the production NVFP4 MoE path (already known-good). Re-check on each SGLang image bump: (a) bundled CUTLASS version ≥ 4.5.0? → test stock `cutlass`/`triton` MoE on SM121, retire this PRD if it works; (b) backend removed entirely? → retire this PRD and migrate any profiles still pinning `cutlass`/`triton` for NVFP4 (e.g. `nvidia/Qwen3.5-397B-A17B-NVFP4` → `cutlass`).
 >
 > **2026-06-12 — v0.5.13 check (a):** `sgl-kernel/CMakeLists.txt` in tag v0.5.13 pins CUTLASS commit `57e3cfb47a2d9e0d46eb6335c3dc411498efa198` (dated 2025-09-16, v4.2.1 era) — identical to v0.5.12.post1. The `nvfp4_blockwise_moe.cuh` in v0.5.13 still uses `StageCountAutoCarveout` + `KernelPtrArrayTmaWarpSpecializedPingpong`. **Crash A is still present in v0.5.13. No SGLang release picks up CUTLASS 4.5.x yet.**
+>
+> **2026-06-19 correction — v0.5.13 fully released 2026-06-13; C++ CUTLASS pin confirmed unchanged.**
+> v0.5.13 was **fully released on 2026-06-13** (GitHub Release page live; no
+> longer a bare tag). The Python `nvidia-cutlass-dsl` package was bumped
+> 4.5.1 → 4.5.2, but the **C++ CUTLASS pin in `sgl-kernel/CMakeLists.txt`
+> is UNCHANGED** — still commit `57e3cfb47a2d9e0d46eb6335c3dc411498efa198`
+> (v4.2.1 era, 2025-09-16), confirmed by source inspection. Accordingly the
+> `nvfp4_blockwise_moe.cuh` Pingpong / StageCountAutoCarveout code is
+> unmodified in v0.5.13, and **Crash A remains present in v0.5.13**. The
+> Python DSL bump does not affect the JIT-compiled C++ kernel path.
+> CUTLASS **4.5.2** (2026-06-16) has since been released upstream but is not
+> yet picked up by any SGLang release image; check (a) still fails for v0.5.13.
 
 ## Implementation (Option 2)
 

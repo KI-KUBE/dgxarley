@@ -148,5 +148,5 @@ Nur informativ, betrifft uns nicht direkt:
 ## Offene Fragen
 
 - Funktioniert unser sgl-kernel-SM121-Patch noch gegen sgl-kernel 0.4.2 / Torch 2.11 / CUDA 13.0?
-- Bleibt der HAProxy-Sidecar-Workaround für `EADDRINUSE` weiter nötig (PR #20468 wurde in 0.5.10 reverted und blieb in 0.5.10rc0/0.5.10 buggy — siehe CLAUDE.md)? Release-Notes nennen keinen direkten Fix dafür → vermutlich: ja, weiter nötig. Vor Rollout verifizieren. → **Beantwortet: ja, in 0.5.12 live verifiziert weiter nötig (`ss -tlnp` zeigt `sglang::schedul` auf `<pod-ip>:30080`), siehe `SGLANG_v0.5.12_VERSION_CHANGES.md`.**
+- Bleibt der HAProxy-Sidecar-Workaround für `EADDRINUSE` weiter nötig (PR #20468 wurde in 0.5.10 reverted und blieb in 0.5.10rc0/0.5.10 buggy — siehe CLAUDE.md)? Release-Notes nennen keinen direkten Fix dafür → vermutlich: ja, weiter nötig. Vor Rollout verifizieren. → **Beantwortet: ja, in 0.5.12 live verifiziert** (`ss -tlnp` zeigt `sglang::schedul` auf `<pod-ip>:<port>`) — siehe SGLANG_v0.5.12_VERSION_CHANGES.md, Abschnitt 'Offene Fragen'.
 - Eager-Mode auf `cutlass_moe_fp4` in 0.5.11 immer noch broken (`!`-Token-Collapse)? Keine Hinweise im Changelog, dass adressiert.

@@ -58,6 +58,11 @@
   does not yet exist on DockerHub (latest scitrera remains `0.5.12`), so SM121
   validation with the upstream release image remains **pending**.
 
+  **Re-verifiziert 2026-06-19:** PRs #22929/#22928/#22927 (SM121 NaN-clamp) und
+  #22615 (fp8 KV cache + KV-shared layers) weiterhin **offen und unverändert**.
+  Keine dieser Fixes ist in v0.5.13 (letztes Release 2026-06-13). SM121-Validierung
+  von Gemma-4 NVFP4 bleibt ausstehend. Stand unverändert zu 2026-06-14.
+
 The original v0.5.10 blockers (Transformers fallback, dual head_dim, top_k_experts
 naming) are no longer relevant for our deployment because we build the image
 from SGLang main, not from the v0.5.10 release — and they are also fixed in
@@ -162,7 +167,7 @@ which is shared across all variants.
 
 ## Upstream PRs
 
-Last `gh pr view` check: 2026-06-14. PRs #22929/#22928/#22927 still open and stale since 2026-04-16 (now 9 weeks). Their weight-loading and GEGLU concerns are partially superseded by #25054 (merged 2026-05-21); the SM121-specific NaN-clamp portions remain unmerged and are absent from the v0.5.13 GitHub Release (published 2026-06-13). **#22615** remains open, REVIEW_REQUIRED (last updated 2026-05-23). The flashinfer-side blocker ([flashinfer #2959](https://github.com/flashinfer-ai/flashinfer/pull/2959)) shipped in flashinfer v0.6.10–v0.6.11 and is no longer a gating dependency.
+Last `gh pr view` check: 2026-06-19. PRs #22929/#22928/#22927 still open and stale since 2026-04-16 (now 9+ weeks); #22615 still open, REVIEW_REQUIRED (last updated 2026-05-23). Their weight-loading and GEGLU concerns are partially superseded by #25054 (merged 2026-05-21); the SM121-specific NaN-clamp portions remain unmerged and are absent from the v0.5.13 GitHub Release (published 2026-06-13). The flashinfer-side blocker ([flashinfer #2959](https://github.com/flashinfer-ai/flashinfer/pull/2959)) shipped in flashinfer v0.6.10–v0.6.11 and is no longer a gating dependency.
 
 | PR | Title | Status | Merged | Relevance |
 |----|-------|--------|--------|-----------|

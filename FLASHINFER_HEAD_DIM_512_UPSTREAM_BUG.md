@@ -1,6 +1,6 @@
 # FlashInfer Upstream Bug: head_dim=512 not supported (Gemma-4 global attention)
 
-## Status 2026-06-16 — Fix-PR #3576 MERGED, issue #3297 CLOSED (not yet in a usable release)
+## Status 2026-06-19 — v0.6.13rc2 (GitHub Latest, 2026-06-17) contains #3576; bump target identified
 
 **The upstream fix has landed.** PR
 [#3576](https://github.com/flashinfer-ai/flashinfer/pull/3576)
@@ -21,7 +21,8 @@ prefill/extend tuple (`NUM_MMA_KV=2, NUM_WARPS_Q=4, NUM_WARPS_KV=1`).
 | flashinfer **0.6.12** stable (our recipe override pin) | ❌ |
 | **0.6.13rc1** (2026-06-10) | ❌ |
 | Nightly **v0.6.13-20260615** and later (built off `main` post-merge) | ✅ |
-| **0.6.13 stable** | not released yet |
+| **v0.6.13rc2** (2026-06-17, GitHub "Latest") | ✅ (tagged after 2026-06-15 merge) |
+| **0.6.13 stable** (bare tag) | not released yet |
 
 Our deployed images are further back still — the `0.5.12` image pins
 flashinfer **0.6.11.post1**, and the BF16 Gemma profiles run on
@@ -35,6 +36,19 @@ profiles for now. See the **Follow-up** section below for the bump trigger.
 - [ ] **Watch for flashinfer 0.6.13 stable** (or a chosen nightly
   ≥ `v0.6.13-20260615` / `0.6.13.dev20260615`) containing PR #3576.
   Releases: <https://github.com/flashinfer-ai/flashinfer/releases>.
+
+  > **Update 2026-06-19:** Release-Monitoring-Trigger has fired. **v0.6.13rc2**
+  > (2026-06-17) is now the GitHub "Latest" release and **contains PR #3576**
+  > (it was tagged after the 2026-06-15 merge; rc1 from 2026-06-10 does NOT
+  > contain it). There is still no bare `v0.6.13` stable tag. rc2 is the
+  > actionable bump target. Next step: pin `FLASHINFER_VERSION=0.6.13rc2` in
+  > `scripts/patches/sglang-0.5.12-sm121.recipe:63`, rebuild the image, and
+  > run the Gemma-4 flashinfer-attention test (both crash paths — CG-on decode
+  > tuple and `--disable-cuda-graph` prefill/extend tuple). **The
+  > `attention_backend: triton` workaround on all four Gemma-4 profiles remains
+  > MANDATORY until the image is actually bumped to rc2 (or later) and both
+  > crash paths are confirmed green.**
+
 - [ ] When available, bump `FLASHINFER_VERSION` in
   `scripts/patches/sglang-0.5.12-sm121.recipe:63` (or pin the nightly) and
   rebuild the image. Verify in-image: `python3 -c "import flashinfer;

@@ -15,6 +15,16 @@ SHARDED_STATE bug unfixed — `loader.py` ~L2548 still raises on
 #20869/#21630/#21612/#23531/#20963 still OPEN; vLLM PR #35598 still OPEN (merge
 conflict); EPLB bug stays FIXED. Issue #24502 still OPEN.
 
+**Update 2026-06-19:** (a) SGLang PRs #20869 and #21630 were **closed without
+merge on 2026-06-18** by maintainer `hnyls2002` (closed as superseded). The EP
+input-scale slicing, `CutlassMoEParams num_local_experts`, and SM120 MoE-backend
+auto-resolution they carried are now on `main`, but are **NOT in v0.5.13** (tag
+cut 2026-06-11, before these fixes committed). All three monkey-patches in
+`sglang_launch.sh` / `sglang_shard_launch.sh` remain required on any released
+version including v0.5.13. (b) **vLLM v0.23.0 released 2026-06-15** — release
+notes confirmed to contain no `moe_wna16` / qzeros / EP fix; vLLM PR #35598
+remains OPEN (last updated 2026-05-23); bug still unpatched in vLLM.
+
 - vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, not merged. Author rebased onto `main` on 2026-04-13 (commit `c56eae0e`, merge-from-main only, no code changes); prior rebase 2026-03-05. Still only the initial Gemini bot review from 2026-02-28 — no human reviewer has engaged (mergify[bot] flagged a merge conflict 2026-05-23; 5 reviewers requested, none engaged; re-verified 2026-06-11)
 - vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch. **Closed without merge 2026-04-25** by author (`weiguangli-io`) citing 8+ weeks with no maintainer review; offered to reopen if it becomes relevant. The sub-bug it fixed (kernel dispatch num_experts) remains unaddressed in vLLM `main`
 - SGLang: no upstream issue or PR filed
@@ -420,8 +430,8 @@ However, the CUDA kernel-level issue cannot be patched. For NVFP4 + EP > 1, use
 - SGLang [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — fix EPLB Qwen3 missing `routed_experts_weights_of_layer` (closed without merge 2026-03-30, CI failure)
 - SGLang [PR #19767](https://github.com/sgl-project/sglang/pull/19767) — fix EPLB Qwen3.5 (merged 2026-03-09)
 - SGLang [#21602](https://github.com/sgl-project/sglang/issues/21602) — our report: NVFP4 input_scale not EP-aware (**auto-closed by stale bot 2026-05-30, no fix merged; workaround still required**)
-  - Fix PR: [#20869](https://github.com/sgl-project/sglang/pull/20869) — broader fix incl. CutlassMoEParams + SM120 (open, stale since 2026-03-18, no human review)
-  - Fix PR: [#21630](https://github.com/sgl-project/sglang/pull/21630) — narrower fix, else-branch only (open, 2026-03-29)
+  - Fix PR: [#20869](https://github.com/sgl-project/sglang/pull/20869) — broader fix incl. CutlassMoEParams + SM120 (**closed without merge 2026-06-18**, superseded; substance on `main` but not in v0.5.13)
+  - Fix PR: [#21630](https://github.com/sgl-project/sglang/pull/21630) — narrower fix, else-branch only (**closed without merge 2026-06-18**, superseded; substance on `main` but not in v0.5.13)
   - Fix PR: [#23531](https://github.com/sgl-project/sglang/pull/23531) — "[Quant] Fix NVFP4 MoE input scale EP sharding in generic post-load path" by `jybsuper` (open, 2026-04-23)
   - Cited by: [#24502](https://github.com/sgl-project/sglang/issues/24502) — Blackwell EP+NVFP4 runner-registry bug stacks on top of #21602; references our issue + PR #23531 as a prerequisite fix
 - SGLang [#21603](https://github.com/sgl-project/sglang/issues/21603) — our report: ModelOptModelLoader doesn't support sharded_state (**auto-closed by stale bot 2026-05-28, no fix merged; workaround still required**)
@@ -435,5 +445,5 @@ However, the CUDA kernel-level issue cannot be patched. For NVFP4 + EP > 1, use
 - SGLang PR #17137 — non-Marlin WNA16MoE port (does not fix EP bug)
 - SGLang #14158 — update_weights_from_tensor for WNA16MoE (unrelated)
 - SGLang [PR #13715](https://github.com/sgl-project/sglang/pull/13715) — fix EPLB + FP4 weight tensor filtering (merged, different issue)
-- SGLang [PR #20963](https://github.com/sgl-project/sglang/pull/20963) — Nvidia modelopt refactoring (1/N). Under active review: reviewer `Edwardf0t1` asked for end-to-end verification 2026-03-31, author `wenscarl` responded 2026-04-01 and posted 3 further inline review responses 2026-04-06. Received fresh collaborator review from `b8zhong` on 2026-05-27 noting significant merge conflicts (still open/unmerged, no activity since; re-verified 2026-06-11). Migrates the NVFP4 code as-is — expected vehicle for EP-awareness fixes (#20869, #21630). Watch this PR for resolution of the NVFP4 input_scale and CutlassMoEParams bugs
+- SGLang [PR #20963](https://github.com/sgl-project/sglang/pull/20963) — Nvidia modelopt refactoring (1/N). Under active review: reviewer `Edwardf0t1` asked for end-to-end verification 2026-03-31, author `wenscarl` responded 2026-04-01 and posted 3 further inline review responses 2026-04-06. Received fresh collaborator review from `b8zhong` on 2026-05-27 noting significant merge conflicts (still open/unmerged, no activity since; re-verified 2026-06-11). Migrates the NVFP4 code as-is — was the expected vehicle for EP-awareness fixes (#20869, #21630); those PRs are now closed (superseded, on `main` as of 2026-06-18). Watch this PR for the NVFP4 input_scale and CutlassMoEParams fixes to appear in a release
 - SGLang [PR #21822](https://github.com/sgl-project/sglang/pull/21822) — EPLB/Qwen3 fix. **Merged 2026-04-09**. Addresses `LazyValue.keys()` AttributeError. Will be in next release after v0.5.10.post1

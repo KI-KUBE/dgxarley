@@ -65,20 +65,26 @@ work is in progress — see "Open: semantic fix" below.
 **Unreported as a root-cause analysis** upstream, but adjacent work exists:
 
 - [PR #20869](https://github.com/sgl-project/sglang/pull/20869) ("fix(moe): support EP
-  for modelopt FP4 MoE weight processing") — **open, unmerged, stale since 2026-03-18**
-  (re-verified 2026-06-11, no review activity). Fixes the two earlier errors in the chain
+  for modelopt FP4 MoE weight processing") — **closed without merge 2026-06-18** by
+  maintainer `hnyls2002` (closed as superseded; re-verified 2026-06-19). Was stale
+  since 2026-03-18 with no review activity. Fixes the two earlier errors in the chain
   (shape mismatch on input-scales, `num_experts != num_local_experts` assertion)
   with Python-level changes to `modelopt_quant.py`, but **does not fix the
   `_shuffle_rows_torch` OOB described here**. The PR author instead sidesteps
   it by changing `server_args.py` to auto-route SM120 to the `flashinfer_cutlass`
-  backend, which bypasses `cutlass_moe_fp4` entirely.
+  backend, which bypasses `cutlass_moe_fp4` entirely. Its substance is now on
+  `main` but is absent from v0.5.13 (tag cut before the closure).
 - [PR #21630](https://github.com/sgl-project/sglang/pull/21630) — narrower
-  overlapping fix for the same input-scale slicing, still unmerged (last activity 2026-03-29, re-checked 2026-06-11).
+  overlapping fix for the same input-scale slicing, **closed without merge 2026-06-18**
+  by maintainer `hnyls2002` (closed as superseded; re-verified 2026-06-19; was stale
+  since 2026-03-29). Substance is now on `main` but absent from v0.5.13.
 - [Issue #20011](https://github.com/sgl-project/sglang/issues/20011) — same
   class of bug on 8×B200 + Kimi-K2-Thinking-NVFP4, surfacing as an IMA via
   NCCL watchdog instead of the device-side assert. **Closed 2026-04-11** (same
   day as our debug session) with no code fix merged — likely manual or duplicate
   closure; the underlying `_shuffle_rows_torch` OOB remains unfixed upstream.
+
+**Update 2026-06-19:** PRs #20869 and #21630 were **closed without merge on 2026-06-18** by maintainer `hnyls2002`, marked as superseded. The functionality they carried — EP input-scale slicing (`_slice_scale`), `CutlassMoEParams` with `num_local_experts`, and SM120 MoE-backend auto-resolution — is now handled on `main`. However, **none of this landed in v0.5.13** (tag cut 2026-06-11, before the fixes were committed to `main`). The **`_shuffle_rows_torch` OOB is separately still unfixed** in all released versions including v0.5.13 and is not addressed by anything in those PRs. The `flashinfer_cutlass` workaround remains unchanged.
 
 Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, and **v0.5.13** (tag cut 2026-06-11 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
 
