@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# build_sm121_image.sh — Build xomoxcc/dgx-spark-sglang:*-sm121-dev1.
+# build_sm121_image.sh — Build xomoxcc/dgx-spark-sglang:*-sm121 images.
 #
 # Produces a custom SGLang image where cutlass_moe_fp4 (the triton/cutlass
 # MoE runner codepath for NVFP4) is patched to fit SM121's 101 KB shared
@@ -126,14 +126,10 @@ BRANCH_NAME="sm121"
 #                                        Production target for Gemma-4 NVFP4
 #                                        models until upstream PRs land.
 #
-# Legacy set (0.5.10-dev1 line — kept for rollback / A/B comparison):
-#   sglang-sm121-dev1.recipe           — SGLang main commit 2bbd30a (2026-04-29,
-#                                        832 commits past v0.5.10) + same six
-#                                        SM121 sgl-kernel patches + flashinfer
-#                                        0.6.8.post1.
-#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.10-20260429-sm121-dev1
-#   sglang-gemma4-sm121-dev1.recipe    — same + Gemma-4 NVFP4 patches.
-#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.10-20260429-gemma4-sm121-dev1
+# Legacy set (0.5.10-dev1 line) REMOVED 2026-06-19 — both sglang-sm121-dev1.recipe
+# and sglang-gemma4-sm121-dev1.recipe deleted (superseded by the 0.5.11+ native
+# Gemma-4 path; flashinfer 0.6.8.post1 era). The 0.5.10-20260429-*-sm121-dev1
+# images remain on Docker Hub for rollback; recover the recipes from git history.
 #
 # apply_patches() gates the Gemma-4 source patches and the gemma4 Dockerfile
 # patch by `RECIPE_NAME == *gemma4*`. The Gemma-4 MTP cherry-pick (PR #24436)
@@ -594,8 +590,8 @@ EOF
 # Verify the pytorch dev base image is present in the remote podman store
 # ============================================================================
 #
-# Both sglang-{,gemma4-}sm121-dev1.recipe files reference
-#   BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132
+# The recipes default to a locally-built xomoxcc base, e.g.
+#   BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
 # which is NOT on Docker Hub — it's built locally via
 # scripts/build_pytorch_base_image.sh and kept in spark4's podman store.
 # If the sglang build runs before the base image exists, podman will try
@@ -750,9 +746,9 @@ apply_patches() {
     # v0.5.12+ would fail with "already applied" (or silently corrupt the
     # tree, depending on patch detection). Source the recipe to read
     # SGLANG_VERSION and gate accordingly. Falls back to "apply" on
-    # recipes without a parseable SGLANG_VERSION (legacy main-branch recipes
-    # like sglang-{,gemma4-}sm121-dev1 pin to commits before #24436, so the
-    # patch still applies cleanly there).
+    # recipes without a parseable SGLANG_VERSION (e.g. legacy main-branch
+    # recipes pinned to a commit SHA before #24436, so the patch still
+    # applies cleanly there).
     local recipe_sglang_version=""
     if [[ -f "${PATCHES_DIR}/${RECIPE_NAME}.recipe" ]]; then
         recipe_sglang_version="$(grep -E '^SGLANG_VERSION=' "${PATCHES_DIR}/${RECIPE_NAME}.recipe" \
@@ -1257,12 +1253,19 @@ Next steps (on the x86 control host in ~/pythondev_workspace/dgxarley):
    + token output is coherent (pattern-grep + token distribution + tail
    eyeball; see feedback_output_quality_evidence memory).
 
-4. Then run the NVFP4-MoE matrix per TODO_0.5.12.md:
+4. Then run the NVFP4-MoE matrix per the current matrix doc (TODO_0.5.12.md
+   until a 0.5.13 successor exists):
      glm-4.7 → glm-5 → qwen3-235b → nemotron-3
      → qwen3.5-397b-a17b-nvfp4 (crash candidate, re-test with flashinfer_cutlass)
      → minimax-m2.5 PP=4    (crash candidate, re-test with flashinfer_cutlass)
    For the two crash models also try moe_runner_backend=flashinfer_cute_dsl
-   (new in 0.5.12, Cute-DSL FP4 GEMM reland #23590).
+   (Cute-DSL FP4 GEMM, reland #23590).
+
+   If this is a *gemma4* and/or flashinfer-bumped image: ALSO run the
+   head_dim=512 / Gemma-4 flashinfer-attention test (FLASHINFER_0.6.12_TODO.md
+   §7) — flip attention_backend triton→flashinfer on the Gemma-4 profiles and
+   verify boot + BOTH CUDA-graph paths (CG-on and --disable-cuda-graph) before
+   dropping the triton workaround.
 
 5. Deploy:
      ansible-playbook k8s_dgx.yml --tags sglang
@@ -1270,16 +1273,23 @@ Next steps (on the x86 control host in ~/pythondev_workspace/dgxarley):
 6. Watch logs:
      kubectl --context=ht@dgxarley -n sglang logs -f <head-pod>
 
-7. Record results in TESTLOG_nv580.142_sglang-0.5.12-sm121_*.md per
-   reference_testlog memory. Peak throughput, not aggregate (peak_not_agg).
+7. Record results in a TESTLOG named per reference_testlog memory
+   (driver + image tag + model), e.g.:
+     TESTLOG_nv<driver>_sglang-${IMAGE_TAG##*:}_<model>.md
+   <driver> = the actual NVIDIA driver on the node (nvidia-smi). Note the
+   exact flashinfer version in the log body — the image tag alone does not
+   disambiguate flashinfer bumps. Peak throughput, not aggregate (peak_not_agg).
 
-8. Env-var rename in 0.5.12: SGLANG_USE_JIT_ALL_REDUCE →
-   SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2 (#24297). Re-check launch scripts /
-   profiles for stale references before rollout.
+8. On any SGLang version bump, re-check launch scripts / profiles for renamed
+   SGLANG_* env vars before rollout (e.g. the 0.5.11→0.5.12 rename
+   SGLANG_USE_JIT_ALL_REDUCE → SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2, #24297).
 
-If a profile regresses vs the 0.5.11-sm121 baseline, roll back sglang_image
-to xomoxcc/dgx-spark-sglang:0.5.11-sm121 (or the upstream scitrera/dgx-spark-
-sglang:0.5.11 if SM121 patches aren't critical for that workload).
+If a profile regresses vs the previous baseline, roll back sglang_image to the
+last known-good image for that workload:
+  - lean:          xomoxcc/dgx-spark-sglang:0.5.11-sm121
+  - gemma4-NVFP4:  xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121
+  - or upstream scitrera/dgx-spark-sglang:0.5.11 / 0.5.12 if SM121 patches
+    aren't critical for that workload.
 
 EOF
 }
