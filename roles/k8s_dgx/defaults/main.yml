@@ -28,11 +28,11 @@ sglang_nnodes: 4
 # sglang_model: "canada-quant/DeepSeek-V4-Flash-W4A16-FP8-MTP"
 #
 # --- Gemma-4 ---
-sglang_model: "nvidia/Gemma-4-31B-IT-NVFP4"                      # ACTIVE — 30.7B dense NVFP4, multimodal, 256K ctx
+# sglang_model: "nvidia/Gemma-4-31B-IT-NVFP4"                      # ACTIVE — 30.7B dense NVFP4, multimodal, 256K ctx
 # sglang_model: "google/gemma-4-31B-it"                          # 30.7B dense BF16, multimodal, 256K ctx
 # sglang_model: "nvidia/Gemma-4-26B-A4B-NVFP4"                   # 26B/3.8B-active MoE NVFP4, multimodal, 256K ctx
 # sglang_model: "google/gemma-4-26B-A4B-it"                      # 26B/3.8B-active MoE BF16, multimodal, 256K ctx
-# sglang_model: "nvidia/diffusiongemma-26B-A4B-it-NVFP4"         # 26B/3.8B MoE NVFP4, DISCRETE-DIFFUSION — SGLang dLLM wired; needs 0.5.13-gemmadiffusion image (build pending)
+# sglang_model: "nvidia/diffusiongemma-26B-A4B-it-NVFP4"         # 26B/3.8B MoE NVFP4, DISCRETE-DIFFUSION (dLLM Gemma4Renoise) — pins 0.5.14-gemmadiffusion image
 #
 # --- GLM ---
 # sglang_model: "zai-org/GLM-4.7-FP8"
@@ -61,7 +61,7 @@ sglang_model: "nvidia/Gemma-4-31B-IT-NVFP4"                      # ACTIVE — 30
 # --- Qwen3.6 ---
 # sglang_model: "Qwen/Qwen3.6-27B-FP8"
 # sglang_model: "Qwen/Qwen3.6-35B-A3B-FP8"
-# sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
 
 # Model profiles are loaded from individual files in model_profiles/
 # by the merge task at the top of tasks/main.yml. See model_profiles/*.yml.
@@ -377,7 +377,7 @@ sglang_attention_backend: "{{ sglang_model_profiles[_sglang_active_model].attent
 # the block-diffusion decode path. SGLang's _handle_dllm_inference then auto-
 # forces triton attention + eager (cuda graph disabled) + unchunked prefill, so
 # the autoregressive knobs above are overridden internally. Wired to
-# --dllm-algorithm in sglang_launch.sh. Only the 0.5.13-gemmadiffusion image
+# --dllm-algorithm in sglang_launch.sh. Only the 0.5.14-gemmadiffusion image
 # (PR #28054 baked) ships the runtime for this; other images reject the flag.
 # See DIFFUSIONGEMMA_SGLANG_SCOPE.md.
 sglang_dllm_algorithm: "{{ sglang_model_profiles[_sglang_active_model].dllm_algorithm | default('') }}"

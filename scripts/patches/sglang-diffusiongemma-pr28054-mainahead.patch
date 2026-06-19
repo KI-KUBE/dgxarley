@@ -660,19 +660,19 @@ index 953c4fc45fc7..e42a92981579 100644
              and (self.cur_batch is None or self.cur_batch.is_empty())
              and (not self.enable_overlap or len(self.result_queue) == 0)
 diff --git a/python/sglang/srt/managers/tp_worker.py b/python/sglang/srt/managers/tp_worker.py
-index bfc13609d245..9fb85c1845ad 100644
+index bfc1360..3de436a 100644
 --- a/python/sglang/srt/managers/tp_worker.py
 +++ b/python/sglang/srt/managers/tp_worker.py
-@@ -305,6 +305,9 @@ def __init__(
-             self.model_runner.max_token_pool_size - 1,
-         )
-         self.max_req_input_len = self.max_req_len - 5
-+        if self.dllm_algorithm is not None:
-+            # The canvas extends past the prompt within the same row.
-+            self.max_req_input_len -= self.dllm_algorithm.block_size
-         assert (
-             self.max_req_len > 0 and self.max_req_input_len > 0
-         ), "Memory pool size is too small"
+@@ -439,7 +439,8 @@ class TpModelWorker(BaseTpWorker):
+             self.model_runner.max_running_requests,
+             self.server_args.max_queued_requests,
+             max_req_len,
+-            max_req_len - 5,
++            # DiffusionGemma subtracts the dLLM block_size (canvas extends past prompt).
++            max_req_len - 5 - (self.dllm_algorithm.block_size if self.dllm_algorithm is not None else 0),
+             self.random_seed,
+             self.device,
+             self.model_runner.forward_stream,
 diff --git a/python/sglang/srt/model_executor/forward_batch_info.py b/python/sglang/srt/model_executor/forward_batch_info.py
 index ae657f35de7a..049a1661b0b2 100644
 --- a/python/sglang/srt/model_executor/forward_batch_info.py
