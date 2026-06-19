@@ -1,6 +1,6 @@
 # SGLang Test Log — Qwen3.5 397B-A17B NVFP4, 4 Nodes, TP=4 EP=1, v0.5.12 (base image)
 
-> ⏳ **RUN IN PROGRESS** — 17 / 21 cases complete as of 2026-06-19 ~15:07. All 3 trtllm probes (14–16) startup-crashed. MTP block started: 17 (s1/d2) = 31.4/82.2/109.7/144.5. Case 18 (cookbook s3/d4 — decisive vs cudnn Test 29) running. 18–21 pending.
+> ⏳ **RUN IN PROGRESS** — 18 / 21 cases complete as of 2026-06-19 ~15:34. 🎯 Decisive result: cookbook MTP s3/d4 (18) = **40.1 / 95.1 / 125.4 / 172.6** — the new winner, and it **BEATS** cudnn Test 29 (39.1/89.7/120.7/163.6) by +3–6% across the board. Case 19 (s5/d5) running; 19–21 pending.
 
 ## Environment
 
@@ -56,8 +56,8 @@ All cases: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4, kv
 | 15 | fi_trtllm  | fi     | fi_cutlass | pw  | —       | **CRASH**   | —        | —        | —        | —         |
 | 16 | fi_trtllm  | triton | fi_cutlass | on  | —       | **CRASH**   | —        | —        | —        | —         |
 | 17 | fi_cutlass | triton | fi_cutlass | on  | s1/d2   | **DONE**    | 31.4     | 82.2     | 109.7    | 144.5     |
-| 18 | fi_cutlass | triton | fi_cutlass | on  | s3/d4   | ⏳ running ★ | —        | —        | —        | —         |
-| 19 | fi_cutlass | triton | fi_cutlass | on  | s5/d5   | pending     | —        | —        | —        | —         |
+| 18 | fi_cutlass | triton | fi_cutlass | on  | s3/d4   | **DONE ★**  | **40.1** | **95.1** | **125.4**| **172.6** |
+| 19 | fi_cutlass | triton | fi_cutlass | on  | s5/d5   | ⏳ running   | —        | —        | —        | —         |
 | 20 | fi_cutlass | triton | fi_cutlass | on  | s5/d7   | pending     | —        | —        | —        | —         |
 | 21 | triton     | triton | fi_cutlass | on  | s3/d4   | pending     | —        | —        | —        | —         |
 
@@ -69,6 +69,9 @@ All cases: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4, kv
 ---
 
 ## Observations so far
+
+- **🎯 HEADLINE — the base image WINS the decisive MTP cookbook comparison.** Case 18 (fi_cutlass-MoE + triton-attn + fi_cutlass-FP4 + full-CG + MTP s3/d4) on the *base* `0.5.12` posts **40.1 / 95.1 / 125.4 / 172.6** (n1/4/8/16) vs the cudnn twin's Test 29 **39.1 / 89.7 / 120.7 / 163.6** — base is **+2.6% / +6.0% / +3.9% / +5.5%** ahead, identical config. It also tops the old 0.5.10 cutlass-direct (40.0 n=1). So plain 0.5.12 is not just "not slower" — on the winner config it is marginally **faster** than cudnn, and the n=1=31.7 I measured ad-hoc earlier was purely the `cuda_graph_max_bs=8` handicap (matrix uses 16).
+  - **Config implication:** the profile currently pins `xomoxcc/dgx-spark-sglang:0.5.12-cudnn` (chosen earlier). This result argues the plain `scitrera/dgx-spark-sglang:0.5.12` default would be ≥ as fast on the pinned config — the pin could be dropped. (Flagged to the user; not changed here.)
 
 - **Case 01 (triton-MoE baseline) ≈ identical between base and cudnn images.** Base 0.5.12: 21.0 / 64.3 / 98.4 / 136.2 (n1/4/8/16) vs cudnn case 01: 21.4 / 65.9 / 98.0 / 135.9 — within noise. So the cuDNN build does **not** change the triton-MoE baseline; any advantage must come from the `fi_cudnn` FP4 path (absent here) or elsewhere. The decisive comparison is case **18** (fi_cutlass-MoE + MTP s3/d4) vs cudnn Test 29 — still pending.
 - **CUDA graphs ON is worth ~+47% at n=1** (case 01 on: 21.0 vs case 02 off: 14.3); the gap closes by n=4 (64.3 vs 62.6) and vanishes at n=16 (~136 both). Same pattern as the cudnn run.
