@@ -73,7 +73,7 @@ Works on any Spark cluster (hand this to anyone running multi-node SGLang).
 
 ```bash
 NS=sglang                              # this repo: {{ sglang_namespace }}
-KC="kubectl --context=ht@dgxarley -n $NS"
+KC="kubectl -n $NS"
 
 # 1. Identify the 4 SGLang pods (head + 3 workers) and the head pod IP.
 PODS=( $($KC get pods -l app=sglang -o jsonpath='{.items[*].metadata.name}') )   # adjust selector
@@ -118,12 +118,74 @@ without touching the serving pods:
 ```bash
 ansible-playbook k8s_dgx.yml --tags nccl_test                           # all variants
 ansible-playbook k8s_dgx.yml --tags nccl_test -e nccl_test_transport=roce
-kubectl --context=ht@dgxarley -n sglang logs nccl-test-roce-rank0
+kubectl -n sglang logs nccl-test-roce-rank0
 ```
 
 See `roles/k8s_dgx/tasks/nccl_test.yml`. (Note: this path uses `nccl_test.py`, not
 `nccl_bench.py`, and its own pod spec — extend there separately if you need the
 small-message range in that flow.)
+
+---
+
+## Prerequisite: verify the jumbo / MTU path end-to-end
+
+Do this **before** chasing NCCL tuning — a 1500-byte MTU break *anywhere* on the path
+forces RoCE to fragment, turning each collective into many small frames. That inflates
+the small-message, latency-bound all-reduce and mimics the interleave/x4 penalty (and
+shows up on the switch as an average packet size capped near ~1500 bytes). Jumbo must be
+intact across **all three** layers, then confirmed end-to-end.
+
+The RoCE path MTU (`active_mtu`) is capped at one of {256, 512, 1024, 2048, **4096**}.
+With Ethernet jumbo it negotiates **4096**; on a 1500-MTU path it drops to **1024** —
+4× more packets per message, 4× the per-packet overhead.
+
+**1 — Switch (MikroTik):** the L3 MTU *and* the L2MTU must clear a 9000-byte frame
+plus RoCE/UDP/IP/Eth headers (≈9100). Read the L2MTU with the generic `interface print`
+(`ethernet print` does not show it):
+
+```
+/interface print where name~"qsfp"
+# active (RUNNING) data ports: ACTUAL-MTU 9000, L2MTU >= ~9100  (this cluster: 9000 / 9500)
+# the 1500/1584 SLAVE sub-lanes are inactive breakout lanes -- ignore them
+```
+
+**2 — VF inside the pod:** VF MTU is **not** inherited from the PF — netplan must set it
+explicitly (see CLAUDE.md). Check the Multus secondary NIC:
+
+```
+kubectl -n sglang exec <pod> -c sglang -- ip link show net1
+# expect: mtu 9000   (net1 is the QSFP VF, alias enp1s0f0v0)
+```
+
+**3 — RoCE active_mtu:** `ibv_devinfo` is usually absent inside the pod, so query it on
+the host (the pod's VF0 = device `rocep1s0f0v0`):
+
+```
+ssh root@<spark-ip> 'ibv_devinfo -d rocep1s0f0v0 | grep -iE "active_mtu|state:|link_layer"'
+# expect: active_mtu: 4096 (5) | state: PORT_ACTIVE (4) | link_layer: Ethernet
+```
+
+**4 — End-to-end proof** (Spark → switch → Spark), DF bit set so a 9000-byte packet must
+pass *without* fragmentation:
+
+```
+kubectl -n sglang exec <head-pod> -c sglang -- \
+  ping -M do -s 8972 -c 3 <other-spark-qsfp-ip>     # 8972 + 28 = 9000; expect 0% loss
+```
+
+**Reference — a clean path on this cluster (all four nodes):**
+
+| Layer                 | Check                  | Expected                    |
+|-----------------------|------------------------|-----------------------------|
+| Switch                | `ACTUAL-MTU` / `L2MTU` | 9000 / 9500                 |
+| VF (`net1`)           | `ip link` mtu          | 9000                        |
+| RoCE (`rocep1s0f0v0`) | `active_mtu`           | 4096, PORT_ACTIVE, Ethernet |
+| End-to-end            | DF ping 9000 B         | 0% loss                     |
+
+All green → MTU is ruled out; a switch-side average packet size near ~1500 B is just RoCE
+ACK-mixing + small messages in the latency regime, **not** fragmentation. If `active_mtu`
+reads **1024**, or the DF ping returns *"frag needed"* / drops, you have found the break —
+fix it at that layer and re-measure before profiling NCCL.
 
 ---
 
