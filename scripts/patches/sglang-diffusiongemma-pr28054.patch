@@ -1,0 +1,1610 @@
+DiffusionGemma (google/diffusiongemma-26B-A4B-it) runtime support for SGLang.
+
+Source: flashinfer-ai... no — sgl-project/sglang PR #28054
+  "Support DiffusionGemma (google/diffusiongemma-26B-A4B-it)"
+  head branch diffusion-gemma-support @ ff9e989 (created 2026-06-12, base main).
+PR is OPEN/unmerged as of 2026-06-19. Captured here for the
+sglang-0.5.13-gemma4-diffusion-sm121.recipe bake.
+
+Applied to the sglang Python source (python/sglang/srt/) before
+`uv pip install ./python`, like the other unmerged-PR bakes.
+
+STRIPPED from the raw PR diff:
+  - docs/...diffusion_language_models.md  (docs only; would drift vs v0.5.13)
+  - python/pyproject.toml  (bumped transformers 5.8.1 -> 5.11.0; IGNORED here
+    because sglang installs --no-deps and we install transformers explicitly
+    via TRANSFORMERS_VERSION. If the model fails to load with an AutoConfig /
+    modeling error, bump TRANSFORMERS_VERSION to 5.11.0 in the recipe.)
+
+PR base is only ~1 day past the v0.5.13 tag, so drift on the modified core
+files (scheduler.py, tp_worker.py, server_args.py, schedule_policy.py,
+forward_batch_info.py, model_config.py, hf_transformers/config.py, dllm/*,
+gemma4_vision.py) is expected to be small; the in-container `patch --dry-run`
+gates it. If a hunk fails, re-export with `gh pr diff 28054` and rebase the
+failing hunk onto v0.5.13.
+
+
+diff --git a/python/sglang/srt/configs/model_config.py b/python/sglang/srt/configs/model_config.py
+index 0fac1bebfcfb..b59e4c13f38d 100644
+--- a/python/sglang/srt/configs/model_config.py
++++ b/python/sglang/srt/configs/model_config.py
+@@ -541,6 +541,7 @@ def _derive_hybrid_model(self):
+             "Gemma4ForCausalLM",
+             "Gemma4ForConditionalGeneration",
+             "Gemma4UnifiedForConditionalGeneration",
++            "DiffusionGemmaForBlockDiffusion",
+         ]
+ 
+     def _detect_attention_sinks(self) -> bool:
+@@ -1547,6 +1548,7 @@ def is_generation_model(model_architectures: List[str], is_embedding: bool = Fal
+     "Gemma3nForConditionalGeneration",
+     "Gemma4ForConditionalGeneration",
+     "Gemma4UnifiedForConditionalGeneration",
++    "DiffusionGemmaForBlockDiffusion",
+     "Glm4vForConditionalGeneration",
+     "Glm4vMoeForConditionalGeneration",
+     "GlmOcrForConditionalGeneration",
+@@ -1729,6 +1731,7 @@ def is_hybrid_swa_model(
+         "Gemma4ForConditionalGeneration",
+         "Gemma4UnifiedForConditionalGeneration",
+         "LagunaForCausalLM",
++        "DiffusionGemmaForBlockDiffusion",
+     }
+     if any(arch in hybrid_swa_archs for arch in model_architectures):
+         return True
+@@ -1792,6 +1795,7 @@ def get_hybrid_layer_ids(
+         "Gemma4ForCausalLM" in model_architectures
+         or "Gemma4ForConditionalGeneration" in model_architectures
+         or "Gemma4UnifiedForConditionalGeneration" in model_architectures
++        or "DiffusionGemmaForBlockDiffusion" in model_architectures
+     ):
+         layer_types = getattr(hf_text_config, "layer_types", [])
+         swa_attention_layer_ids = [
+diff --git a/python/sglang/srt/dllm/algorithm/gemma4_renoise.py b/python/sglang/srt/dllm/algorithm/gemma4_renoise.py
+new file mode 100644
+index 000000000000..66893f265c89
+--- /dev/null
++++ b/python/sglang/srt/dllm/algorithm/gemma4_renoise.py
+@@ -0,0 +1,168 @@
++"""Uniform-state (renoising) block-diffusion algorithm for DiffusionGemma.
++
++Two phases, distinguished by `forward_batch.dllm_is_encoder`:
++  * encoder/prefill: one forward to write the context KV cache (no denoising).
++  * decoder/denoise: for one canvas, run `max_denoising_steps` reverse steps,
++    feeding the previous step's logits back as self-conditioning.
++
++Ported from the HF `diffusion_gemma` EntropyBoundSampler + linear temperature
++schedule + StableAndConfident stopping. Defaults follow the checkpoint's
++generation_config.json and may be overridden via --dllm-algorithm-config.
++"""
++
++from typing import List, Tuple, Union
++
++import torch
++
++from sglang.srt.distributed import get_tp_group
++from sglang.srt.dllm.algorithm.base import DllmAlgorithm
++from sglang.srt.dllm.config import DllmConfig
++from sglang.srt.layers.logits_processor import LogitsProcessorOutput
++from sglang.srt.model_executor.forward_batch_info import ForwardBatch
++from sglang.srt.model_executor.model_runner import ModelRunner
++
++
++class Gemma4Renoise(DllmAlgorithm):
++    def __init__(self, config: DllmConfig):
++        super().__init__(config)
++
++        ac = config.algorithm_config or {}
++        self.max_denoising_steps = ac.get("max_denoising_steps", 48)
++        if self.max_denoising_steps < 1:
++            raise ValueError("max_denoising_steps must be >= 1")
++        s = ac.get("sampler_config", {})
++        self.entropy_bound = s.get("entropy_bound", 0.1)
++        t = ac.get("temperature_schedule", {})
++        self.t_min = t.get("t_min", 0.4)
++        self.t_max = t.get("t_max", 0.8)
++        st = ac.get("stopping_config", {})
++        self.confidence_threshold = st.get("confidence_threshold", 0.005)
++        self.stability_threshold = st.get("stability_threshold", 1)
++
++        self.vocab_size = None
++        self._base_seed = ac.get("seed", None)
++        self._generator = None
++
++    def _temperature(self, step: int) -> float:
++        return self.t_min + (self.t_max - self.t_min) * (
++            step / self.max_denoising_steps
++        )
++
++    def _seed_generator(self, device) -> torch.Generator:
++        # Re-seed per decode. Under TP, broadcast rank 0's seed so all ranks draw
++        # identical canvases from the all-gathered logits.
++        if self._generator is None or self._generator.device != device:
++            self._generator = torch.Generator(device=device)
++        if self._base_seed is not None:
++            seed = int(self._base_seed)
++        else:
++            seed = int(torch.randint(0, torch.iinfo(torch.int32).max, ()).item())
++        tp_group = get_tp_group()
++        if tp_group.world_size > 1:
++            t = torch.tensor([seed], dtype=torch.int64, device=device)
++            tp_group.broadcast(t, src=0)
++            seed = int(t.item())
++        self._generator.manual_seed(seed)
++        return self._generator
++
++    def _init_canvas(self, shape, device, gen) -> torch.Tensor:
++        return torch.randint(
++            low=0, high=self.vocab_size, size=shape, device=device, generator=gen
++        )
++
++    def _renoise(self, denoiser, token_entropy, gen) -> torch.Tensor:
++        # EntropyBound: keep the lowest-entropy positions within entropy_bound,
++        # re-noise the complement with fresh uniform tokens.
++        sorted_e, idx = torch.sort(token_entropy, dim=-1, descending=False)
++        cum = torch.cumsum(sorted_e, dim=-1)
++        sel = (cum - sorted_e) <= self.entropy_bound
++        mask = torch.zeros_like(sel).scatter(-1, idx, sel)
++        rand = self._init_canvas(denoiser.shape, denoiser.device, gen)
++        return torch.where(mask, denoiser, rand)
++
++    def _stop(self, history, argmax, token_entropy) -> torch.Tensor:
++        # Per-request [bs] bool: each request stops on its own stability/confidence.
++        bs = argmax.shape[0]
++        if len(history) == self.stability_threshold:
++            stable = torch.ones(bs, dtype=torch.bool, device=argmax.device)
++            for c in history:
++                stable &= (argmax == c).all(dim=1)
++        else:
++            stable = torch.zeros(bs, dtype=torch.bool, device=argmax.device)
++        history.append(argmax)
++        if len(history) > self.stability_threshold:
++            history.pop(0)
++        confident = token_entropy.mean(dim=1) < self.confidence_threshold
++        return stable & confident
++
++    def run(
++        self,
++        model_runner: ModelRunner,
++        forward_batch: ForwardBatch,
++    ) -> Tuple[Union[LogitsProcessorOutput, torch.Tensor], List[torch.Tensor], bool]:
++        if self.vocab_size is None:
++            self.vocab_size = model_runner.model_config.hf_config.text_config.vocab_size
++
++        if forward_batch.dllm_is_encoder:
++            # Skip an empty (fully-cached) encode round, rope can't reshape 0 tokens.
++            if forward_batch.input_ids.numel() == 0:
++                return None, [], False
++            out = model_runner.forward(forward_batch, pp_proxy_tensors=None)
++            return out.logits_output, [], out.can_run_graph
++
++        bs = forward_batch.batch_size
++        L = self.block_size
++        device = forward_batch.input_ids.device
++        gen = self._seed_generator(device)
++
++        current = self._init_canvas((bs, L), device, gen)
++        forward_batch.input_ids[:] = current.reshape(-1)
++        self_cond = None
++        history: List[torch.Tensor] = []
++        out = None
++        # Each request freezes its canvas once it stops while the rest keep denoising.
++        done = torch.zeros(bs, dtype=torch.bool, device=device)
++        # Emit the greedy argmax (not the multinomial canvas), frozen per-item on stop.
++        argmax = current.clone()
++
++        for step in reversed(range(1, self.max_denoising_steps + 1)):
++            forward_batch.dllm_self_conditioning_logits = self_cond
++            out = model_runner.forward(forward_batch, pp_proxy_tensors=None)
++
++            logits = (out.logits_output.full_logits / self._temperature(step)).view(
++                bs, L, -1
++            )
++            # One log_softmax pass yields both probs and entropy (the
++            # Categorical equivalent allocates extra full-vocab buffers).
++            log_probs = torch.log_softmax(logits, dim=-1)
++            probs = torch.exp(log_probs)
++            token_entropy = -torch.sum(probs * log_probs, dim=-1)
++            denoiser = torch.multinomial(
++                probs.reshape(bs * L, -1), num_samples=1, generator=gen
++            ).view(bs, L)
++
++            keep = done.view(bs, 1)
++            argmax = torch.where(keep, argmax, torch.argmax(logits, dim=-1))
++            current = torch.where(
++                keep, current, self._renoise(denoiser, token_entropy, gen)
++            )
++            forward_batch.input_ids[:] = current.reshape(-1)
++            if self_cond is None:
++                self_cond = logits.reshape(bs * L, -1)
++            else:
++                self_cond = torch.where(
++                    done.view(bs, 1, 1), self_cond.view(bs, L, -1), logits
++                ).reshape(bs * L, -1)
++
++            done |= self._stop(history, argmax, token_entropy) & (~done)
++            if bool(done.all()):
++                break
++
++        # One D2H copy for the whole batch, so the scheduler's per-request
++        # tolist() reads host memory.
++        argmax = argmax.cpu()
++        next_token_ids = [argmax[i] for i in range(bs)]
++        return out.logits_output, next_token_ids, out.can_run_graph
++
++
++Algorithm = Gemma4Renoise
+diff --git a/python/sglang/srt/dllm/config.py b/python/sglang/srt/dllm/config.py
+index edd2049268ac..19ac102c0125 100644
+--- a/python/sglang/srt/dllm/config.py
++++ b/python/sglang/srt/dllm/config.py
+@@ -12,12 +12,16 @@ def __init__(
+         block_size: int,
+         mask_id: int,
+         max_running_requests: int,
++        is_uniform: bool,
+     ):
+         self.algorithm = algorithm
+         self.algorithm_config = algorithm_config
+         self.block_size = block_size
+         self.mask_id = mask_id
+         self.max_running_requests = max_running_requests
++        # Uniform-state (renoising) diffusion (DiffusionGemma) vs masked diffusion
++        # (LLaDA2 / SDAR). Selects the per-round scheduling in ReqDllmMixin.
++        self.is_uniform = is_uniform
+ 
+     @staticmethod
+     def from_server_args(
+@@ -35,6 +39,11 @@ def from_server_args(
+             "LLaDA2MoeModelLM": {"block_size": 32, "mask_id": 156895},
+             "SDARForCausalLM": {"block_size": 4, "mask_id": 151669},
+             "SDARMoeForCausalLM": {"block_size": 4, "mask_id": 151669},
++            "DiffusionGemmaForBlockDiffusion": {
++                "block_size": None,
++                "mask_id": -1,
++                "is_uniform": True,
++            },
+         }
+ 
+         arch = model_config.hf_config.architectures[0]
+@@ -42,6 +51,11 @@ def from_server_args(
+             params = DLLM_PARAMS[arch]
+             block_size = params["block_size"]
+             mask_id = params["mask_id"]
++            is_uniform = params.get("is_uniform", False)
++            if is_uniform:
++                # canvas_length lives only on the Gemma4 config, so read it here, not
++                # in the eager dict above (built for every dLLM, masked ones lack it).
++                block_size = model_config.hf_config.canvas_length
+         else:
+             raise RuntimeError(f"Unknown diffusion LLM: {arch}")
+ 
+@@ -72,4 +86,5 @@ def from_server_args(
+             block_size=block_size,
+             mask_id=mask_id,
+             max_running_requests=max_running_requests,
++            is_uniform=is_uniform,
+         )
+diff --git a/python/sglang/srt/dllm/mixin/req.py b/python/sglang/srt/dllm/mixin/req.py
+index 917893f5616d..e5ab3bb62b44 100644
+--- a/python/sglang/srt/dllm/mixin/req.py
++++ b/python/sglang/srt/dllm/mixin/req.py
+@@ -23,11 +23,14 @@ def init_diffusion_llm(self: Req, dllm_config: DllmConfig):
+         self.dllm_block_offset = 0
+         self.dllm_config = dllm_config
+ 
+-        if self.dllm_config is not None:
+-            if len(self.origin_input_ids) < self.dllm_config.block_size:
+-                self.dllm_phase = DllmReqPhase.INCOMING_DECODE
+-            else:
+-                self.dllm_phase = DllmReqPhase.INCOMING_PREFILL
++        if self.dllm_config is None:
++            return
++        if self.dllm_config.is_uniform:
++            self.dllm_phase = DllmReqPhase.INCOMING_PREFILL
++        elif len(self.origin_input_ids) < self.dllm_config.block_size:
++            self.dllm_phase = DllmReqPhase.INCOMING_DECODE
++        else:
++            self.dllm_phase = DllmReqPhase.INCOMING_PREFILL
+ 
+     def is_dllm(self: Req) -> bool:
+         return self.dllm_config is not None
+@@ -46,31 +49,57 @@ def determine_dllm_phase(self: Req):
+             # still incoming stage
+             return
+ 
+-        input_block = self.full_untruncated_fill_ids[prefix_length:min_required_length]
+-        is_prefill_phase = self.dllm_config.mask_id not in input_block
+-
+-        if is_prefill_phase:
+-            self.dllm_phase = DllmReqPhase.STAGING_PREFILL
++        if self.dllm_config.is_uniform:
++            # Uniform: the canvas begins once the cached prefix covers the real context.
++            in_prefill = prefix_length < self.seqlen
+         else:
+-            self.dllm_phase = DllmReqPhase.STAGING_DECODE
++            # Masked: the staging block still contains mask tokens to fill.
++            input_block = self.full_untruncated_fill_ids[
++                prefix_length:min_required_length
++            ]
++            in_prefill = self.dllm_config.mask_id not in input_block
++
++        self.dllm_phase = (
++            DllmReqPhase.STAGING_PREFILL if in_prefill else DllmReqPhase.STAGING_DECODE
++        )
+ 
+     def _init_fill_ids_for_dllm(self: Req):
+-        self.dllm_block_offset = (
+-            0
+-            if self.fill_len == 0
+-            else self.dllm_block_offset + self.dllm_config.block_size
+-        )
+-        self.full_untruncated_fill_ids = (
+-            self.origin_input_ids
+-            + self.output_ids
+-            + array("q", [self.dllm_config.mask_id] * self.dllm_config.block_size)
+-        )
++        if self.dllm_config.is_uniform:
++            # Uniform: append a placeholder canvas (zeros) only once the real
++            # context is fully cached, otherwise encode the context with no canvas.
++            context_len = self.seqlen
++            self.dllm_block_offset = context_len
++            if self.fill_len and len(self.prefix_indices) >= context_len:
++                self.full_untruncated_fill_ids = (
++                    self.origin_input_ids
++                    + self.output_ids
++                    + array("q", [0] * self.dllm_config.block_size)
++                )
++            else:
++                self.full_untruncated_fill_ids = self.origin_input_ids + self.output_ids
++        else:
++            self.dllm_block_offset = (
++                0
++                if self.fill_len == 0
++                else self.dllm_block_offset + self.dllm_config.block_size
++            )
++            self.full_untruncated_fill_ids = (
++                self.origin_input_ids
++                + self.output_ids
++                + array("q", [self.dllm_config.mask_id] * self.dllm_config.block_size)
++            )
+         self.fill_len = len(self.full_untruncated_fill_ids)
+ 
+-    def _update_block_offset_for_dllm(self):
++    def _update_block_offset_for_dllm(self: Req):
+         prefix_len = len(self.prefix_indices)
+-        assert (
+-            prefix_len % self.dllm_config.block_size == 0
+-        ), f"Unexpected prefix len: {prefix_len}"
+-        if prefix_len > self.dllm_block_offset:
+-            self.dllm_block_offset = prefix_len
++        if self.dllm_config.is_uniform:
++            context_len = self.seqlen
++            assert (
++                prefix_len <= context_len
++            ), f"Unexpected uniform prefix len {prefix_len} > context {context_len}"
++        else:
++            assert (
++                prefix_len % self.dllm_config.block_size == 0
++            ), f"Unexpected prefix len: {prefix_len}"
++            if prefix_len > self.dllm_block_offset:
++                self.dllm_block_offset = prefix_len
+diff --git a/python/sglang/srt/dllm/mixin/scheduler.py b/python/sglang/srt/dllm/mixin/scheduler.py
+index 21321e723e6e..114d28732cb7 100644
+--- a/python/sglang/srt/dllm/mixin/scheduler.py
++++ b/python/sglang/srt/dllm/mixin/scheduler.py
+@@ -4,9 +4,16 @@
+ from array import array
+ from typing import TYPE_CHECKING, List, Optional, Set, Union
+ 
++from http import HTTPStatus
++
+ from sglang.srt.dllm.config import DllmConfig
+ from sglang.srt.dllm.mixin.req import DllmReqPhase
+-from sglang.srt.managers.schedule_batch import Req, ScheduleBatch
++from sglang.srt.managers.schedule_batch import (
++    FINISH_ABORT,
++    FINISH_LENGTH,
++    Req,
++    ScheduleBatch,
++)
+ from sglang.srt.managers.schedule_policy import AddReqResult, PrefillAdder
+ from sglang.srt.mem_cache.common import release_kv_cache
+ from sglang.srt.model_executor.forward_batch_info import ForwardMode
+@@ -51,6 +58,7 @@ def get_new_batch_dllm(self: Scheduler) -> Optional[ScheduleBatch]:
+ 
+         can_run_list = adder.can_run_list
+         if not can_run_list:
++            self._break_dllm_pool_deadlock()
+             return None
+ 
+         # Record metrics and update state
+@@ -87,9 +95,22 @@ def process_batch_result_dllm(
+ 
+                 req.output_ids.extend(next_token_ids)
+                 req.update_finish_state(new_accepted_len=new_tokens)
++                if (
++                    not req.finished()
++                    and req.seqlen + self.dllm_config.block_size
++                    > self.model_config.context_len
++                ):
++                    # The next canvas would overrun the req_to_token row.
++                    req.finished_reason = FINISH_LENGTH(length=len(req.output_ids))
+ 
+                 if req.finished():
+-                    release_kv_cache(req, self.tree_cache)
++                    # Uniform: the last canvas KV is the decoder's transient
++                    # denoising KV, keep it out of the radix tree.
++                    release_kv_cache(
++                        req,
++                        self.tree_cache,
++                        is_insert=not self.dllm_config.is_uniform,
++                    )
+                     req.time_stats.set_completion_time()
+ 
+             self.output_streamer.stream_output(batch.reqs, batch.return_logprob)
+@@ -103,7 +124,26 @@ def process_batch_result_dllm(
+             dp_cooperation_info=batch.dp_cooperation_info,
+         )
+ 
++    def _dllm_pool_headroom(self: Scheduler) -> int:
++        allocator = self.token_to_kv_pool_allocator
++        if hasattr(allocator, "full_available_size"):
++            return min(
++                int(allocator.full_available_size())
++                + self.tree_cache.full_evictable_size(),
++                int(allocator.swa_available_size())
++                + self.tree_cache.swa_evictable_size(),
++            )
++        return int(allocator.available_size()) + self.tree_cache.evictable_size()
++
+     def _fetch_waiting_reqs(self: Scheduler):
++        # Back-pressure: while the pool cannot fit one canvas round, admitting
++        # another request only burns the survivors' headroom on its prefill.
++        if (
++            self.dllm_manager.waiting_queue
++            and self._dllm_pool_headroom()
++            <= self.dllm_config.block_size + self.token_to_kv_pool_allocator.page_size
++        ):
++            return
+         # Calculate how many requests can be added to DLLM manager
+         max_dllm_capacity = self.dllm_config.max_running_requests - len(
+             self.dllm_manager.waiting_queue
+@@ -238,6 +278,43 @@ def _create_dllm_batch(
+ 
+         return new_batch
+ 
++    def _break_dllm_pool_deadlock(self: Scheduler):
++        """Break the deadlock where staged requests hold the whole pool.
++
++        Nothing runs and nothing can extend, so nothing would ever finish.
++        Abort the least-progressed holder so the others run to completion.
++        """
++        if len(self.running_batch.reqs) > 0:
++            return
++        holders = [
++            r
++            for r in self.dllm_manager.waiting_queue
++            if r.dllm_phase
++            in (DllmReqPhase.STAGING_PREFILL, DllmReqPhase.STAGING_DECODE)
++        ]
++        if not holders:
++            return
++        if (
++            self._dllm_pool_headroom()
++            > self.dllm_config.block_size + self.token_to_kv_pool_allocator.page_size
++        ):
++            return
++
++        req = min(holders, key=lambda r: len(r.output_ids))
++        self.dllm_manager.waiting_queue = [
++            r for r in self.dllm_manager.waiting_queue if r is not req
++        ]
++        self.dllm_manager.staging_queue = [
++            r for r in self.dllm_manager.staging_queue if r is not req
++        ]
++        req.finished_reason = FINISH_ABORT(
++            "KV pool exhausted. Retry the request.",
++            status_code=HTTPStatus.SERVICE_UNAVAILABLE,
++        )
++        release_kv_cache(req, self.tree_cache, is_insert=False)
++        self.output_streamer.stream_output([req], req.return_logprob)
++        logger.warning("dLLM pool deadlock: aborted %s", req.rid)
++
+     def process_dllm_incoming_reqs(
+         self: Scheduler, adder: PrefillAdder, reqs: List[Req]
+     ) -> AddReqResult:
+diff --git a/python/sglang/srt/managers/schedule_policy.py b/python/sglang/srt/managers/schedule_policy.py
+index 1b34f0f54b6d..30e0bc76c5ad 100644
+--- a/python/sglang/srt/managers/schedule_policy.py
++++ b/python/sglang/srt/managers/schedule_policy.py
+@@ -645,19 +645,33 @@ def _get_dllm_remain_tokens(self) -> int:
+             int(self.rem_total_tokens),
+         )
+         if _rem_tokens <= 0:
++            # rem_total_tokens over-reserves (max_new_tokens per running req),
++            # so let a staged canvas round proceed past it.
+             _rem_tokens = self.rem_dllm_tokens
+ 
++        # But never past the immediate headroom (cur_rem_tokens carries no
++        # such reservations): over-admitting crashes the alloc in
++        # prepare_for_extend.
++        _rem_tokens = min(_rem_tokens, int(self.cur_rem_tokens) - self.page_size)
++        if self.is_hybrid_swa:
++            _rem_tokens = min(_rem_tokens, int(self.rem_swa_tokens) - self.page_size)
+         return _rem_tokens
+ 
+     def _add_dllm_req(self, req: Req, prefix_len: int):
+         # FIXME: consider the case when rem_dllm_tokens < dllm_block_size,
+         # the diffusion unmask process may have some problems
+         # Make sure at least one page is available
+-        trunc_len = (
+-            min(self.rem_dllm_tokens, self.dllm_block_size)
+-            // self.page_size
+-            * self.page_size
+-        )
++        if self.dllm_config.is_uniform:
++            # Uniform extends the actual remaining tokens (variable-length encode or
++            # the full canvas), not a forced page-aligned block.
++            available = req.fill_len - prefix_len
++            trunc_len = min(self.rem_dllm_tokens, self.dllm_block_size, available)
++        else:
++            trunc_len = (
++                min(self.rem_dllm_tokens, self.dllm_block_size)
++                // self.page_size
++                * self.page_size
++            )
+ 
+         req.extend_input_len = trunc_len
+         req.fill_len = prefix_len + trunc_len
+@@ -680,6 +694,10 @@ def add_dllm_staging_req(self, req: Req):
+ 
+         # Truncate input length to available tokens and update request metadata
+         truncated = req.extend_input_len > _rem_tokens
++        if truncated and self.dllm_config.is_uniform and not req.is_dllm_prefill():
++            # A canvas decode round extends the whole block or not at all
++            # (the denoiser writes bs * block_size tokens).
++            return AddReqResult.NO_TOKEN
+         req.extend_input_len = min(req.extend_input_len, _rem_tokens)
+         req.fill_len = len(req.prefix_indices) + req.extend_input_len
+         self.can_run_list.append(req)
+diff --git a/python/sglang/srt/managers/scheduler.py b/python/sglang/srt/managers/scheduler.py
+index 953c4fc45fc7..e42a92981579 100644
+--- a/python/sglang/srt/managers/scheduler.py
++++ b/python/sglang/srt/managers/scheduler.py
+@@ -2131,6 +2131,33 @@ def handle_generate_request(
+             self._add_request_to_queue(req)
+             return
+ 
++        # Uniform-state diffusion samples the canvas from the renoise schedule and
++        # bypasses logit post-processing, so request-level sampling controls have no
++        # effect. Reject them explicitly rather than ignore them silently.
++        if self.dllm_config is not None and self.dllm_config.is_uniform:
++            sp = req.sampling_params
++            unsupported = []
++            if req.return_logprob:
++                unsupported.append("logprobs")
++            if sp.regex or sp.json_schema or sp.ebnf or sp.structural_tag:
++                unsupported.append("structured output (regex/json_schema/ebnf/structural_tag)")
++            if sp.logit_bias:
++                unsupported.append("logit_bias")
++            if (
++                sp.frequency_penalty
++                or sp.presence_penalty
++                or sp.repetition_penalty != 1.0
++            ):
++                unsupported.append("presence/frequency/repetition penalties")
++            if unsupported:
++                req.set_finish_with_abort(
++                    "DiffusionGemma does not support "
++                    + ", ".join(unsupported)
++                    + " (sampling is governed by the renoise schedule)."
++                )
++                self._add_request_to_queue(req)
++                return
++
+         if not recv_req.return_logprob and recv_req.logprob_start_len != -1:
+             # When return_logprob is False, logprob_start_len should be ignored
+             recv_req.logprob_start_len = -1
+@@ -2478,7 +2505,40 @@ def get_next_batch_to_run(self) -> Optional[ScheduleBatch]:
+         if self.dllm_config is not None and self.dllm_manager.any_staging_reqs():
+             chunked_req_to_exclude.update(self.dllm_manager.staging_queue)
+             for req in self.dllm_manager.staging_queue:
+-                self.stash_chunked_request(req)
++                if (
++                    self.dllm_config.is_uniform
++                    and not req.is_dllm_prefill()
++                    and req.fill_len > self.dllm_config.block_size
++                ):
++                    # Uniform dLLM: drop the canvas from the cached prefix so the
++                    # next round re-encodes it causally (its KV is the decoder's
++                    # transient denoising KV). Free its slots except the page
++                    # shared with the context.
++                    block = self.dllm_config.block_size
++                    ctx = req.fill_len - block
++                    req_to_token = self.req_to_token_pool.req_to_token
++                    slots = req_to_token[req.req_pool_idx, ctx : ctx + block].to(
++                        torch.int64
++                    )
++                    page = self.token_to_kv_pool_allocator.page_size
++                    retained = 0
++                    if ctx > 0:
++                        shared_page = (
++                            int(req_to_token[req.req_pool_idx, ctx - 1].item()) // page
++                        )
++                        keep = (slots // page) == shared_page
++                        retained = int(keep.sum().item())
++                        slots = slots[~keep]
++                    self.token_to_kv_pool_allocator.free(slots)
++                    # Shrink the KV bookkeeping past the retained shared-page
++                    # slots so a later release cannot re-free the freed ones.
++                    req.kv_committed_len = ctx + retained
++                    req.kv_allocated_len = ctx + retained
++                    req.fill_len = ctx
++                    self.stash_chunked_request(req)
++                    req.fill_len = ctx + block
++                else:
++                    self.stash_chunked_request(req)
+ 
+         if self.chunked_req is not None:
+             # Move the chunked request out of the batch so that we can merge
+@@ -3402,7 +3462,9 @@ def is_fully_idle(self, for_health_check=False) -> bool:
+         idle = (
+             self.running_batch.is_empty()
+             and self.chunked_req is None
+-            and not self.dllm_manager.any_staging_reqs()
++            # dLLM requests hold KV in dllm_manager.waiting_queue between
++            # rounds, so a starved round must not count as idle.
++            and self.dllm_manager.is_empty()
+             and (self.last_batch is None or self.last_batch.is_empty())
+             and (self.cur_batch is None or self.cur_batch.is_empty())
+             and (not self.enable_overlap or len(self.result_queue) == 0)
+diff --git a/python/sglang/srt/managers/tp_worker.py b/python/sglang/srt/managers/tp_worker.py
+index bfc13609d245..9fb85c1845ad 100644
+--- a/python/sglang/srt/managers/tp_worker.py
++++ b/python/sglang/srt/managers/tp_worker.py
+@@ -433,13 +433,17 @@ def get_worker_info(self):
+             self.model_config.context_len - 1,
+             self.model_runner.max_token_pool_size - 1,
+         )
++        max_req_input_len = max_req_len - 5
++        if self.dllm_algorithm is not None:
++            # The canvas extends past the prompt within the same row.
++            max_req_input_len -= self.dllm_algorithm.block_size
+         return (
+             self.model_runner.max_total_num_tokens,
+             self.server_args.max_prefill_tokens,
+             self.model_runner.max_running_requests,
+             self.server_args.max_queued_requests,
+             max_req_len,
+-            max_req_len - 5,
++            max_req_input_len,
+             self.random_seed,
+             self.device,
+             self.model_runner.forward_stream,
+diff --git a/python/sglang/srt/model_executor/forward_batch_info.py b/python/sglang/srt/model_executor/forward_batch_info.py
+index ae657f35de7a..049a1661b0b2 100644
+--- a/python/sglang/srt/model_executor/forward_batch_info.py
++++ b/python/sglang/srt/model_executor/forward_batch_info.py
+@@ -481,6 +481,11 @@ class ForwardBatch(ForwardBatchDeepSeekMHAMixin):
+     # forward-path re-plan would clobber their metadata.
+     forward_metadata_replan_equivalent: bool = False
+ 
++    # DiffusionGemma (uniform-state block diffusion) extras.
++    # None (not dLLM) keeps the field invisible to TBO's field filter.
++    dllm_is_encoder: Optional[bool] = None
++    dllm_self_conditioning_logits: Optional[torch.Tensor] = None
++
+     def mark_forward_metadata_ready(self, replan_equivalent: bool = False):
+         """Record that attention metadata was pre-planned for this batch.
+ 
+@@ -723,17 +728,7 @@ def init_new(
+ 
+         # Override the positions with diffusion LLM or spec_info
+         if batch.dllm_config is not None:
+-            block_size = batch.dllm_config.block_size
+-            # Use int64 for AMD rotary embedding kernel compatibility
+-            positions_dtype = torch.int64 if is_hip() or _is_npu else torch.int32
+-            ret.positions = torch.tensor(
+-                [
+-                    i
+-                    for block_offset in (req.dllm_block_offset for req in batch.reqs)
+-                    for i in range(block_offset, block_offset + block_size)
+-                ],
+-                dtype=positions_dtype,
+-            ).to(device, non_blocking=True)
++            ret._init_dllm_positions(batch, device)
+         elif (
+             ret.spec_info is not None
+             and getattr(ret.spec_info, "positions", None) is not None
+@@ -909,6 +904,24 @@ def contains_mm_inputs(self) -> bool:
+             or self.contains_image_inputs()
+         )
+ 
++    def _init_dllm_positions(self, batch: ScheduleBatch, device: torch.device):
++        if batch.dllm_config.is_uniform:
++            self.dllm_is_encoder = all(req.is_dllm_prefill() for req in batch.reqs)
++        # Masked always uses fixed block-offset positions. Uniform uses them only
++        # for the canvas decode, since its encode is a variable-length prompt.
++        if not (batch.dllm_config.is_uniform and self.dllm_is_encoder):
++            block_size = batch.dllm_config.block_size
++            # Use int64 for AMD rotary embedding kernel compatibility
++            positions_dtype = torch.int64 if is_hip() or _is_npu else torch.int32
++            self.positions = torch.tensor(
++                [
++                    i
++                    for block_offset in (req.dllm_block_offset for req in batch.reqs)
++                    for i in range(block_offset, block_offset + block_size)
++                ],
++                dtype=positions_dtype,
++            ).to(device, non_blocking=True)
++
+     def _init_ngram_embedding_info(self, batch: ScheduleBatch, device: torch.device):
+         if self.forward_mode.is_decode():
+             column_starts, req_lens = self.seq_lens - 1, 1
+diff --git a/python/sglang/srt/models/gemma4_diffusion.py b/python/sglang/srt/models/gemma4_diffusion.py
+new file mode 100644
+index 000000000000..ba053c969b86
+--- /dev/null
++++ b/python/sglang/srt/models/gemma4_diffusion.py
+@@ -0,0 +1,694 @@
++# Copyright 2026 SGLang Team
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++# ==============================================================================
++"""SGLang DiffusionGemma (block-diffusion, multimodal) model.
++
++`DiffusionGemmaForBlockDiffusion` is an encoder-decoder uniform-state
++block-diffusion model with a vision tower. The encoder encodes context causally
++into a KV cache. The decoder denoises a fixed-length canvas, attending
++bidirectionally over the canvas and to that cached context. Image soft tokens are
++injected into the encoder input embeddings only. The decoder canvas never sees
++image tokens. Encoder and decoder share all transformer
++weights and differ only by a per-layer `layer_scalar` (the decoder additionally
++owns a `self_conditioning` block). The checkpoint stores the transformer weights
++once under `model.decoder.*`, plus `model.encoder.language_model.layers.*.layer_scalar`.
++
++Within sglang's dllm framework the two phases map to:
++  * encoder (context)  -> a causal prefill that writes the KV cache
++  * decoder (canvas)   -> a bidirectional DLLM_EXTEND step driven by the
++    Gemma4Renoise algorithm, which feeds the previous step's logits back as
++    self-conditioning.
++
++`forward_batch.dllm_is_encoder` selects the phase (set in forward_batch_info.py).
++The causal encode and bidirectional canvas passes use two RadixAttention instances.
++"""
++
++import logging
++import re
++from typing import Iterable, List, Optional, Set, Tuple
++
++import torch
++from torch import nn
++from transformers import PreTrainedModel
++
++from sglang.srt.distributed import (
++    get_pp_group,
++    get_tensor_model_parallel_world_size,
++)
++from sglang.srt.layers.activation import GeluAndMul
++from sglang.srt.layers.layernorm import Gemma4RMSNorm, RMSNorm
++from sglang.srt.layers.linear import (
++    MergedColumnParallelLinear,
++    QKVParallelLinear,
++    RowParallelLinear,
++)
++from sglang.srt.layers.logits_processor import LogitsProcessor
++from sglang.srt.layers.quantization.base_config import QuantizationConfig
++from sglang.srt.layers.radix_attention import AttentionType, RadixAttention
++from sglang.srt.layers.rotary_embedding import get_rope
++from sglang.srt.layers.vocab_parallel_embedding import ParallelLMHead
++from sglang.srt.managers.mm_utils import (
++    MultiModalityDataPaddingPatternMultimodalTokens,
++    general_mm_embed_routine,
++)
++from sglang.srt.managers.schedule_batch import (
++    Modality,
++    MultimodalDataItem,
++    MultimodalInputs,
++    flatten_nested_list,
++)
++from sglang.srt.model_executor.forward_batch_info import ForwardBatch
++from sglang.srt.model_loader.weight_utils import (
++    default_weight_loader,
++    maybe_remap_kv_scale_name,
++)
++from sglang.srt.models.gemma3_causal import Gemma3MLP, Gemma3TextScaledWordEmbedding
++from sglang.srt.models.gemma4_causal import Gemma4MoE, Gemma4Router
++from sglang.srt.models.gemma4_mm import (
++    Gemma4ForConditionalGeneration,
++    Gemma4MultimodalEmbedder,
++)
++from sglang.srt.models.gemma4_vision import Gemma4VisionEncoder
++from sglang.srt.utils import add_prefix, make_layers
++
++logger = logging.getLogger(__name__)
++
++class DiffusionGemmaAttention(nn.Module):
++    """Gemma4 attention with a per-phase causal/bidirectional switch.
++
++    Sliding layers: head_dim=`swa_head_dim`, kv_heads=`swa_num_key_value_heads`, real v_proj.
++    Full layers:    head_dim=`head_dim`, kv_heads=`num_key_value_heads`, no v_proj in the
++                    checkpoint (value == normed key, handled in load_weights by
++                    duplicating k_proj into the fused v shard).
++    """
++
++    def __init__(
++        self,
++        layer_id: int,
++        config,  # text_config
++        head_dim: int,
++        num_kv_heads: int,
++        quant_config: Optional[QuantizationConfig] = None,
++        prefix: str = "",
++    ) -> None:
++        super().__init__()
++        self.layer_id = layer_id
++        tp_size = get_tensor_model_parallel_world_size()
++
++        layer_type = config.layer_types[layer_id]
++        # Inclusive (HF) -> exclusive (sglang), matching gemma4_causal.
++        self.sliding_window = (
++            config.sliding_window - 1 if layer_type == "sliding_attention" else None
++        )
++
++        self.total_num_heads = config.num_attention_heads
++        assert self.total_num_heads % tp_size == 0
++        self.num_heads = self.total_num_heads // tp_size
++
++        self.total_num_kv_heads = num_kv_heads
++        self.num_kv_heads = max(1, self.total_num_kv_heads // tp_size)
++        if self.total_num_kv_heads >= tp_size:
++            assert self.total_num_kv_heads % tp_size == 0
++        else:
++            assert tp_size % self.total_num_kv_heads == 0
++
++        self.head_dim = head_dim
++        self.q_size = self.num_heads * self.head_dim
++        self.kv_size = self.num_kv_heads * self.head_dim
++
++        self.qkv_proj = QKVParallelLinear(
++            config.hidden_size,
++            self.head_dim,
++            self.total_num_heads,
++            self.total_num_kv_heads,
++            bias=config.attention_bias,
++            quant_config=quant_config,
++            prefix=add_prefix("qkv_proj", prefix),
++        )
++        self.o_proj = RowParallelLinear(
++            self.total_num_heads * self.head_dim,
++            config.hidden_size,
++            bias=config.attention_bias,
++            quant_config=quant_config,
++            prefix=add_prefix("o_proj", prefix),
++        )
++
++        # Gemma4 q/k/v RMSNorm: *w for q/k (scale_shift=0), no-scale for v.
++        self.q_norm = Gemma4RMSNorm(self.head_dim, eps=config.rms_norm_eps)
++        self.k_norm = Gemma4RMSNorm(self.head_dim, eps=config.rms_norm_eps)
++        self.v_norm = Gemma4RMSNorm(
++            self.head_dim, eps=config.rms_norm_eps, scale_shift=0.0, with_scale=False
++        )
++
++        rope_parameters = dict(config.rope_parameters[layer_type])
++        self.rotary_emb = get_rope(
++            self.head_dim,
++            rotary_dim=self.head_dim,
++            max_position=config.max_position_embeddings,
++            base=rope_parameters.get("rope_theta", 10000.0),
++            rope_scaling={"rope_type": rope_parameters.get("rope_type", "default")},
++            partial_rotary_factor=rope_parameters.get("partial_rotary_factor", 1.0),
++            is_neox_style=True,
++        )
++
++        attn_common = dict(
++            num_kv_heads=self.num_kv_heads,
++            layer_id=layer_id,
++            logit_cap=0.0,
++            sliding_window_size=self.sliding_window,
++            quant_config=quant_config,
++            prefix=add_prefix("attn", prefix),
++        )
++        # scaling = 1.0 (Gemma4 folds scale into q_norm). Two attn instances share
++        # the same q/k/v/o projections, differing only in the attention mask.
++        self.attn = RadixAttention(self.num_heads, self.head_dim, 1.0, **attn_common)
++        self.attn_bidir = RadixAttention(
++            self.num_heads,
++            self.head_dim,
++            1.0,
++            attn_type=AttentionType.ENCODER_ONLY,
++            **attn_common,
++        )
++
++    def forward(
++        self,
++        positions: torch.Tensor,
++        hidden_states: torch.Tensor,
++        forward_batch: ForwardBatch,
++    ) -> torch.Tensor:
++        qkv, _ = self.qkv_proj(hidden_states)
++        q, k, v = qkv.split([self.q_size, self.kv_size, self.kv_size], dim=-1)
++
++        q = self.q_norm(q.unflatten(-1, (self.num_heads, self.head_dim))).flatten(
++            -2, -1
++        )
++        k = self.k_norm(k.unflatten(-1, (self.num_kv_heads, self.head_dim))).flatten(
++            -2, -1
++        )
++        v = self.v_norm(v.unflatten(-1, (self.num_kv_heads, self.head_dim))).flatten(
++            -2, -1
++        )
++
++        q, k = self.rotary_emb(positions, q, k)
++
++        attn = self.attn if forward_batch.dllm_is_encoder else self.attn_bidir
++        attn_output = attn(q, k, v, forward_batch)
++        output, _ = self.o_proj(attn_output)
++        return output
++
++
++class DiffusionGemmaSelfConditioning(nn.Module):
++    """Gated MLP mapping the previous step's soft embeddings into a signal added
++    to the decoder's input embeddings. Checkpoint stores gate/up/down directly
++    (not under `.mlp.`). post_norm is no-scale so it has no checkpoint weight."""
++
++    def __init__(self, config, quant_config=None, prefix: str = ""):
++        super().__init__()
++        self.pre_norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
++        self.post_norm = Gemma4RMSNorm(
++            config.hidden_size,
++            eps=config.rms_norm_eps,
++            scale_shift=0.0,
++            with_scale=False,
++        )
++        self.gate_up_proj = MergedColumnParallelLinear(
++            config.hidden_size,
++            [config.intermediate_size] * 2,
++            bias=False,
++            quant_config=quant_config,
++            prefix=add_prefix("gate_up_proj", prefix),
++        )
++        self.down_proj = RowParallelLinear(
++            config.intermediate_size,
++            config.hidden_size,
++            bias=False,
++            quant_config=quant_config,
++            prefix=add_prefix("down_proj", prefix),
++        )
++        self.act_fn = GeluAndMul()
++
++    def forward(self, inputs_embeds, signal):
++        gate_up, _ = self.gate_up_proj(self.pre_norm(signal))
++        h, _ = self.down_proj(self.act_fn(gate_up))
++        return self.post_norm(inputs_embeds + h)
++
++
++class DiffusionGemmaDecoderLayer(nn.Module):
++    """Shared encoder/decoder layer: attention + parallel dense-MLP & MoE branches
++    summed, then `* layer_scalar` (encoder vs decoder scalar selected per phase).
++    The router gates on the raw residual; the experts consume
++    `pre_feedforward_layernorm_2(residual)`."""
++
++    def __init__(
++        self,
++        layer_id: int,
++        config,  # text_config
++        quant_config: Optional[QuantizationConfig] = None,
++        prefix: str = "",
++    ) -> None:
++        super().__init__()
++        self.layer_id = layer_id
++        layer_type = config.layer_types[layer_id]
++        is_full = layer_type == "full_attention"
++        # SGLang naming: base head_dim/num_key_value_heads are the full-attention
++        # layers, swa_* are the sliding-window layers (set by the gemma4 config hook).
++        head_dim = (
++            config.head_dim
++            if is_full
++            else getattr(config, "swa_head_dim", config.head_dim)
++        )
++        num_kv_heads = (
++            config.num_key_value_heads
++            if is_full
++            else getattr(config, "swa_num_key_value_heads", config.num_key_value_heads)
++        )
++
++        self.self_attn = DiffusionGemmaAttention(
++            layer_id=layer_id,
++            config=config,
++            head_dim=head_dim,
++            num_kv_heads=num_kv_heads,
++            quant_config=quant_config,
++            prefix=add_prefix("self_attn", prefix),
++        )
++        self.mlp = Gemma3MLP(
++            hidden_size=config.hidden_size,
++            intermediate_size=config.intermediate_size,
++            hidden_activation=config.hidden_activation,
++            quant_config=quant_config,
++            prefix=add_prefix("mlp", prefix),
++        )
++        self.router = Gemma4Router(
++            config, quant_config=quant_config, prefix=add_prefix("router", prefix)
++        )
++        self.moe = Gemma4MoE(
++            hidden_size=config.hidden_size,
++            layer_id=layer_id,
++            config=config,
++            quant_config=quant_config,
++            prefix=add_prefix("moe", prefix),
++        )
++
++        eps = config.rms_norm_eps
++        self.input_layernorm = RMSNorm(config.hidden_size, eps=eps)
++        self.post_attention_layernorm = RMSNorm(config.hidden_size, eps=eps)
++        self.pre_feedforward_layernorm = RMSNorm(config.hidden_size, eps=eps)
++        self.pre_feedforward_layernorm_2 = RMSNorm(config.hidden_size, eps=eps)
++        self.post_feedforward_layernorm = RMSNorm(config.hidden_size, eps=eps)
++        self.post_feedforward_layernorm_1 = RMSNorm(config.hidden_size, eps=eps)
++        self.post_feedforward_layernorm_2 = RMSNorm(config.hidden_size, eps=eps)
++
++        # Encoder and decoder use the same weights but distinct per-layer scalars.
++        self.register_buffer("layer_scalar", torch.ones(1), persistent=True)
++        self.register_buffer("encoder_layer_scalar", torch.ones(1), persistent=True)
++
++    def forward(self, positions, hidden_states, forward_batch):
++        residual = hidden_states
++        hidden_states = self.input_layernorm(hidden_states)
++        hidden_states = self.self_attn(positions, hidden_states, forward_batch)
++        hidden_states = self.post_attention_layernorm(hidden_states)
++        hidden_states = residual + hidden_states
++
++        residual = hidden_states
++        h1 = self.post_feedforward_layernorm_1(
++            self.mlp(self.pre_feedforward_layernorm(residual))
++        )
++        # MoE branch: the router gates on the RAW residual (the router's input
++        # norm is with_scale=False, so ln2's learned per-channel weights would
++        # change the routed direction). Experts still get the ln2-normed input.
++        moe_in = self.pre_feedforward_layernorm_2(residual)
++        router_logits = self.router(residual)
++        h2 = self.post_feedforward_layernorm_2(self.moe(moe_in, router_logits))
++
++        hidden_states = self.post_feedforward_layernorm(h1 + h2)
++        hidden_states = residual + hidden_states
++
++        scalar = (
++            self.encoder_layer_scalar
++            if forward_batch.dllm_is_encoder
++            else self.layer_scalar
++        )
++        return hidden_states * scalar
++
++
++class DiffusionGemmaModel(nn.Module):
++    """Shared transformer stack (stored under `model.decoder.*`) + the decoder's
++    self-conditioning block."""
++
++    def __init__(self, config, quant_config=None, prefix: str = ""):
++        super().__init__()
++        text_config = config.text_config
++        self.config = text_config
++
++        self.embed_tokens = Gemma3TextScaledWordEmbedding(
++            text_config.vocab_size,
++            text_config.hidden_size,
++            text_config.pad_token_id,
++            embed_scale=text_config.hidden_size**0.5,
++        )
++        self.self_conditioning = DiffusionGemmaSelfConditioning(
++            text_config,
++            quant_config=quant_config,
++            prefix=add_prefix("self_conditioning", prefix),
++        )
++        self.pp_group = get_pp_group()
++        self.layers, self.start_layer, self.end_layer = make_layers(
++            text_config.num_hidden_layers,
++            lambda idx, prefix: DiffusionGemmaDecoderLayer(
++                layer_id=idx,
++                config=text_config,
++                quant_config=quant_config,
++                prefix=prefix,
++            ),
++            pp_rank=self.pp_group.rank_in_group,
++            pp_size=self.pp_group.world_size,
++            prefix=add_prefix("layers", prefix),
++        )
++        self.norm = RMSNorm(text_config.hidden_size, eps=text_config.rms_norm_eps)
++
++    def get_input_embeddings(self) -> nn.Embedding:
++        return self.embed_tokens
++
++    def forward(self, input_ids, positions, forward_batch, input_embeds=None):
++        # embed_tokens applies the sqrt(hidden) scale internally.
++        hidden_states = (
++            self.embed_tokens(input_ids) if input_embeds is None else input_embeds
++        )
++
++        if not forward_batch.dllm_is_encoder:
++            sc_logits = forward_batch.dllm_self_conditioning_logits
++            if sc_logits is not None:
++                # full_logits are float32, so cast probs to the bf16 embedding dtype.
++                probs = sc_logits.softmax(dim=-1).to(self.embed_tokens.weight.dtype)
++                soft = torch.matmul(probs, self.embed_tokens.weight)
++            else:
++                soft = torch.zeros_like(hidden_states)
++            hidden_states = self.self_conditioning(hidden_states, soft)
++
++        for i in range(self.start_layer, self.end_layer):
++            hidden_states = self.layers[i](positions, hidden_states, forward_batch)
++
++        hidden_states = self.norm(hidden_states)
++        return hidden_states
++
++
++class DiffusionGemmaForBlockDiffusion(PreTrainedModel):
++    base_model_prefix = "model"
++    _tied_weights_keys = {"lm_head.weight": "model.embed_tokens.weight"}
++
++    packed_modules_mapping = {
++        "qkv_proj": ["q_proj", "k_proj", "v_proj"],
++        "gate_up_proj": ["gate_proj", "up_proj"],
++    }
++
++    def __init__(
++        self,
++        config,
++        quant_config: Optional[QuantizationConfig] = None,
++        prefix: str = "",
++    ) -> None:
++        super().__init__(config=config)
++        self.config = config
++        self.text_config = config.text_config
++        self.quant_config = quant_config
++
++        # Shared stack lives under `model` here, but the checkpoint stores it
++        # under `model.decoder.*` (remapped in load_weights).
++        self.model = DiffusionGemmaModel(
++            config, quant_config=quant_config, prefix=add_prefix("model", prefix)
++        )
++        self.pp_group = get_pp_group()
++        # Vision tower and projection run only on the first PP rank (encoder input
++        # embedding stage).
++        self.vision_tower = None
++        self.embed_vision = None
++        if self.pp_group.is_first_rank:
++            self.vision_tower = Gemma4VisionEncoder(
++                config.vision_config,
++                quant_config=quant_config,
++                prefix=add_prefix("vision_tower", prefix),
++                mask_pad_before_pool=True,
++            )
++            self.embed_vision = Gemma4MultimodalEmbedder(
++                config.vision_config,
++                self.text_config,
++                quant_config=quant_config,
++                prefix=add_prefix("embed_vision", prefix),
++            )
++        if self.text_config.tie_word_embeddings:
++            self.lm_head = self.model.embed_tokens
++        else:
++            self.lm_head = ParallelLMHead(
++                self.text_config.vocab_size,
++                self.text_config.hidden_size,
++                quant_config=quant_config,
++                prefix=add_prefix("lm_head", prefix),
++            )
++        # Softcapping is handled by LogitsProcessor. skip_all_gather: the tied
++        # lm_head is replicated, every TP rank already has full-vocab logits.
++        self.logits_processor = LogitsProcessor(
++            self.text_config, skip_all_gather=True, return_full_logits=True
++        )
++        self.post_init()
++
++    def get_input_embeddings(self) -> nn.Embedding:
++        return self.model.embed_tokens
++
++    def get_attention_sliding_window_size(self):
++        # Inclusive (HF) -> exclusive (sglang).
++        return self.text_config.sliding_window - 1
++
++    @torch.no_grad()
++    def forward(
++        self,
++        input_ids: torch.Tensor,
++        positions: torch.Tensor,
++        forward_batch: ForwardBatch,
++        input_embeds: torch.Tensor = None,
++        **kwargs,
++    ):
++        # Image soft tokens are injected only on the encoder (causal-context) pass.
++        if (
++            input_embeds is None
++            and self.vision_tower is not None
++            and forward_batch.dllm_is_encoder
++            and forward_batch.contains_image_inputs()
++        ):
++            hidden_states = general_mm_embed_routine(
++                input_ids=input_ids,
++                forward_batch=forward_batch,
++                language_model=self.model,
++                data_embedding_funcs={Modality.IMAGE: self.get_image_feature},
++                positions=positions,
++            )
++        else:
++            hidden_states = self.model(
++                input_ids, positions, forward_batch, input_embeds
++            )
++        if forward_batch.dllm_is_encoder:
++            # Encoder passes only write the context KV and their logits are unused.
++            return None
++        return self.logits_processor(
++            input_ids, hidden_states, self.lm_head, forward_batch
++        )
++
++    def pad_input_ids(
++        self, input_ids: List[int], mm_inputs: MultimodalInputs
++    ) -> List[int]:
++        pattern = MultiModalityDataPaddingPatternMultimodalTokens()
++        return pattern.pad_input_tokens(input_ids, mm_inputs)
++
++    def get_image_feature(self, items: List[MultimodalDataItem]) -> torch.Tensor:
++        vt = self.vision_tower
++        embed = self.model.embed_tokens.weight
++        all_embeds = []
++        for item in items:
++            all_pixel_values = flatten_nested_list([item.feature])
++            all_position_ids = flatten_nested_list(
++                [getattr(item, "image_position_ids", None)]
++            )
++            for pv_idx, pv in enumerate(all_pixel_values):
++                if pv.dim() in (2, 3) and pv.shape[-1] == self.text_config.hidden_size:
++                    all_embeds.append(pv.to(embed.device))
++                    continue
++                if pv_idx >= len(all_position_ids) or all_position_ids[pv_idx] is None:
++                    raise ValueError(
++                        f"pixel_values[{pv_idx}] has no matching image_position_ids."
++                    )
++                pp = all_position_ids[pv_idx]
++                if pv.dim() == 2:
++                    pv = pv.unsqueeze(0)
++                if pp.dim() == 2:
++                    pp = pp.unsqueeze(0)
++                pv = pv.to(device=vt.device, dtype=embed.dtype)
++                pp = pp.to(device=vt.device)
++                pooled, pooler_mask = vt(pv, pp)
++                for hs, mask in zip(pooled, pooler_mask):
++                    real_tokens = hs[mask]
++                    all_embeds.append(
++                        self.embed_vision(
++                            inputs_embeds=real_tokens.unsqueeze(0)
++                        ).squeeze(0)
++                    )
++        if all_embeds:
++            return torch.cat(all_embeds, dim=0)
++        return torch.empty(
++            0, self.text_config.hidden_size, device=embed.device, dtype=embed.dtype
++        )
++
++    def load_weights(self, weights: Iterable[Tuple[str, torch.Tensor]]):
++        stacked_params_mapping = [
++            # (param_name, shard_name, shard_id)
++            ("qkv_proj", "q_proj", "q"),
++            ("qkv_proj", "k_proj", "k"),
++            ("qkv_proj", "v_proj", "v"),
++            ("gate_up_proj", "gate_proj", 0),
++            ("gate_up_proj", "up_proj", 1),
++        ]
++        fused_expert_params_mapping = [
++            # (param_name, ckpt_weight_name, shard_ids). gate_up_proj is [E, 2*I, H]
++            ("moe.experts.w13_weight", "moe.experts.gate_up_proj", ("w1", "w3")),
++            ("moe.experts.w2_weight", "moe.experts.down_proj", ("w2",)),
++        ]
++        num_experts = self.text_config.num_experts
++        # Full-attention layers have no v_proj in the checkpoint (value == key).
++        k_eq_v_layers = {
++            i
++            for i, lt in enumerate(self.text_config.layer_types)
++            if lt == "full_attention"
++        }
++
++        params_dict = dict(self.named_parameters())
++        params_dict.update(dict(self.named_buffers()))
++        loaded_params: Set[str] = set()
++
++        for name, loaded_weight in weights:
++            # Vision weights (model.encoder.vision_tower.* / .embed_vision.*) load
++            # into the reused first-rank Gemma4 vision modules.
++            if name.startswith("model.encoder.vision_tower.") or name.startswith(
++                "model.encoder.embed_vision."
++            ):
++                if self.vision_tower is None:
++                    continue
++                name = Gemma4ForConditionalGeneration._remap_tower_name(
++                    name[len("model.encoder.") :], params_dict
++                )
++                for (
++                    param_name,
++                    weight_name,
++                    shard_id,
++                ) in Gemma4ForConditionalGeneration.stacked_params_mapping:
++                    if weight_name not in name:
++                        continue
++                    fused = name.replace(weight_name, param_name)
++                    if fused not in params_dict:
++                        continue
++                    param = params_dict[fused]
++                    param.weight_loader(param, loaded_weight, shard_id)
++                    loaded_params.add(fused)
++                    break
++                else:
++                    if name in params_dict:
++                        param = params_dict[name]
++                        wl = getattr(param, "weight_loader", default_weight_loader)
++                        wl(param, loaded_weight)
++                        loaded_params.add(name)
++                continue
++
++            # Encoder text weights are tied to the decoder, so keep only the encoder's
++            # per-layer scalar, skip everything else under model.encoder.*.
++            if name.startswith("model.encoder."):
++                m = re.search(r"layers\.(\d+)\.layer_scalar", name)
++                if m is None:
++                    continue
++                tgt = f"model.layers.{m.group(1)}.encoder_layer_scalar"
++                if tgt in params_dict:
++                    default_weight_loader(params_dict[tgt], loaded_weight)
++                    loaded_params.add(tgt)
++                continue
++
++            # The real stack is stored under model.decoder.* -> our model.*
++            name = name.replace("model.decoder.", "model.")
++            # Route router/expert weights into the Gemma4MoE subtree.
++            name = name.replace(".router.per_expert_scale", ".moe.per_expert_scale")
++            if ".experts." in name and ".moe.experts." not in name:
++                name = name.replace(".experts.", ".moe.experts.")
++
++            if self.text_config.tie_word_embeddings and "lm_head" in name:
++                continue
++
++            should_dup_k_to_v = (
++                ".k_proj." in name
++                and k_eq_v_layers
++                and (m := re.search(r"layers\.(\d+)\.", name)) is not None
++                and int(m.group(1)) in k_eq_v_layers
++            )
++
++            orig_name = name
++            # 1) Fused MoE experts (checked first: gate_up_proj contains "up_proj").
++            for param_name, weight_name, shard_ids in fused_expert_params_mapping:
++                name = orig_name
++                if weight_name not in name:
++                    continue
++                name = name.replace(weight_name, param_name)
++                if name not in params_dict:
++                    continue
++                param = params_dict[name]
++                weight_loader = param.weight_loader
++                for i in range(num_experts):
++                    chunks = loaded_weight[i].chunk(len(shard_ids), dim=0)
++                    for chunk, sid in zip(chunks, shard_ids):
++                        weight_loader(param, chunk, name, sid, i)
++                loaded_params.add(name)
++                break
++            else:
++                # 2) Fused QKV / gate_up (+ k->v dup for full-attention layers).
++                for param_name, weight_name, shard_id in stacked_params_mapping:
++                    name = orig_name
++                    if weight_name not in name:
++                        continue
++                    name = name.replace(weight_name, param_name)
++                    if name not in params_dict:
++                        continue
++                    param = params_dict[name]
++                    weight_loader = param.weight_loader
++                    weight_loader(param, loaded_weight, shard_id)
++                    if should_dup_k_to_v and weight_name == "k_proj":
++                        weight_loader(param, loaded_weight, "v")
++                    loaded_params.add(name)
++                    break
++                else:
++                    # 3) Everything else (norms, scalars, router.proj/scale, embed).
++                    name = orig_name
++                    if name.endswith(".bias") and name not in params_dict:
++                        continue
++                    name = maybe_remap_kv_scale_name(name, params_dict)
++                    if name is None or name not in params_dict:
++                        continue
++                    param = params_dict[name]
++                    weight_loader = getattr(
++                        param, "weight_loader", default_weight_loader
++                    )
++                    weight_loader(param, loaded_weight)
++                    loaded_params.add(name)
++
++        unloaded = params_dict.keys() - loaded_params
++        if unloaded:
++            logger.warning(
++                "Some weights were not initialized from checkpoint: %s",
++                sorted(unloaded),
++            )
++        return loaded_params
++
++
++EntryClass = DiffusionGemmaForBlockDiffusion
+diff --git a/python/sglang/srt/models/gemma4_vision.py b/python/sglang/srt/models/gemma4_vision.py
+index f0c49cbc68b8..7079e805a82e 100644
+--- a/python/sglang/srt/models/gemma4_vision.py
++++ b/python/sglang/srt/models/gemma4_vision.py
+@@ -461,10 +461,14 @@ def forward(
+ 
+ 
+ class Gemma4VisionPooler(nn.Module):
+-    def __init__(self, config: Gemma4VisionConfig):
++    def __init__(
++        self, config: Gemma4VisionConfig, mask_pad_before_pool: bool = False
++    ):
+         super().__init__()
+         self.hidden_size = config.hidden_size
+         self.root_hidden_size = self.hidden_size**0.5
++        # When True, zero padding patches before pooling (HF-reference parity).
++        self.mask_pad_before_pool = mask_pad_before_pool
+ 
+     def _avg_pool_by_positions(
+         self, x: torch.Tensor, patch_positions: torch.Tensor, length: int
+@@ -510,6 +514,10 @@ def forward(
+         if hidden_states.shape[1] == length:
+             mask = padding_positions
+         else:
++            if self.mask_pad_before_pool:
++                hidden_states = hidden_states.masked_fill(
++                    padding_positions.unsqueeze(-1), 0.0
++                )
+             hidden_states, mask = self._avg_pool_by_positions(
+                 hidden_states, patch_positions, length
+             )
+@@ -530,6 +538,7 @@ def __init__(
+         config: Gemma4VisionConfig,
+         quant_config: Optional[QuantizationConfig] = None,
+         prefix: str = "",
++        mask_pad_before_pool: bool = False,
+     ):
+         super().__init__()
+         self.config = config
+@@ -542,7 +551,9 @@ def __init__(
+             quant_config=quant_config,
+             prefix=add_prefix("encoder", prefix),
+         )
+-        self.pooler = Gemma4VisionPooler(config)
++        self.pooler = Gemma4VisionPooler(
++            config, mask_pad_before_pool=mask_pad_before_pool
++        )
+ 
+         # Post-pooling standardization (normalizes vision tokens before projection)
+         self.standardize = getattr(config, "standardize", False)
+diff --git a/python/sglang/srt/multimodal/processors/diffusion_gemma.py b/python/sglang/srt/multimodal/processors/diffusion_gemma.py
+new file mode 100644
+index 000000000000..6f24a5d831b0
+--- /dev/null
++++ b/python/sglang/srt/multimodal/processors/diffusion_gemma.py
+@@ -0,0 +1,69 @@
++# Copyright 2026 SGLang Team
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++#     http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++# ==============================================================================
++
++import re
++from typing import Dict, List, Optional, Union
++
++from sglang.srt.managers.multimodal_processor import (
++    BaseMultimodalProcessor as SGLangBaseProcessor,
++)
++from sglang.srt.managers.schedule_batch import Modality, MultimodalProcessorOutput
++from sglang.srt.models.gemma4_diffusion import DiffusionGemmaForBlockDiffusion
++from sglang.srt.multimodal.processors.base_processor import MultimodalSpecialTokens
++
++
++class DiffusionGemmaSGLangProcessor(SGLangBaseProcessor):
++    """Image multimodal processor for DiffusionGemma (image-only, reuses the stock
++    Gemma4 image processor resolved from the checkpoint)."""
++
++    models = [DiffusionGemmaForBlockDiffusion]
++
++    def __init__(self, hf_config, server_args, _processor, *args, **kwargs):
++        super().__init__(hf_config, server_args, _processor, *args, **kwargs)
++        self.mm_tokens = MultimodalSpecialTokens(
++            image_token="<|image|>",
++            image_token_id=hf_config.image_token_id,
++            # Also match the HF-expanded placeholder (boi + soft tokens + eoi).
++            image_token_regex=re.compile(
++                r"<\|image>(?:<\|image\|>)+<image\|>|<\|image\|>"
++            ),
++        ).build(_processor)
++        self.ATTR_NAME_TO_MODALITY["image_position_ids"] = Modality.IMAGE
++
++    async def process_mm_data_async(
++        self,
++        image_data: Optional[List[Union[str, bytes, Dict]]] = None,
++        input_text: str = "",
++        request_obj=None,
++        *args,
++        **kwargs,
++    ):
++        if kwargs.get("audio_data") or getattr(request_obj, "video_data", None):
++            raise ValueError(
++                "DiffusionGemma serving supports image input only "
++                "(audio/video are not implemented)."
++            )
++        base_output = await self.load_mm_data(
++            prompt=input_text,
++            image_data=image_data,
++            multimodal_tokens=self.mm_tokens,
++        )
++        mm_items, input_ids, _ = self.process_and_combine_mm_data(
++            base_output, self.mm_tokens
++        )
++        return MultimodalProcessorOutput(
++            input_ids=input_ids.tolist(),
++            mm_items=mm_items,
++            im_token_id=self.mm_tokens.image_token_id,
++        )
+diff --git a/python/sglang/srt/server_args.py b/python/sglang/srt/server_args.py
+index 20d9e427de66..81e601d038a5 100644
+--- a/python/sglang/srt/server_args.py
++++ b/python/sglang/srt/server_args.py
+@@ -4529,6 +4529,24 @@ def _handle_deterministic_inference(self):
+     def _handle_dllm_inference(self):
+         if self.dllm_algorithm is None:
+             return
++        # DiffusionGemma: head_dim 512 exceeds the flashinfer/fa3 cap, and the
++        # bidirectional canvas needs eager triton with unchunked prefill.
++        if self.dllm_algorithm == "Gemma4Renoise":
++            if (
++                self.attention_backend != "triton"
++                or self.prefill_attention_backend not in (None, "triton")
++                or self.decode_attention_backend not in (None, "triton")
++            ):
++                logger.warning(
++                    "Attention backend forced to triton for DiffusionGemma "
++                    "(head_dim 512 exceeds the flashinfer/fa3 cap)."
++                )
++                self.attention_backend = "triton"
++                self.prefill_attention_backend = None
++                self.decode_attention_backend = None
++            self.cuda_graph_config.decode.backend = Backend.DISABLED
++            self.cuda_graph_config.prefill.backend = Backend.DISABLED
++            self.chunked_prefill_size = -1
+         # On AMD/HIP, disable cuda graph for DLLM and use triton backend
+         if is_hip():
+             if (
+diff --git a/python/sglang/srt/utils/hf_transformers/config.py b/python/sglang/srt/utils/hf_transformers/config.py
+index f66ea9a672e5..9536b21af53f 100644
+--- a/python/sglang/srt/utils/hf_transformers/config.py
++++ b/python/sglang/srt/utils/hf_transformers/config.py
+@@ -158,6 +158,7 @@ def parse(
+             "gemma4_assistant",
+             "gemma4_unified",
+             "gemma4_unified_assistant",
++            "diffusion_gemma",
+         ):
+             # Gemma4 configs use base attributes for SWA layers and `global_*`
+             # variants for full-attention layers.  SGLang expects the opposite:

@@ -1,0 +1,38 @@
+DiffusionGemma (PR #28054) patch-application step for
+container-build/Dockerfile.sglang-nightly.
+
+Adds one COPY+RUN step that applies sglang-diffusiongemma-pr28054.patch
+(upstream sgl-project/sglang PR #28054, OPEN/unmerged — dLLM Gemma4Renoise
+runtime support for google/diffusiongemma-26B-A4B-it) to the sglang Python
+source AFTER the SM121 sgl-kernel patches and AFTER the gemma4-nvfp4 patch,
+BEFORE `uv pip install ./python`.
+
+Application is gated by build_sm121_image.sh on the recipe variable
+APPLY_DIFFUSIONGEMMA_PR28054=1 (set in sglang-0.5.13-gemma4-diffusion-sm121
+.recipe; remove / set 0 once PR #28054 is merged into the pinned SGLANG_REF).
+
+NOTE: anchors on the SUCCESS-echo line of the dockerfile-gemma4-nvfp4 block,
+so this patch REQUIRES a *gemma4* recipe variant (the gemma4-nvfp4 dockerfile
+patch must have been applied first by build_sm121_image.sh). On a non-gemma4
+recipe the anchor is absent and the in-container dry-run fails by design.
+
+--- a/container-build/Dockerfile.sglang-nightly
++++ b/container-build/Dockerfile.sglang-nightly
+@@ -296,3 +296,17 @@
+     echo 'Gemma-4 NVFP4 patch applied successfully'
+
++# DiffusionGemma (google/diffusiongemma-26B-A4B-it) runtime support
++# (upstream PR #28054, OPEN/unmerged). Adds the dLLM Gemma4Renoise algorithm,
++# the gemma4_diffusion encoder-decoder model + diffusion_gemma processor, and
++# the modified dLLM/scheduler/server_args touch-points. Applied to the sglang
++# Python source before pip install. Gated by APPLY_DIFFUSIONGEMMA_PR28054=1;
++# anchors AFTER the gemma4-nvfp4 block (requires a *gemma4* recipe variant).
++COPY patches/sglang-diffusiongemma-pr28054.patch /tmp/sglang-diffusiongemma-pr28054.patch
++RUN set -e; cd /data/sglang && \
++    echo "=== Applying sglang-diffusiongemma-pr28054.patch (PR #28054) ===" && \
++    patch --dry-run -p1 < /tmp/sglang-diffusiongemma-pr28054.patch && \
++    patch -p1 < /tmp/sglang-diffusiongemma-pr28054.patch && \
++    test -f python/sglang/srt/models/gemma4_diffusion.py && \
++    echo 'DiffusionGemma PR #28054 patch applied successfully'
++
+ # Install sglang package (no deps, no build isolation since base has torch).

@@ -143,6 +143,12 @@ BRANCH_NAME="sm121"
 #RECIPE_NAME="sglang-0.5.13-gemma4-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121"
 
+# DiffusionGemma experiment: 0.5.13-gemma4 + unmerged PR #28054 (dLLM
+# Gemma4Renoise). Serves google/diffusiongemma-26B-A4B-it via the diffusion
+# decode path. See DIFFUSIONGEMMA_SGLANG_SCOPE.md + the model profile.
+#RECIPE_NAME="sglang-0.5.13-gemma4-diffusion-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-gemmadiffusion-sm121"
+
 # NemotronH MTP experiment: v0.5.13 + unmerged PR #27998 (MTP + radix cache).
 # Enables native speculative decoding for Nemotron-3-Super-120B-NVFP4 without
 # --disable-radix-cache. See that model profile's MTP block + the recipe header.
@@ -486,6 +492,15 @@ preflight() {
             sglang-dsv4-nvfp4-pr25820.patch
         )
     fi
+    # DiffusionGemma patches (PR #28054) — only when the recipe opts in via
+    # APPLY_DIFFUSIONGEMMA_PR28054=1. See apply_patches() for the matching gate.
+    if [[ -f "${PATCHES_DIR}/${RECIPE_NAME}.recipe" ]] \
+        && grep -qE '^APPLY_DIFFUSIONGEMMA_PR28054=1' "${PATCHES_DIR}/${RECIPE_NAME}.recipe"; then
+        required_files+=(
+            dockerfile-diffusiongemma.patch
+            sglang-diffusiongemma-pr28054.patch
+        )
+    fi
     # NemotronH MTP patches (PR #27998) are only required when the recipe opts
     # in via APPLY_NEMOTRONH_MTP_PR27998=1. See apply_patches() for the gate.
     if [[ -f "${PATCHES_DIR}/${RECIPE_NAME}.recipe" ]] \
@@ -775,6 +790,18 @@ apply_patches() {
         apply_dsv4_nvfp4_patch=1
     fi
 
+    # DiffusionGemma (PR #28054) — gated like DSV4 by an explicit recipe
+    # variable. Adds the dLLM Gemma4Renoise model/sampler. The matching
+    # dockerfile-diffusiongemma.patch ANCHORS AFTER the gemma4-nvfp4 block, so
+    # this REQUIRES a *gemma4* recipe variant (apply_gemma4_patches=1). Drop
+    # APPLY_DIFFUSIONGEMMA_PR28054 once PR #28054 lands in the pinned SGLANG_REF
+    # (re-applying a merged patch aborts the build).
+    local apply_diffusiongemma_patch=0
+    if [[ -f "${PATCHES_DIR}/${RECIPE_NAME}.recipe" ]] \
+        && grep -qE '^APPLY_DIFFUSIONGEMMA_PR28054=1' "${PATCHES_DIR}/${RECIPE_NAME}.recipe"; then
+        apply_diffusiongemma_patch=1
+    fi
+
     # NemotronH MTP (PR #27998) — gated like DSV4 by an explicit recipe
     # variable. Drop APPLY_NEMOTRONH_MTP_PR27998 the moment the PR lands in the
     # pinned SGLANG_REF (re-applying a merged patch fails the in-container
@@ -827,6 +854,11 @@ apply_patches() {
     local dsv4_nvfp4_source_patches=(
         sglang-dsv4-nvfp4-pr25820.patch
     )
+    # DiffusionGemma source patch (PR #28054) — copied only when the recipe
+    # opts in, same rationale as the dsv4/gemma4 patches.
+    local diffusiongemma_source_patches=(
+        sglang-diffusiongemma-pr28054.patch
+    )
     # NemotronH MTP source patch (PR #27998) — copied only when the recipe
     # opts in, same rationale as the dsv4/gemma4 patches.
     local nemotronh_mtp_source_patches=(
@@ -841,6 +873,9 @@ apply_patches() {
     fi
     if (( apply_dsv4_nvfp4_patch )); then
         patches_to_copy+=( "${dsv4_nvfp4_source_patches[@]}" )
+    fi
+    if (( apply_diffusiongemma_patch )); then
+        patches_to_copy+=( "${diffusiongemma_source_patches[@]}" )
     fi
     if (( apply_nemotronh_mtp_patch )); then
         patches_to_copy+=( "${nemotronh_mtp_source_patches[@]}" )
@@ -969,6 +1004,24 @@ apply_patches() {
         echo "NemotronH MTP Dockerfile patched"
     else
         echo "Skipping dockerfile-nemotronh-mtp.patch (recipe does not set APPLY_NEMOTRONH_MTP_PR27998=1)"
+    fi
+
+    # 2e. DiffusionGemma (PR #28054) Dockerfile patch — recipe-gated (see the
+    #     apply_diffusiongemma_patch determination above). Adds the COPY + RUN
+    #     step that applies sglang-diffusiongemma-pr28054.patch. NOTE: this patch
+    #     ANCHORS AFTER the gemma4-nvfp4 block, so it requires a *gemma4* recipe
+    #     variant (the gemma4 patch must run first); the dry-run below catches a
+    #     missing anchor.
+    if (( apply_diffusiongemma_patch )); then
+        echo "Applying dockerfile-diffusiongemma.patch..."
+        patch --dry-run -p1 < "${PATCHES_DIR}/dockerfile-diffusiongemma.patch" \
+            || die "DiffusionGemma Dockerfile patch dry-run failed — needs a gemma4 variant / regenerate dockerfile-diffusiongemma.patch"
+        patch -p1 < "${PATCHES_DIR}/dockerfile-diffusiongemma.patch"
+        grep -q 'sglang-diffusiongemma-pr28054.patch' container-build/Dockerfile.sglang-nightly \
+            || die "DiffusionGemma Dockerfile patch verification failed"
+        echo "DiffusionGemma Dockerfile patched"
+    else
+        echo "Skipping dockerfile-diffusiongemma.patch (recipe does not set APPLY_DIFFUSIONGEMMA_PR28054=1)"
     fi
 
     # 3. Drop in the recipe file. run_build() parses it inline and calls
