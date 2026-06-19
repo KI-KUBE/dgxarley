@@ -6,10 +6,48 @@ As of 2026-06-19. Companion document to the profile
 **Question:** Can we run `nvidia/diffusiongemma-26B-A4B-it-NVFP4` (or its BF16 base
 `google/diffusiongemma-26B-A4B-it`) on **SGLang** instead of vLLM?
 
-**Short answer:** Technically yes, but **not today on any release or any of our
-images** — the SGLang runtime code lives in an **open, unmerged PR**. It would
-require a custom image bake **plus** a custom dLLM launch path. Until then the
-**`vllm` tag** is the only working path.
+**Short answer:** Yes — and as of 2026-06-19 this repo now BAKES the SGLang
+runtime (unmerged PR #28054) into a dedicated image and WIRES the dLLM launch
+path end-to-end. The only remaining manual step is building the image
+(`0.5.13-gemmadiffusion-sm121`); until that build + a green boot, the **`vllm`
+tag** stays the proven fallback. NVFP4-through-dLLM and multi-node TP remain
+unverified — test the BF16 base single-node first.
+
+---
+
+## Status 2026-06-19 — scaffolding + wiring DONE; only the build + boot remain
+
+**Done in-repo (no build needed):**
+- §A image bake: source patch `scripts/patches/sglang-diffusiongemma-pr28054.patch`
+  (PR #28054, docs+pyproject stripped), `dockerfile-diffusiongemma.patch`
+  (anchors after the gemma4-nvfp4 block), recipe
+  `sglang-0.5.13-gemma4-diffusion-sm121.recipe` (tag `0.5.13-gemmadiffusion-sm121`,
+  `APPLY_DIFFUSIONGEMMA_PR28054=1`), and the `build_sm121_image.sh` gate wiring +
+  selector entry.
+- §B OPEN QUESTION RESOLVED: `self.dllm_algorithm` is a pre-existing ServerArgs
+  field in v0.5.13 — `python3 -m sglang.launch_server --dllm-algorithm Gemma4Renoise`
+  works; NO separate `sglang serve` server. Same launch_server entrypoint +
+  HAProxy sidecar + probes, unchanged.
+- §B auto-forcing: confirmed from the PR — `_handle_dllm_inference` force-sets
+  triton attention + cuda-graph DISABLED + `chunked_prefill_size=-1` for
+  Gemma4Renoise. So our autoregressive knobs are overridden internally; no
+  suppression logic needed in the launch script.
+- §B/§C launch wiring: `dllm_algorithm` profile knob → `sglang_dllm_algorithm`
+  (defaults/main.yml) → `SGLANG_DLLM_ALGORITHM` (sglang_instance.yml, head+worker)
+  → `--dllm-algorithm` (sglang_launch.sh). Empty for all other models → zero impact.
+- §C schema: `dllm_algorithm: "Gemma4Renoise"` added; `max_running_requests: 4`
+  already present. Denoising params (max_denoising_steps=48, entropy_bound=0.1,
+  canvas=256, temp 0.4..0.8) are MODEL-CONFIG defaults (hf_config), NOT CLI flags
+  — documented in the profile, not wired.
+- Profile `sglang_image` repointed to `0.5.13-gemmadiffusion-sm121`.
+
+**Open (needs the build + a boot — your steps):**
+- Build the image (the one manual step you reserved).
+- §A verify-in-image: model loads, `--dllm-algorithm Gemma4Renoise` recognized.
+- §D NVFP4: smoke-test the BF16 base `google/diffusiongemma-26B-A4B-it` FIRST,
+  then the NVFP4 quant (unverified through the dLLM path).
+- §B multi-node TP=4 (untested for encoder-decoder block diffusion) + streaming
+  UX (one canvas per chunk) in OpenWebUI/Hermes.
 
 ---
 

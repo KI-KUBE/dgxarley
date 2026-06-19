@@ -10,42 +10,42 @@
 # 25.2B total / ~3.8B active. NVFP4 packaging = modelopt_fp4 (MoE expert FFN
 # weights FP4; attention/router/lm_head stay BF16), same recipe as the sibling.
 #
-# ── ENGINE CAVEAT — vLLM today; SGLang support is in an UNMERGED PR ──────────
-# The NVIDIA NVFP4 card documents ONLY a vLLM serve command. SGLang diffusion-
-# LLM (dLLM) support for DiffusionGemma EXISTS in flight but is NOT in any
-# release yet (verified 2026-06-19):
-#   - PR #27824 (Mintlify cookbook DOCS) — MERGED 2026-06-10. This is why
-#     docs.sglang.io shows a `sglang serve --dllm-algorithm Gemma4Renoise`
-#     page; the docs landed AHEAD of the code.
-#   - PR #27823 (runtime/model code, 1st try) — CLOSED unmerged 2026-06-11.
-#   - PR #28054 (runtime/model code, reopened) — OPEN against main, not merged.
-#     Adds models/gemma4_diffusion.py (encoder-decoder block-diffusion + Gemma4
-#     vision tower) and the Gemma4Renoise/EntropyBound sampler.
-# So NO released SGLang (incl. our 0.5.13-gemma4 image) can serve this model.
-# Running it on SGLang needs (a) a custom image baking PR #28054 and (b) a
-# different launch path than this repo's autoregressive launch_server + HAProxy
-# sidecar — the dLLM path auto-forces Triton attn + eager + unchunked prefill
-# and is driven by `sglang serve --dllm-algorithm Gemma4Renoise`. NVFP4 through
-# the dLLM path is unverified (the PR/cookbook target the BF16 base model).
-# Feasibility sketch + file-by-file plan: DIFFUSIONGEMMA_SGLANG_SCOPE.md.
+# ── ENGINE: SGLang dLLM path ─────────────────────────────────────────────────
+# DiffusionGemma is a discrete-diffusion (block-renoising) model — SGLang serves
+# it via its diffusion-LLM (dLLM) path, NOT the autoregressive Scheduler. Runtime
+# support is upstream PR #28054 (still OPEN/unmerged upstream as of 2026-06-19;
+# docs cookbook #27824 merged 2026-06-10), baked into our image:
+#   - Image: xomoxcc/dgx-spark-sglang:0.5.13-gemmadiffusion-sm121 carries the
+#     PR #28054 dLLM runtime (recipe sglang-0.5.13-gemma4-diffusion-sm121.recipe,
+#     APPLY_DIFFUSIONGEMMA_PR28054=1). The plain 0.5.13-gemma4 image does NOT
+#     carry the dLLM code and rejects the flag — this profile pins the
+#     gemmadiffusion image accordingly.
+#   - Launch: dllm_algorithm below → --dllm-algorithm Gemma4Renoise (wired via
+#     sglang_dllm_algorithm → SGLANG_DLLM_ALGORITHM → sglang_launch.sh). Same
+#     launch_server entrypoint + HAProxy sidecar + probes as every other profile
+#     (--dllm-algorithm is a ServerArgs flag, not a separate server). SGLang's
+#     _handle_dllm_inference AUTO-FORCES triton attn + eager (cuda graph disabled)
+#     + unchunked prefill for Gemma4Renoise, so the autoregressive knobs below
+#     are overridden internally and kept only as schema placeholders.
+# Full plan + open runtime questions: DIFFUSIONGEMMA_SGLANG_SCOPE.md.
 #
-# RECOMMENDED PATH TODAY: the `vllm` tag (image scitrera/dgx-spark-vllm).
-# Card's vLLM command (Blackwell/Hopper):
-#   vllm serve nvidia/diffusiongemma-26B-A4B-it-NVFP4 \
-#     --trust-remote-code --max-num-seqs 4 \
-#     --attention-backend TRITON_ATTN \
-#     --enable-auto-tool-choice --tool-call-parser gemma4 \
-#     --reasoning-parser gemma4
-#
-# ── VALIDATION STATUS: UNVALIDATED / not runnable on the pinned image ───────
-# Never booted on SM121/GB10, and the pinned sglang_image below (0.5.13-gemma4)
-# CANNOT serve this model — the dLLM runtime code is unmerged (PR #28054, above).
-# The autoregressive backend knobs below (cuda_graph, moe_runner, fp4_gemm,
-# mem_fraction) DO NOT map to the dLLM path (which auto-forces Triton attn +
-# eager + unchunked prefill); they are placeholders inherited from the sibling
-# so the profile schema validates. attention_backend is triton (card pins
-# TRITON_ATTN). Use the `vllm` tag until PR #28054 ships and a custom image +
-# dLLM launch path land. See DIFFUSIONGEMMA_SGLANG_SCOPE.md.
+# ── VALIDATION STATUS: deployable; first boot on this cluster not yet done ───
+# Deploys like any other profile (set sglang_model + ansible-playbook k8s_dgx.yml
+# --tags sglang). Not yet booted on SM121/GB10 — confirm on the first run:
+#   - NVFP4: PR #28054 + the cookbook target the BF16 base
+#     google/diffusiongemma-26B-A4B-it. Whether this modelopt_fp4 quant loads
+#     through gemma4_diffusion.py is unverified — smoke-test the BF16 base FIRST,
+#     then this NVFP4 quant.
+#   - Multi-node TP=4 for an encoder-decoder block-diffusion model is untested
+#     (cookbook shows single-node). Backend values below are inherited sibling
+#     defaults, NOT matrix winners.
+#   - Streaming emits one fully-denoised canvas per chunk (not token-by-token) —
+#     check OpenWebUI/Hermes rendering.
+# Fallback if a boot path fails: the `vllm` tag (scitrera/dgx-spark-vllm). Card's
+# vLLM command (Blackwell/Hopper):
+#   vllm serve nvidia/diffusiongemma-26B-A4B-it-NVFP4 --trust-remote-code \
+#     --max-num-seqs 4 --attention-backend TRITON_ATTN \
+#     --enable-auto-tool-choice --tool-call-parser gemma4 --reasoning-parser gemma4
 _model_profile:
   "nvidia/diffusiongemma-26B-A4B-it-NVFP4":
     knowledge_cutoff: "2025-01"  # official HF/Google card (Gemma 4 corpus); month precision
@@ -69,7 +69,7 @@ _model_profile:
     moe_runner_backend: "cutlass"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.90"
-    attention_backend: "triton"  # card pins TRITON_ATTN for the diffusion path; flashinfer unverified here
+    attention_backend: "triton"  # forced anyway by SGLang's dLLM handler; also the only Gemma4 allowlist option
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4
     disable_piecewise_cuda_graph: true  # fp4_quantize has no fake-tensor impl
@@ -79,6 +79,15 @@ _model_profile:
     disable_deep_gemm: true
     num_experts: 128
     ep_size: 1
+    # ── Diffusion-LLM (dLLM) ────────────────────────────────────────────────
+    # Selects SGLang's block-diffusion decode path → --dllm-algorithm Gemma4Renoise
+    # (wired via sglang_dllm_algorithm). REQUIRES the 0.5.13-gemmadiffusion image
+    # (PR #28054); other images reject the flag. SGLang auto-forces triton attn +
+    # eager + unchunked prefill for this algorithm, overriding the autoregressive
+    # knobs above. Denoising params (max_denoising_steps=48, entropy_bound=0.1,
+    # canvas=256, temp 0.4..0.8) are MODEL-CONFIG defaults (hf_config), NOT CLI
+    # flags — they come from the checkpoint and are not tunable from this profile.
+    dllm_algorithm: "Gemma4Renoise"
     # Card pins --max-num-seqs 4 for the diffusion path → SGLang --max-running-requests 4
     # (wired via sglang_max_running_requests in defaults/main.yml).
     max_running_requests: 4
@@ -92,4 +101,8 @@ _model_profile:
       top_p: 0.95
       top_k: 64
     speculative_enabled: false
-    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121"
+    # Image MUST be the gemmadiffusion build (bakes PR #28054 dLLM runtime); the
+    # plain 0.5.13-gemma4 image rejects --dllm-algorithm Gemma4Renoise. Built from
+    # sglang-0.5.13-gemma4-diffusion-sm121.recipe via scripts/build_sm121_image.sh.
+    # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121"  # autoregressive Gemma-4 only — no dLLM code
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-gemmadiffusion-sm121"

@@ -1257,6 +1257,17 @@ fi
 if [ -n "$SGLANG_ATTENTION_BACKEND" ]; then
   args+=(--attention-backend "$SGLANG_ATTENTION_BACKEND")
 fi
+# Diffusion-LLM (dLLM) decode path — when SGLANG_DLLM_ALGORITHM is set (e.g.
+# "Gemma4Renoise" for DiffusionGemma) launch_server runs the block-diffusion
+# scheduler instead of the autoregressive one. SGLang's _handle_dllm_inference
+# auto-forces triton attention, eager mode (cuda graph disabled), and unchunked
+# prefill for Gemma4Renoise, so the autoregressive cuda-graph / attention flags
+# above are overridden internally. Empty for all autoregressive models → no flag
+# is added, zero impact. Requires the 0.5.13-gemmadiffusion image (PR #28054
+# baked); other images reject --dllm-algorithm for Gemma4.
+if [ -n "$SGLANG_DLLM_ALGORITHM" ]; then
+  args+=(--dllm-algorithm "$SGLANG_DLLM_ALGORITHM")
+fi
 if [ -n "$SGLANG_FP8_GEMM_RUNNER_BACKEND" ] && [ "$SGLANG_FP8_GEMM_RUNNER_BACKEND" != "auto" ]; then
   args+=(--fp8-gemm-backend "$SGLANG_FP8_GEMM_RUNNER_BACKEND")
 fi
