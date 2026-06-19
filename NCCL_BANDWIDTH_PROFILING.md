@@ -44,14 +44,14 @@ A `torch.distributed` all-reduce sweep (algbw + busbw per size, like
 Sweep range is **env-overridable** (defaults preserve the original 1 MB–1 GB sweep,
 so `qsfp_nccl_test.yml` is unchanged):
 
-| Env var | Default | Purpose |
-|---------|---------|---------|
-| `NCCL_BENCH_MIN_BYTES` | `1M` | sweep floor — **set to `8K` for decode profiling** |
-| `NCCL_BENCH_MAX_BYTES` | `1G` | sweep ceiling |
-| `NCCL_BENCH_STEP` | `2` | size multiplier per step |
-| `NCCL_BENCH_WARMUP` | `5` | warmup iters per size |
-| `NCCL_BENCH_ITERS` | `20` | timed iters per size |
-| `NCCL_BENCH_SMALL_REGION_BYTES` | `1M` | sizes ≤ this count as the "small/decode" region in the summary |
+| Env var                         | Default | Purpose                                                        |
+|---------------------------------|---------|----------------------------------------------------------------|
+| `NCCL_BENCH_MIN_BYTES`          | `1M`    | sweep floor — **set to `8K` for decode profiling**             |
+| `NCCL_BENCH_MAX_BYTES`          | `1G`    | sweep ceiling                                                  |
+| `NCCL_BENCH_STEP`               | `2`     | size multiplier per step                                       |
+| `NCCL_BENCH_WARMUP`             | `5`     | warmup iters per size                                          |
+| `NCCL_BENCH_ITERS`              | `20`    | timed iters per size                                           |
+| `NCCL_BENCH_SMALL_REGION_BYTES` | `1M`    | sizes ≤ this count as the "small/decode" region in the summary |
 
 (`*_BYTES` vars accept a `K`/`M`/`G` suffix, e.g. `8K`, `512M`.)
 
