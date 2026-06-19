@@ -1,6 +1,6 @@
 # SGLang Test Log — Qwen3.5 397B-A17B NVFP4, 4 Nodes, TP=4 EP=1, v0.5.12 (base image)
 
-> ⏳ **RUN IN PROGRESS** — 1 / 21 cases complete as of 2026-06-19 ~09:15. Case 02 server is up (2/2) and mid-benchmark (n1→n16, ~26 min/case); not yet written to the summary. Numbers for cases 02–21 are pending; this log will be filled as the matrix advances.
+> ⏳ **RUN IN PROGRESS** — 3 / 21 cases complete as of 2026-06-19 ~09:59. Case 04 server is coming up. Numbers for cases 04–21 are pending; this log will be filled as the matrix advances.
 
 ## Environment
 
@@ -40,9 +40,9 @@ All cases: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4, kv
 | #  | moe_runner | attn   | fp4_gemm   | cg  | mtp     | Status      | n=1      | n=4      | n=8      | n=16      |
 |----|------------|--------|------------|-----|---------|-------------|----------|----------|----------|-----------|
 | 01 | triton     | fi     | fi_cutlass | on  | —       | **DONE**    | 21.0     | 64.3     | 98.4     | 136.2     |
-| 02 | triton     | fi     | fi_cutlass | off | —       | ⏳ running   | —        | —        | —        | —         |
-| 03 | triton     | fi     | fi_cutlass | pw  | —       | pending     | —        | —        | —        | —         |
-| 04 | triton     | triton | fi_cutlass | on  | —       | pending     | —        | —        | —        | —         |
+| 02 | triton     | fi     | fi_cutlass | off | —       | **DONE**    | 14.3     | 62.6     | 95.5     | 136.3     |
+| 03 | triton     | fi     | fi_cutlass | pw  | —       | **DONE**    | 21.2     | 64.2     | 100.3    | 138.8     |
+| 04 | triton     | triton | fi_cutlass | on  | —       | ⏳ running   | —        | —        | —        | —         |
 | 05 | triton     | triton | fi_cutlass | off | —       | pending     | —        | —        | —        | —         |
 | 06 | triton     | triton | fi_cutlass | pw  | —       | pending     | —        | —        | —        | —         |
 | 07 | fi_cutlass | fi     | fi_cutlass | on  | —       | pending†    | —        | —        | —        | —         |
@@ -71,7 +71,9 @@ All cases: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4, kv
 ## Observations so far
 
 - **Case 01 (triton-MoE baseline) ≈ identical between base and cudnn images.** Base 0.5.12: 21.0 / 64.3 / 98.4 / 136.2 (n1/4/8/16) vs cudnn case 01: 21.4 / 65.9 / 98.0 / 135.9 — within noise. So the cuDNN build does **not** change the triton-MoE baseline; any advantage must come from the `fi_cudnn` FP4 path (absent here) or elsewhere. The decisive comparison is case **18** (fi_cutlass-MoE + MTP s3/d4) vs cudnn Test 29 — still pending.
-- (more to follow as cases complete)
+- **CUDA graphs ON is worth ~+47% at n=1** (case 01 on: 21.0 vs case 02 off: 14.3); the gap closes by n=4 (64.3 vs 62.6) and vanishes at n=16 (~136 both). Same pattern as the cudnn run.
+- **Piecewise graphs (03) ≈ best of the triton-MoE trio so far** — marginally ahead at n=8/n=16 (100.3 / 138.8 vs 98.4 / 136.2 full-CG), n=1 within noise. Tracks cudnn cases 1–3.
+- (Block A triton-MoE so far mirrors the cudnn image 1:1 — as expected, since both share the fi_cutlass FP4 path. The fi_cutlass-MoE (07–12) and MTP (17–21) cases are where a base-vs-cudnn delta could still appear.)
 
 ## Refresh
 
