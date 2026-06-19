@@ -1,6 +1,6 @@
 # SGLang Test Log — Qwen3.5 397B-A17B NVFP4, 4 Nodes, TP=4 EP=1, v0.5.12 (base image)
 
-> ⏳ **RUN IN PROGRESS** — 3 / 21 cases complete as of 2026-06-19 ~09:59. Case 04 server is coming up. Numbers for cases 04–21 are pending; this log will be filled as the matrix advances.
+> ⏳ **RUN IN PROGRESS** — 4 / 21 cases complete as of 2026-06-19 ~10:29. Case 05 server is coming up. Numbers for cases 05–21 are pending; this log will be filled as the matrix advances.
 
 ## Environment
 
@@ -42,8 +42,8 @@ All cases: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4, kv
 | 01 | triton     | fi     | fi_cutlass | on  | —       | **DONE**    | 21.0     | 64.3     | 98.4     | 136.2     |
 | 02 | triton     | fi     | fi_cutlass | off | —       | **DONE**    | 14.3     | 62.6     | 95.5     | 136.3     |
 | 03 | triton     | fi     | fi_cutlass | pw  | —       | **DONE**    | 21.2     | 64.2     | 100.3    | 138.8     |
-| 04 | triton     | triton | fi_cutlass | on  | —       | ⏳ running   | —        | —        | —        | —         |
-| 05 | triton     | triton | fi_cutlass | off | —       | pending     | —        | —        | —        | —         |
+| 04 | triton     | triton | fi_cutlass | on  | —       | **DONE**    | 20.8     | 66.4     | 99.4     | 138.6     |
+| 05 | triton     | triton | fi_cutlass | off | —       | ⏳ running   | —        | —        | —        | —         |
 | 06 | triton     | triton | fi_cutlass | pw  | —       | pending     | —        | —        | —        | —         |
 | 07 | fi_cutlass | fi     | fi_cutlass | on  | —       | pending†    | —        | —        | —        | —         |
 | 08 | fi_cutlass | fi     | fi_cutlass | off | —       | pending     | —        | —        | —        | —         |
