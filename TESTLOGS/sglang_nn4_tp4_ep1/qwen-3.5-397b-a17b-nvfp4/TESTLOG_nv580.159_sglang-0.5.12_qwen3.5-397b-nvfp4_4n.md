@@ -1,6 +1,6 @@
 # SGLang Test Log — Qwen3.5 397B-A17B NVFP4, 4 Nodes, TP=4 EP=1, v0.5.12 (base image)
 
-> ⏳ **RUN IN PROGRESS** — 12 / 21 cases complete as of 2026-06-19 ~13:46. Block A (01–12, all no-spec) done — best is case 07 (fi_cutlass-MoE/fi-attn/full-CG, 147.8 n=16). Case 13 (fi_cudnn probe, expected crash) starting. Probes 13–16 + MTP 17–21 pending.
+> ⏳ **RUN IN PROGRESS** — 13 / 21 cases complete as of 2026-06-19 ~14:13. ⚠️ Surprise: the fi_cudnn FP4 probe (13) did NOT crash — it ran fine and ties for best (147.8 n=16). Case 14 (trtllm probe) running. Probes 14–16 + MTP 17–21 pending.
 
 ## Environment
 
@@ -51,8 +51,8 @@ All cases: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4, kv
 | 10 | fi_cutlass | triton | fi_cutlass | on  | —       | **DONE**    | 22.8     | 68.6     | 105.0    | 146.6     |
 | 11 | fi_cutlass | triton | fi_cutlass | off | —       | **DONE**    | 21.0     | 67.2     | 100.9    | 144.7     |
 | 12 | fi_cutlass | triton | fi_cutlass | pw  | —       | **DONE**    | 20.8     | 70.7     | 105.4    | 145.7     |
-| 13 | fi_cutlass | fi     | fi_cudnn   | on  | —       | ⏳ running ‡ | —        | —        | —        | —         |
-| 14 | fi_trtllm  | fi     | fi_cutlass | on  | —       | pending ‡   | —        | —        | —        | —         |
+| 13 | fi_cutlass | fi     | fi_cudnn   | on  | —       | **DONE** ⚠️ | 23.2     | 69.4     | 104.2    | 147.8     |
+| 14 | fi_trtllm  | fi     | fi_cutlass | on  | —       | ⏳ running ‡ | —        | —        | —        | —         |
 | 15 | fi_trtllm  | fi     | fi_cutlass | pw  | —       | pending ‡   | —        | —        | —        | —         |
 | 16 | fi_trtllm  | triton | fi_cutlass | on  | —       | pending ‡   | —        | —        | —        | —         |
 | 17 | fi_cutlass | triton | fi_cutlass | on  | s1/d2   | pending     | —        | —        | —        | —         |
@@ -63,7 +63,7 @@ All cases: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4, kv
 
 - **cg**: `on` = full CUDA graphs; `off` = eager; `pw` = piecewise. **mtp**: NEXTN `steps/draft`, `—` = off.
 - **† Case 07** = the designated no-spec serving reference (fi_cutlass-MoE + fi-attn + full-CG).
-- **‡ Probes** — expected/possible crashes: **13** `fi_cudnn` FP4 (no cuDNN wheel on this base image → should crash "cuDNN not available"); **14–16** `flashinfer_trtllm` MoE (crashed on the cudnn twin — likely crashes here too).
+- **‡ Probes** — **13** `fi_cudnn` FP4 was *expected* to crash ("no cuDNN wheel on the base image") but **ran fine** (⚠️ — the matrix premise is wrong; see observations); **14–16** `flashinfer_trtllm` MoE (crashed on the cudnn twin — likely crashes here too).
 - **★ Case 18** = COOKBOOK config, the one to compare against the cudnn winner (Test 29: 39.1/89.7/120.7/163.6) and the pinned profile config.
 
 ---
@@ -75,7 +75,8 @@ All cases: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4, kv
 - **Piecewise graphs (03) ≈ best of the triton-MoE trio so far** — marginally ahead at n=8/n=16 (100.3 / 138.8 vs 98.4 / 136.2 full-CG), n=1 within noise. Tracks cudnn cases 1–3.
 - **Block A triton-MoE (01–06) complete — mirrors the cudnn image 1:1.** Best triton-MoE config is piecewise (03: 138.8 n=16), same as cudnn. triton-vs-fi attn = wash; CG-on > no-CG at low concurrency only. As expected, since both images share the fi_cutlass FP4 path. The fi_cutlass-MoE (07–12) and MTP (17–21) cases are where a base-vs-cudnn delta could still appear.
 - **fi_cutlass-MoE works on the base image too and beats triton-MoE** (case 07: 147.8 n=16 vs triton best 138.8, +6.5%) — comparable to the cudnn twin (its case 13: 144.3 n=16). So the cudnn FP4 wheel is not required for fi_cutlass-MoE; it only adds the (separate) fi_cudnn FP4 GEMM option. MTP cases (17–18) still the decisive comparison.
-- **Block A complete (01–12, no-spec).** Ranking holds: all six fi_cutlass-MoE configs (07–12: 143–148 n=16) beat all six triton-MoE configs (01–06: 135–139 n=16). Best no-spec = **case 07** (fi-attn/full-CG, 147.8). attn and CG-variant are second-order within each MoE family. Whole block tracks the cudnn twin within ±3% (a wash, see the comparison handed over earlier). The fi_cudnn probe (13) and MTP block (17–21) are what's left to decide a base-vs-cudnn winner.
+- **Block A complete (01–12, no-spec).** Ranking holds: all six fi_cutlass-MoE configs (07–12: 143–148 n=16) beat all six triton-MoE configs (01–06: 135–139 n=16). Best no-spec = **case 07** (fi-attn/full-CG, 147.8). attn and CG-variant are second-order within each MoE family. Whole block tracks the cudnn twin within ±3% (a wash, see the comparison handed over earlier). The MTP block (17–21) is what's left to decide a base-vs-cudnn winner.
+- **⚠️ The fi_cudnn FP4 GEMM probe (13) did NOT crash on the base image** — contrary to the matrix premise ("scitrera/dgx-spark-sglang:0.5.12 ships no cuDNN-FP4 wheel"). It ran clean (23.2 / 69.4 / 104.2 / 147.8) and **ties case 07 for best no-spec** (highest n=1 of the whole run). Implications: (a) the matrix's "fp4 axis collapses to fi_cutlass only" assumption is false — the base image *does* have cuDNN-FP4; (b) this removes the only claimed cudnn-exclusive advantage, since fi_cudnn matches the cudnn twin's fi_cudnn cases (~148 n=16) and is available here too. The 21-vs-32-case split (vs the cudnn matrix) was therefore unnecessary. **Base vs cudnn is now looking like a full wash; the MTP headline (17–21 vs cudnn Test 29) is the last open question.**
 
 ## Refresh
 
