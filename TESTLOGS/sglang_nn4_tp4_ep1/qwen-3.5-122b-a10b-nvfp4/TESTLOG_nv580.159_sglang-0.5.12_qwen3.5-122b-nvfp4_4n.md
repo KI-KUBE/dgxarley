@@ -1,6 +1,6 @@
 # SGLang Test Log — Qwen3.5 122B-A10B NVFP4, 4 Nodes, TP=4 EP=1, v0.5.12 (base image)
 
-> 🔄 **RUN IN PROGRESS** (started 2026-06-20 12:01) — **9 / 21 cases done**. Matrix is running in numeric order. Cases **01–09** complete and clean (16/16 ok at every concurrency, no boot crash). **New no-spec leader: case 09 (fi_cutlass-MoE + piecewise) — best n=16 (269.0) and n=1 (34.6) so far.** Case **10** (fi_cutlass-MoE + triton-attn) benching as of 14:28. Peak = sum-of-per-request tok/s (not the summary JSON's `aggregate_throughput`, which is total/wall). Updating this log as cases complete.
+> 🔄 **RUN IN PROGRESS** (started 2026-06-20 12:01) — **11 / 21 cases done**. Matrix is running in numeric order. Cases **01–11** complete and clean (16/16 ok at every concurrency, no boot crash). **No-spec leader: case 09 (fi_cutlass-MoE + piecewise) — n=16 269.0, n=1 34.6.** Case **12** (fi_cutlass-MoE + triton-attn + piecewise — last Block-A case) benching at n=8 as of 14:57. Next come the crash-probes: 13 (fi_cudnn FP4) + 14–16 (trtllm MoE). Peak = sum-of-per-request tok/s (not the summary JSON's `aggregate_throughput`, which is total/wall). Updating this log as cases complete.
 
 ## Environment
 
@@ -51,7 +51,7 @@ All cases: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4, kv
 | 07 | fi_cutlass | fi     | fi_cutlass | on  | —       | ✅ OK (16/16) † | 33.8 | 117.7 | 183.7 | 266.5 |
 | 08 | fi_cutlass | fi     | fi_cutlass | off | —       | ✅ OK (16/16) | 26.8 | 108.3 | 172.4 | 258.1 |
 | 09 | fi_cutlass | fi     | fi_cutlass | pw  | —       | ✅ OK (16/16) | 34.6 | 117.9 | 180.9 | 269.0 |
-| 10 | fi_cutlass | triton | fi_cutlass | on  | —       | PENDING       | —   | —   | —   | —    |
+| 10 | fi_cutlass | triton | fi_cutlass | on  | —       | ✅ OK (16/16) | 33.5 | 117.3 | 177.5 | 264.0 |
 | 11 | fi_cutlass | triton | fi_cutlass | off | —       | PENDING       | —   | —   | —   | —    |
 | 12 | fi_cutlass | triton | fi_cutlass | pw  | —       | PENDING       | —   | —   | —   | —    |
 | 13 | fi_cutlass | fi     | fi_cudnn   | on  | —       | PENDING ⚠️    | —   | —   | —   | —    |
@@ -94,6 +94,7 @@ All cases: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4, kv
 - **Case 07 (fi_cutlass-MoE, fi-attn, full-CG — the no-spec serving reference):** clean boot, **16/16 ok**. Peak **33.8 / 117.7 / 183.7 / 266.5**. **Confirms the headline hypothesis: fi_cutlass-MoE beats triton-MoE at concurrency** — vs case 01 (triton-MoE, same attn+CG): n=4 **+4.5%** (117.7 vs 112.6), n=8 **+4.4%** (183.7 vs 176.0), n=16 **+2.6%** (266.5 vs 259.8); n=1 a tie (33.8 vs 34.3). Matches the 397B run's +6.5% n=16 direction (a bit smaller here). **Current overall leader.** Block A's best no-spec config is fi_cutlass-MoE + full-CG.
 - **Case 08 (fi_cutlass-MoE, fi-attn, eager):** **booted and ran clean, 16/16 ok** — no crash. Peak **26.8 / 108.3 / 172.4 / 258.1**. Two findings: (1) **the "eager broken on `cutlass_moe_fp4`" caveat does NOT apply to the `flashinfer_cutlass` MoE runner** (different code path — the broken one is the now-removed standalone `cutlass` runner). (2) **fi_cutlass-MoE degrades far more gracefully under eager than triton-MoE**: n=1 only **−21%** vs its full-CG (26.8 vs 33.8), where triton-MoE eager lost **−54%** (case 02). At n≥8 fi_cutlass eager (172/258) still edges triton full-CG (176/260 ≈ tie). So on the fi_cutlass runner, the CUDA-graph penalty for eager is much smaller.
 - **Case 09 (fi_cutlass-MoE, fi-attn, piecewise):** clean boot, **16/16 ok**. Peak **34.6 / 117.9 / 180.9 / 269.0** — **new overall no-spec leader**, edging case 07 (full-CG) at n=1 (34.6 vs 33.8) and n=16 (269.0 vs 266.5); n=8 a hair behind (180.9 vs 183.7). Within-noise tie with full-CG, but **piecewise is at least as good as full-CG on the fi_cutlass runner** — unlike the triton-MoE half where full-CG was strictly best. (n=1 single-request `finish_reason=stop`, so slightly shorter generation; rate still comparable.)
+- **Case 10 (fi_cutlass-MoE, triton-attn, full-CG):** clean boot, **16/16 ok**. Peak **33.5 / 117.3 / 177.5 / 264.0** — vs case 07 (fi-attn, same MoE+CG): n=1/4 tied, n=8 −3.4% (177.5 vs 183.7), n=16 −0.9% (264.0 vs 266.5). Reconfirms **fi-attn ≥ triton-attn marginally**, now on the fi_cutlass runner too. attn-backend remains a near-zero throughput lever.
 
 ## Refresh
 
