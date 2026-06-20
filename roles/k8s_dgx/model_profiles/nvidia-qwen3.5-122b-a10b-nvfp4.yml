@@ -37,9 +37,9 @@ _model_profile:
     quantization: "modelopt_fp4"
     trust_remote_code: true
     kv_cache_dtype: "fp8_e4m3"
-    # Smaller weights than the FP8 build → plenty of free Unified Memory for KV.
-    # 0.80 mirrors the 397B-NVFP4 no-MTP setting; tune up if no OOMs observed.
-    mem_fraction_static: "0.80"
+    # 0.75 with MTP: draft tokens need extra KV headroom (same as 397B-NVFP4 with
+    # MTP). Weights are small here, so headroom is ample; tune up if no OOMs.
+    mem_fraction_static: "0.75"
     # NVFP4 MoE backend mirrors the current 397B-NVFP4 winner: the standalone
     # "cutlass" runner was REMOVED in 0.5.12 (NotImplementedError at load_model),
     # so use flashinfer_cutlass. FP4 GEMM + triton attention to match.
@@ -79,8 +79,17 @@ _model_profile:
       top_p: 0.95
       top_k: 20
       presence_penalty: 1.5
-    # No MTP head documented for the 122B-A10B (unlike the 397B-A17B, which has a
-    # 1-layer MTP). Speculative decoding left OFF, matching the FP8 sibling. If a
-    # NEXTN head turns up, enable spec with mamba_scheduler_strategy=extra_buffer
-    # + enable_spec_v2=true (the hybrid-mamba arch needs both, see 397B profile).
-    speculative_enabled: false
+    # 1-layer MTP head IS present (config.json: mtp_num_hidden_layers=1, in both
+    # the base Qwen/Qwen3.5-122B-A10B and this nvidia NVFP4 quant) — same
+    # qwen3_5_moe arch as the validated 397B-A17B sibling, so NEXTN works the same
+    # way. Corroborated by unsloth/Qwen3.5-122B-A10B-MTP-GGUF + vLLM `method: mtp`.
+    # Hybrid attention needs mamba_scheduler_strategy=extra_buffer + enable_spec_v2
+    # (else "not compatible with radix cache" boot crash — see 397B profile).
+    # SEED: s3/d4 mirrors the 397B sweet spot; re-sweep num_steps/draft_tokens here.
+    speculative_enabled: true
+    speculative_algo: NEXTN
+    speculative_num_steps: 3
+    speculative_num_draft_tokens: 4
+    speculative_eagle_topk: 1
+    mamba_scheduler_strategy: "extra_buffer"
+    enable_spec_v2: true
