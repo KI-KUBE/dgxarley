@@ -69,14 +69,16 @@ _model_profile:
     trust_remote_code: true
     # 2026-06-20: was "cutlass" (runner removed from the 0.5.14 base →
     # `NotImplementedError: Unsupported runner backend: MoeRunnerBackend.CUTLASS`),
-    # then briefly "flashinfer_cutlass" — but that path pads the w2 blockscale when
-    # K' isn't a multiple of 4 and the pad branch asserts `not is_gated`. Same shape
-    # as the sibling nvidia-gemma-4-26b-a4b-nvfp4: moe_intermediate_size=704 / TP4 /
-    # group_size 16 = K'=11 (not ×4), GeGLU (gated) → crash at
-    # process_weights_after_loading (modelopt_quant.py). triton is the non-swizzled
-    # NVFP4 MoE path (no ×4 constraint, handles gated) — same fallback as
-    # nvidia-minimax-m2.5-nvfp4.
-    moe_runner_backend: "triton"
+    # then "flashinfer_cutlass", then "triton" — BOTH crash at
+    # process_weights_after_loading (modelopt_quant.py) with the gated-padding
+    # AssertionError. Same shape as the sibling nvidia-gemma-4-26b-a4b-nvfp4:
+    # moe_intermediate_size=704 / TP4 / group_size 16 = K'=11 (not ×4), GeGLU (gated).
+    # Only enable_flashinfer_trtllm_moe takes the PWAL branch
+    # (align_fp4_moe_weights_for_flashinfer_trtllm) that pads gated experts instead
+    # of asserting; every other backend hits the CUTLASS `else` + `assert not
+    # is_gated`. flashinfer_trtllm is the sole backend that sets that flag — see the
+    # full root-cause note in nvidia-gemma-4-26b-a4b-nvfp4. Untested at inference here.
+    moe_runner_backend: "flashinfer_trtllm"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.90"
     attention_backend: "triton"  # forced anyway by SGLang's dLLM handler; also the only Gemma4 allowlist option

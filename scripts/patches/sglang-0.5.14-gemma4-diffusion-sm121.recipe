@@ -60,8 +60,13 @@ BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
 # is moot for Gemma attention; the bump only matters for the NVFP4 quant kernels.
 FLASHINFER_VERSION=0.6.13rc2
 
-# Vorerst 5.8.0 (siehe TRANSFORMERS-Hinweis im Header — ggf. auf 5.11.0 heben).
-TRANSFORMERS_VERSION=5.8.0
+# 2026-06-20: auf 5.11.0 gehoben — 5.8.0 kennt model_type `diffusion_gemma` nicht
+# (transformers CONFIG_MAPPING KeyError → "does not recognize this architecture" bei
+# AutoConfig.from_pretrained; trust_remote_code hilft nicht, da das NVFP4-Repo keine
+# auto_map/Remote-Config mitliefert). 5.11.0 ist die von PR #28054 gepinnte Version,
+# in der die diffusion_gemma-Config nativ registriert ist. Betrifft das UNIFIED-Image
+# → autoregressive Gemma-4-Profile (BF16/NVFP4/FROZEN_KV_MTP) auf 5.11.0 neu verifizieren.
+TRANSFORMERS_VERSION=5.11.0
 
 KERNELS_VERSION=0.12.3
 

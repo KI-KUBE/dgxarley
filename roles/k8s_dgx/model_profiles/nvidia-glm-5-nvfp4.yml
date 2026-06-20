@@ -2,7 +2,7 @@
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 _model_profile:
   "nvidia/GLM-5-NVFP4":
-    knowledge_cutoff: null  # not officially disclosed by Z.ai (card/tech report silent); aggregators ~2025-11/12, unverified
+    knowledge_cutoff: "2025-12"  # GLM-5 base; not in official card. apxml lists Dec 2025 (community r/ZaiGLM claims early 2025, conflicting). Low confidence.
     release_date: "2026-02-11"  # GLM-5 base; Z.ai release (HF zai-org collection, mlabonne HF blog)
     info_url: "https://huggingface.co/nvidia/GLM-5-NVFP4"
     # 744B/40B-active MoE (256 experts, top-8, sigmoid routing), NVFP4 quantized.

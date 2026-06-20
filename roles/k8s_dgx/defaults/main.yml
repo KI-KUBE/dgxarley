@@ -32,7 +32,7 @@ sglang_nnodes: 4
 # sglang_model: "google/gemma-4-31B-it"                          # 30.7B dense BF16, multimodal, 256K ctx
 sglang_model: "nvidia/Gemma-4-26B-A4B-NVFP4"                   # 26B/3.8B-active MoE NVFP4, multimodal, 256K ctx
 # sglang_model: "google/gemma-4-26B-A4B-it"                      # 26B/3.8B-active MoE BF16, multimodal, 256K ctx
-# sglang_model: "nvidia/diffusiongemma-26B-A4B-it-NVFP4"         # 26B/3.8B MoE NVFP4, DISCRETE-DIFFUSION (dLLM Gemma4Renoise) — pins 0.5.14-gemmadiffusion image
+#sglang_model: "nvidia/diffusiongemma-26B-A4B-it-NVFP4"         # 26B/3.8B MoE NVFP4, DISCRETE-DIFFUSION (dLLM Gemma4Renoise) — pins 0.5.14-gemmadiffusion image
 #
 # --- GLM ---
 # sglang_model: "zai-org/GLM-4.7-FP8"

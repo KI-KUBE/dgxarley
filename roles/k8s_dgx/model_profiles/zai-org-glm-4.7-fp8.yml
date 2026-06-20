@@ -2,7 +2,7 @@
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 _model_profile:
   "zai-org/GLM-4.7-FP8":
-    knowledge_cutoff: null  # not officially disclosed by Z.ai (card/tech report/blog silent); aggregators conflict
+    knowledge_cutoff: "2024-08"  # GLM-4.7 base; not in official card. apxml lists Aug 2024; official Z.AI AMA (r/LocalLLaMA) confirms cutoff "stuck in early 2024". Low-medium confidence.
     release_date: "2025-12-22"  # GLM-4.7 base; official Z.ai press release / docs.z.ai changelog
     info_url: "https://huggingface.co/zai-org/GLM-4.7-FP8"
     # 358B/~58B-active MoE (160 experts, top-8, sigmoid routing), FP8 quantized (~358 GB).
