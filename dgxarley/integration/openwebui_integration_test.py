@@ -214,10 +214,13 @@ class LLMClient:
     base_url: str
     model_id: str
     verbose: bool
+    reasoning_effort: str | None
     presets: dict[str, dict[str, str | int | float | bool | dict[str, str | int | float | bool | dict[str, bool]]]]
     default_preset: str | None
 
-    def __init__(self, base_url: str, model_id: str, verbose: bool = False) -> None:
+    def __init__(
+        self, base_url: str, model_id: str, verbose: bool = False, reasoning_effort: str | None = None
+    ) -> None:
         """Initialise the client and load sampling presets for the given model.
 
         Args:
@@ -226,10 +229,16 @@ class LLMClient:
                 looking up sampling presets in the Ansible defaults.
             verbose: If ``True``, print the full request payload JSON before
                 each request.
+            reasoning_effort: If set, every request gets a top-level
+                ``reasoning_effort`` field (SGLang-native; maps into the chat
+                template). Enables reasoning for models that default to none
+                (e.g. Mistral Large-3 / Medium-3.5 — use ``"high"``). ``None``
+                leaves it unset so the model's own default applies.
         """
         self.base_url = base_url.rstrip("/")
         self.model_id = model_id
         self.verbose = verbose
+        self.reasoning_effort = reasoning_effort
         self.presets = load_sampling_presets(model_id)
         self.default_preset = pick_default_preset(self.presets)
 
@@ -473,6 +482,11 @@ class LLMClient:
             requests.HTTPError: If the server returns a non-2xx status code.
         """
         payload = self._prepare_payload(payload)
+        # Per-client reasoning toggle (SGLang-native top-level field). Only added
+        # when explicitly requested; an existing per-payload value wins (e.g.
+        # test_non_thinking_mode forcing it off).
+        if self.reasoning_effort is not None:
+            payload.setdefault("reasoning_effort", self.reasoning_effort)
         if self.verbose:
             self._niceprint_payload(payload)
         response = requests.post(

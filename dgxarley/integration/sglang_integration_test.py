@@ -362,7 +362,7 @@ def resolve_model_id() -> str:
     raise ValueError("No MODEL_ID env var and no sglang_model in Ansible defaults")
 
 
-def create_sglang_client(verbose: bool = False) -> SGLangClient:
+def create_sglang_client(verbose: bool = False, reasoning_effort: str | None = None) -> SGLangClient:
     """Create an SGLangClient from environment variables.
 
     Reads ``SGLANG_URL`` and ``MODEL_ID`` (or falls back to the Ansible
@@ -372,6 +372,10 @@ def create_sglang_client(verbose: bool = False) -> SGLangClient:
     Args:
         verbose: If ``True``, the client will print request payloads and
             reasoning tokens during test runs.
+        reasoning_effort: If set, every request the client sends carries a
+            top-level ``reasoning_effort`` field. Use ``"high"`` to turn ON
+            reasoning for Mistral Large-3 / Medium-3.5 in the sequential tests
+            (they default to none). ``None`` leaves the model default.
 
     Returns:
         A configured :class:`SGLangClient` ready for use.
@@ -395,7 +399,7 @@ def create_sglang_client(verbose: bool = False) -> SGLangClient:
         label = "SGLang direct"
     validate_model(sglang_url, model_id)
     print(f"[{label}] {sglang_url} model={model_id}")
-    return SGLangClient(sglang_url, model_id, verbose=verbose)
+    return SGLangClient(sglang_url, model_id, verbose=verbose, reasoning_effort=reasoning_effort)
 
 
 # ---------------------------------------------------------------------------
@@ -1438,7 +1442,11 @@ def main() -> None:
 
     # Sequential tests
     if tests:
-        client = create_sglang_client(verbose=verbose)
+        # --no-think forces reasoning off across families (Mistral: reasoning_effort
+        # none) even for the always-thinking coding test; otherwise honour the
+        # explicit --reasoning-effort (e.g. "high" to turn Mistral reasoning ON).
+        _seq_effort = "none" if no_think else args.reasoning_effort
+        client = create_sglang_client(verbose=verbose, reasoning_effort=_seq_effort)
         if "xkcd" in tests:
             image = get_random_xkcd_image(get_random_xkcd_image_url())
             print_ascii_representation_of_image(image)
