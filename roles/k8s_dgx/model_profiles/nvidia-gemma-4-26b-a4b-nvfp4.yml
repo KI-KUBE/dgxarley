@@ -67,9 +67,17 @@ _model_profile:
       temperature: 1.0
       top_p: 0.95
       top_k: 64
-    speculative_enabled: false
+    speculative_enabled: true  # FROZEN_KV_MTP — works once draft loads unquant (see below)
     speculative_algo: "NEXTN"  # auto-promoted to FROZEN_KV_MTP at runtime
     speculative_draft_model_path: "google/gemma-4-26B-A4B-it-assistant"
+    # REQUIRED on this NVFP4 target: the BF16 assistant draft must NOT inherit the
+    # target's modelopt_fp4 quant, else it loads via ModelOptModelLoader →
+    # transformers AutoModelForCausalLM → a Gemma4AssistantForCausalLM WITHOUT
+    # SGLang's frozen-kv hooks → FROZEN_KV_MTP bind skipped → kv_context=None →
+    # crash at boot. Full root-cause + live verification on the sibling
+    # nvidia/Gemma-4-31B-IT-NVFP4 profile. The "unquant" sentinel forces draft
+    # quant=None → native SGLang loader → gemma4_mtp class WITH hooks.
+    speculative_draft_model_quantization: "unquant"
     speculative_num_steps: 3
     speculative_num_draft_tokens: 4  # = num_steps + 1
     speculative_eagle_topk: 1
@@ -79,5 +87,5 @@ _model_profile:
     # bakes are gated-off/inert here. Recipe: sglang-0.5.14-gemma4-diffusion-sm121.
     # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121"  # prior NVFP4-Gemma image
     # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121"
-    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121"
-    # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"
+    # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121"
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"

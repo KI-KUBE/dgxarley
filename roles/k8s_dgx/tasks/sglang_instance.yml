@@ -117,6 +117,7 @@
         SGLANG_WATCHDOG_TIMEOUT: "{{ sglang_watchdog_timeout | string }}"
         SGLANG_ATTENTION_BACKEND: "{{ sglang_attention_backend }}"
         SGLANG_DLLM_ALGORITHM: "{{ sglang_dllm_algorithm }}"
+        SGLANG_LOG_LEVEL: "{{ sglang_log_level }}"
         SGLANG_FP8_GEMM_RUNNER_BACKEND: "{{ sglang_fp8_gemm_runner_backend }}"
         SGLANG_FP4_GEMM_BACKEND: "{{ sglang_fp4_gemm_backend }}"
         SGLANG_CUDA_GRAPH_MAX_BS: "{{ sglang_cuda_graph_max_bs | string }}"

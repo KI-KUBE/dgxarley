@@ -28,7 +28,7 @@ sglang_nnodes: 4
 # sglang_model: "canada-quant/DeepSeek-V4-Flash-W4A16-FP8-MTP"
 #
 # --- Gemma-4 ---
-# sglang_model: "nvidia/Gemma-4-31B-IT-NVFP4"                      # ACTIVE — 30.7B dense NVFP4, multimodal, 256K ctx
+sglang_model: "nvidia/Gemma-4-31B-IT-NVFP4"                        # ACTIVE — 30.7B dense NVFP4, multimodal, 256K ctx (FROZEN_KV_MTP debug)
 # sglang_model: "google/gemma-4-31B-it"                          # 30.7B dense BF16, multimodal, 256K ctx
 # sglang_model: "nvidia/Gemma-4-26B-A4B-NVFP4"                   # 26B/3.8B-active MoE NVFP4, multimodal, 256K ctx
 # sglang_model: "google/gemma-4-26B-A4B-it"                      # 26B/3.8B-active MoE BF16, multimodal, 256K ctx
@@ -62,7 +62,7 @@ sglang_nnodes: 4
 # --- Qwen3.6 ---
 # sglang_model: "Qwen/Qwen3.6-27B-FP8"
 # sglang_model: "Qwen/Qwen3.6-35B-A3B-FP8"
-sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+# sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
 
 # Model profiles are loaded from individual files in model_profiles/
 # by the merge task at the top of tasks/main.yml. See model_profiles/*.yml.
@@ -382,6 +382,16 @@ sglang_attention_backend: "{{ sglang_model_profiles[_sglang_active_model].attent
 # (PR #28054 baked) ships the runtime for this; other images reject the flag.
 # See DIFFUSIONGEMMA_SGLANG_SCOPE.md.
 sglang_dllm_algorithm: "{{ sglang_model_profiles[_sglang_active_model].dllm_algorithm | default('') }}"
+
+# SGLang server log level. Empty ('') → no --log-level flag is passed, so SGLang
+# uses its built-in default ('info'). Set to 'debug' (globally here, or per-model
+# in sglang_model_profiles) to surface the logger.debug diagnostics SGLang
+# otherwise hides — e.g. the Frozen-KV MTP draft-bind skip message
+# ("Draft model <class> does not implement Frozen-KV MTP context hooks; skipping
+# frozen-kv bind."), which reveals which class a Gemma-4 assistant draft actually
+# loads as. Applies to head AND workers. Wired to --log-level in sglang_launch.sh.
+# Valid values: debug | info | warning | error | critical.
+sglang_log_level: "{{ sglang_model_profiles[_sglang_active_model].log_level | default('') }}"
 
 # Chat template kwargs: passed as --chat-template-kwargs JSON to SGLang CLI.
 # Used for enable_thinking etc. — NOT for sampling params.
