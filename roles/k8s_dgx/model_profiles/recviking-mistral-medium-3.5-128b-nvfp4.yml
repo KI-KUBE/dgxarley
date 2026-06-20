@@ -1,0 +1,133 @@
+---
+# Model profile: RecViking/Mistral-Medium-3.5-128B-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# FIRST CONTACT / UNVALIDATED (written 2026-06-20). No matrix run yet — the
+# values below are a conservative seed inherited from the dense-NVFP4 sibling
+# mmangkad-qwen3.6-27b-nvfp4.yml. Rewrite with the winner config + measured
+# throughput after the first sweep.
+#
+# WHY THIS REPO (over the other Medium-3.5 NVFP4 quants on the hub) ───────────
+#   RecViking/...-NVFP4 ships HUGGINGFACE-FORMAT (config.json present,
+#   model.safetensors.index.json, HF + tekken tokenizers) → loads on the stock
+#   SGLang path with NO launch-script changes. The sibling zdy1995love/...-NVFP4
+#   and Mistral's own checkpoints are MISTRAL-NATIVE (params.json, consolidated
+#   safetensors, NO config.json) → NOT SGLang-loadable without an offline HF
+#   conversion or the vLLM `--config-format mistral` path. See the Large-3-675B
+#   profile header for the full format discussion.
+#
+# WHAT THIS CHECKPOINT IS (verified against HF config.json 2026-06-20) ─────────
+#   arch Mistral3ForConditionalGeneration (model_type mistral3), multimodal:
+#     - text_config: model_type "ministral3", DENSE (NOT MoE) — 88 layers,
+#       hidden_size 12288, intermediate_size 28672, 96 attn heads,
+#       num_key_value_heads 8 (GQA), head_dim 128, vocab 131072.
+#       YaRN rope: factor 64 over original 4096 → 262144 native context,
+#       rope_theta 1e6, beta_fast 4 / beta_slow 1.
+#     - vision_config: pixtral, 48 layers, hidden 1664, patch 14, image 1540.
+#   QUANT: compressed-tensors NVFP4 (recipe.yaml: QuantizationModifier scheme
+#   NVFP4, group_size 16, weights+input_activations FP4, targets [Linear]).
+#   IGNORE list keeps lm_head, the ENTIRE vision_tower, and the
+#   multi_modal_projector in BF16 — i.e. ONLY the text-transformer Linear ops
+#   are FP4. kv_cache_scheme null (KV stays BF16 in the checkpoint; we still run
+#   an fp8 KV pool at runtime via kv_cache_dtype below — orthogonal choice).
+#   ~80.3 GB safetensors (2 shards) → ~20 GB/GPU at TP=4. COMFORTABLE fit:
+#   ~108 GB/GPU free for KV + activations + CUDA graphs, so long context and
+#   high concurrency are cheap here (the opposite of the 675B's squeeze).
+#
+# >>> BOOT / VALIDATION RISK (read before deploying) <<<
+#   1. ARCH SUPPORT — Mistral3ForConditionalGeneration is registered in SGLang
+#      (Mistral-Small-3 / Pixtral lineage), but the INNER text model_type
+#      "ministral3" + config transformers_version 5.7.0 are newer than the
+#      scitrera/dgx-spark-sglang:0.5.12 base likely ships. If load_model raises
+#      an unknown-model-type / config-parse error, the base image needs a
+#      transformers bump (or a dev image) — same failure mode noted in the
+#      qwen3.5-397b profile. trust_remote_code is set to give the repo's own
+#      code a chance to register the type.
+#   2. compressed-tensors NVFP4 on SGLang/SM121 is read but UNTESTED on this
+#      base for a dense Mistral3 — may startup-crash. Because the cluster shares
+#      profiles across engines, the safest first smoke-test is the vLLM path
+#      (:8001), which RecViking-style llm-compressor quants are validated on.
+_model_profile:
+  "RecViking/Mistral-Medium-3.5-128B-NVFP4":
+    knowledge_cutoff: null  # not officially disclosed (Mistral Medium 3.5 card silent)
+    release_date: "2026-04-28"  # quant build date (config quant version 0.15.1.a20260428); base Medium-3.5 earlier
+    info_url: "https://huggingface.co/RecViking/Mistral-Medium-3.5-128B-NVFP4"
+    nccl_transport: "roce"
+    # ~80 GB / TP=4 → ~20 GB/GPU. TP=4 valid: num_key_value_heads=8, 8 % 4 == 0
+    # → 2 KV heads/rank (clean GQA, no replication). PP not needed (fits easily).
+    tp_size: 4
+    # Native 262144 (config max_position_embeddings). Memory is NOT the constraint
+    # here, so this can likely go to the YaRN-extended ceiling later if needed.
+    context_length: 262144
+    # compressed-tensors NVFP4 → SGLang AUTO-DETECTS from config.json. Do NOT set
+    # `quantization: modelopt_fp4` (that's the ModelOpt packaging; this repo is
+    # llm-compressor / compressed-tensors). Intentionally NO quantization key.
+    # trust_remote_code: required so the repo can register the mistral3/ministral3
+    # types if the base transformers doesn't know them. Safe: inspect the repo's
+    # *.py (prepare_calibration_v3.py / quant_nvfp4_v3.py are quant scripts, not
+    # runtime hooks) before first boot if paranoid.
+    trust_remote_code: true
+    kv_cache_dtype: "fp8_e4m3"
+    # DENSE model — NO moe_runner_backend / num_experts / ep_size keys. The whole
+    # NVFP4-gated-MoE padding-crash matrix (see reference_nvfp4_gated_moe_padding)
+    # does NOT apply: there is no MoE FFN. fp4_gemm_backend still governs the dense
+    # FP4 linear GEMM.
+    # Conservative seed: fi-attn + fi_cutlass FP4 GEMM + CG on + piecewise off.
+    # Mirrors the dense mmangkad-qwen3.6-27b-nvfp4 first-contact shape.
+    attention_backend: "flashinfer"
+    fp4_gemm_backend: "flashinfer_cutlass"
+    disable_deep_gemm: true        # DeepGemm targets FP8/ue8m0 scales, not NVFP4
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    cuda_graph_max_bs: 8
+    pp_async_batch_depth: 0
+    jit_max_jobs: 4
+    # Plenty of headroom (~20 GB/GPU weights). 0.85 is safe; can push higher for
+    # even more KV if a sweep shows benefit. NOT the tight 0.75 the big MoEs need.
+    mem_fraction_static: "0.85"
+    # REASONING — Medium-3.5 IS a thinking model (tokenizer_config has [THINK]
+    # special tokens; chat_template exposes reasoning_effort 'none'|'high'). It is
+    # OFF by default (reasoning_effort defaults to 'none' → no thinking tokens) and
+    # toggled PER REQUEST, not via a launch flag: pass reasoning_effort="high"
+    # (OpenAI param) or chat_template_kwargs={"reasoning_effort":"high"}. SGLang's
+    # MistralDetector (key "mistral", tokens [THINK]/[/THINK], reasoning_default
+    # "mistral") splits those into reasoning_content when present — harmless when
+    # reasoning is off. tool_call_parser "mistral" handles Mistral's tool calls.
+    reasoning_parser: "mistral"
+    tool_call_parser: "mistral"
+    recommended_sampling:
+      # Mistral model card guidance: low temperature for production (non-thinking).
+      # Raise toward ~0.7 when reasoning_effort="high" (thinking traces need slack).
+      temperature: 0.15
+      top_p: 1.0
+    sampling_overrides: {}
+    # ── MTP / speculative decoding via the official EAGLE draft ──────────────────
+    # Draft: mistralai/Mistral-Medium-3.5-128B-EAGLE — n_layers 2, dim 12288,
+    # n_heads 96, n_kv_heads 8, head_dim 128, vocab 131072 (matches this target),
+    # weights FP8_e4m3 (~3 GB). It is an EAGLE (v1) head, NOT EAGLE3.
+    #
+    # FORMAT IS NOT A BLOCKER (verified 2026-06-20): the EAGLE repo is Mistral-
+    # native (consolidated.safetensors + params.json, no config.json), but SGLang
+    # 0.5.12 loads it — is_mistral_model("...eagle...mistral...")=True routes it
+    # through MistralConfigParser → dense GQA → MistralForCausalLMEagle, and the
+    # FP8 draft quant (params.json qformat_weight fp8_e4m3) is mapped to quant_method
+    # fp8. (Probed live in scitrera/dgx-spark-sglang:0.5.12.)
+    # >>> ONE OPEN RISK — speculative stays DISABLED, pre-staged, until measured <<<
+    #   CROSS-PRECISION DRIFT on SM121: an FP8 draft against an NVFP4 target risks
+    #   the same FP4→BF16 hidden-state distribution drift that made EAGLE3×NVFP4
+    #   degenerate (NaN logprobs, parallelism collapse) on this hardware — see the
+    #   empirical note in nvidia-qwen3-235b-a22b-nvfp4.yml. Plus the target here is
+    #   a multimodal Mistral3 wrapper — EAGLE-against-Mistral3 is itself untested.
+    # Flip speculative_enabled to true ONLY after a bench shows a positive accept-
+    # rate and no NaN-recovery storm. This is now a TEST, not a prerequisite hunt.
+    speculative_enabled: false
+    speculative_algo: "EAGLE"
+    speculative_draft_model_path: "mistralai/Mistral-Medium-3.5-128B-EAGLE"
+    # Draft ships FP8 (params.json quantization.qformat_weight fp8_e4m3); force the
+    # draft loader to honour that rather than inheriting the target's compressed-
+    # tensors NVFP4 path. "fp8" if the loader accepts it; "unquant" as a fallback
+    # if the FP8 draft loader errors (same escape hatch as the qwen3-235b draft).
+    speculative_draft_model_quantization: "fp8"
+    speculative_num_steps: 3
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 4

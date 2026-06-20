@@ -1,0 +1,102 @@
+---
+# Model profile: mistralai/Mistral-Large-3-675B-Instruct-2512-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# UNTESTED first-contact (written 2026-06-20) — pre-staged but SGLang-LOADABLE.
+# (Earlier draft called this "format-blocked" — WRONG, corrected after reading
+# the SGLang source + probing the live image; see >>> FORMAT <<< below.)
+#
+# mistralai/... vs RedHatAI/... — IDENTICAL CHECKPOINT. Verified 2026-06-20:
+# byte-for-byte same safetensors (matching sha256 across sampled shards), same
+# params.json, same 273-shard / ~403 GB layout. RedHatAI is a mirror with only a
+# longer README. This profile keys on the mistralai upstream; the bits are the
+# same either way, so there is nothing to choose between them at runtime.
+#
+# WHAT THIS CHECKPOINT IS (verified against HF params.json 2026-06-20) ─────────
+#   DeepSeek-V3-style MLA MoE, multimodal. params.json:
+#     dim 7168, n_layers 61, head_dim 192, n_heads 128, n_kv_heads 128.
+#     MLA: q_lora_rank 1536, kv_lora_rank 512, qk_nope 128 / qk_rope 64,
+#       v_head_dim 128 → compressed KV (small KV footprint, like DeepSeek).
+#     MoE: 128 routed experts, top-4 + 1 shared, first_k_dense_replace 3,
+#       expert_hidden_dim 4096.
+#     Context: max_position_embeddings 294912; YaRN factor 36 over 8192.
+#     Vision encoder: 2.5B (48 layers, hidden 1664) — BF16, NOT quantized.
+#   QUANT: compressed-tensors NVFP4 (nvfp4-pack-quantized, group_size 16,
+#     weights + input_activations FP4). IGNORE list excludes embeddings,
+#     re:.*attn.* (ALL attention incl. the MLA q/kv-lora projections),
+#     re:.*gate$, lm_head, and the WHOLE vision stack → ONLY the routed-expert
+#     FFN Linear ops are FP4. kv_cache_scheme null (KV BF16 in-checkpoint).
+#     NOTE: because attention is NOT quantized, the compressed-tensors fused-QKV
+#     matcher gap that kills the DSV4 NVFP4 repos (UPSTREAM_DSV4_BUGS §2) does
+#     NOT apply here — the gap is about quantized attn projections, absent here.
+#   ~403 GB safetensors (273 shards) → ~101 GB/GPU at TP=4. TIGHT: only ~15-20
+#   GB/GPU left (of 128) for KV + activations + CUDA graphs + the BF16 vision
+#   encoder. MLA keeps KV small, which is what makes it fit at all. Expect to
+#   start with a REDUCED context_length (NOT the 294912 native cap) and tune up.
+#
+# ── >>> FORMAT: MISTRAL-NATIVE (params.json) — SGLang HANDLES IT ──────────────
+#   Files: params.json + consolidated-*.safetensors + tekken.json, NO config.json.
+#   SGLang 0.5.12 has a dedicated Mistral-native code path (verified PRESENT in
+#   scitrera/dgx-spark-sglang:0.5.12 via a live probe pod, 2026-06-20):
+#     utils/hf_transformers/mistral_utils.py::is_mistral_model() matches the
+#     substring "mistral-large-3" → params.json is parsed by MistralConfigParser
+#     → because moe.num_shared_experts>0 AND llama_4_scaling is present (both true
+#     here), adapt_config_dict() sets architectures=[MistralLarge3ForCausalLM],
+#     model_type=deepseek_v3 (MLA), then the vision_encoder triggers the pixtral
+#     multimodal wrap. NO server flag needed — the dispatch is NAME-based.
+#   So this loads on the STOCK SGLang path. compressed-tensors NVFP4 survives the
+#   parse (params.json carries quantization_config, not a `quantization` key, so
+#   it's passed through and auto-detected) — leave `quantization` empty below.
+#
+#   vLLM is a SECOND path (model card's documented engine): the `mistral_format`
+#   key + VLLM_MISTRAL_FORMAT (vllm.yml / vllm_launch.sh) add --config-format
+#   mistral --load-format mistral --tokenizer-mode mistral. Use it as a fallback
+#   or for the :8001 lane; not required for SGLang.
+#
+#   The DOMINANT risk here is therefore MEMORY + first-contact arch validation,
+#   NOT format. ~101 GB/GPU at TP=4 leaves little headroom — see sizing above.
+_model_profile:
+  "mistralai/Mistral-Large-3-675B-Instruct-2512-NVFP4":
+    knowledge_cutoff: null  # not officially disclosed
+    release_date: "2025-12"  # "2512" tag → Dec 2025 Mistral Large 3 release
+    info_url: "https://huggingface.co/mistralai/Mistral-Large-3-675B-Instruct-2512-NVFP4"
+    nccl_transport: "roce"
+    # ~403 GB / TP=4 → ~101 GB/GPU. Cluster is fixed at 4 nodes → TP=4 (the only
+    # way to shard 403 GB under 128 GB/GPU). No weight headroom for a smaller TP.
+    tp_size: 4
+    # >>> MISTRAL-NATIVE FORMAT — see BLOCKER. Drives vLLM's --config-format mistral
+    # / --load-format mistral / --tokenizer-mode mistral trio (vllm_launch.sh).
+    # Inert on the SGLang path (which has no such flags) — SGLang stays blocked.
+    mistral_format: true
+    # START REDUCED, not the 294912 native cap — only ~15-20 GB/GPU free after
+    # weights for KV+activations+vision. Raise after a clean boot if memory allows.
+    context_length: 65536
+    # compressed-tensors NVFP4 — autodetected from the checkpoint metadata. On the
+    # vLLM path leave VLLM_QUANTIZATION empty (autodetect); do NOT force modelopt_fp4.
+    quantization: ""
+    trust_remote_code: true
+    kv_cache_dtype: "fp8_e4m3"
+    # mem_fraction TIGHT — this is the 675B's dominant risk, same story as the
+    # Nemotron-550B-Ultra. Start mid-band and tune; too low → KV pool negative.
+    mem_fraction_static: "0.85"
+    # 128 routed experts. On the vLLM path EP is the boolean --enable-expert-parallel
+    # (VLLM_ENABLE_EP); 128 % 4 == 0 so EP=TP=4 is valid. Seed EP off (TP-sharded
+    # experts) for first contact; flip on after a clean boot if MoE all-reduce
+    # dominates. (SGLang-style moe_runner_backend keys are inert on the vLLM path.)
+    num_experts: 128
+    ep_size: 1
+    # REASONING — Large-3 IS a thinking model (tokenizer_config has [THINK] special
+    # tokens). Like Medium-3.5 it's OFF by default and toggled PER REQUEST via
+    # reasoning_effort="high" (OpenAI param / chat_template_kwargs), NOT a launch
+    # flag. SGLang's MistralDetector (key "mistral", tokens [THINK]/[/THINK]) splits
+    # the thinking block into reasoning_content when present — harmless when off.
+    reasoning_parser: "mistral"
+    tool_call_parser: "mistral"
+    recommended_sampling:
+      # Model card: temperature < 0.1 for production (non-thinking). Raise toward
+      # ~0.7 when reasoning_effort="high".
+      temperature: 0.08
+      top_p: 1.0
+    sampling_overrides: {}
+    # No usable EAGLE/MTP draft for the 675B published; speculative off.
+    speculative_enabled: false

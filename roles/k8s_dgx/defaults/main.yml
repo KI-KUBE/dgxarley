@@ -528,6 +528,14 @@ vllm_reasoning_parser: "{{ sglang_model_profiles[vllm_model].reasoning_parser | 
 vllm_tool_call_parser: "{{ sglang_model_profiles[vllm_model].tool_call_parser | default('') }}"
 vllm_quantization: "{{ sglang_model_profiles[vllm_model].quantization | default('') }}"
 vllm_load_format: "{{ sglang_model_profiles[vllm_model].load_format | default('auto') }}"
+# Mistral-native checkpoints (params.json + consolidated safetensors + tekken,
+# NO config.json — e.g. mistralai/Mistral-Large-3-*-NVFP4). When true, vllm_launch.sh
+# adds --config-format mistral --load-format mistral --tokenizer-mode mistral so vLLM
+# loads the consolidated format directly. Inert (false) for all HF-format models.
+# NOTE: this is the vLLM path ONLY. SGLang 0.5.12 ALSO loads the same Mistral-native
+# checkpoints, automatically (name-triggered via is_mistral_model, no flag) — see the
+# FORMAT section in mistralai-mistral-large-3-*-nvfp4.yml. This key is the :8001 lane.
+vllm_mistral_format: "{{ sglang_model_profiles[vllm_model].mistral_format | default(false) }}"
 vllm_served_model_name: "{{ vllm_model }}"
 vllm_chat_template_kwargs: "{{ sglang_model_profiles[vllm_model].chat_template_kwargs | default({}) }}"
 
@@ -785,6 +793,8 @@ hf_cache_path: "/var/lib/hf-cache"
 hf_token: "hf_CHANGEME"
 # HuggingFace model pre-download Job
 hf_preload_models:
+  - "RecViking/Mistral-Medium-3.5-128B-NVFP4"
+  - "mistralai/Mistral-Medium-3.5-128B-EAGLE"
   - "nvidia/Qwen3.5-122B-A10B-NVFP4"
   - "nvidia/Gemma-4-31B-IT-NVFP4"
   - "nvidia/Gemma-4-26B-A4B-NVFP4"

@@ -134,8 +134,8 @@ fi
 # Mistral-native checkpoints (params.json + consolidated safetensors + tekken,
 # no config.json — e.g. mistralai/Mistral-Large-3-*-NVFP4). vLLM loads these via
 # the mistral config/load/tokenizer trio (the model card's documented path).
-# Overrides --load-format above (forces mistral). SGLang has no equivalent —
-# Mistral-native models are vLLM-only on this cluster.
+# Overrides --load-format above (forces mistral). NOTE: SGLang loads the same
+# checkpoints natively (name-triggered, no flag) — this is the vLLM lane only.
 if [ "$VLLM_MISTRAL_FORMAT" = "true" ]; then
   args+=(--config-format mistral --load-format mistral --tokenizer-mode mistral)
 fi

@@ -22,10 +22,18 @@
 #     --reasoning-parser qwen3 --enable-auto-tool-choice --tool-call-parser qwen3_coder
 # Card does NOT specify moe_runner_backend / attention_backend / EP.
 #
-# This is a SEED profile — config mirrors the validated 397B-NVFP4 winner shape
-# (flashinfer_cutlass MoE + triton attn + fi_cutlass FP4, EP=1) adapted to this
-# model's 256-expert / no-MTP arch. NOT yet matrix-validated on this cluster;
-# rewrite with the winning config + measured throughput once swept.
+# MATRIX-VALIDATED winner config (was a SEED mirroring the 397B-NVFP4 winner
+# shape; the seed turned out to BE the winner). 21-case sweep on 2026-06-20
+# (nv580.159 / sglang-0.5.12 / 4n TP=4 EP=1 RoCE) → this exact config (case 18:
+# flashinfer_cutlass MoE + triton attn + fi_cutlass FP4 + full-CG + MTP s3/d4)
+# is the overall winner at every concurrency. Peak (sum per-request tok/s):
+#   n=1 54.1 / n=4 137.0 / n=8 196.2 / n=16 270.4
+# vs best no-spec (fi_cutlass + fi-attn + piecewise): +56% / +16% / +8% / +0.5%.
+# Findings: fi_cutlass-MoE > triton (~+4% @ concurrency); attn backend (fi vs
+# triton) ≈ irrelevant; full-CG ≈ piecewise > eager; MTP s3/d4 is the sweet spot
+# (s1/d2 weaker, s5/d5 & s5/d7 regress past d4); flashinfer_trtllm MoE crashes at
+# boot on GB10 (sm100 GEMM kernel). Full results:
+# TESTLOGS/sglang_nn4_tp4_ep1/qwen-3.5-122b-a10b-nvfp4/TESTLOG_nv580.159_sglang-0.5.12_qwen3.5-122b-nvfp4_4n.md
 _model_profile:
   "nvidia/Qwen3.5-122B-A10B-NVFP4":
     knowledge_cutoff: "2025-10"  # no published cutoff found (HF card/tech report/aggregators checked 2026-06)
@@ -85,7 +93,9 @@ _model_profile:
     # way. Corroborated by unsloth/Qwen3.5-122B-A10B-MTP-GGUF + vLLM `method: mtp`.
     # Hybrid attention needs mamba_scheduler_strategy=extra_buffer + enable_spec_v2
     # (else "not compatible with radix cache" boot crash — see 397B profile).
-    # SEED: s3/d4 mirrors the 397B sweet spot; re-sweep num_steps/draft_tokens here.
+    # s3/d4 is the MATRIX-VALIDATED sweet spot (2026-06-20 sweep): beats s1/d2 and
+    # both deeper chains (s5/d5, s5/d7 regress — 5-step depth is the problem, not
+    # draft-token count). Do NOT raise num_steps past 3.
     speculative_enabled: true
     speculative_algo: NEXTN
     speculative_num_steps: 3
