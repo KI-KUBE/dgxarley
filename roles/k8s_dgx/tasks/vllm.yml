@@ -17,6 +17,7 @@
         VLLM_TOOL_CALL_PARSER: "{{ vllm_tool_call_parser }}"
         VLLM_QUANTIZATION: "{{ vllm_quantization }}"
         VLLM_LOAD_FORMAT: "{{ vllm_load_format }}"
+        VLLM_MISTRAL_FORMAT: "{{ vllm_mistral_format | string | lower }}"
         VLLM_MAX_NUM_SEQS: "{{ vllm_max_num_seqs | string }}"
         VLLM_DIST_TIMEOUT: "{{ vllm_dist_timeout | string }}"
         VLLM_SERVED_MODEL_NAME: "{{ vllm_served_model_name }}"
@@ -177,7 +178,7 @@
               k8s.v1.cni.cncf.io/networks: "{{ '[{\"name\":\"qsfp-vf' ~ qsfp_sriov_assignments.vllm.vf ~ '\",\"ips\":[\"' ~ _vllm_qsfp_ips[worker_rank] ~ '/24\"]}]' if qsfp_sriov_enabled | default(false) else 'qsfp-direct-worker' ~ worker_rank }}"
               kubectl.kubernetes.io/default-container: vllm
               checksum/launch-script: "{{ lookup('file', role_path ~ '/files/vllm_launch.sh') | hash('sha256') }}"
-              checksum/config: "{{ (vllm_model ~ vllm_context_length ~ vllm_kv_cache_dtype ~ vllm_mem_fraction ~ vllm_quantization ~ vllm_load_format ~ (vllm_enable_ep | string)) | hash('sha256') }}"
+              checksum/config: "{{ (vllm_model ~ vllm_context_length ~ vllm_kv_cache_dtype ~ vllm_mem_fraction ~ vllm_quantization ~ vllm_load_format ~ vllm_mistral_format ~ (vllm_enable_ep | string)) | hash('sha256') }}"
           spec:
             enableServiceLinks: false         # prevent K8s VLLM_PORT=tcp://... injection
             hostIPC: true                    # Shared Memory für NCCL
@@ -288,7 +289,7 @@
               k8s.v1.cni.cncf.io/networks: "{{ '[{\"name\":\"qsfp-vf' ~ qsfp_sriov_assignments.vllm.vf ~ '\",\"ips\":[\"' ~ qsfp_sriov_assignments.vllm.head_ip ~ '/24\"]}]' if qsfp_sriov_enabled | default(false) else 'qsfp-direct' }}"
               kubectl.kubernetes.io/default-container: vllm
               checksum/launch-script: "{{ lookup('file', role_path ~ '/files/vllm_launch.sh') | hash('sha256') }}"
-              checksum/config: "{{ (vllm_model ~ vllm_context_length ~ vllm_kv_cache_dtype ~ vllm_mem_fraction ~ vllm_quantization ~ vllm_load_format ~ (vllm_enable_ep | string)) | hash('sha256') }}"
+              checksum/config: "{{ (vllm_model ~ vllm_context_length ~ vllm_kv_cache_dtype ~ vllm_mem_fraction ~ vllm_quantization ~ vllm_load_format ~ vllm_mistral_format ~ (vllm_enable_ep | string)) | hash('sha256') }}"
           spec:
             serviceAccountName: sglang-head
             enableServiceLinks: false         # prevent K8s VLLM_PORT=tcp://... injection
