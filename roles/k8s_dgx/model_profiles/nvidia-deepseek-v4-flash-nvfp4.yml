@@ -123,11 +123,36 @@ _model_profile:
     #  - hc_prenorm (MHC) → TileLang (crashes at kernel_warmup otherwise)
     #  - paged_mqa_logits (DSA Lightning-Indexer) → torch (crashes at decode)
     opt_deepgemm_hc_prenorm: false
+    # ═══ PERFORMANCE FLOOR — this is the bottleneck on GB10 (validated 2026-06-20) ═══
+    # fp8_paged_mqa_logits is the DSA Lightning-Indexer's hot kernel, run on EVERY
+    # decode step across the 20 DSA layers (index_topk=512, 64 index heads). On GB10
+    # it has NO native kernel and falls back to pure PyTorch (per-step, Python-
+    # dispatched, OUTSIDE the CUDA graph) → it caps aggregate decode at ~18 tok/s
+    # regardless of concurrency (4 req or 12 req both ~18 tok/s; per-req drops as you
+    # add streams). Measured numbers (MTP on, marlin draft, image a29aea1):
+    #   n=1: ~13.5 tok/s, accept len ~1.8  (vs ~4.5-5 non-spec → ~2.7-3x from MTP+topk)
+    #   12 concurrent: ~18 tok/s aggregate, cuda graph True (no eager cliff @ bs<=32)
+    # WHY IT CAN'T BE FIXED HERE (don't re-investigate — see reference memory):
+    #   DeepGEMM hard-blocks sm121 on TWO independent walls — (1) _C.so arch allowlist
+    #   rejects sm121 (attention.hpp:219 "Unsupported architecture"); (2) the compute
+    #   kernel sm100_fp8_paged_mqa_logits.cuh uses SM100 tensor-core ops (SM100_MMA_
+    #   F8F6F4_SS, UMMA umma_arrive, TMEM loads) that DON'T EXIST on GB10. There is NO
+    #   sm120 impl anywhere (DeepGEMM #317/#236 open, no PR/fork; vllm #41063 tracks
+    #   the dual-GB10 gaps). The SMEM-budget fix (kMaxBatchSizeInSmem 32768→24576 in
+    #   paged_mqa_metadata.cuh, 96 KB < GB10's 99 KB opt-in) only unblocks the METADATA
+    #   scheduling kernel — moot, since SGLang auto-routes the compute to torch on
+    #   sm121. Real fix = write a from-scratch sm120 indexer kernel (nobody has).
+    # So DSV4-Flash is a GOOD fit for interactive/low-concurrency on GB10 (MTP shines)
+    # but a POOR throughput fit at scale until DeepGEMM ships sm120 kernels.
     fp8_paged_mqa_logits_torch: true
-    # C4-indexer top-k transform: TVM jit topk_transform_512_v2 dies on sm_121
-    # at decode (topk_v2.cuh:472 invalid argument; §6 wall 7, still unrouted on
-    # v0.5.13 per §8). Route to the torch fallback.
-    topk_transform_512_torch: true
+    # C4-indexer top-k transform: the OLD TVM topk_transform_512_v2 died on sm_121
+    # (topk_v2.cuh:472), which is why this was a torch fallback. RE-VALIDATED on
+    # GB10 2026-06-20 (live GPU test, image 0.5.13-sm121): the current JIT
+    # topk_v1.cuh kernel runs cleanly on sm121 and is BIT-IDENTICAL to the torch
+    # path → fallback dropped to recover decode perf. (Note: fp8_paged_mqa_logits
+    # above CANNOT be dropped — DeepGEMM hard-blocks sm121: _C.so allowlist is
+    # SM100/SM120 only, and the JIT metadata path needs 128 KB SMEM > GB10's 100 KB.)
+    topk_transform_512_torch: false
     disable_deep_gemm: true
     # CUDA graphs ON — deliberate flip vs the FP8 sibling (which runs eager):
     # eager mode is broken on any cutlass_moe_fp4 path on SM121 (kernel-crash
@@ -174,7 +199,7 @@ _model_profile:
     # with speculative_eagle_topk == 1 → must be EAGLE for DSV4. With no external
     # draft path, launch.sh self-drafts (--speculative-draft-model-path = the model),
     # i.e. EAGLE drives the model's own num_nextn_predict_layers MTP head.
-    speculative_enabled: false  # EAGLE-MTP enabled 2026-06-20 (non-spec validated; throughput play)
+    speculative_enabled: true  # EAGLE-MTP ON 2026-06-20 — needs the marlin draft-MoE image (digest a29aea1); first-contact, roll back to false if it crashes
     speculative_algo: EAGLE  # was NEXTN — deepseek_v4_hook asserts EAGLE-only for DSV4
     speculative_num_steps: 1
     speculative_eagle_topk: 1

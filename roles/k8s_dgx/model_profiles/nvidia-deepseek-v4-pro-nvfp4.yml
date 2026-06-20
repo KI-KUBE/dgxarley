@@ -70,8 +70,8 @@ _model_profile:
     fp4_gemm_backend: "flashinfer_cutlass"
     opt_fp8_wo_a_gemm: false
     opt_deepgemm_hc_prenorm: false
-    fp8_paged_mqa_logits_torch: true
-    topk_transform_512_torch: true
+    fp8_paged_mqa_logits_torch: true  # MANDATORY on sm121 — DeepGEMM hard-blocks GB10 (see Flash profile)
+    topk_transform_512_torch: false   # JIT topk_v1.cuh validated on GB10 2026-06-20 (bit-identical) — fallback dropped
     disable_deep_gemm: true
     disable_cuda_graph: false      # eager broken on cutlass_moe_fp4 (TURBOQUANT.md)
     disable_piecewise_cuda_graph: true
