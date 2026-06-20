@@ -159,10 +159,13 @@ _model_profile:
     # (mtp.* is excluded from quantization → draft head stays high-precision).
     # Per the SGLang cookbook V4-Flash MTP runs under the EAGLE framework with
     # env SGLANG_ENABLE_SPEC_V2=1; balanced preset = steps 1 / draft-tokens 2.
-    # Disabled for first-contact — but NOTE #25704: V4-Pro NVFP4 on B200
-    # produced NaN/garbage in NON-speculative decode and only EAGLE worked. If
-    # the n=1 baseline here emits garbage, enabling EAGLE-MTP is the first
-    # experiment, not a perf tweak.
+    # 2026-06-20: NON-spec boot VALIDATED on this cluster (head Ready, coherent
+    # output) once the #25820 patch IndentationError was fixed + image rebuilt.
+    # NOW ENABLING EAGLE-MTP (first-contact for the MTP path on SM121). NOTE
+    # #25704: V4-Pro NVFP4 on B200 produced NaN/garbage in NON-spec decode and
+    # only EAGLE worked — here non-spec is fine, so MTP is a throughput play, not
+    # a correctness fix. If MTP boot crashes / output degrades, roll back to
+    # speculative_enabled: false (non-spec is the known-good baseline).
     # spec_v2 is AUTO-MANAGED for DSV4 — do NOT set enable_spec_v2 by hand (verified
     # in-image 2026-06-20): environ.py defaults SGLANG_ENABLE_SPEC_V2=True, AND
     # deepseek_v4_hook.py force-enables it whenever a speculative_algorithm is set.
@@ -171,7 +174,7 @@ _model_profile:
     # with speculative_eagle_topk == 1 → must be EAGLE for DSV4. With no external
     # draft path, launch.sh self-drafts (--speculative-draft-model-path = the model),
     # i.e. EAGLE drives the model's own num_nextn_predict_layers MTP head.
-    speculative_enabled: false
+    speculative_enabled: true  # EAGLE-MTP enabled 2026-06-20 (non-spec validated; throughput play)
     speculative_algo: EAGLE  # was NEXTN — deepseek_v4_hook asserts EAGLE-only for DSV4
     speculative_num_steps: 1
     speculative_eagle_topk: 1

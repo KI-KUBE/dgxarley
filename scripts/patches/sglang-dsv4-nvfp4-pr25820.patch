@@ -284,9 +284,9 @@ index 20a6996..0365d2d 100755
 @@ -2274,6 +2327,7 @@ class ModelOptNvFp4FusedMoEMethod(FusedMoEMethodBase):
                  intermediate_size_per_partition=layer.intermediate_size_per_partition,
                  routing_method_type=routing_method_type,
-             )
 +                gemm1_clamp_limit=gemm1_clamp.data if gemm1_clamp is not None else None,
- 
+             )
+
              return self.runner.run(dispatch_output, quant_info)
  
 diff --git a/python/sglang/srt/model_loader/loader.py b/python/sglang/srt/model_loader/loader.py

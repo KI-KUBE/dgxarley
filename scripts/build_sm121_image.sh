@@ -137,8 +137,8 @@ BRANCH_NAME="sm121"
 # PR #24436 is merged into the release. The DSV4 NVFP4 patch (PR #25820) is
 # gated by the recipe variable APPLY_DSV4_NVFP4_PR25820=1 instead of a name
 # pattern — see apply_patches().
-#RECIPE_NAME="sglang-0.5.13-sm121"
-#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-sm121"
+RECIPE_NAME="sglang-0.5.13-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-sm121"
 
 #RECIPE_NAME="sglang-0.5.13-gemma4-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121"
@@ -148,8 +148,8 @@ BRANCH_NAME="sm121"
 # gemma4-NVFP4 patch. Serves ALL five Gemma-4 profiles (BF16 MTP, NVFP4,
 # diffusion) off one build. First-contact / main-ahead — see the recipe header
 # for the sgl-kernel-patch re-validation caveat. SCOPE: DIFFUSIONGEMMA_SGLANG_SCOPE.md.
-RECIPE_NAME="sglang-0.5.14-gemma4-diffusion-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"
+#RECIPE_NAME="sglang-0.5.14-gemma4-diffusion-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"
 
 # NemotronH MTP experiment: v0.5.13 + unmerged PR #27998 (MTP + radix cache).
 # Enables native speculative decoding for Nemotron-3-Super-120B-NVFP4 without
