@@ -105,6 +105,9 @@ sglang_speculative_algo: "{{ sglang_model_profiles[_sglang_active_model].specula
 sglang_speculative_num_steps: "{{ sglang_model_profiles[_sglang_active_model].speculative_num_steps | default(3) }}"
 sglang_speculative_eagle_topk: "{{ sglang_model_profiles[_sglang_active_model].speculative_eagle_topk | default(1) }}"
 sglang_speculative_num_draft_tokens: "{{ sglang_model_profiles[_sglang_active_model].speculative_num_draft_tokens | default(4) }}"
+# Draft/nextn MoE runner backend (e.g. DSV4 on SM121 needs "marlin" — its default
+# nextn path hardcodes an sm100 trtllm kernel). Empty → not passed (inherits target).
+sglang_speculative_moe_runner_backend: "{{ sglang_model_profiles[_sglang_active_model].speculative_moe_runner_backend | default('') }}"
 # Draft model path for EAGLE/EAGLE3. Empty = use model's own MTP heads (NEXTN).
 # For external draft models: set to the HF model ID (e.g. "togethercomputer/Aurora-Spec-Minimax-M2.5").
 sglang_speculative_draft_model_path: "{{ sglang_model_profiles[_sglang_active_model].speculative_draft_model_path | default('') }}"

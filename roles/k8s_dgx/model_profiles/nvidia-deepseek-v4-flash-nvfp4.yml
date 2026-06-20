@@ -65,7 +65,7 @@ _model_profile:
     info_url: "https://huggingface.co/nvidia/DeepSeek-V4-Flash-NVFP4"
     nccl_transport: "roce"
     tp_size: 4
-    ep_size: 1
+    ep_size: 4
     # 131072 conservative first-contact (model supports 1M via yarn). NVFP4
     # experts free ~31 GB/GPU vs the FP8 checkpoint, so KV headroom is large —
     # raise to 262144 / 524288 / 1048576 once the n=1 baseline confirms KV fits
@@ -137,7 +137,7 @@ _model_profile:
     # mode on every NVFP4 model).
     disable_cuda_graph: false
     disable_piecewise_cuda_graph: true
-    cuda_graph_max_bs: 8
+    cuda_graph_max_bs: 32
     jit_max_jobs: 1
     pp_async_batch_depth: 0
     num_experts: 256
@@ -174,11 +174,17 @@ _model_profile:
     # with speculative_eagle_topk == 1 → must be EAGLE for DSV4. With no external
     # draft path, launch.sh self-drafts (--speculative-draft-model-path = the model),
     # i.e. EAGLE drives the model's own num_nextn_predict_layers MTP head.
-    speculative_enabled: true  # EAGLE-MTP enabled 2026-06-20 (non-spec validated; throughput play)
+    speculative_enabled: false  # EAGLE-MTP enabled 2026-06-20 (non-spec validated; throughput play)
     speculative_algo: EAGLE  # was NEXTN — deepseek_v4_hook asserts EAGLE-only for DSV4
     speculative_num_steps: 1
     speculative_eagle_topk: 1
     speculative_num_draft_tokens: 2
+    # SM121 MTP fix: force the nextn DRAFT MoE onto marlin (SM80+) — the default
+    # nextn path hardcodes an sm100 trtllm kernel (Mxfp4FlashinferTrtllmMoEMethod)
+    # that crashes on GB10. Needs the modelopt_quant marlin-branch added to
+    # sglang-dsv4-nvfp4-pr25820.patch + an image rebuild. Inert while
+    # speculative_enabled: false.
+    speculative_moe_runner_backend: marlin
     # Build path exists since 2026-06-12: scripts/patches/sglang-0.5.13-sm121
     # .recipe = SGLang v0.5.13 (#26209 + #24692 included) + PR #25820 rebased
     # on top (sglang-dsv4-nvfp4-pr25820.patch, recipe gate

@@ -208,7 +208,7 @@ index 20a6996..0365d2d 100755
  from sglang.srt.layers.quantization.fp8_kernel import scaled_fp8_quant
  from sglang.srt.layers.quantization.fp8_utils import (
      apply_fp8_linear,
-@@ -1337,6 +1338,45 @@ class ModelOptFp4Config(ModelOptQuantConfig):
+@@ -1337,6 +1338,55 @@ class ModelOptFp4Config(ModelOptQuantConfig):
          )
  
  
@@ -239,6 +239,16 @@ index 20a6996..0365d2d 100755
 +            # Fall back to MXFP4 for MTP MoE layers
 +            if self.is_fp4_experts:
 +                from sglang.srt.layers.quantization.fp8 import Fp8MoEMethod
++
++                # SM121/GB10: the trtllm path below is an SM100-only kernel that
++                # crashes the MTP/nextn draft MoE. Route to marlin (SM80+) when
++                # selected via --speculative-moe-runner-backend marlin.
++                if get_moe_runner_backend().is_marlin():
++                    from sglang.srt.layers.quantization.mxfp4_marlin_moe import (
++                        Mxfp4MarlinMoEMethod,
++                    )
++
++                    return Mxfp4MarlinMoEMethod(Fp8MoEMethod(self), prefix=prefix)
 +                from sglang.srt.layers.quantization.mxfp4_flashinfer_trtllm_moe import (
 +                    Mxfp4FlashinferTrtllmMoEMethod,
 +                )

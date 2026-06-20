@@ -1193,6 +1193,12 @@ if [ "$SGLANG_SPECULATIVE_ENABLED" = "true" ]; then
   if [ -n "$SGLANG_SPECULATIVE_DRAFT_MODEL_QUANTIZATION" ]; then
     args+=(--speculative-draft-model-quantization "$SGLANG_SPECULATIVE_DRAFT_MODEL_QUANTIZATION")
   fi
+  # DSV4/SM121: the nextn draft MoE hardcodes an sm100 trtllm kernel that crashes
+  # on GB10. Force marlin (SM80+) via this arg — requires the modelopt_quant
+  # marlin-branch in sglang-dsv4-nvfp4-pr25820.patch (image rebuild).
+  if [ -n "$SGLANG_SPECULATIVE_MOE_RUNNER_BACKEND" ]; then
+    args+=(--speculative-moe-runner-backend "$SGLANG_SPECULATIVE_MOE_RUNNER_BACKEND")
+  fi
   # WORKAROUND (SGLang 0.5.9): sharded_state + speculative decoding crash.
   # The draft model's ModelRunner inherits load_format=sharded_state from
   # server_args. ShardedStateLoader then fails with KeyError because the
