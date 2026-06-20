@@ -78,7 +78,7 @@ _model_profile:
     # cutlass_moe_fp4 forward — gated behind the 5.11.0 image rebuild and fully untested.
     moe_runner_backend: "triton"
     kv_cache_dtype: "fp8_e4m3"
-    mem_fraction_static: "0.90"
+    mem_fraction_static: "0.70"
     attention_backend: "triton"  # forced anyway by SGLang's dLLM handler; also the only Gemma4 allowlist option
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4

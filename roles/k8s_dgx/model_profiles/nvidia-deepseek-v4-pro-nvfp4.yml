@@ -1,0 +1,102 @@
+---
+# Model profile: nvidia/DeepSeek-V4-Pro-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# STAGING / REFERENCE ONLY — DOES NOT FIT on this 4-Spark cluster. First-contact
+# scaffold written 2026-06-20 so the arch/kernel knobs are recorded; do NOT flip
+# sglang_model to this without first adding GB10 nodes. See CAPACITY BLOCKER.
+#
+# WHAT THIS CHECKPOINT IS (config.json + hf_quant_config verified 2026-06-20):
+#   NVIDIA's official ModelOpt repackage of deepseek-ai/DeepSeek-V4-Pro — the
+#   BIG sibling of DeepSeek-V4-Flash. Same mixed layout as the Flash-NVFP4 quant
+#   (see nvidia-deepseek-v4-flash-nvfp4.yml): quant_algo MIXED_PRECISION —
+#   NVFP4 (group 16) ONLY on layers.*.ffn.experts (all 61 layers listed), the
+#   non-expert base is block-FP8 (weight_block_size [128,128], scale_fmt ue8m0).
+#   exclude/ignore = *.attn.*, *.ffn.shared_experts.*, head, mtp.* .
+#   config.json expert_dtype="fp4", moe_quant_algo="NVFP4", quant_method="fp8".
+#   NOT compressed-tensors → the wqkv_a matcher gap (UPSTREAM_DSV4_BUGS.md §2)
+#   does not apply. Same family blocker as Flash: needs a merged SGLang #25820
+#   NVFP4-MoE path (see the Flash profile's BLOCKER section — identical).
+#
+# ── CAPACITY BLOCKER: too large for 4× GB10 ───────────────────────────────────
+#   1.6T total / 49B active. Flash-NVFP4 is ~168 GB on disk (284B) → ~42 GB/GPU
+#   at TP=4. Pro scales to an estimated ~900 GB checkpoint (NVFP4 experts ~0.55
+#   B/param + FP8 base) → ~225 GB/GPU at TP=4, ~2× a single GB10's ~120 GB
+#   usable unified memory. Weights alone do not fit even at TP=8 (~113 GB/GPU,
+#   zero KV headroom). Realistic minimum: 8–16 GB10s. This cluster has 4. So
+#   this profile is unrunnable here as-is — it exists for hf_preload staging and
+#   as the record of Pro's arch/kernel choices for a future larger cluster.
+#   (Card's reference serving is GB300-class: vllm/sglang TP across fat nodes.)
+#
+# Architecture (DeepseekV4ForCausalLM, model_type=deepseek_v4):
+#   61 layers, hidden=7168, MQA (num_attention_heads=128, num_key_value_heads=1,
+#   head_dim=512; DSA index/sparse attention, index_topk=1024), 384 routed
+#   experts + 1 shared, 6 active/token, moe_intermediate_size=3072,
+#   q_lora_rank=1536, o_lora_rank=1024, kv_lora_rank OMITTED (→ DeepseekV3Config
+#   default 512, same §1-safe situation as Flash-NVFP4), 1 MTP head,
+#   vocab=129280. max_position_embeddings=1M via yarn (factor 16 over 65536).
+#   topk_method=noaux_tc, scoring_func=sqrtsoftplus, rope_theta=10000.
+#   encoding_dsv4 tokenizer; reasoning modes Non-think / Think-High / Think-Max.
+#
+# KERNEL CHOICES: same SM121 walls as the Flash-NVFP4 profile (identical arch
+# family + base quant). Values below mirror nvidia-deepseek-v4-flash-nvfp4.yml —
+# read its inline notes for the full rationale (FlashMLA/DeepGEMM/TVM fallbacks,
+# flashinfer_cutlass NVFP4 MoE, CUDA-graphs-on-because-eager-cutlass-is-broken).
+# All UNVALIDATED — Pro has never booted anywhere near this cluster.
+_model_profile:
+  "nvidia/DeepSeek-V4-Pro-NVFP4":
+    knowledge_cutoff: "2025-05"  # DeepSeek-V4 base corpus; same family as Flash, not in official card. Medium confidence.
+    release_date: "2026-04-22"  # DeepSeek-V4-Pro base family; HF API era (Pro NVFP4 repackage later)
+    info_url: "https://huggingface.co/nvidia/DeepSeek-V4-Pro-NVFP4"
+    nccl_transport: "roce"
+    # tp_size pinned at the cluster max (4 GPUs). This is NOT enough for Pro
+    # (see CAPACITY BLOCKER) — kept so the profile is syntactically deployable
+    # for a smoke-attempt that WILL OOM at weight load; bump with the node count
+    # on a larger cluster.
+    tp_size: 4
+    ep_size: 1
+    context_length: 131072  # moot until it fits; 1M-capable via yarn
+    trust_remote_code: true
+    quantization: ""  # auto-detect — quant_method "fp8" carrying NVFP4 experts, same as Flash-NVFP4. Do NOT set modelopt_fp4 / compressed-tensors.
+    kv_cache_dtype: "fp8_e4m3"
+    load_format: "auto"
+    weight_loader_disable_mmap: false
+    weight_loader_drop_cache_after_load: true
+    mem_fraction_static: "0.85"
+    # Same kernel stack as nvidia-deepseek-v4-flash-nvfp4.yml (see its notes):
+    moe_runner_backend: "flashinfer_cutlass"
+    attention_backend: "flashinfer"
+    fp8_gemm_runner_backend: "cutlass"
+    fp4_gemm_backend: "flashinfer_cutlass"
+    opt_fp8_wo_a_gemm: false
+    opt_deepgemm_hc_prenorm: false
+    fp8_paged_mqa_logits_torch: true
+    topk_transform_512_torch: true
+    disable_deep_gemm: true
+    disable_cuda_graph: false      # eager broken on cutlass_moe_fp4 (TURBOQUANT.md)
+    disable_piecewise_cuda_graph: true
+    cuda_graph_max_bs: 8
+    jit_max_jobs: 1
+    pp_async_batch_depth: 0
+    num_experts: 384
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
+    # SGLang parser registry: reasoning "deepseek-v4", tool-call "deepseekv4".
+    reasoning_parser: "deepseek-v4"
+    tool_call_parser: "deepseekv4"
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 1.0
+    # MTP head present (mtp.* excluded from quant → high-precision draft). Same
+    # EAGLE/SGLANG_ENABLE_SPEC_V2 story as Flash. NOTE #25704: V4-Pro NVFP4 on
+    # B200 produced NaN/garbage in NON-speculative decode and only EAGLE worked
+    # — so if Pro ever runs, enabling EAGLE-MTP is a correctness fix, not a perf
+    # tweak. Off for first-contact.
+    speculative_enabled: false
+    speculative_algo: NEXTN
+    speculative_num_steps: 1
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 2
+    # Same image story as Flash-NVFP4: needs a v0.5.13+ sm121 image with a merged
+    # PR #25820 NVFP4-MoE path. The 0.5.12.post1-sm121 image cannot serve it.
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-sm121"
