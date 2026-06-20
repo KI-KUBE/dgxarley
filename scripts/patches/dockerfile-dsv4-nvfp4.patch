@@ -1,18 +1,26 @@
-DeepSeek-V4 NVFP4 (PR #25820) patch-application step for
-container-build/Dockerfile.sglang-nightly.
+DeepSeek-V4 NVFP4 (PR #25820) + TileLang 0.1.8 compat patch-application
+steps for container-build/Dockerfile.sglang-nightly.
 
-Adds one COPY+RUN step that applies sglang-dsv4-nvfp4-pr25820.patch
-(upstream PR #25820 rebased onto v0.5.13 — hybrid FP8+NVFP4 checkpoint
-support for nvidia/DeepSeek-V4-Flash-NVFP4) to the sglang Python source
-AFTER the SM121 sgl-kernel patches but BEFORE `uv pip install ./python`,
-so the installed package picks up the changes. Same pattern as
-dockerfile-gemma4-nvfp4.patch.
+Adds two COPY+RUN steps to the sglang Python source AFTER the SM121
+sgl-kernel patches but BEFORE `uv pip install ./python`, so the installed
+package picks up the changes. Same pattern as dockerfile-gemma4-nvfp4.patch.
+
+Step 1: applies sglang-dsv4-nvfp4-pr25820.patch (upstream PR #25820
+rebased onto v0.5.13 — hybrid FP8+NVFP4 checkpoint support for
+nvidia/DeepSeek-V4-Flash-NVFP4).
+
+Step 2: applies sglang-tilelang-018-indexer-compat.patch (TileLang 0.1.8
+compat fix for the DSA paged-MQA indexer kernel: promotes two 1D shared
+buffers to 2D for inject_permuted_layout compat, and adds .view(torch.uint8)
+before the kvcache view — required for the SGLANG_OPT_USE_TILELANG_INDEXER
+path to compile on TL 0.1.8 bundled in 0.5.13-sm121 images).
 
 Apply to: container-build/Dockerfile.sglang-nightly AFTER
 dockerfile-sm121.patch has been applied. Application is gated by
 build_sm121_image.sh on the recipe variable APPLY_DSV4_NVFP4_PR25820=1
 (set in sglang-0.5.13-sm121.recipe; remove the variable / set 0 once
-PR #25820 is merged into the pinned SGLANG_REF).
+PR #25820 is merged into the pinned SGLANG_REF, and TileLang 0.1.8 compat
+is upstream).
 
 NOTE: anchors on the same Dockerfile region as dockerfile-gemma4-nvfp4
 .patch (the end of the sm121-debug block). The two are not used together
@@ -21,7 +29,7 @@ and regenerate this patch's context.
 
 --- a/container-build/Dockerfile.sglang-nightly
 +++ b/container-build/Dockerfile.sglang-nightly
-@@ -290,6 +290,22 @@
+@@ -290,6 +290,35 @@
          echo "=== Skipping sgl-kernel-sm121-debug.patch (APPLY_SGL_KERNEL_SM121_DEBUG=${APPLY_SGL_KERNEL_SM121_DEBUG}) ==="; \
      fi
  
@@ -40,6 +48,19 @@ and regenerate this patch's context.
 +    patch -p1 < /tmp/sglang-dsv4-nvfp4-pr25820.patch && \
 +    grep -q 'HybridFp8NvFp4Config' python/sglang/srt/layers/quantization/modelopt_quant.py && \
 +    echo 'DSV4 NVFP4 PR #25820 patch applied successfully'
++
++# TileLang 0.1.8 compat fix for the DSA paged-MQA indexer kernel.
++# Promotes two 1D shared allocs to 2D (inject_permuted_layout compat) and
++# adds .view(torch.uint8) to the kvcache view. Required for the
++# SGLANG_OPT_USE_TILELANG_INDEXER path to compile on TL 0.1.8 (bundled
++# in 0.5.13-sm121 images). Validated on GB10/SM121 2026-06-20.
++COPY patches/sglang-tilelang-018-indexer-compat.patch /tmp/sglang-tilelang-018-indexer-compat.patch
++RUN set -e; cd /data/sglang && \
++    echo "=== Applying sglang-tilelang-018-indexer-compat.patch (TL 0.1.8 compat) ===" && \
++    patch --dry-run -p1 < /tmp/sglang-tilelang-018-indexer-compat.patch && \
++    patch -p1 < /tmp/sglang-tilelang-018-indexer-compat.patch && \
++    grep -q 'TL0.1.8 fix' python/sglang/srt/layers/attention/dsa/tilelang_kernel.py && \
++    echo 'TileLang 0.1.8 compat patch applied successfully'
 +
  # Install sglang package (no deps, no build isolation since base has torch).
  # Moved here from its original early-stage location so the installed

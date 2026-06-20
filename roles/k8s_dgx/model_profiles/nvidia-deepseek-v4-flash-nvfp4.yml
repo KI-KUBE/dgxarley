@@ -123,28 +123,24 @@ _model_profile:
     #  - hc_prenorm (MHC) → TileLang (crashes at kernel_warmup otherwise)
     #  - paged_mqa_logits (DSA Lightning-Indexer) → torch (crashes at decode)
     opt_deepgemm_hc_prenorm: false
-    # ═══ PERFORMANCE FLOOR — this is the bottleneck on GB10 (validated 2026-06-20) ═══
-    # fp8_paged_mqa_logits is the DSA Lightning-Indexer's hot kernel, run on EVERY
-    # decode step across the 20 DSA layers (index_topk=512, 64 index heads). On GB10
-    # it has NO native kernel and falls back to pure PyTorch (per-step, Python-
-    # dispatched, OUTSIDE the CUDA graph) → it caps aggregate decode at ~18 tok/s
-    # regardless of concurrency (4 req or 12 req both ~18 tok/s; per-req drops as you
-    # add streams). Measured numbers (MTP on, marlin draft, image a29aea1):
-    #   n=1: ~13.5 tok/s, accept len ~1.8  (vs ~4.5-5 non-spec → ~2.7-3x from MTP+topk)
-    #   12 concurrent: ~18 tok/s aggregate, cuda graph True (no eager cliff @ bs<=32)
-    # WHY IT CAN'T BE FIXED HERE (don't re-investigate — see reference memory):
-    #   DeepGEMM hard-blocks sm121 on TWO independent walls — (1) _C.so arch allowlist
-    #   rejects sm121 (attention.hpp:219 "Unsupported architecture"); (2) the compute
-    #   kernel sm100_fp8_paged_mqa_logits.cuh uses SM100 tensor-core ops (SM100_MMA_
-    #   F8F6F4_SS, UMMA umma_arrive, TMEM loads) that DON'T EXIST on GB10. There is NO
-    #   sm120 impl anywhere (DeepGEMM #317/#236 open, no PR/fork; vllm #41063 tracks
-    #   the dual-GB10 gaps). The SMEM-budget fix (kMaxBatchSizeInSmem 32768→24576 in
-    #   paged_mqa_metadata.cuh, 96 KB < GB10's 99 KB opt-in) only unblocks the METADATA
-    #   scheduling kernel — moot, since SGLang auto-routes the compute to torch on
-    #   sm121. Real fix = write a from-scratch sm120 indexer kernel (nobody has).
-    # So DSV4-Flash is a GOOD fit for interactive/low-concurrency on GB10 (MTP shines)
-    # but a POOR throughput fit at scale until DeepGEMM ships sm120 kernels.
-    fp8_paged_mqa_logits_torch: true
+    # ═══ DSA INDEXER — the GB10 decode bottleneck; TileLang path lifts it ═══
+    # fp8_paged_mqa_logits (DSA Lightning-Indexer hot kernel) runs EVERY decode step
+    # across the 20 DSA layers (index_topk=512, 64 index heads). DeepGEMM has NO sm121
+    # kernel (hard-blocked: _C.so arch allowlist + SM100 tensor-core ops absent on GB10;
+    # DeepGEMM #317/#236 open, no fork). The pure-torch fallback ran per-step OUTSIDE
+    # the cuda graph → capped aggregate decode at ~18 tok/s (4 or 12 req both ~18; per-
+    # req drops with concurrency). MTP-on-torch baseline: n=1 ~13.5 tok/s (accept ~1.8),
+    # 12-concurrent ~18 aggregate.
+    # FIX (kernel validated 2026-06-20, live GPU test): SGLang's TileLang indexer
+    # (opt_use_tilelang_indexer) runs on GB10 once the tilelang-0.1.8 compat patch is
+    # baked in (scripts/patches/sglang-tilelang-018-indexer-compat.patch) — bit-correct
+    # vs torch, CUDA-graph-capturable, 8-16x faster PER INDEXER STEP. End-to-end tok/s
+    # lift pending the rebuild+redeploy measurement. Dispatch (indexer.py) checks the
+    # TileLang branch BEFORE the torch branch, so fp8_paged_mqa_logits_torch stays true
+    # as a SAFE ROLLBACK: flip opt_use_tilelang_indexer false → torch floor, never the
+    # native-DeepGEMM crash (else) branch. Full background: reference memory.
+    opt_use_tilelang_indexer: true  # NEEDS the tilelang-0.1.8 indexer patch in the image
+    fp8_paged_mqa_logits_torch: true  # safe fallback (only reached if tilelang flag off)
     # C4-indexer top-k transform: the OLD TVM topk_transform_512_v2 died on sm_121
     # (topk_v2.cuh:472), which is why this was a torch fallback. RE-VALIDATED on
     # GB10 2026-06-20 (live GPU test, image 0.5.13-sm121): the current JIT

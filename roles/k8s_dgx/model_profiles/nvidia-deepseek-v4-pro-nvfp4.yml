@@ -70,7 +70,11 @@ _model_profile:
     fp4_gemm_backend: "flashinfer_cutlass"
     opt_fp8_wo_a_gemm: false
     opt_deepgemm_hc_prenorm: false
-    fp8_paged_mqa_logits_torch: true  # MANDATORY on sm121 — DeepGEMM hard-blocks GB10 (see Flash profile)
+    # DSA indexer: TileLang kernel (8-16x faster than torch, GB10-validated; needs the
+    # tilelang-0.1.8 indexer patch in the image). Dispatch checks TileLang before torch,
+    # so the torch flag stays true as a safe rollback. See Flash profile for the full note.
+    opt_use_tilelang_indexer: true    # NEEDS the tilelang-0.1.8 indexer patch in the image
+    fp8_paged_mqa_logits_torch: true  # safe fallback (only reached if tilelang flag off)
     topk_transform_512_torch: false   # JIT topk_v1.cuh validated on GB10 2026-06-20 (bit-identical) — fallback dropped
     disable_deep_gemm: true
     disable_cuda_graph: false      # eager broken on cutlass_moe_fp4 (TURBOQUANT.md)

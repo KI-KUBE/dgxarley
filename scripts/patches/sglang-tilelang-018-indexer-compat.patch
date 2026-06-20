@@ -1,0 +1,40 @@
+# TileLang 0.1.8 compat fix for SGLang's DSV4 DSA paged-MQA indexer kernel.
+#
+# Without this, `tilelang_fp8_paged_mqa_logits` (the SGLANG_OPT_USE_TILELANG_INDEXER
+# path) fails to COMPILE on TileLang 0.1.8 (bundled in 0.5.13-sm121): its
+# `inject_permuted_layout` LowerTileOp pass asserts shared buffers are >=2D, but
+# the kernel allocates two 1D shared buffers (k_smem_u8, k_s_smem_u8). TileLang
+# 0.1.6/0.1.7 was permissive. 0.1.8 also strict-typechecks kernel arg dtypes, so
+# the wrapper's view must stay uint8.
+#
+# Validated on GB10/SM121 (2026-06-20, live GPU test): compiles (4.2s JIT), runs,
+# bit-correct vs fp8_paged_mqa_logits_torch_sm120 (100% top-k agreement),
+# CUDA-graph-capturable, 8-16x faster than the torch fallback per indexer step.
+# This unblocks the TileLang indexer as the fix for the ~18 tok/s DSV4 decode
+# floor on GB10 (the native DeepGEMM kernel has no sm121 support).
+#
+# Apply with `patch -p1` in /data/sglang (before the sglang install), same as
+# sglang-dsv4-nvfp4-pr25820.patch.
+--- a/python/sglang/srt/layers/attention/dsa/tilelang_kernel.py
++++ b/python/sglang/srt/layers/attention/dsa/tilelang_kernel.py
+@@ -1459,10 +1459,10 @@
+             for j in T.Pipelined(n_iters, num_stages=2):
+                 i = i_start + j
+                 page = page_table[bx, i]
+-                k_smem_u8 = T.alloc_shared((B * D,), UINT8)
++                k_smem_u8 = T.alloc_shared((1, B * D), UINT8)  # TL0.1.8 fix: 2D (was 1D) for inject_permuted_layout compat
+                 T.copy(kvcache_u8[page, 0:SCALE_OFFSET], k_smem_u8)
+                 k_smem = T.view(k_smem_u8, (B, D), FP8)
+-                k_s_smem_u8 = T.alloc_shared((B * 4,), UINT8)
++                k_s_smem_u8 = T.alloc_shared((1, B * 4), UINT8)  # TL0.1.8 fix: 2D (was 1D)
+                 T.copy(kvcache_u8[page, SCALE_OFFSET:BLOCK_BYTES], k_s_smem_u8)
+                 k_s_smem = T.view(k_s_smem_u8, (B,), FP32)
+                 k_s_frag = T.alloc_fragment((B,), FP32)
+@@ -1526,7 +1526,7 @@
+         split_kv=split_kv,
+     )
+     q_fp8 = q_fp8.view(batch_size, num_heads, head_dim)
+-    kvcache_u8 = kvcache_fp8.view(-1, block_size * (head_dim + 4))
++    kvcache_u8 = kvcache_fp8.view(torch.uint8).view(-1, block_size * (head_dim + 4))  # TL0.1.8: must be uint8
+     kernel(q_fp8, kvcache_u8, weight, seq_lens, page_table, logits)
+     return logits

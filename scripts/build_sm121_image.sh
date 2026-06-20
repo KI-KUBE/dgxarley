@@ -485,13 +485,16 @@ preflight() {
             sglang-gemma4-geglu-nan-clamp.patch
         )
     fi
-    # DSV4 NVFP4 patches (PR #25820) are only required when the recipe opts in
-    # via APPLY_DSV4_NVFP4_PR25820=1. See apply_patches() for the matching gate.
+    # DSV4 NVFP4 patches (PR #25820) + TileLang 0.1.8 compat are only required
+    # when the recipe opts in via APPLY_DSV4_NVFP4_PR25820=1. See apply_patches()
+    # for the matching gate. The TileLang patch is folded into this gate because
+    # dockerfile-dsv4-nvfp4.patch now adds both COPY+RUN steps.
     if [[ -f "${PATCHES_DIR}/${RECIPE_NAME}.recipe" ]] \
         && grep -qE '^APPLY_DSV4_NVFP4_PR25820=1' "${PATCHES_DIR}/${RECIPE_NAME}.recipe"; then
         required_files+=(
             dockerfile-dsv4-nvfp4.patch
             sglang-dsv4-nvfp4-pr25820.patch
+            sglang-tilelang-018-indexer-compat.patch
         )
     fi
     # DiffusionGemma patches (PR #28054) — only when the recipe opts in via
@@ -851,10 +854,15 @@ apply_patches() {
     local gemma4_source_patches=(
         sglang-gemma4-geglu-nan-clamp.patch
     )
-    # DSV4 NVFP4 source patch (PR #25820 rebased onto v0.5.13) — copied only
-    # when the recipe opts in, same rationale as the gemma4 patches.
+    # DSV4 NVFP4 source patch (PR #25820 rebased onto v0.5.13) + TileLang 0.1.8
+    # compat fix — both copied only when the recipe opts in via
+    # APPLY_DSV4_NVFP4_PR25820=1, same rationale as the gemma4 patches.
+    # The TileLang patch is folded into the same gate because it is only
+    # needed for DSV4-Flash (tilelang_kernel.py is the DSA indexer path), and
+    # dockerfile-dsv4-nvfp4.patch now adds both COPY+RUN steps.
     local dsv4_nvfp4_source_patches=(
         sglang-dsv4-nvfp4-pr25820.patch
+        sglang-tilelang-018-indexer-compat.patch
     )
     # DiffusionGemma source patch (PR #28054) — copied only when the recipe
     # opts in, same rationale as the dsv4/gemma4 patches.
@@ -1141,6 +1149,7 @@ run_build() {
     echo "  source patches (in apply_patches stage on x86):"
     echo "    gemma4-mtp PR24436 = (handled in apply_patches() — version-gated, see log above)"
     echo "    dsv4-nvfp4 PR25820 = (handled in apply_patches() — recipe-gated via APPLY_DSV4_NVFP4_PR25820, see log above)"
+    echo "    tilelang-018-compat= (handled in apply_patches() — folded into APPLY_DSV4_NVFP4_PR25820 gate, see log above)"
 
     # The build context is container-build/ (contains Dockerfile + patches/
     # subdir). Podman streams it to the remote build host over the socket;

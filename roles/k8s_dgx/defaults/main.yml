@@ -228,6 +228,11 @@ sglang_opt_fp8_wo_a_gemm: "{{ sglang_model_profiles[_sglang_active_model].opt_fp
 sglang_opt_deepgemm_hc_prenorm: "{{ sglang_model_profiles[_sglang_active_model].opt_deepgemm_hc_prenorm | default(true) }}"
 sglang_fp8_paged_mqa_logits_torch: "{{ sglang_model_profiles[_sglang_active_model].fp8_paged_mqa_logits_torch | default(false) }}"
 sglang_topk_transform_512_torch: "{{ sglang_model_profiles[_sglang_active_model].topk_transform_512_torch | default(false) }}"
+# DSV4 DSA Lightning-Indexer via the TileLang kernel instead of the per-step torch
+# fallback. SM121-compatible after the tilelang-0.1.8 indexer compat patch is baked
+# into the image; 8-16x faster + CUDA-graph-capturable. Dispatch (indexer.py) checks
+# this BEFORE the torch flag, so keep fp8_paged_mqa_logits_torch true as a safe rollback.
+sglang_opt_use_tilelang_indexer: "{{ sglang_model_profiles[_sglang_active_model].opt_use_tilelang_indexer | default(false) }}"
 # FP4 GEMM backend: "auto" (default), "flashinfer_cudnn", "cutlass".
 # Controls the GEMM kernel for W4A4 (FP4) quantized models. Not relevant for
 # AWQ (W4A16) or FP8 models — those use FP16/FP8 GEMM paths respectively.
