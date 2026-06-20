@@ -70,7 +70,7 @@ _model_profile:
     # experts free ~31 GB/GPU vs the FP8 checkpoint, so KV headroom is large —
     # raise to 262144 / 524288 / 1048576 once the n=1 baseline confirms KV fits
     # at the chosen mem_fraction_static.
-    context_length: 131072
+    context_length: 262144
     # quantization: UNSET — auto-detect, like zai-org/GLM-4.7-FP8 and the
     # sgl-project FP8 profile. config.json quantization_config.quant_method is
     # "fp8" (the NVFP4 experts ride on moe_quant_algo/quantized_layers inside
@@ -93,7 +93,7 @@ _model_profile:
     # real reserve for CUDA-graph capture — which, unlike the FP8 profile, is
     # ON here (see disable_cuda_graph below). Back off toward 0.80 if capture
     # OOMs; raise once the boot log shows the actual KV/free split.
-    mem_fraction_static: "0.85"
+    mem_fraction_static: "0.80"
     # Kernel choices — UNVALIDATED until #25820 lands; derived from (a) the
     # validated FP8-Flash deployment (identical arch/base quant) and (b) our
     # NVFP4 experience on other models:
@@ -163,8 +163,16 @@ _model_profile:
     # produced NaN/garbage in NON-speculative decode and only EAGLE worked. If
     # the n=1 baseline here emits garbage, enabling EAGLE-MTP is the first
     # experiment, not a perf tweak.
+    # spec_v2 is AUTO-MANAGED for DSV4 — do NOT set enable_spec_v2 by hand (verified
+    # in-image 2026-06-20): environ.py defaults SGLANG_ENABLE_SPEC_V2=True, AND
+    # deepseek_v4_hook.py force-enables it whenever a speculative_algorithm is set.
+    # So the ONLY knob to turn MTP on is speculative_enabled; spec_v2 follows.
+    # ⚠️ The same hook asserts speculative_algorithm == "EAGLE" (NEXTN is REJECTED)
+    # with speculative_eagle_topk == 1 → must be EAGLE for DSV4. With no external
+    # draft path, launch.sh self-drafts (--speculative-draft-model-path = the model),
+    # i.e. EAGLE drives the model's own num_nextn_predict_layers MTP head.
     speculative_enabled: false
-    speculative_algo: NEXTN
+    speculative_algo: EAGLE  # was NEXTN — deepseek_v4_hook asserts EAGLE-only for DSV4
     speculative_num_steps: 1
     speculative_eagle_topk: 1
     speculative_num_draft_tokens: 2

@@ -92,8 +92,12 @@ _model_profile:
     # B200 produced NaN/garbage in NON-speculative decode and only EAGLE worked
     # — so if Pro ever runs, enabling EAGLE-MTP is a correctness fix, not a perf
     # tweak. Off for first-contact.
+    # spec_v2 is AUTO-MANAGED for DSV4 — do NOT set enable_spec_v2 by hand (see
+    # Flash-NVFP4 profile): env default True + deepseek_v4_hook force-enables it when
+    # a speculative_algorithm is set. Only speculative_enabled turns MTP on.
+    # ⚠️ Hook asserts speculative_algorithm == "EAGLE" (NEXTN REJECTED), eagle_topk 1.
     speculative_enabled: false
-    speculative_algo: NEXTN
+    speculative_algo: EAGLE  # was NEXTN — deepseek_v4_hook asserts EAGLE-only for DSV4
     speculative_num_steps: 1
     speculative_eagle_topk: 1
     speculative_num_draft_tokens: 2

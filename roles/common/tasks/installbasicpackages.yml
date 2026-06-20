@@ -131,7 +131,7 @@
       - openssh-server
       - openssh-client
       - edid-decode
-
+      - ncdu
     state: present
     update_cache: true
   tags:
