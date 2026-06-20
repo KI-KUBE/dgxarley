@@ -49,6 +49,7 @@
 _model_profile:
   "nvidia/diffusiongemma-26B-A4B-it-NVFP4":
     knowledge_cutoff: "2025-01"  # official HF/Google card (Gemma 4 corpus); month precision
+    release_date: "2026-06-10"  # google/diffusiongemma-26B-A4B-it base; Google DeepMind release
     info_url: "https://huggingface.co/nvidia/diffusiongemma-26B-A4B-it-NVFP4"
     # NVFP4 quant of google/diffusiongemma-26B-A4B-it. Discrete-diffusion Gemma 4.
     # Multimodal (text+image, video as frame sequences). 25.2B total / ~3.8B active MoE.
@@ -66,12 +67,16 @@ _model_profile:
     context_length: 262144
     quantization: "modelopt_fp4"
     trust_remote_code: true
-    # 2026-06-20: was "cutlass" — the standalone CUTLASS MoE runner is removed in
-    # this image's SGLang base (0.5.14, same as 0.5.12): boot crashes with
-    # `NotImplementedError: Unsupported runner backend: MoeRunnerBackend.CUTLASS`
-    # at create_moe_runner (modelopt_quant.py). Use flashinfer_cutlass, matching
-    # the sibling nvidia-gemma-4-26b-a4b-nvfp4 / 397B-NVFP4 winner.
-    moe_runner_backend: "flashinfer_cutlass"
+    # 2026-06-20: was "cutlass" (runner removed from the 0.5.14 base →
+    # `NotImplementedError: Unsupported runner backend: MoeRunnerBackend.CUTLASS`),
+    # then briefly "flashinfer_cutlass" — but that path pads the w2 blockscale when
+    # K' isn't a multiple of 4 and the pad branch asserts `not is_gated`. Same shape
+    # as the sibling nvidia-gemma-4-26b-a4b-nvfp4: moe_intermediate_size=704 / TP4 /
+    # group_size 16 = K'=11 (not ×4), GeGLU (gated) → crash at
+    # process_weights_after_loading (modelopt_quant.py). triton is the non-swizzled
+    # NVFP4 MoE path (no ×4 constraint, handles gated) — same fallback as
+    # nvidia-minimax-m2.5-nvfp4.
+    moe_runner_backend: "triton"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.90"
     attention_backend: "triton"  # forced anyway by SGLang's dLLM handler; also the only Gemma4 allowlist option

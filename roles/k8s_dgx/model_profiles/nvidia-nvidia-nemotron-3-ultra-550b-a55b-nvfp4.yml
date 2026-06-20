@@ -38,6 +38,7 @@
 _model_profile:
   "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4":
     knowledge_cutoff: "2026-05"  # post-training cutoff (HF card); pre-training 2025-09 — use latest for LCB contamination
+    release_date: "2026-06-04"  # official NVIDIA release at Computex 2026
     info_url: "https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
     # 550B total / 55B active LatentMoE — Mamba2 + MoE + select-attention HYBRID
     # (NemotronHForCausalLM, model_type=nemotron_h). config.json: 108 layers

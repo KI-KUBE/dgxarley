@@ -22,7 +22,8 @@
 # sweep finishes (matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-27b-nvfp4/).
 _model_profile:
   "mmangkad/Qwen3.6-27B-NVFP4":
-    knowledge_cutoff: null  # no published cutoff found (HF card/tech report/aggregators checked 2026-06)
+    knowledge_cutoff: null  # not officially disclosed; community (Reddit r/Qwen_AI) claims ~mid-2024, unconfirmed
+    release_date: "2026-04-22"  # Qwen3.6-27B base; official QwenLM GitHub changelog
     info_url: "https://huggingface.co/mmangkad/Qwen3.6-27B-NVFP4"
     # 27B dense (hybrid Gated DeltaNet + Gated Attention), NVFP4 weights+activations
     # (only linear ops in transformer blocks are quantized per the model card).

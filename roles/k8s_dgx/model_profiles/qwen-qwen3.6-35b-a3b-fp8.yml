@@ -3,7 +3,8 @@
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 _model_profile:
   "Qwen/Qwen3.6-35B-A3B-FP8":
-    knowledge_cutoff: null  # no published cutoff found (HF card/tech report/aggregators checked 2026-06)
+    knowledge_cutoff: null  # not officially disclosed; community (Reddit r/Qwen_AI) claims ~mid-2024, unconfirmed
+    release_date: "2026-04-16"  # Qwen3.6-35B-A3B base; official QwenLM GitHub changelog
     info_url: "https://huggingface.co/Qwen/Qwen3.6-35B-A3B-FP8"
     # 35B/3B MoE (Gated DeltaNet hybrid), fine-grained FP8 (block 128).
     # 256 experts, 8 routed + 1 shared activated per token. Native context 262K

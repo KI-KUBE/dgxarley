@@ -37,7 +37,8 @@
 #   for this arch; re-confirm on the first matrix run.
 _model_profile:
   "RedHatAI/Qwen3-Coder-Next-NVFP4":
-    knowledge_cutoff: null  # no published cutoff found (HF card/tech report/aggregators checked 2026-06)
+    knowledge_cutoff: null  # not disclosed; built on Qwen3-Next-80B-A3B-Base (~2025-09), inherited cutoff unconfirmed
+    release_date: "2026-02-03"  # Qwen3-Coder-Next base; HF upload (NIM 2026-02-18)
     info_url: "https://huggingface.co/RedHatAI/Qwen3-Coder-Next-NVFP4"
     nccl_transport: "roce"
     context_length_max: 262144

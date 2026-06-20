@@ -2,7 +2,8 @@
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 _model_profile:
   "Qwen/Qwen3.5-35B-A3B-FP8":
-    knowledge_cutoff: null  # no published cutoff found (HF card/tech report/aggregators checked 2026-06)
+    knowledge_cutoff: null  # not officially disclosed (HF card/tech report silent)
+    release_date: "2026-02-24"  # Qwen3.5-35B-A3B base; official QwenLM GitHub changelog
     info_url: "https://huggingface.co/Qwen/Qwen3.5-35B-A3B-FP8"
     context_length: 262144
     kv_cache_dtype: "fp8_e4m3"

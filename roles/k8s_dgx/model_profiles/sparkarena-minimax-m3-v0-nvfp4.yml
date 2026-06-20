@@ -88,7 +88,8 @@
 #    top throughput. See those keys' notes + TESTLOG_…_minimax-m3-v0-nvfp4_4n.md.
 _model_profile:
   "sparkarena/Minimax-M3-v0-NVFP4":
-    knowledge_cutoff: null  # no published cutoff found (HF card/tech report/aggregators checked 2026-06)
+    knowledge_cutoff: null  # not disclosed (HF card/blog/arXiv 2606.13392 silent)
+    release_date: "2026-06-01"  # MiniMax-M3 base; official MiniMax blog (HF weights ~2026-06-07)
     info_url: "https://huggingface.co/sparkarena/Minimax-M3-v0-NVFP4"
     # Per-profile image override (STATUS §1): the sparkarena card's designated
     # serving image for minimax_m3_vl on DGX Spark. Our xomoxcc 0.5.12/0.5.13

@@ -4,6 +4,7 @@
 _model_profile:
   "google/gemma-4-31B-it":
     knowledge_cutoff: "2025-01"  # official HF/Google model card (Gemma 4 corpus); month precision
+    release_date: "2026-04-02"  # Gemma 4 family launch; official Google blog + HF cards
     info_url: "https://huggingface.co/google/gemma-4-31B-it"
     # ALTERNATIVE: https://huggingface.co/nvidia/Gemma-4-31B-IT-NVFP4
     # 30.7B dense, multimodal-capable (Gemma4ForConditionalGeneration ships

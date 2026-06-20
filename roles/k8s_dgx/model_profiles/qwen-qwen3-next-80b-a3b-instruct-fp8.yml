@@ -3,6 +3,7 @@
 _model_profile:
   "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8":
     knowledge_cutoff: "2025-09"  # source: OpenRouter metadata (unofficial, not in model card) — https://openrouter.ai/qwen/qwen3-next-80b-a3b-instruct
+    release_date: "2025-09-10"  # Qwen3-Next-80B-A3B base; official Qwen blog
     info_url: "https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
     context_length_max: 262144
     context_length: 262144
