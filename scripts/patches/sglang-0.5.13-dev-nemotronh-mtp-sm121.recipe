@@ -56,8 +56,10 @@ BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
 # FLASHINFER_VERSION=0.6.12
 FLASHINFER_VERSION=0.6.13rc2
 
-# transformers 5.8.0 weiter pinning für Gemma-4-assistant-Drafter — unverändert.
-TRANSFORMERS_VERSION=5.8.0
+# transformers 5.8.1 pinning — exakt SGLang v0.5.13s pyproject-Pin (==5.8.1).
+# NICHT isoliert über die SGLang-Ref hinaus bumpen (5.11/5.12 = ungetestet,
+# kein Perf-Nutzen — transformers ist nicht im Inferenz-Hot-Path).
+TRANSFORMERS_VERSION=5.8.1
 
 # `kernels` <0.13 pin — transformers-5.x hub_kernels.py inkompatibel mit
 # kernels>=0.13. Unverändert zum 0.5.13-sm121-Recipe.
