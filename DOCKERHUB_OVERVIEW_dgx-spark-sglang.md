@@ -47,18 +47,27 @@ kernels for.
   (`SGLANG_OPT_FP8_WO_A_GEMM=0`), `mem_fraction_static`, node swap for the load
   peak — in
   [`UPSTREAM_DSV4_BUGS.md`](https://github.com/vroomfondel/dgxarley/blob/main/UPSTREAM_DSV4_BUGS.md).
-- **flashinfer pinned to `0.6.12`** (the upstream pin of v0.5.13). Note: the
-  `head_dim=512` dispatch for **Gemma-4 global attention** with
-  `attention_backend=flashinfer` is still missing in 0.6.12
-  (upstream [PR #3576](https://github.com/flashinfer-ai/flashinfer/pull/3576)
-  not yet released) — the Gemma-4 profiles work around it with
-  `attention_backend=triton`
-- **transformers pinned to `5.8.0`** (released 2026-05-05) — required for
-  the Gemma-4 `*-assistant` drafter checkpoints used by NEXTN/MTP
-  speculative decoding (`google/gemma-4-{26B-A4B,31B}-it-assistant`).
+- **flashinfer bumped to `0.6.13rc2`** (over the v0.5.13 upstream pin of
+  `0.6.12`). `0.6.13rc2` (tagged 2026-06-17) lands flashinfer
+  [PR #3576](https://github.com/flashinfer-ai/flashinfer/pull/3576)
+  (`head_dim=512` dispatch for SM120/121) plus NVFP4 quant-kernel
+  improvements. **Caveat for Gemma-4:** SGLang's own attention-backend
+  allowlist hard-rejects `flashinfer` for the Gemma-4 architecture (only
+  `trtllm_mha | triton | intel_xpu` are accepted), so PR #3576 turns out to
+  be moot for Gemma *attention* — the Gemma-4 profiles still set
+  `attention_backend=triton` (no longer a flashinfer-version limitation but a
+  SGLang allowlist constraint). The 0.6.13rc2 bump still pays off on the
+  NVFP4 MoE quant path. Roll back to the upstream pin with
+  `FLASHINFER_VERSION=0.6.12`.
+- **transformers pinned to `5.8.1`** (exactly SGLang v0.5.13's pyproject
+  pin) — required for the Gemma-4 `*-assistant` drafter checkpoints used by
+  NEXTN/MTP speculative decoding (`google/gemma-4-{26B-A4B,31B}-it-assistant`).
   Earlier transformers releases don't know the drafter's config subclass
   and the SGLang head exits with `Unrecognized configuration class` during
-  drafter weight-loading.
+  drafter weight-loading. **Exception:** the `0.5.14-gemmadiffusion-sm121`
+  image pins `5.11.0` instead — `diffusion_gemma` is an unregistered
+  `model_type` before then (AutoConfig `KeyError`), and 5.11.0 is the
+  version DiffusionGemma's upstream PR #28054 pins.
 - **Gemma-4 MTP (Frozen-KV) speculative-decoding patch** — the
   `0.5.11-gemma4-sm121` tag carries a cherry-pick of upstream
   [PR #24436](https://github.com/sgl-project/sglang/pull/24436)
@@ -77,6 +86,31 @@ kernels for.
   tok/s), drafter acceptance rate median ~0.68, 5/5 requests stopped on
   natural EOS. The 26B-A4B MoE sibling's MTP sweep is still in progress
   ([TESTLOG](https://github.com/vroomfondel/dgxarley/blob/main/TESTLOGS/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it/TESTLOG_nv580.142_sglang-0.5.11_gemma-4-26b-a4b-it_4n.md)).
+- **NemotronH MTP + radix cache (experimental)** — the
+  `0.5.13-dev-nemotronh-mtp-sm121` tag carries upstream
+  [PR #27998](https://github.com/sgl-project/sglang/pull/27998) (unmerged),
+  which enables native MTP speculative decoding for
+  `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4` **without**
+  `--disable-radix-cache`. It differs from the production `0.5.13-sm121` tag
+  by exactly this one Python-only source patch so the MTP behaviour can be
+  A/B'd against production. **First-contact / unvalidated** — validate
+  `accept_len > 1` and no NaN logits (an NVFP4-MTP risk,
+  [#27828](https://github.com/sgl-project/sglang/issues/27828)) on first boot.
+- **DiffusionGemma dLLM (experimental, main-ahead)** — the
+  `0.5.14-gemmadiffusion-sm121` tag is **the unified Gemma-4 image**: one
+  build that serves all five Gemma-4 profiles — BF16 + FROZEN_KV_MTP,
+  NVFP4, and the diffusion-LLM `nvidia/diffusiongemma-26B-A4B-it-NVFP4`. It
+  is pinned forward to SGLang `main @ 3a1417a` (post-v0.5.13, 2026-06-12)
+  rather than the v0.5.13 tag because (1)
+  [PR #28081](https://github.com/sgl-project/sglang/pull/28081) fixes a
+  short-lived broken `FrozenKVMTPCudaGraphRunner` that crashes Gemma-4 BF16
+  MTP at boot on the v0.5.13 tag, and (2) the DiffusionGemma bake
+  ([PR #28054](https://github.com/sgl-project/sglang/pull/28054), unmerged)
+  applies far more cleanly main-vs-main. Carries the Gemma-4 GeGLU/FP4
+  NaN-clamp source patch ([PR #22928](https://github.com/sgl-project/sglang/pull/22928))
+  and uses the `-mainahead` sgl-kernel patch variants (one day of main drift
+  shifted the mscclpp link lines). **First-contact / main-ahead, not a
+  tagged release.**
 - Built on a CUDA 13.2 + PyTorch 2.12 + NCCL 2.30.4 base for the GB10 codegen
   path (CUDA 13.1 / PyTorch 2.10 fallback is ~45 % slower end-to-end). **Known
   issue:** NCCL 2.30.4 has an NVLS-path regression that can silently hang
@@ -89,7 +123,10 @@ kernels for.
 
 | Tag                                 | Notes                                                                       |
 |-------------------------------------|------------------------------------------------------------------------------|
-| `0.5.13-sm121`                      | SGLang v0.5.13 + SM121 patches + DeepSeek-V4 NVFP4 MoE (PR #25820); native SM120/121 FlashMLA (PR #24692), no vendored kernel (current) |
+| `0.5.13-sm121`                      | SGLang v0.5.13 + SM121 patches + DeepSeek-V4 NVFP4 MoE (PR #25820); native SM120/121 FlashMLA (PR #24692), no vendored kernel; flashinfer 0.6.13rc2 (current) |
+| `0.5.14-gemmadiffusion-sm121`       | **Unified Gemma-4 image** — main-ahead (`3a1417a`, post-v0.5.13) serving all five Gemma-4 profiles incl. DiffusionGemma dLLM (PR #28054) + FROZEN_KV_MTP fix (PR #28081). First-contact |
+| `0.5.13-dev-nemotronh-mtp-sm121`    | v0.5.13 + SM121 patches + NemotronH MTP/radix-cache (unmerged PR #27998); A/B against `0.5.13-sm121`. Experimental |
+| `0.5.13-gemma4-sm121`               | v0.5.13 + SM121 patches + Gemma-4 NVFP4 source patch (PR #22928); for NVFP4 Gemma-4 on flashinfer 0.6.13rc2 (DSV4 deliberately omitted — mutually exclusive) |
 | `0.5.12.post1-sm121`                | SGLang v0.5.12.post1 + SM121 patches + vendored sm_121 DeepSeek-V4-Flash FlashMLA kernel (previous, kept for rollback / A/B) |
 | `0.5.12-sm121`                      | SGLang v0.5.12 + SM121 patches                                              |
 | `0.5.12-gemma4-sm121`               | v0.5.12 + Gemma-4 NVFP4 source patches                                       |
