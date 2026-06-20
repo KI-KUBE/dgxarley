@@ -67,18 +67,16 @@ _model_profile:
     context_length: 262144
     quantization: "modelopt_fp4"
     trust_remote_code: true
-    # 2026-06-20: was "cutlass" (runner removed from the 0.5.14 base →
-    # `NotImplementedError: Unsupported runner backend: MoeRunnerBackend.CUTLASS`),
-    # then "flashinfer_cutlass", then "triton" — BOTH crash at
-    # process_weights_after_loading (modelopt_quant.py) with the gated-padding
-    # AssertionError. Same shape as the sibling nvidia-gemma-4-26b-a4b-nvfp4:
-    # moe_intermediate_size=704 / TP4 / group_size 16 = K'=11 (not ×4), GeGLU (gated).
-    # Only enable_flashinfer_trtllm_moe takes the PWAL branch
-    # (align_fp4_moe_weights_for_flashinfer_trtllm) that pads gated experts instead
-    # of asserting; every other backend hits the CUTLASS `else` + `assert not
-    # is_gated`. flashinfer_trtllm is the sole backend that sets that flag — see the
-    # full root-cause note in nvidia-gemma-4-26b-a4b-nvfp4. Untested at inference here.
-    moe_runner_backend: "flashinfer_trtllm"
+    # 2026-06-20: "triton" → cutlass_moe_fp4 fallback; the gated-padding boot crash is
+    # escaped via ep_size=4 (below), same as the sibling nvidia-gemma-4-26b-a4b-nvfp4
+    # — see its full root-cause note. Identical shape (moe_intermediate_size=704, GeGLU
+    # gated): at ep_size=1 the TP4-sharded 176 → 2×176=352 pad → `assert not is_gated`.
+    # EP=4 keeps the FULL intermediate (704 → 2×704=1408=11×128 aligned) → no pad.
+    # ⚠️ dLLM-SPECIFIC CAVEAT: SGLang's _handle_dllm_inference forces EAGER (cuda graph
+    # off), and cutlass_moe_fp4 is known-broken in eager on SM121 (see TURBOQUANT.md).
+    # So EP=4 fixes the WEIGHT-LOAD crash but this model may still fail at the eager
+    # cutlass_moe_fp4 forward — gated behind the 5.11.0 image rebuild and fully untested.
+    moe_runner_backend: "triton"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.90"
     attention_backend: "triton"  # forced anyway by SGLang's dLLM handler; also the only Gemma4 allowlist option
@@ -90,7 +88,10 @@ _model_profile:
     pp_async_batch_depth: 0
     disable_deep_gemm: true
     num_experts: 128
-    ep_size: 1
+    # EP=4 (128 % 4 == 0): MoE expert-parallel → full 704 intermediate → 2×704=1408
+    # =11×128 aligned → dodges the gated-padding assert. THE boot-crash fix (see
+    # moe_runner_backend note + sibling nvidia-gemma-4-26b-a4b-nvfp4). ep | tp (4|4) ✓.
+    ep_size: 4
     # ── Diffusion-LLM (dLLM) ────────────────────────────────────────────────
     # Selects SGLang's block-diffusion decode path → --dllm-algorithm Gemma4Renoise
     # (wired via sglang_dllm_algorithm). REQUIRES the 0.5.13-gemmadiffusion image

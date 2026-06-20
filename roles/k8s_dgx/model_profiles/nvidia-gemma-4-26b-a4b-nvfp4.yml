@@ -43,25 +43,23 @@ _model_profile:
     context_length: 262144
     quantization: "modelopt_fp4"
     trust_remote_code: true
-    # 2026-06-20: was "cutlass" (runner removed from the 0.5.14 base →
-    # `NotImplementedError: Unsupported runner backend: MoeRunnerBackend.CUTLASS`),
-    # then "flashinfer_cutlass", then "triton" — BOTH of those crash at
-    # process_weights_after_loading (modelopt_quant.py) with
-    #   AssertionError: "The intermediate size required padding, but padding is
-    #                    [not] implemented for gated activations"
-    # Root cause (read from the live image): the NVFP4 MoE swizzle in PWAL has two
-    # branches. enable_flashinfer_trtllm_moe → align_fp4_moe_weights_for_flashinfer_
-    # trtllm() which pads/aligns gated experts correctly. EVERYTHING ELSE
-    # (triton/cutlass/flashinfer_cutlass) → the CUTLASS `else` branch, which
-    # swizzle_blockscale()s w13 and, when K' isn't a multiple of 4, must pad — but
-    # `assert not is_gated` there refuses gated activations. Here
-    # moe_intermediate_size=704 / TP4 / group_size 16 = K'=11 (not ×4) and Gemma-4
-    # MoE is GeGLU (gated) → assertion. TP=2 → K'=22, TP=1 → K'=44 (only TP=1 aligns,
-    # not viable). So the ONLY moe_runner_backend that boots this shape is
-    # flashinfer_trtllm (the lone backend that sets enable_flashinfer_trtllm_moe;
-    # verified its flashinfer helpers resolve in this image). NOTE: untested at
-    # inference on SM121 here — smoke-test before trusting throughput.
-    moe_runner_backend: "flashinfer_trtllm"
+    # 2026-06-20: moe_runner_backend "triton" → cutlass_moe_fp4 fallback (see below);
+    # the boot crash is escaped via ep_size=4, NOT the backend choice. Full saga:
+    # In process_weights_after_loading (modelopt_quant.py) the NVFP4 MoE swizzle pads
+    # the stacked w13 M-dim (2×intermediate_per_partition) up to a 128-multiple. For a
+    # GATED (GeGLU) layer that pad path is `assert not is_gated` → boot crash whenever
+    # 2×intermediate_per_partition isn't already 128-aligned. With ep_size=1 the MoE
+    # intermediate is TP-sharded: 704/TP4 = 176 → 2×176 = 352 (pads to 384) → assert.
+    # Backends don't help: cutlass = removed; flashinfer_cutlass = same assert AND Xid 13
+    # on SM121; triton = same assert (and there is no triton FP4 MoE kernel — it falls
+    # through to cutlass_moe_fp4); flashinfer_trtllm = clears weight-load but its kernel
+    # is sm100-only and dies on SM121 (GB10) at autotune.
+    # FIX = ep_size: 4 (below). With EP the experts are split but each rank keeps the
+    # FULL intermediate (704): 2×704 = 1408 = 11×128, already aligned → no pad → no
+    # assert. apply() then uses cutlass_moe_fp4 — the one SM121-safe FP4 MoE path
+    # (nvidia-minimax-m2.5 validated it; same triton→cutlass_moe_fp4 fallthrough).
+    # Keeps TP=4 (attention), no image patch, no PP. NOTE: untested at inference here.
+    moe_runner_backend: "triton"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.90"
     attention_backend: "triton"  # SGLang allowlist: flashinfer rejected for Gemma4
@@ -73,7 +71,12 @@ _model_profile:
     pp_async_batch_depth: 0
     disable_deep_gemm: true
     num_experts: 128
-    ep_size: 1
+    # EP=4 (128 experts % 4 == 0): MoE runs expert-parallel so the intermediate stays
+    # FULL (704) instead of TP-sharded to 176 → 2×704=1408=11×128 aligned → no swizzle
+    # pad → dodges the gated-padding assert. This is THE fix for the boot crash (see
+    # moe_runner_backend note above), not a perf tweak. Same EP=4 trick the safe
+    # Qwen3-235B / Nemotron-3 NVFP4 profiles rely on. ep | tp (4|4) ✓.
+    ep_size: 4
     # Parsers per the official model card / SGLang Gemma 4 cookbook:
     #   sglang serve ... --reasoning-parser gemma4 --tool-call-parser gemma4
     # (vLLM's --enable-auto-tool-choice has no SGLang equivalent — SGLang
