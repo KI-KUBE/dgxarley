@@ -28,7 +28,7 @@
 # rewrite with the winning config + measured throughput once swept.
 _model_profile:
   "nvidia/Qwen3.5-122B-A10B-NVFP4":
-    knowledge_cutoff: null  # no published cutoff found (HF card/tech report/aggregators checked 2026-06)
+    knowledge_cutoff: "2025-10"  # no published cutoff found (HF card/tech report/aggregators checked 2026-06)
     info_url: "https://huggingface.co/nvidia/Qwen3.5-122B-A10B-NVFP4"
     nccl_transport: "roce"
     tp_size: 4

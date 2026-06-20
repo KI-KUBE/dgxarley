@@ -28,9 +28,9 @@ sglang_nnodes: 4
 # sglang_model: "canada-quant/DeepSeek-V4-Flash-W4A16-FP8-MTP"
 #
 # --- Gemma-4 ---
-sglang_model: "nvidia/Gemma-4-31B-IT-NVFP4"                        # ACTIVE — 30.7B dense NVFP4, multimodal, 256K ctx (FROZEN_KV_MTP debug)
+# sglang_model: "nvidia/Gemma-4-31B-IT-NVFP4"                        # ACTIVE — 30.7B dense NVFP4, multimodal, 256K ctx (FROZEN_KV_MTP debug)
 # sglang_model: "google/gemma-4-31B-it"                          # 30.7B dense BF16, multimodal, 256K ctx
-# sglang_model: "nvidia/Gemma-4-26B-A4B-NVFP4"                   # 26B/3.8B-active MoE NVFP4, multimodal, 256K ctx
+sglang_model: "nvidia/Gemma-4-26B-A4B-NVFP4"                   # 26B/3.8B-active MoE NVFP4, multimodal, 256K ctx
 # sglang_model: "google/gemma-4-26B-A4B-it"                      # 26B/3.8B-active MoE BF16, multimodal, 256K ctx
 # sglang_model: "nvidia/diffusiongemma-26B-A4B-it-NVFP4"         # 26B/3.8B MoE NVFP4, DISCRETE-DIFFUSION (dLLM Gemma4Renoise) — pins 0.5.14-gemmadiffusion image
 #

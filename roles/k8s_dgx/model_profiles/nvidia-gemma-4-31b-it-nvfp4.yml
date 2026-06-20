@@ -64,7 +64,7 @@ _model_profile:
     jit_max_jobs: 4
     disable_piecewise_cuda_graph: true  # fp4_quantize has no fake-tensor impl → dynamo trace fails
     disable_cuda_graph: false
-    cuda_graph_max_bs: 16
+    cuda_graph_max_bs: 32
     pp_async_batch_depth: 0
     disable_deep_gemm: true
     # Parsers per the SGLang Gemma 4 cookbook (gemma4 covers the whole family;

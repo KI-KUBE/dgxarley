@@ -39,7 +39,13 @@ _model_profile:
     # modelopt-native winner shape (Test 28/38 on 0.5.10, see
     # nvidia-qwen3.5-397b-a17b-nvfp4.yml). Sweep will confirm.
     nccl_transport: roce
-    moe_runner_backend: cutlass
+    # 2026-06-20: was "cutlass" (seed value mirroring the 0.5.10 397B winner),
+    # but the standalone CUTLASS MoE runner was REMOVED in 0.5.12 (this seed has
+    # no image pin → inherits default_sglang_image = 0.5.12). It would boot-crash
+    # with `NotImplementedError: Unsupported runner backend:
+    # MoeRunnerBackend.CUTLASS`. flashinfer_cutlass is the 0.5.12 replacement;
+    # the pending sweep should still confirm the actual winner.
+    moe_runner_backend: flashinfer_cutlass
     attention_backend: triton
     fp4_gemm_backend: flashinfer_cutlass
     disable_deep_gemm: true

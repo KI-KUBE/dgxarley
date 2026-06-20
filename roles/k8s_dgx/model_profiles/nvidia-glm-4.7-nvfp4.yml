@@ -30,7 +30,14 @@ _model_profile:
     #   MTP (NEXTN) gives +68% n=1, +35% n=4/n=8 over non-MTP best (Test 31).
     #   cutlass/triton MoE within noise; fi/triton attn within noise.
     # EP=1 delivers ~2× throughput over EP=4 (40.6 vs 20.8 n=4, 60 vs 30 n=8).
-    moe_runner_backend: "cutlass"
+    # 2026-06-20: was "cutlass" — that was the 0.5.10 winner (see Test notes
+    # above), but the standalone CUTLASS MoE runner was REMOVED in 0.5.12 (this
+    # profile has no image pin → inherits default_sglang_image = 0.5.12). Boot
+    # now crashes with `NotImplementedError: Unsupported runner backend:
+    # MoeRunnerBackend.CUTLASS` at create_moe_runner. flashinfer_cutlass is the
+    # 0.5.12 replacement (per nvidia-qwen3.5-397b-a17b-nvfp4.yml). Re-sweep to
+    # reconfirm the winner on 0.5.12.
+    moe_runner_backend: "flashinfer_cutlass"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.60"
     attention_backend: "flashinfer"

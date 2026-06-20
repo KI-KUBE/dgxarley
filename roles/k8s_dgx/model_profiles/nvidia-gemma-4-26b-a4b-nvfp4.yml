@@ -42,7 +42,12 @@ _model_profile:
     context_length: 262144
     quantization: "modelopt_fp4"
     trust_remote_code: true
-    moe_runner_backend: "cutlass"
+    # 2026-06-20: was "cutlass" — the standalone CUTLASS MoE runner is removed in
+    # this image's SGLang base (0.5.14, same as 0.5.12): boot crashes with
+    # `NotImplementedError: Unsupported runner backend: MoeRunnerBackend.CUTLASS`
+    # at create_moe_runner (modelopt_quant.py). Use flashinfer_cutlass, matching
+    # the 397B-NVFP4 winner (see nvidia-qwen3.5-397b-a17b-nvfp4.yml).
+    moe_runner_backend: "flashinfer_cutlass"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.90"
     attention_backend: "triton"  # SGLang allowlist: flashinfer rejected for Gemma4
@@ -50,7 +55,7 @@ _model_profile:
     jit_max_jobs: 4
     disable_piecewise_cuda_graph: true  # fp4_quantize has no fake-tensor impl
     disable_cuda_graph: false
-    cuda_graph_max_bs: 8
+    cuda_graph_max_bs: 32
     pp_async_batch_depth: 0
     disable_deep_gemm: true
     num_experts: 128

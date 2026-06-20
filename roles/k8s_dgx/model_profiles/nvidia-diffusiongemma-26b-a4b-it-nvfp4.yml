@@ -66,7 +66,12 @@ _model_profile:
     context_length: 262144
     quantization: "modelopt_fp4"
     trust_remote_code: true
-    moe_runner_backend: "cutlass"
+    # 2026-06-20: was "cutlass" — the standalone CUTLASS MoE runner is removed in
+    # this image's SGLang base (0.5.14, same as 0.5.12): boot crashes with
+    # `NotImplementedError: Unsupported runner backend: MoeRunnerBackend.CUTLASS`
+    # at create_moe_runner (modelopt_quant.py). Use flashinfer_cutlass, matching
+    # the sibling nvidia-gemma-4-26b-a4b-nvfp4 / 397B-NVFP4 winner.
+    moe_runner_backend: "flashinfer_cutlass"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.90"
     attention_backend: "triton"  # forced anyway by SGLang's dLLM handler; also the only Gemma4 allowlist option
