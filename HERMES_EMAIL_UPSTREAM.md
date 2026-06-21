@@ -1,6 +1,6 @@
 # Hermes email gateway — local patch and upstream PRs
 
-Status as of 2026-06-16.
+Status as of 2026-06-21.
 
 ## Why this exists
 
@@ -30,8 +30,9 @@ fixes back.
 A patched copy of the upstream file lives at:
 
 - `roles/k8s_dgx/files/hermes_email_gateway_patched.py` — synced to upstream
-  tag `v2026.5.16` (commit `0fffb82d0b949820c380019de646a46a0a6de678` of
-  `gateway/platforms/email.py`) with seven `[PATCH-N]` sections applied.
+  tag `v2026.6.19` (blob `d2f7e64a`, md5 `a3f7dc61f40388bf806481b189b48e00`,
+  32908 bytes of `gateway/platforms/email.py`) with seven `[PATCH-N]` sections
+  applied.
 
 It is delivered to the running container without a fork+rebuild:
 
@@ -223,6 +224,44 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 
 > **Re-verified 2026-06-19:** hermes-agent v2026.6.5 still latest; PRs
 > #28697 / #28699 / #28702 still open.
+
+> **2026-06-21 — ✅ RE-SYNC DONE + tag bumped to v2026.6.19:** New release
+> `v2026.6.19` (2026-06-19) carries the divergence flagged on 06-12/06-14.
+> `gateway/platforms/email.py` is now blob `d2f7e64a` (md5
+> `a3f7dc61f40388bf806481b189b48e00`, 32908 bytes; +3811 vs `0fffb82d`).
+> `hermes_image_tag` bumped `v2026.6.5` → `v2026.6.19`, and the patch in
+> `roles/k8s_dgx/files/hermes_email_gateway_patched.py` was re-synced against
+> the new baseline. Folded-in upstream changes (all upstream-only, none
+> collided with a `[PATCH-N]` section):
+> - **SMTP port-aware connect + IPv4 fallback** — new module helpers
+>   `_create_ipv4_connection` / `_IPv4SMTP` / `_IPv4SMTP_SSL` and a new
+>   `EmailAdapter._connect_smtp()` (port 465 → implicit `SMTP_SSL`, else
+>   `STARTTLS`; retries connection-level failures over IPv4 only). All four
+>   SMTP call sites (`connect()` test + the three `_send_email*` senders) route
+>   through it; our `[PATCH-7]` `_append_to_sent` calls sit *after* each SMTP
+>   block and are unaffected. (Subsumes the 06-14 `7b247cdd` commits.)
+> - **DOCUMENT attachment classification** in `_dispatch_message()`'s media
+>   loop (`f03f161b`, 06-12 delta): image only wins while still `TEXT`; a
+>   `document` attachment promotes to `MessageType.DOCUMENT`.
+> - `send_image()` gained a `metadata` kwarg (base-class contract); new
+>   `import socket`.
+>
+> Verification: all 107 upstream-added lines present (whitespace-insensitive),
+> all removed direct-`smtplib.SMTP` call sites gone, `py_compile` + `black`
+> (line-length 120) clean, all seven `[PATCH-N]` markers + `_append_to_sent` /
+> `_finalize_message` / `_open_imap` / `process_existing` intact. subPath mount
+> target `/opt/hermes/gateway/platforms/email.py` unchanged (v2026.6.19 is
+> still pre-refactor). PRs #28697 / #28699 / #28702 rebased onto current `main`
+> the same day (see below).
+>
+> **⚠ NEXT bump past v2026.6.19 — plugin refactor (#41112):** `main`/`latest`
+> after 2026-06-19 MOVE this file to `plugins/platforms/email/adapter.py` and
+> replace the static `_PLATFORMS["email"]` dict with a `register_platform()`
+> registry. A future bump to a release containing #41112 must (1) re-target the
+> patch to `plugins/platforms/email/adapter.py` and (2) change the subPath
+> `mountPath` in `hermes_webui_deployment.yaml.j2` from
+> `/opt/hermes/gateway/platforms/email.py` to
+> `/opt/hermes/plugins/platforms/email/adapter.py`.
 
 1. Download the new upstream file:
 
