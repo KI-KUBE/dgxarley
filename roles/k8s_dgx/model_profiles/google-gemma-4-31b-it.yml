@@ -60,7 +60,7 @@ _model_profile:
     #   mandatory; it stays the default ONLY until the §7 re-validation flips it
     #   (boot test on both crash paths + flashinfer-vs-triton benchmark). Do NOT
     #   flip to flashinfer before that test passes. See
-    #   FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md + FLASHINFER_0.6.12_TODO.md §7.
+    #   FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md + FLASHINFER_0.6.12_TODO.local.md §7.
     # - Drafter google/gemma-4-31B-it-assistant: per-pod model-download
     #   initContainer auto-appends speculative_draft_model_path to
     #   HF_PRELOAD_MODELS when speculative_enabled=true (tasks/sglang.yml).

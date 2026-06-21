@@ -62,7 +62,7 @@ _model_profile:
     #   (PR #3576) — triton is no longer PERMANENTLY mandatory, it stays the
     #   default only until the §7 re-validation flips it (both crash paths +
     #   benchmark). Do NOT flip before that test. See
-    #   FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md + FLASHINFER_0.6.12_TODO.md §7.
+    #   FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md + FLASHINFER_0.6.12_TODO.local.md §7.
     # - Drafter google/gemma-4-26B-A4B-it-assistant: per-pod model-download
     #   initContainer auto-appends speculative_draft_model_path to
     #   HF_PRELOAD_MODELS when speculative_enabled=true (tasks/sglang.yml).

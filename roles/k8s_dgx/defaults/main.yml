@@ -235,7 +235,7 @@ sglang_disable_overlap_schedule: "{{ sglang_model_profiles[_sglang_active_model]
 #   true  → JIT V2 on both versions (force V2 on 0.5.11 — opt-in path)
 #   false → legacy all-reduce on both versions (opt-out V2 on 0.5.12)
 #
-# Default: false. Reasons (see TODO_0.5.12.md):
+# Default: false. Reasons (see TODO_0.5.12.local.md):
 #   1. Matches the implicit 0.5.11 default our existing baselines were measured on.
 #   2. JIT V2 on SM121 is untested for us — defensive.
 # Flip to true once 0.5.12 is otherwise validated and we want to quantify

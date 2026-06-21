@@ -250,7 +250,10 @@ _model_profile:
     #     lm_head.weight + backbone.embeddings out) — FIXED in this image: accept_len > 1
     #     on EVERY MTP case (1.81 → 3.07), the loader-bug signature (accept≈1) is gone.
     #   * #27828 (NVFP4 MTP target-logits NaN, the riskiest path) — NOT present: zero NaN
-    #     in any MTP head log.
+    #     in any MTP head log. Upstream CLOSED 2026-06-10 as a non-blocker: the NaN was a
+    #     DEBUG-ONLY artifact of the async-assert env var from PR #27461 (a pre-existing
+    #     Mamba2-kernel quirk, not a regression); GSM8K accuracy + accept_len stay normal
+    #     without that var, no downstream-sampling impact. We never set it → nothing to fix.
     # Memory: MTP draft buffers + 512K KV co-fit (Case 12 ran 5/5 @ ctx524k 8/8); the
     # lighter 3/4 winner fits ctx524288 with more headroom. Drop mem_fraction_static if OOM.
     speculative_enabled: true
