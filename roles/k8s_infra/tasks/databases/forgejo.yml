@@ -1,0 +1,432 @@
+---
+# Forgejo (Gitea fork) self-hosted git forge in the `forgejo` namespace.
+#
+# Design decisions (research 2026-06-21, see top-of-PR notes):
+#   - Image: codeberg.org/forgejo/forgejo (the official registry; Docker Hub is
+#     a third-party mirror). There is NO :latest tag by design — major bumps are
+#     deliberate. Pinned to an exact patch, keel auto-updates only within the tag.
+#   - STANDARD (root) image, not the -rootless variant: it starts as root, drops
+#     to USER_UID/USER_GID and `chown -R`s /data on boot. This is the robust
+#     choice for a hostPath volume (rootless uid-1000 can't write a root-owned
+#     hostPath without an extra chown initContainer — fsGroup doesn't apply to
+#     hostPath). Mirrors the seafile root-image pattern on the same NFS pool.
+#   - Database: shared PostgreSQL (DB_TYPE=postgres). SQLite is unsafe on the
+#     NFS-backed pool and blocks rolling/HA; git repo storage on NFS IS fine.
+#     DB password flows postgresql-secrets -> k8s_info -> forgejo app Secret,
+#     identical to the honcho/hindsight pattern.
+#   - HTTPS-only: DISABLE_SSH=true. Traefik (HTTP ingress) cannot proxy raw TCP
+#     SSH; exposing it would need a LoadBalancer/NodePort. SSH clone URLs are
+#     hidden in the UI instead. Flip forgejo.disable_ssh to wire SSH later.
+#   - Secret keys (SECRET_KEY / INTERNAL_TOKEN / *_JWT_SECRET) are PRE-GENERATED
+#     and injected via Secret. If they auto-generated per-restart, all encrypted
+#     data (2FA secrets, OAuth tokens, sessions) would be lost on volume loss.
+#   - Config is fully env-driven via the FORGEJO__<section>__<KEY> override
+#     mechanism (the entrypoint's environment-to-ini overlays app.ini on boot),
+#     so no app.ini template is shipped. INSTALL_LOCK=true skips the web installer.
+#   - Admin is bootstrapped idempotently via `forgejo admin user create` at the
+#     end of this task (the image has no INIT_* admin env like seafile-mc).
+
+- name: Create forgejo namespace
+  kubernetes.core.k8s:
+    name: "{{ forgejo.namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+
+# ===========================================================================
+# PostgreSQL provisioning (idempotent, for already-initialised clusters).
+# Fresh clusters get the same DB via postgresql initdb 7_createdb_forgejo.sh.
+# ===========================================================================
+
+- name: Get forgejo database password from postgresql-secrets
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: postgresql-secrets
+    namespace: postgresql
+  register: forgejo_postgresql_secrets_info
+
+- name: Set forgejo credential facts
+  ansible.builtin.set_fact:
+    forgejo_db_password: "{{ forgejo_postgresql_secrets_info.resources[0].data.FORGEJO_POSTGRES_PASSWORD | b64decode }}"
+
+- name: Get PostgreSQL pod
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: postgresql
+    label_selectors:
+      - app=postgresql
+  register: forgejo_postgresql_pods
+
+- name: Set PostgreSQL pod name fact
+  ansible.builtin.set_fact:
+    forgejo_postgresql_pod_name: "{{ forgejo_postgresql_pods.resources[0].metadata.name }}"
+
+- name: Ensure forgejo user and database exist in PostgreSQL
+  kubernetes.core.k8s_exec:
+    namespace: postgresql
+    pod: "{{ forgejo_postgresql_pod_name }}"
+    command: |
+      bash -c '
+        set -e
+        FORGEJO_PASSWORD="{{ forgejo_db_password }}"
+
+        if psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='\''forgejo'\''" | grep -q 1; then
+          psql -U postgres -c "ALTER USER forgejo WITH PASSWORD '\''${FORGEJO_PASSWORD}'\'';"
+          echo "User forgejo: exists (password ensured)"
+        else
+          psql -U postgres -c "CREATE USER forgejo WITH PASSWORD '\''${FORGEJO_PASSWORD}'\'';"
+          echo "User forgejo: created"
+        fi
+
+        if psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='\''forgejo'\''" | grep -q 1; then
+          echo "Database forgejo: exists"
+        else
+          psql -U postgres -c "CREATE DATABASE forgejo OWNER forgejo;"
+          psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE forgejo TO forgejo;"
+          echo "Database forgejo: created"
+        fi
+      '
+  register: forgejo_db_ensure
+  changed_when: "'created' in forgejo_db_ensure.stdout"
+
+# ===========================================================================
+# Secrets — DB password + Forgejo's symmetric secret keys. All keys are stored
+# under their FORGEJO__... env-var names so the Deployment can `envFrom` them
+# directly (the entrypoint maps FORGEJO__section__KEY -> app.ini).
+# ===========================================================================
+
+- name: Create forgejo-secrets
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: forgejo-secrets
+        namespace: "{{ forgejo.namespace }}"
+      type: Opaque
+      stringData:
+        FORGEJO__database__PASSWD: "{{ forgejo_db_password }}"
+        FORGEJO__security__SECRET_KEY: "{{ forgejo.secret_key }}"
+        FORGEJO__security__INTERNAL_TOKEN: "{{ forgejo.internal_token }}"
+        FORGEJO__oauth2__JWT_SECRET: "{{ forgejo.oauth2_jwt_secret }}"
+        FORGEJO__lfs__JWT_SECRET: "{{ forgejo.lfs_jwt_secret }}"
+
+# ===========================================================================
+# Forgejo server
+# ===========================================================================
+
+- name: Create forgejo Service
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: forgejo
+        namespace: "{{ forgejo.namespace }}"
+        labels:
+          app: forgejo
+      spec:
+        selector:
+          app: forgejo
+        ports:
+          - port: 3000
+            name: http
+            targetPort: 3000
+
+- name: Create forgejo Deployment
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: forgejo
+        namespace: "{{ forgejo.namespace }}"
+        labels:
+          app: forgejo
+        annotations:
+          keel.sh/policy: force
+          keel.sh/match-tag: "true"
+          keel.sh/pollSchedule: "@every 30m"
+          keel.sh/trigger: poll
+      spec:
+        replicas: 1
+        strategy:
+          type: Recreate
+        selector:
+          matchLabels:
+            app: forgejo
+        template:
+          metadata:
+            labels:
+              app: forgejo
+          spec:
+            restartPolicy: Always
+            nodeSelector:
+              kubernetes.io/arch: "amd64"
+            dnsConfig:
+              options:
+                - name: ndots
+                  value: "1"
+            containers:
+              - name: forgejo
+                image: "{{ forgejo.images.server.repo }}:{{ forgejo.images.server.tag }}"
+                imagePullPolicy: Always
+                ports:
+                  - containerPort: 3000
+                    name: http
+                envFrom:
+                  - secretRef:
+                      name: forgejo-secrets
+                env:
+                  # The standard image starts as root then drops to this uid/gid
+                  # and chowns /data — keeps the hostPath volume writable.
+                  - name: USER_UID
+                    value: "{{ forgejo.uid }}"
+                  - name: USER_GID
+                    value: "{{ forgejo.gid }}"
+                  - name: TZ
+                    value: "{{ forgejo.time_zone }}"
+                  # --- server ---
+                  - name: FORGEJO__server__DOMAIN
+                    value: "{{ forgejo.hostname }}"
+                  - name: FORGEJO__server__ROOT_URL
+                    value: "https://{{ forgejo.hostname }}/"
+                  - name: FORGEJO__server__SSH_DOMAIN
+                    value: "{{ forgejo.hostname }}"
+                  - name: FORGEJO__server__PROTOCOL
+                    value: "http"
+                  - name: FORGEJO__server__HTTP_PORT
+                    value: "3000"
+                  - name: FORGEJO__server__DISABLE_SSH
+                    value: "{{ forgejo.disable_ssh | string | lower }}"
+                  # --- security ---
+                  - name: FORGEJO__security__INSTALL_LOCK
+                    value: "true"
+                  - name: FORGEJO__security__REVERSE_PROXY_LIMIT
+                    value: "1"
+                  - name: FORGEJO__security__REVERSE_PROXY_TRUSTED_PROXIES
+                    value: "{{ forgejo.trusted_proxies }}"
+                  # --- database ---
+                  - name: FORGEJO__database__DB_TYPE
+                    value: "postgres"
+                  - name: FORGEJO__database__HOST
+                    value: "postgresql.postgresql.svc.cluster.local:5432"
+                  - name: FORGEJO__database__NAME
+                    value: "forgejo"
+                  - name: FORGEJO__database__USER
+                    value: "forgejo"
+                  # --- service ---
+                  - name: FORGEJO__service__DISABLE_REGISTRATION
+                    value: "{{ forgejo.disable_registration | string | lower }}"
+                  # --- general ---
+                  - name: FORGEJO____APP_NAME
+                    value: "{{ forgejo.app_name }}"
+                startupProbe:
+                  httpGet:
+                    path: /api/healthz
+                    port: 3000
+                  failureThreshold: 30
+                  periodSeconds: 10
+                readinessProbe:
+                  httpGet:
+                    path: /api/healthz
+                    port: 3000
+                  periodSeconds: 15
+                  timeoutSeconds: 3
+                livenessProbe:
+                  httpGet:
+                    path: /api/healthz
+                    port: 3000
+                  periodSeconds: 30
+                  timeoutSeconds: 5
+                  failureThreshold: 3
+                resources:
+                  requests:
+                    memory: "{{ forgejo.resources.server.memory_request }}"
+                  limits:
+                    memory: "{{ forgejo.resources.server.memory_limit }}"
+                volumeMounts:
+                  - name: forgejo-data
+                    mountPath: /data
+            volumes:
+              - name: forgejo-data
+                hostPath:
+                  path: "{{ forgejo.data_base }}"
+                  type: DirectoryOrCreate
+
+# ===========================================================================
+# Ingress (Traefik) + TLS — HTTPS-only behind the internal ip-allowlist,
+# mirrors the seafile ingress pattern (no subpath / stripPrefix needed).
+# ===========================================================================
+
+# Register DNS first so cert-manager's ACME challenge can resolve the name.
+# record MUST be the full FQDN with a trailing dot; the TSIG key only authorises
+# records under dns_external_domain_suffix (see CLAUDE.md nsupdate note).
+- name: Register DNS A record for forgejo
+  community.general.nsupdate:
+    server: "{{ nsupdate_server }}"
+    zone: "{{ nsupdate_zone }}"
+    key_name: "{{ nsupdate_tsig_key_name }}"
+    key_secret: "{{ nsupdate_tsig_key_secret }}"
+    key_algorithm: "{{ nsupdate_tsig_algorithm }}"
+    record: "forgejo.{{ dns_external_domain_suffix }}."
+    type: A
+    ttl: "{{ nsupdate_ttl }}"
+    value: "{{ nsupdate_ingress_ip }}"
+    state: present
+
+- name: Create forgejo redirect-myhttps Middleware
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: redirect-myhttps
+        namespace: "{{ forgejo.namespace }}"
+      spec:
+        redirectScheme:
+          scheme: https
+
+- name: Create forgejo ip allowlist Middleware
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: forgejo-ip-allowlist
+        namespace: "{{ forgejo.namespace }}"
+      spec:
+        ipAllowList:
+          sourceRange: "{{ traefik_internal_allowlist }}"
+
+- name: Create forgejo TLS certificate
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: "{{ forgejo.hostname }}"
+        namespace: "{{ forgejo.namespace }}"
+      spec:
+        dnsNames:
+          - "{{ forgejo.hostname }}"
+        secretName: "{{ forgejo.hostname }}"
+        issuerRef:
+          name: letsencrypt-production
+          kind: ClusterIssuer
+
+- name: Create forgejo http IngressRoute (redirect to https)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: IngressRoute
+      metadata:
+        name: forgejo-ingress
+        namespace: "{{ forgejo.namespace }}"
+      spec:
+        entryPoints:
+          - web
+        routes:
+          - kind: Rule
+            match: "Host(`{{ forgejo.hostname }}`)"
+            priority: 10
+            services:
+              - kind: Service
+                name: forgejo
+                namespace: "{{ forgejo.namespace }}"
+                passHostHeader: true
+                port: 3000
+            middlewares:
+              - name: redirect-myhttps
+              - name: forgejo-ip-allowlist
+
+- name: Create forgejo https IngressRoute
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: IngressRoute
+      metadata:
+        name: forgejo-https-ingress
+        namespace: "{{ forgejo.namespace }}"
+      spec:
+        entryPoints:
+          - websecure
+        routes:
+          - kind: Rule
+            match: "Host(`{{ forgejo.hostname }}`)"
+            priority: 10
+            middlewares:
+              - name: forgejo-ip-allowlist
+            services:
+              - kind: Service
+                name: forgejo
+                namespace: "{{ forgejo.namespace }}"
+                passHostHeader: true
+                port: 3000
+        tls:
+          secretName: "{{ forgejo.hostname }}"
+
+# ===========================================================================
+# Admin bootstrap (idempotent). The forgejo image has no INIT_* admin env, so
+# we create the first admin via the CLI once the pod is serving. `forgejo admin
+# user list` columns: ID Username Email IsActive IsAdmin 2FA -> field 2 is the
+# username. Re-runs are a no-op once the account exists.
+# ===========================================================================
+
+- name: Wait for forgejo Deployment to be available
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: forgejo
+    namespace: "{{ forgejo.namespace }}"
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 600
+
+- name: Get forgejo pod
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ forgejo.namespace }}"
+    label_selectors:
+      - app=forgejo
+    field_selectors:
+      - status.phase=Running
+  register: forgejo_pods
+
+- name: Set forgejo pod name fact
+  ansible.builtin.set_fact:
+    forgejo_pod_name: "{{ forgejo_pods.resources[0].metadata.name }}"
+
+- name: Ensure forgejo admin user exists
+  kubernetes.core.k8s_exec:
+    namespace: "{{ forgejo.namespace }}"
+    pod: "{{ forgejo_pod_name }}"
+    command: |
+      bash -c '
+        set -e
+        if forgejo admin user list 2>/dev/null | awk "NR>1 {print \$2}" | grep -qx "{{ forgejo.admin.username }}"; then
+          echo "admin {{ forgejo.admin.username }}: exists"
+        else
+          forgejo admin user create --admin \
+            --username "{{ forgejo.admin.username }}" \
+            --email "{{ forgejo.admin.email }}" \
+            --password "{{ forgejo.admin.password }}" \
+            --must-change-password=false
+          echo "admin {{ forgejo.admin.username }}: created"
+        fi
+      '
+  register: forgejo_admin_ensure
+  changed_when: "'created' in forgejo_admin_ensure.stdout"
