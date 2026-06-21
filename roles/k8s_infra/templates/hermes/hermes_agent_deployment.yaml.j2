@@ -79,6 +79,9 @@ spec:
         # hostPath DirectoryOrCreate creates 0755 root:root; reset to <uid>:<gid> 0700.
         - name: fix-perms
           image: busybox:latest
+          env:
+            - name: TZ
+              value: "{{ hermes_timezone }}"
           command:
             - sh
             - -c
@@ -114,6 +117,8 @@ spec:
             - /opt/hermes/.venv/bin/python
             - /opt/merge-config/hermes_merge_config.py
           env:
+            - name: TZ
+              value: "{{ hermes_timezone }}"
             - name: MERGE_UID
               value: "{{ item.uid }}"
             - name: MERGE_GID
@@ -169,6 +174,9 @@ spec:
         # truth, in-pod edits survive only until the next restart.
         - name: init-caddy-data
           image: busybox:latest
+          env:
+            - name: TZ
+              value: "{{ hermes_timezone }}"
           command:
             - sh
             - -c
@@ -201,6 +209,8 @@ spec:
             - secretRef:
                 name: "hermes-seafile-{{ item.username }}"
           env:
+            - name: TZ
+              value: "{{ hermes_timezone }}"
             - name: WANTED_UID
               value: "{{ item.uid }}"
             - name: WANTED_GID
@@ -290,6 +300,9 @@ spec:
             runAsGroup: 0
             runAsNonRoot: false
           env:
+            # Local time for dashboard timestamps (image defaults to UTC).
+            - name: TZ
+              value: "{{ hermes_timezone }}"
             # Read by cont-init stage2-hook.sh: `usermod -u $HERMES_UID hermes`.
             # After this the s6-setuidgid-spawned hermes process runs as <uid>
             # with a proper /etc/passwd entry (HOME=/opt/data is set explicitly
@@ -362,6 +375,8 @@ spec:
           command: ["caddy"]
           args: ["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
           env:
+            - name: TZ
+              value: "{{ hermes_timezone }}"
             # JWT signing key used to sign the session cookie. Mounted from
             # the per-user Secret as a file; Caddyfile reads it via `{env.}`.
             - name: JWT_SIGNING_KEY
@@ -405,6 +420,9 @@ spec:
         # hermes first writes them, so wait for the file before exec'ing tail.
         - name: log-tail
           image: busybox:latest
+          env:
+            - name: TZ
+              value: "{{ hermes_timezone }}"
           command:
             - sh
             - -c

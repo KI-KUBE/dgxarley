@@ -189,6 +189,12 @@ hermes_data_base: "/mnt/nfs/hermes"
 hermes_files_base: "/mnt/nfs/hermes-files"
 hermes_default_model: "{{ litellm_hermes_alias_model }}"  # stable alias → current SGLang model
 hermes_litellm_url: "http://litellm.litellm.svc.cluster.local:4000"
+# Timezone for the hermes pods. The container images default to UTC (no TZ),
+# so the WebUI "System Status" / dashboard render timestamps (e.g. "Last
+# active") 2h off from CEST. Injected as the TZ env var into the webui, agent
+# and email containers — matches the cluster nodes (common role sets
+# Europe/Berlin via /etc/localtime). Override per deploy if ever needed.
+hermes_timezone: "Europe/Berlin"
 hermes_webui_image: "ghcr.io/nesquena/hermes-webui"
 hermes_webui_image_tag: "latest"
 hermes_webui_port: 8787

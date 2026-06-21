@@ -129,6 +129,9 @@ spec:
         # same thing; whichever runs first wins, the other is a no-op.
         - name: fix-perms
           image: busybox:latest
+          env:
+            - name: TZ
+              value: "{{ hermes_timezone }}"
           command:
             - sh
             - -c
@@ -165,6 +168,8 @@ spec:
             - /opt/hermes/.venv/bin/python
             - /opt/merge-config/hermes_merge_config.py
           env:
+            - name: TZ
+              value: "{{ hermes_timezone }}"
             - name: MERGE_UID
               value: "{{ item.uid }}"
             - name: MERGE_GID
@@ -196,6 +201,9 @@ spec:
         # then runs `uv pip install <agent-src>[all]` against this dir.
         - name: copy-agent-src
           image: "nousresearch/hermes-agent:{{ item.image_tag | default(hermes_image_tag) }}"
+          env:
+            - name: TZ
+              value: "{{ hermes_timezone }}"
           command:
             - sh
             - -c
@@ -240,6 +248,8 @@ spec:
             - secretRef:
                 name: "hermes-seafile-{{ item.username }}"
           env:
+            - name: TZ
+              value: "{{ hermes_timezone }}"
             - name: WANTED_UID
               value: "{{ item.uid }}"
             - name: WANTED_GID
@@ -278,6 +288,10 @@ spec:
           image: "{{ hermes_webui_image }}:{{ item.webui_image_tag | default(hermes_webui_image_tag) }}"
           imagePullPolicy: IfNotPresent
           env:
+            # Render server-side timestamps ("Last active" in System Status) in
+            # local time. The image defaults to UTC → 2h off CEST without this.
+            - name: TZ
+              value: "{{ hermes_timezone }}"
             - name: HERMES_WEBUI_HOST
               value: "0.0.0.0"
             - name: HERMES_WEBUI_PORT
@@ -391,6 +405,9 @@ spec:
             runAsGroup: 0
             runAsNonRoot: false
           env:
+            # Local time for gateway timestamps/logs (image defaults to UTC).
+            - name: TZ
+              value: "{{ hermes_timezone }}"
             - name: HERMES_UID
               value: "{{ item.uid }}"
             - name: HERMES_GID
@@ -459,6 +476,8 @@ spec:
             runAsGroup: {{ item.gid }}
             runAsNonRoot: true
           env:
+            - name: TZ
+              value: "{{ hermes_timezone }}"
             - name: HERMES_HOME
               value: "/opt/data"
             - name: REFRESH_INTERVAL_S
