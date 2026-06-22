@@ -438,6 +438,13 @@ sglang_moe_config_dir: "/root/.cache/huggingface/moe_configs"
 #   enable_metrics: SGLang Prometheus exporter (--enable-metrics, /metrics on the
 #                  head's HTTP port). Default: global sglang_enable_metrics (on).
 #                  Set false to silence a noisy/ephemeral instance's scrape.
+#   external_enabled: expose this instance's HTTP API OUTSIDE the cluster via
+#                  Traefik (cert-manager TLS + IP-allowlist + http→https redirect
+#                  + DNS A record at <hostname>.<dns_external_domain_suffix>).
+#                  Default: global sglang_external_enabled (on). Set false for an
+#                  internal-only instance — the ClusterIP Service is still created
+#                  (in-cluster clients like litellm need it); only the ingress,
+#                  certificate and DNS record are skipped.
 #
 # Node sharing: nodes lists MAY overlap (GPU time-slicing — needs enough
 # nvidia_gpu_timeslice_replicas) or be disjoint (partitioning). Overlap requires
@@ -494,6 +501,15 @@ sglang_instances:
 # pod serves /metrics (workers run no HTTP server), so only the head is scraped.
 sglang_enable_metrics: true
 
+# Expose each SGLang instance's OpenAI-compatible HTTP API OUTSIDE the cluster
+# via Traefik (per-instance cert-manager TLS + IP-allowlist + http→https redirect
+# + DNS A record at <hostname>.<dns_external_domain_suffix>). Gated, default ON.
+# The ClusterIP Service is ALWAYS created (in-cluster clients like litellm /
+# openwebui resolve sglang at <prefix>.<sglang_namespace>.svc); this flag only
+# governs the EXTERNAL ingress, certificate and DNS record. Per-instance override
+# via sglang_instances.<key>.external_enabled.
+sglang_external_enabled: true
+
 _sglang_instance_defaults:
   nodes: "{{ range(1, (sglang_nnodes | int) + 1) | list }}"
   model: "{{ sglang_model }}"
@@ -504,6 +520,7 @@ _sglang_instance_defaults:
   internal_port: "{{ sglang_internal_port }}"
   nccl_port: "{{ nccl_bootstrap_port }}"
   enable_metrics: "{{ sglang_enable_metrics }}"
+  external_enabled: "{{ sglang_external_enabled }}"
 
 # ============================================================================
 # vLLM — drop-in alternative to SGLang for distributed LLM inference.

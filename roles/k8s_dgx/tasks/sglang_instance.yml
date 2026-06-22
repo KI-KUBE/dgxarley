@@ -714,6 +714,13 @@
             targetPort: "{{ inst.port }}"
             protocol: TCP
 
+# External Traefik exposure. The ClusterIP Service above is always created (in-
+# cluster clients need it). The per-instance cert / ingressroutes / DNS below
+# TOGGLE on inst.external_enabled (default true): state=present when exposed,
+# state=absent when not — so flipping the flag to false and re-running ACTIVELY
+# REMOVES the ingress, certificate and DNS record (no orphaned routes). The two
+# shared middlewares stay present unconditionally (generic, harmless when unused,
+# and needed by any OTHER instance that IS exposed).
 # Generic HTTPS-redirect middleware, shared across instances in this namespace
 # (idempotent re-apply) — kept unprefixed to match the pre-refactor name.
 - name: Create HTTPS redirect middleware in sglang namespace
@@ -743,9 +750,9 @@
         ipAllowList:
           sourceRange: "{{ traefik_internal_allowlist }}"
 
-- name: Create SGLang TLS certificate ({{ inst.prefix }})
+- name: Manage SGLang TLS certificate ({{ inst.prefix }}, external_enabled)
   kubernetes.core.k8s:
-    state: present
+    state: "{{ 'present' if inst.external_enabled | bool else 'absent' }}"
     definition:
       apiVersion: cert-manager.io/v1
       kind: Certificate
@@ -760,9 +767,9 @@
           name: letsencrypt-production
           kind: ClusterIssuer
 
-- name: Create SGLang http ingressroute with redirect ({{ inst.prefix }})
+- name: Manage SGLang http ingressroute with redirect ({{ inst.prefix }}, external_enabled)
   kubernetes.core.k8s:
-    state: present
+    state: "{{ 'present' if inst.external_enabled | bool else 'absent' }}"
     definition:
       apiVersion: traefik.io/v1alpha1
       kind: IngressRoute
@@ -786,9 +793,9 @@
             - name: redirect-myhttps
             - name: sglang-ip-allowlist
 
-- name: Create SGLang https ingressroute ({{ inst.prefix }})
+- name: Manage SGLang https ingressroute ({{ inst.prefix }}, external_enabled)
   kubernetes.core.k8s:
-    state: present
+    state: "{{ 'present' if inst.external_enabled | bool else 'absent' }}"
     definition:
       apiVersion: traefik.io/v1alpha1
       kind: IngressRoute
@@ -813,7 +820,7 @@
         tls:
           secretName: "{{ inst.hostname }}.{{ dns_external_domain_suffix }}"
 
-- name: Register DNS A record for sglang ({{ inst.prefix }})
+- name: Manage DNS A record for sglang ({{ inst.prefix }}, external_enabled)
   community.general.nsupdate:
     server: "{{ nsupdate_server }}"
     zone: "{{ nsupdate_zone }}"
@@ -824,7 +831,7 @@
     type: A
     ttl: "{{ nsupdate_ttl }}"
     value: "{{ nsupdate_ingress_ip }}"
-    state: present
+    state: "{{ 'present' if inst.external_enabled | bool else 'absent' }}"
   ignore_errors: true
   register: dns_result
 
