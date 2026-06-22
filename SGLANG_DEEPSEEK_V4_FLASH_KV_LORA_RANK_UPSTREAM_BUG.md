@@ -6,6 +6,15 @@
 > kann downstream noch auf weitere Upstream-Issues treffen (sgl-project/sglang
 > #25165 / #23743). Begleitend zu Modellprofil
 > `roles/k8s_dgx/model_profiles/sgl-project-deepseek-v4-flash-fp8.yml`.
+>
+> **Re-verifiziert 2026-06-22:** Workaround weiterhin nötig.
+> `kv_lora_rank: int = 512` in transformers' `configuration_deepseek_v3.py`
+> (`main`) unverändert; SGLang v0.5.13 / v0.5.13.post1 (letztes Release,
+> 2026-06-15) typisieren das Feld nicht als Optional und ersetzen
+> `_DeepseekV4ConfigAlias` nicht. Issues #25165 / #23743 weiterhin offen.
+> Querverweis: `UPSTREAM_DSV4_BUGS.md` §1 / Wall 1 bestätigt den Patch „in
+> v0.5.13 weiterhin nötig". (Titel nennt SGLang 0.5.12 — Patch gilt unverändert
+> auch für v0.5.13.x.)
 
 
 ## Summary
