@@ -167,88 +167,112 @@ openwebui_connections_openai_keys:
 # are identical across both UIs. Each one still spawns its own hermes processes
 # when chatting — Hermes is a CLI, not a daemon; there is no shared agent
 # process to multiplex onto.
-hermes_namespace: "hermes"
-# v2026.5.28 restructured the image: tini → s6-overlay (PID 1 = /init),
-# gosu → s6-setuidgid, node:22-bookworm-slim build stage (size 2.63 → 1.12 GB).
-# The pre-s6 entrypoint contract is preserved ("Architecture B"): default
-# ENTRYPOINT /init runs cont-init (stage2-hook.sh: usermod $HERMES_UID/$HERMES_GID
-# + chown), then our `args:` via docker/main-wrapper.sh → `s6-setuidgid hermes
-# hermes <args>`. We never hard-code command:, so the swap is transparent.
-# gateway/platforms/email.py is byte-identical across v2026.5.16..6.5 and main
-# (md5 318ae8f3e6d4b26718784e0c94bf8458) → the hermes_email_gateway_patched.py
-# patch needs NO re-sync. Verified 2026-06-08.
-hermes_image_tag: "v2026.6.19"
-# NFS-backed hostPath base on k3smaster — per-user subdirs <base>/<username>
-# are mounted as /opt/data inside the pod (subdir-only, no parent visibility).
-hermes_data_base: "/mnt/nfs/hermes"
-# Second NFS-backed hostPath base, mounted as /workspace inside the pod.
-# Intended as the user's input/output shelf: drop files from desktop NFS,
-# LLM reads/writes via the hermes-cli terminal toolset. Same per-user subdir
-# isolation pattern as hermes_data_base. Pre-req: NFS export mounted on
-# k3smaster at this path before the pod starts.
-hermes_files_base: "/mnt/nfs/hermes-files"
-hermes_default_model: "{{ litellm_hermes_alias_model }}"  # stable alias → current SGLang model
-hermes_litellm_url: "http://litellm.litellm.svc.cluster.local:4000"
-# Timezone for the hermes pods. The container images default to UTC (no TZ),
-# so the WebUI "System Status" / dashboard render timestamps (e.g. "Last
-# active") 2h off from CEST. Injected as the TZ env var into the webui, agent
-# and email containers — matches the cluster nodes (common role sets
-# Europe/Berlin via /etc/localtime). Override per deploy if ever needed.
-hermes_timezone: "Europe/Berlin"
-hermes_webui_image: "ghcr.io/nesquena/hermes-webui"
-hermes_webui_image_tag: "latest"
-hermes_webui_port: 8787
-# Caddy sidecar in front of the agent dashboard. Cookie-session auth (via the
-# caddy-security plugin) so WebSocket (TUI/PTY) and EventSource (events feed)
-# work — BasicAuth credentials are NOT auto-included by browsers on those
-# requests. oauth2-proxy v7 was tried first but rejects WS upgrades with 403
-# even with --skip-auth-route; caddy-security checks the cookie only on the
-# initial handshake and transparently passes the upgrade through. The image is
-# greenpau/caddy-security packaged as `authcrunch/authcrunch` (multi-arch).
-hermes_caddy_image: "ghcr.io/authcrunch/authcrunch"
-hermes_caddy_image_tag: "latest"
-hermes_agent_proxy_port: 9118
-# Per-user defaults — overridable per entry in hermes_users.
-hermes_dashboard_enabled_default: false
-# enables chat-interface if set to true IF hermes_dashboard_enabled is even enabled
-hermes_dashboard_tui_default: false
-# enables webui-interface (alternative interface to native hermes dashboard)
-hermes_webui_enabled_default: true
-# Sets logging.level=DEBUG in the rendered config.yaml (otherwise INFO).
-# Affects /opt/data/logs/agent.log — kubectl logs -c log-tail <pod> tails it.
-hermes_debug_default: false
-# Default for per-user email gateway. When true, the webui pod gets an extra
-# `hermes-email` sidecar running `hermes gateway run` against EMAIL_* vars in
-# /opt/data/.env. Off by default — needs IMAP/SMTP credentials per user, and
-# enabling it without those will just have the gateway log "no platforms
-# configured" and idle. Implies webui_enabled (sidecar lives in that pod).
-hermes_email_enabled_default: true
-# Matrix gateway. When true (per-user via hermes_users[*].matrix.enabled), the
-# SAME hermes-gateway sidecar in the webui pod also serves Matrix — no extra
-# pod/process: `hermes gateway run` auto-starts every platform with creds in
-# /opt/data/.env. Pure-env (MATRIX_*), no source patch. E2EE deps (mautrix
-# [encryption], olm) ship in the agent image; the crypto store persists under
-# /opt/data (NFS) keyed by a stable MATRIX_DEVICE_ID. Off by default.
-hermes_matrix_enabled_default: false
-# Seafile-backed /workspace. When true: (1) the hermes role provisions a
-# Seafile user (using <hermes_users[*].email> + seafile.web_password) and a
-# `hermes-workspace` library via the Seafile REST API, (2) a seadrive FUSE
-# sidecar is injected into both the agent and webui pods, which mounts that
-# library at /workspace via mountPropagation. When false (default), /workspace
-# stays on the hermes_files_base NFS subpath. Per-user override via
-# hermes_users[*].seafile.workspace_enabled.
-hermes_seafile_workspace_enabled_default: false
-# Seafile API + admin credentials used during provisioning. URL is the same
-# external hostname the seadrive sidecar will sync against. Admin comes from
-# the seafile_admin_* vars in k8s_infra's vault — re-declared here as a hint
-# for the provisioning task and to allow per-environment override.
-hermes_seafile_server_url: "https://seafile.{{ dns_external_domain_suffix }}"
-hermes_seafile_library_name: "hermes-workspace"
-# seadrive client image (official, FUSE-mode). amd64-only — fine since hermes
-# pods are pinned to k3smaster anyway.
-hermes_seadrive_image: "seafileltd/seadrive-fuse"
-hermes_seadrive_image_tag: "latest"
+# Global (non-secret) Hermes config — nested dict. Defined ONLY here (single
+# file) so it sidesteps the hash_behaviour=replace trap that forces seafile:/
+# forgejo: to duplicate every key across three files. Access as hermes.<group>.
+# <key> in templates/tasks. NOTE: hermes_users stays a SEPARATE top-level var
+# (it lives in vault) — see the comment on it below.
+hermes:
+  namespace: "hermes"
+  # v2026.5.28 restructured the image: tini → s6-overlay (PID 1 = /init),
+  # gosu → s6-setuidgid, node:22-bookworm-slim build stage (size 2.63 → 1.12 GB).
+  # The pre-s6 entrypoint contract is preserved ("Architecture B"): default
+  # ENTRYPOINT /init runs cont-init (stage2-hook.sh: usermod $HERMES_UID/$HERMES_GID
+  # + chown), then our `args:` via docker/main-wrapper.sh → `s6-setuidgid hermes
+  # hermes <args>`. We never hard-code command:, so the swap is transparent.
+  # gateway/platforms/email.py is byte-identical across v2026.5.16..6.5 and main
+  # (md5 318ae8f3e6d4b26718784e0c94bf8458) → the hermes_email_gateway_patched.py
+  # patch needs NO re-sync. Verified 2026-06-08.
+  image_tag: "v2026.6.19"            # agent image (nousresearch/hermes-agent)
+  # NFS-backed hostPath base on k3smaster — per-user subdirs <base>/<username>
+  # are mounted as /opt/data inside the pod (subdir-only, no parent visibility).
+  data_base: "/mnt/nfs/hermes"
+  # Second NFS-backed hostPath base, mounted as /workspace inside the pod.
+  # Intended as the user's input/output shelf: drop files from desktop NFS,
+  # LLM reads/writes via the hermes-cli terminal toolset. Same per-user subdir
+  # isolation pattern as hermes.data_base. Pre-req: NFS export mounted on
+  # k3smaster at this path before the pod starts.
+  files_base: "/mnt/nfs/hermes-files"
+  default_model: "{{ litellm_hermes_alias_model }}"  # stable alias → current SGLang model
+  litellm_url: "http://litellm.litellm.svc.cluster.local:4000"
+  # Timezone for the hermes pods. The container images default to UTC (no TZ),
+  # so the WebUI "System Status" / dashboard render timestamps (e.g. "Last
+  # active") 2h off from CEST. Injected as the TZ env var into the webui, agent
+  # and gateway containers — matches the cluster nodes (common role sets
+  # Europe/Berlin via /etc/localtime). Override per deploy if ever needed.
+  timezone: "Europe/Berlin"
+  # Sets logging.level=DEBUG in the rendered config.yaml (otherwise INFO).
+  # Affects /opt/data/logs/agent.log — kubectl logs -c log-tail <pod> tails it.
+  debug_default: false
+  # WebUI frontend (alternative interface to the native hermes dashboard).
+  webui:
+    image: "ghcr.io/nesquena/hermes-webui"
+    image_tag: "latest"
+    port: 8787
+    enabled_default: true            # deploy the webui pod by default
+  # Native dashboard (`hermes dashboard`) + its Caddy auth sidecar.
+  agent:
+    proxy_port: 9118
+    dashboard_enabled_default: false
+    dashboard_tui_default: false     # chat tab inside the dashboard (needs dashboard_enabled_default)
+  # Caddy sidecar in front of the agent dashboard. Cookie-session auth (via the
+  # caddy-security plugin) so WebSocket (TUI/PTY) and EventSource (events feed)
+  # work — BasicAuth credentials are NOT auto-included by browsers on those
+  # requests. oauth2-proxy v7 was tried first but rejects WS upgrades with 403
+  # even with --skip-auth-route; caddy-security checks the cookie only on the
+  # initial handshake and transparently passes the upgrade through. The image is
+  # greenpau/caddy-security packaged as `authcrunch/authcrunch` (multi-arch).
+  caddy:
+    image: "ghcr.io/authcrunch/authcrunch"
+    image_tag: "latest"
+  # Default for the per-user email gateway. When true, the webui pod gets the
+  # hermes-gateway sidecar running `hermes gateway run` against EMAIL_* vars in
+  # /opt/data/.env. Needs IMAP/SMTP credentials per user; enabling it without
+  # those just idles ("no platforms configured"). Implies webui enabled.
+  email:
+    enabled_default: true
+  # Matrix gateway. When true (per-user via hermes_users[*].matrix.enabled), the
+  # SAME hermes-gateway sidecar in the webui pod also serves Matrix — no extra
+  # pod/process: `hermes gateway run` auto-starts every platform with creds in
+  # /opt/data/.env. Pure-env (MATRIX_*), no source patch. E2EE deps (mautrix
+  # [encryption], olm) ship in the agent image; the crypto store persists under
+  # /opt/data (NFS) keyed by a stable MATRIX_DEVICE_ID. Off by default.
+  matrix:
+    enabled_default: false
+  # Seafile-backed /workspace. When workspace_enabled: (1) the hermes role
+  # provisions a Seafile user (using <hermes_users[*].email> + seafile.web_password)
+  # and a `hermes-workspace` library via the Seafile REST API, (2) a seadrive
+  # FUSE sidecar is injected into both pods, mounting that library at /workspace
+  # via mountPropagation. When false (default), /workspace stays on the
+  # hermes.files_base NFS subpath. Per-user override via
+  # hermes_users[*].seafile.workspace_enabled. server_url is the same external
+  # hostname the seadrive sidecar syncs against.
+  seafile:
+    workspace_enabled_default: false
+    server_url: "https://seafile.{{ dns_external_domain_suffix }}"
+    library_name: "hermes-workspace"
+  # seadrive client image (official, FUSE-mode). amd64-only — fine since hermes
+  # pods are pinned to k3smaster anyway.
+  seadrive:
+    image: "seafileltd/seadrive-fuse"
+    image_tag: "latest"
+
 # Per-user list — real entries in group_vars/all/vault.yml.
+#
+# ⚠️  WHY THIS IS A SEPARATE TOP-LEVEL VAR (and NOT hermes.users):
+# Ansible's hash_behaviour defaults to `replace` (this repo does NOT set it to
+# `merge` — and that default is deprecated, so we don't rely on it). Under
+# `replace`, when the SAME dict key is defined in two files, the higher-precedence
+# file's value REPLACES the whole dict — sub-keys are NOT deep-merged.
+# The real user list lives in vault (group_vars/all/vault.yml). If it were
+# `hermes.users`, that vault file would define `hermes:` with only the `users`
+# key — and being higher precedence, it would REPLACE the entire `hermes:` config
+# dict above, silently wiping namespace/image_tag/webui/seafile/… (every key).
+# That is exactly the trap documented for the `seafile:`/`forgejo:` dicts, which
+# "solve" it by duplicating ALL keys across all three files. Keeping the user
+# list as its own flat top-level var sidesteps it: `hermes_users` in vault simply
+# overrides `hermes_users: []` here, and the `hermes:` config dict (single file)
+# is never touched. DO NOT fold this into the hermes dict.
 # Schema: { username, uid, gid, litellm_token,
 #           litellm_model?, basicauth_password?, webui_password?,
 #           dashboard_enabled? (default true),
@@ -256,7 +280,7 @@ hermes_seadrive_image_tag: "latest"
 #           webui_enabled?     (default false),
 #           hermes_debug?      (default false),
 #           email?: {           (default disabled — omit block to skip)
-#               enabled,        (default hermes_email_enabled_default)
+#               enabled,        (default hermes.email.enabled_default)
 #               address, password, imap_host, smtp_host,
 #               imap_port?      (default 993),
 #               smtp_port?      (default 587),
@@ -267,7 +291,7 @@ hermes_seadrive_image_tag: "latest"
 #               cpu_limit?, memory_limit?
 #           },
 #           matrix?: {          (default disabled — omit block to skip)
-#               enabled,        (default hermes_matrix_enabled_default)
+#               enabled,        (default hermes.matrix.enabled_default)
 #               homeserver,     (e.g. https://matrix.example.org)
 #               access_token?   OR  user_id? + password?  (both allowed;
 #                               access_token wins in matrix.py — user/pass is
