@@ -21,6 +21,26 @@
       whose profile fits, or change the nodes list.
     success_msg: "{{ inst.prefix }}: tp={{ sglang_tp }} pp={{ sglang_pp }} ep={{ sglang_ep }} over {{ _sglang_active_nnodes }} node(s) OK"
 
+# Validate a manual PP layer partition (SGLANG_PP_LAYER_PARTITION) if set: must
+# have exactly pp_size comma-separated entries and only makes sense with pp > 1.
+# SGLang additionally asserts the entries sum to num_hidden_layers at startup
+# (which Ansible can't check here without the model's layer count).
+- name: Validate manual PP layer partition ({{ inst.prefix }})
+  ansible.builtin.assert:
+    that:
+      - (sglang_pp_layer_partition | string | length == 0) or
+        ((sglang_pp | int) > 1 and
+         ((sglang_pp_layer_partition | string).split(',') | length == (sglang_pp | int)))
+    fail_msg: >-
+      Instance '{{ inst.prefix }}': pp_layer_partition='{{ sglang_pp_layer_partition }}'
+      must have exactly pp={{ sglang_pp }} comma-separated per-stage layer counts
+      (and requires pp > 1). The counts must sum to the model's num_hidden_layers
+      (SGLang asserts the sum at startup).
+    success_msg: >-
+      {{ inst.prefix }}: pp_layer_partition
+      {{ 'unset (even split)' if (sglang_pp_layer_partition | string | length == 0)
+         else sglang_pp_layer_partition }}
+
 # Guard: refuse to deploy if KIKUBE has taken over management of SGLang.
 # The KIKUBE product layer (dgxarley-custom) sets kikube.io/managed-by=kikube
 # on all resources it manages. Once that annotation is present on the Service,
@@ -398,6 +418,8 @@
                     value: "{{ sglang_pp | string }}"
                   - name: PP_ASYNC_BATCH_DEPTH
                     value: "{{ sglang_pp_async_batch_depth | string }}"
+                  - name: PP_LAYER_PARTITION
+                    value: "{{ sglang_pp_layer_partition | string }}"
                   - name: EP
                     value: "{{ sglang_ep | string }}"
                   - name: NNODES
@@ -563,6 +585,8 @@
                     value: "{{ sglang_pp | string }}"
                   - name: PP_ASYNC_BATCH_DEPTH
                     value: "{{ sglang_pp_async_batch_depth | string }}"
+                  - name: PP_LAYER_PARTITION
+                    value: "{{ sglang_pp_layer_partition | string }}"
                   - name: EP
                     value: "{{ sglang_ep | string }}"
                   - name: NNODES

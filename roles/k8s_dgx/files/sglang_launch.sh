@@ -1112,6 +1112,15 @@ else
   rm -f "$DSV4_DP/zz_dsv4_memprobe.pth" "$DSV4_DP/dsv4_memprobe.py" 2>/dev/null || true
 fi
 
+# Manual pipeline-stage layer boundaries. SGLang reads SGLANG_PP_LAYER_PARTITION
+# directly from the env (os.getenv in get_pp_indices), NOT as a CLI flag. We pass
+# our own PP_LAYER_PARTITION and promote it ONLY when non-empty: an empty value
+# would make SGLang parse int("") and crash. Empty = SGLang default even split.
+if [ -n "${PP_LAYER_PARTITION:-}" ]; then
+  export SGLANG_PP_LAYER_PARTITION="$PP_LAYER_PARTITION"
+  echo "PP layer partition (manual): SGLANG_PP_LAYER_PARTITION=$SGLANG_PP_LAYER_PARTITION"
+fi
+
 args=(
   tini -s --
   python3 -m sglang.launch_server

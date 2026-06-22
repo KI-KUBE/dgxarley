@@ -261,6 +261,15 @@ sglang_pp: "{{ _sglang_active_pp if (_sglang_active_pp | string | length > 0) el
 # PP async micro-batching depth: overlaps forward passes across pipeline stages.
 # 0 = synchronous (default). Only effective when pp > 1.
 sglang_pp_async_batch_depth: "{{ sglang_model_profiles[_sglang_active_model].pp_async_batch_depth | default(0) }}"
+# Manual pipeline-stage layer boundaries (SGLang's SGLANG_PP_LAYER_PARTITION).
+# Comma-separated per-stage layer COUNTS, e.g. "13,13,13,13,13,13" for PP=6, or
+# "10,16,16,16,10,10" to give the embedding/lm_head+MTP stages fewer layers.
+# Must have exactly pp_size entries summing to the model's num_hidden_layers
+# (SGLang asserts the sum at startup). Empty = SGLang's default even split
+# (remainder layers go to the LAST stages). Only meaningful with pp > 1.
+# Passed via the plain PP_LAYER_PARTITION env; the launch script promotes it to
+# SGLANG_PP_LAYER_PARTITION only when non-empty (empty would crash int("")).
+sglang_pp_layer_partition: "{{ sglang_model_profiles[_sglang_active_model].pp_layer_partition | default('') }}"
 # Expert parallelism: partitions the TP group for MoE layers.
 # EP must divide TP (ep_size <= tp_size). With EP=TP, MoE layers use
 # all-to-all instead of all-reduce — more efficient for MoE over Ethernet.
