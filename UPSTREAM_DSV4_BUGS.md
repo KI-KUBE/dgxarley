@@ -1,6 +1,21 @@
 # SGLang Upstream Bugs / Gaps: DeepSeek-V4-Flash on SM121 (DGX Spark)
 
-## Status (verified 2026-05-31, upstream re-checked 2026-06-08, re-verified 2026-06-11, re-verifiziert 2026-06-14)
+## Status (verified 2026-05-31, upstream re-checked 2026-06-08, re-verified 2026-06-11, re-verifiziert 2026-06-14, 2026-06-22)
+
+> **Update 2026-06-22 — PR #25820 ist GEMERGT (main, noch in KEINEM Release).**
+> [PR #25820](https://github.com/sgl-project/sglang/pull/25820) „[NVIDIA]
+> Support NVFP4 MoE for DeepSeek-V4" wurde am **2026-06-22T02:35Z in den
+> sglang-`main` gemergt** (vorher DIRTY / CHANGES_REQUESTED, vgl.
+> 2026-06-16-Block). **In KEINEM Release enthalten** — v0.5.13.post1
+> (PyPI 2026-06-15, aktuell letztes Release) wurde vor dem Merge getaggt; der
+> Fix landet erst in v0.5.14 oder einem späteren Post-Release. Der PR routet
+> weiterhin default auf `flashinfer_trtllm_routed` (B200/SM100-only, vgl. #26324;
+> im PR-Body nur auf B200 getestet, kein SM120/121-Test) → der
+> `flashinfer_cutlass`-Pin im Modellprofil `nvidia-deepseek-v4-flash-nvfp4.yml`
+> bleibt für SM121 die richtige Wahl. Das lokale Build-Recipe-Gate
+> `APPLY_DSV4_NVFP4_PR25820=1` bleibt nötig, bis ein Release-Image den Merge
+> trägt — kann dann durch den nativen v0.5.14+-Pfad ersetzt werden. #26324
+> (flashinfer_trtllm-Assert) war beim Merge noch offen.
 
 > **2026-06-08 — DSV4 ist nicht mehr der aktive Default.** `defaults/main.yml`
 > hat auf `sglang_model: RedHatAI/Qwen3.6-35B-A3B-NVFP4` auf Image
@@ -92,7 +107,7 @@ Flash serving is still being stabilized upstream.
 |---|-------|-------|---------------|
 | 1 | `kv_lora_rank=None` strict-dataclass crash at config parse | **Worked around** (launch patch) | Blocks ANY V4-Flash checkpoint until patched |
 | 2 | compressed-tensors `wqkv_a` vs `fused_wqa_wkv` target mismatch | **Open upstream** (#23724) | Makes RedHatAI / kylesayrs / canada-quant NVFP4 unloadable |
-| 3 | NVFP4 MoE / FP4 indexer for V4 not implemented | **Partial** — FP4 indexer #26209 merged 2026-06-02 (main, in v0.5.13-Tag); NVFP4 MoE #25820 open (Flash NVFP4 working on B200 per 2026-06-11 comment, kein SM121-Test) | Kein nutzbarer NVFP4-Pfad auf SGLang für uns bis #25820 gemergt |
+| 3 | NVFP4 MoE / FP4 indexer for V4 not implemented | **Partial** — FP4 indexer #26209 merged 2026-06-02 (main, in v0.5.13-Tag); NVFP4 MoE #25820 **merged 2026-06-22 (main, noch in keinem Release; B200-only)** | Kein nutzbarer NVFP4-Pfad auf SGLang für uns, bis ein Release-Image #25820 trägt (v0.5.14+) |
 | 4 | NVFP4 runner instability on V4-Flash/Pro | **Open / partly closed** (#26324, #25704) | Even where NVFP4 loads, output is NaN/garbage except EAGLE |
 | 5 | `nvidia/DeepSeek-V4-Pro-NVFP4` does not fit; `nvidia/DeepSeek-V4-Flash-NVFP4` needs verification | N/A (capacity) | Pro: 913 GB vs 512 GB — does not fit. Flash NVFP4 (~162B params) may fit TP=4 — unverified, see §5 |
 
@@ -198,7 +213,8 @@ support:
 - `models/deepseek_v4.py` has exactly one quant branch: `w4afp8` (line ~1401).
   No NVFP4 / ModelOpt path for the attention projections.
 - [#25820](https://github.com/sgl-project/sglang/issues/25820) **[NVIDIA] Support
-  NVFP4 MoE for DeepSeek-V4** — open.
+  NVFP4 MoE for DeepSeek-V4** — **merged 2026-06-22 (main, noch in keinem
+  Release; default `flashinfer_trtllm_routed`, B200-only).**
 - [#26209](https://github.com/sgl-project/sglang/issues/26209) **Add FP4 Indexer
   for DeepSeek V4** — **merged 2026-06-02** (in `main`, merged_at
   2026-06-02T07:14:39Z; enthalten im offiziellen v0.5.13-Release seit 2026-06-13).
@@ -463,7 +479,7 @@ PD-disagg) may surface new walls if turned on.
 | PR #24692 | feat: SM120 (Blackwell Desktop) support for DeepSeek-V4 inference | **merged 2026-06-01; im offiziellen v0.5.13-GitHub-Release seit 2026-06-13** |
 | #23602 | DeepSeek V4 Roadmap | open |
 | #23724 | Support DeepSeek-V4 Compressed-tensor W4A16 | open |
-| #25820 | [NVIDIA] Support NVFP4 MoE for DeepSeek-V4 | open (2026-06-11: Flash NVFP4 working auf B200, GSM8K 96.21%; kein SM120/121-Test) |
+| #25820 | [NVIDIA] Support NVFP4 MoE for DeepSeek-V4 | **merged 2026-06-22 (main, noch in keinem Release — v0.5.14+; default `flashinfer_trtllm_routed`, B200-only, kein SM120/121-Test)** |
 | #26209 | Add FP4 Indexer for DeepSeek V4 | **merged 2026-06-02; im offiziellen v0.5.13-GitHub-Release seit 2026-06-13** |
 | #26324 | flashinfer_trtllm MoE runner asserts on DeepSeek-V4-Flash NVFP4 (B200) | open |
 | #25704 | V4-Pro NVFP4 B200: NaN/garbage except EAGLE | closed |
