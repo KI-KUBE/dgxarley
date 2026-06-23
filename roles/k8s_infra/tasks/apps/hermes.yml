@@ -20,6 +20,91 @@
   ansible.builtin.set_fact:
     _hermes_active_users: "{{ hermes_users | selectattr('enabled', 'true') | list }}"
 
+# --- Per-namespace NetworkPolicies for the Hermes pods (gated by
+# hermes_network_policies_enabled, default OFF). One egress + one ingress policy,
+# selecting ALL hermes pods via `app: hermes` (both agent and webui carry it), so
+# they isolate every user from every other. INERT until k3s network-policy
+# enforcement is re-enabled cluster-wide (disable-network-policy currently true).
+- name: Create hermes egress NetworkPolicy
+  when: hermes_network_policies_enabled | bool
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: hermes-egress
+        namespace: "{{ hermes.namespace }}"
+      spec:
+        podSelector:
+          matchLabels:
+            app: hermes
+        policyTypes:
+          - Egress
+        egress:
+          # DNS → CoreDNS (kube-system). Without this nothing resolves.
+          - to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+                podSelector:
+                  matchLabels:
+                    k8s-app: kube-dns
+            ports:
+              - protocol: UDP
+                port: 53
+              - protocol: TCP
+                port: 53
+          # LiteLLM namespace (LLM backend) — whole namespace, any port.
+          - to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: litellm
+          # SearXNG namespace (web-search backend) — whole namespace, any port.
+          - to:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: searxng
+          # Internet + LAN, but NOT the cluster pod/service CIDRs → blocks every
+          # other in-cluster pod (incl. other users' hermes pods) while keeping
+          # full outbound internet (Matrix/email/PyPI). LAN stays open, so own
+          # Traefik-exposed services (e.g. Seafile sync via the ingress IP) work.
+          - to:
+              - ipBlock:
+                  cidr: 0.0.0.0/0
+                  except:
+                    - "{{ cluster_cidr }}"
+                    - "{{ service_cidr }}"
+
+# Ingress: only Traefik (kube-system) may reach the hermes pods → web-UI /
+# dashboard via Traefik works, but no other pod (incl. other users) can connect.
+# kube-router does not block node-local kubelet probes, so liveness/readiness
+# should keep working — verify on first enablement.
+- name: Create hermes ingress NetworkPolicy
+  when: hermes_network_policies_enabled | bool
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: hermes-ingress
+        namespace: "{{ hermes.namespace }}"
+      spec:
+        podSelector:
+          matchLabels:
+            app: hermes
+        policyTypes:
+          - Ingress
+        ingress:
+          - from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: kube-system
+                podSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: traefik
+
 # One-shot migration cleanup for the pre-rename / pre-split layouts.
 # Safe to keep — both are idempotent absent-asserts.
 - name: Remove legacy combined Deployment (pre-split into agent + webui)

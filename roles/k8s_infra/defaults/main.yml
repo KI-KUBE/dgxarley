@@ -171,6 +171,18 @@ openwebui_connections_openai_keys:
 # are identical across both UIs. Each one still spawns its own hermes processes
 # when chatting — Hermes is a CLI, not a daemon; there is no shared agent
 # process to multiplex onto.
+# Apply the per-namespace egress/ingress NetworkPolicies for the Hermes pods.
+# STANDALONE var (NOT inside the hermes: dict) to avoid the hash_behaviour=replace
+# trap. Default OFF: the policies are written/version-controlled but NOT applied,
+# because this cluster currently runs with `disable-network-policy: true`
+# (roles/k3sserver/templates/etc_rancher_k3s_config.yaml.j2) → any NetworkPolicy
+# is silently IGNORED. To activate isolation you need BOTH: (1) remove that line
+# + restart k3s on k3smaster (re-enables the kube-router policy controller), and
+# (2) set this true. The policies block all cross-pod traffic (incl. other users'
+# hermes pods) while allowing DNS, the litellm + searxng namespaces, full
+# internet/LAN egress, and Traefik-only ingress.
+hermes_network_policies_enabled: false
+
 # Global (non-secret) Hermes config — nested dict. Defined ONLY here (single
 # file) so it sidesteps the hash_behaviour=replace trap that forces seafile:/
 # forgejo: to duplicate every key across three files. Access as hermes.<group>.
