@@ -358,9 +358,17 @@ raw dcgm-exporter-12239.json "https://grafana.com/api/dashboards/12239/revisions
 #   legendFormat={{sglang_instance}} so their legend shows
 #   the name. REQUIRES the head pod to carry the label (redeploy sglang, or
 #   `kubectl label pod <head> sglang_instance=<key>` for an existing pod).
-# - UNITS: latency panels (E2E/TTFT + heatmaps) → "s" (metric is _seconds);
-#   running/queued/throughput → "short"; cache hit rate → "percentunit"
-#   (SGLang emits a 0–1 fraction; observed peak 0.6 = 60%).
+# - UNITS: timeseries latency (E2E/TTFT) → "s" (metric is _seconds). HEATMAPS get
+#   the cell value → "short" (it's a request COUNT; the duration is the Y-axis,
+#   already secs via options.yAxis.unit — putting "s" on the field mislabels the
+#   count as seconds). running/queued/throughput → "short"; cache hit rate →
+#   "percentunit" (a 0–1 fraction).
+# - CACHE HIT RATE is DERIVED, not the gauge: SGLang's sglang:cache_hit_rate gauge
+#   is stuck at 0 in this build (max_over_time 1h = 0) even when the scheduler logs
+#   large #cached-token. We override the panel expr to the real ratio from the
+#   COUNTERS: rate(sglang:cached_tokens_total) / rate(sglang:prompt_tokens_total)
+#   over $__rate_interval (both carry sglang_instance + model_name). Matches the
+#   logs (~0.86 cumulative / ~0.96 recent). Idle → 0/0 = gaps, which is correct.
 # - Rename "End-to-End Request Latency" (+ Heatmap) → "Total Request Duration":
 #   sglang:e2e_request_latency_seconds is the FULL request duration (queue +
 #   prefill + complete decode), dominated by output length — a response time,
@@ -396,9 +404,14 @@ raw sglang-dashboard.json "https://raw.githubusercontent.com/sgl-project/sglang/
         else . end
       )
     | .panels |= map(
-        if (.title == "End-to-End Request Latency" or .title == "End-to-End Request Latency(s) Heatmap"
-            or .title == "Time-To-First-Token Latency" or .title == "Time-To-First-Token Seconds Heatmap")
+        # Timeseries latency: the Y-axis IS the duration → unit "s".
+        if (.title == "End-to-End Request Latency" or .title == "Time-To-First-Token Latency")
           then .fieldConfig.defaults.unit = "s"
+        # Heatmaps: the Y-axis (duration buckets) is already secs via options.yAxis.unit.
+        # The CELL value/colour is a request COUNT, so it must be "short", NOT "s"
+        # (otherwise the tooltip/legend mislabel the count as seconds).
+        elif (.title == "End-to-End Request Latency(s) Heatmap" or .title == "Time-To-First-Token Seconds Heatmap")
+          then (.fieldConfig.defaults.unit = "short" | .options.cellValues.unit = "short" | .options.yAxis.unit = "s")
         elif .title == "Cache Hit Rate" then (.fieldConfig.defaults.unit = "percentunit" | .fieldConfig.defaults.max = 1 | .fieldConfig.defaults.min = 0)
         elif (.title == "Num Running Requests" or .title == "Number Queued Requests"
               or .title == "Token Generation Throughput (Tokens / S)")
@@ -411,6 +424,8 @@ raw sglang-dashboard.json "https://raw.githubusercontent.com/sgl-project/sglang/
           then .targets |= map(.legendFormat = "{{sglang_instance}}")
         else . end
       )
+    | (.. | objects | select(.title == "Cache Hit Rate") | .targets[0].expr) |=
+        "sum by (sglang_instance, model_name) (rate({__name__=~\"sglang[:_]cached_tokens_total\", sglang_instance=~\"$instance\", model_name=~\"$model_name\"}[$__rate_interval])) / sum by (sglang_instance, model_name) (rate({__name__=~\"sglang[:_]prompt_tokens_total\", sglang_instance=~\"$instance\", model_name=~\"$model_name\"}[$__rate_interval]))"
     | (.. | objects | select(.title == "End-to-End Request Latency") | .title) |= "Total Request Duration"
     | (.. | objects | select(.title == "End-to-End Request Latency(s) Heatmap") | .title) |= "Total Request Duration Heatmap"
   ' | commit sglang-dashboard.json
