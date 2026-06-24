@@ -83,9 +83,13 @@ _model_profile:
     # (auto_map) that SGLang must execute. Safe: official nvidia/ repo.
     trust_remote_code: true
     # flashinfer_cutlass MoE — the proven NVFP4 MoE runner on SM121 (Super/qwen3-235b/glm-4.7).
-    # triton is NOT an alternative on the modelopt NVFP4 path (it falls through to
-    # cutlass_moe_fp4 and trips a shape assert on NemotronH LatentMoE — see Super Case 06).
-    # 128 experts % 4 == 0, so ep_size below mirrors the Super EP=4 default. ALL UNVALIDATED here.
+    # triton is NOT an alternative on the modelopt NVFP4 path (falls through to cutlass_moe_fp4).
+    # ⚠️ REQUIRES the sglang_launch.sh "_sgl_nemotronh_omni_wrapper_" patch (PR #25024): without
+    # it, this Omni *wrapper* arch (NemotronH_Nano_Omni_Reasoning_V3) bypasses the NemotronH MoE
+    # defaults hook → llm_config-nested MoE settings unresolved → backend stays AUTO → falls to
+    # the sm_100-only cutlass_moe_fp4 and trips the nx2_w1 shape assert during flashinfer autotune
+    # (even with this flashinfer_cutlass set — the hook does the llm_config resolution this needs).
+    # 128 experts % 4 == 0, so ep_size below mirrors the Super EP=4 default. UNVALIDATED first-contact.
     moe_runner_backend: "flashinfer_cutlass"
     kv_cache_dtype: "fp8_e4m3"
     # Small model → lots of headroom. Card's Spark guidance: mem-fraction-static 0.70–0.80.

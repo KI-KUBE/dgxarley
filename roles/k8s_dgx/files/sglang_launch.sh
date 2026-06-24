@@ -257,6 +257,95 @@ else:
         p.write_text(src)
 PATCH_MIXED_NVFP4_VARIANT_EOF
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Patch NemotronH VL/Omni wrapper MoE routing — upstream PR #25024 (OPEN, not in
+# v0.5.13), rebased onto v0.5.13. Three small Python edits across 3 files.
+#
+# Symptom (nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4 on SM121/GB10):
+#   cutlass_moe.py cutlass_moe_fp4 → AssertionError "mismatch in expected `n`"
+#   (nx2_w1 == intermediate_size_per_partition * 2) during flashinfer autotune.
+# Cause: the NemotronH MoE defaults hook only matched bare NemotronHForCausalLM, so
+# the VL/Omni wrapper archs (NemotronH_Nano_VL_V2 / _Nano_Omni_Reasoning_V3) bypassed
+# it. Their LLM sub-config nests under hf_config.llm_config (not top-level / text_config),
+# so the MoE-config resolution was skipped → backend stayed AUTO → fell through to the
+# sm_100-only cutlass_moe_fp4 with a mismatched intermediate size. Even an explicit
+# moe_runner_backend=flashinfer_cutlass in the profile doesn't fix it — the hook also
+# does the llm_config field resolution this needs.
+# Fix (PR #25024): (1) server_args dispatch list includes the wrapper archs;
+# (2) nemotron_h_hook reads NemotronH fields from hf_config.llm_config for wrappers;
+# (3) scheduler.init_moe_gemm_config resolves the LLM sub-config via hf_text_config.
+# Drop this block once PR #25024 lands in a release tag we use (the grep guards make it
+# a safe no-op if the targets are already changed, e.g. on a future baked image).
+# ─────────────────────────────────────────────────────────────────────────────
+python3 - <<'PATCH_NEMOTRONH_OMNI_WRAPPER_EOF'
+import pathlib
+DIST = "/usr/local/lib/python3.12/dist-packages/sglang/srt"
+marker = "# [patch] _sgl_nemotronh_omni_wrapper_"
+
+# --- 1) arg_groups/nemotron_h_hook.py ---
+p = pathlib.Path(DIST + "/arg_groups/nemotron_h_hook.py")
+if not p.exists():
+    print("nemotron_h_hook.py: not found, skipping")
+else:
+    s = p.read_text()
+    old1a = ('    model_config = server_args.get_model_config()\n'
+             '    is_modelopt = model_config.quantization in [\n')
+    new1a = ('    model_config = server_args.get_model_config()\n'
+             '    ' + marker + ' (PR #25024)\n'
+             '    # NemotronH config fields live on inner llm_config for the VL/Omni wrappers\n'
+             '    # (NemotronH_Nano_VL_V2 / _Nano_Omni_Reasoning_V3), on hf_config for standalone.\n'
+             '    nemotron_h_cfg = getattr(model_config.hf_config, "llm_config", model_config.hf_config)\n'
+             '    is_modelopt = model_config.quantization in [\n')
+    old1b = '        assert model_config.hf_config.mlp_hidden_act == "relu2"\n'
+    new1b = '        assert nemotron_h_cfg.mlp_hidden_act == "relu2"\n'
+    if marker in s:
+        print("nemotron_h_hook.py: already patched, skipping")
+    elif old1a not in s or old1b not in s:
+        print("nemotron_h_hook.py: anchor(s) not found, skipping")
+    else:
+        p.write_text(s.replace(old1a, new1a, 1).replace(old1b, new1b, 1))
+        print("Patched nemotron_h_hook.py: read NemotronH fields from llm_config (wrappers)")
+
+# --- 2) managers/scheduler.py: init_moe_gemm_config via hf_text_config ---
+p = pathlib.Path(DIST + "/managers/scheduler.py")
+if not p.exists():
+    print("scheduler.py: not found, skipping")
+else:
+    s = p.read_text()
+    old2 = ('        # For the MM models, check the text_config for MoE settings\n'
+            '        config_to_check = getattr(\n'
+            '            self.model_config.hf_config, "text_config", self.model_config.hf_config\n'
+            '        )\n')
+    new2 = ('        ' + marker + ' (PR #25024) — resolve the LLM sub-config via\n'
+            '        # hf_text_config so NemotronH VL/Omni wrappers (nest under llm_config) are\n'
+            '        # not skipped (else initialize_moe_config is skipped -> MoE backend AUTO).\n'
+            '        config_to_check = self.model_config.hf_text_config\n')
+    if marker in s:
+        print("scheduler.py: already patched, skipping")
+    elif old2 not in s:
+        print("scheduler.py: init_moe_gemm_config anchor not found, skipping")
+    else:
+        p.write_text(s.replace(old2, new2, 1))
+        print("Patched scheduler.py: init_moe_gemm_config uses hf_text_config")
+
+# --- 3) server_args.py: add wrapper archs to the NemotronH dispatch ---
+p = pathlib.Path(DIST + "/server_args.py")
+if not p.exists():
+    print("server_args.py: not found, skipping")
+else:
+    s = p.read_text()
+    old3 = '        elif model_arch in ["NemotronHForCausalLM", "NemotronHPuzzleForCausalLM"]:\n'
+    new3 = ('        ' + marker.lstrip() + ' (PR #25024): add VL/Omni wrapper archs\n'
+            '        elif model_arch in ["NemotronHForCausalLM", "NemotronHPuzzleForCausalLM", "NemotronH_Nano_VL_V2", "NemotronH_Nano_Omni_Reasoning_V3"]:\n')
+    if marker in s:
+        print("server_args.py: NemotronH dispatch already patched, skipping")
+    elif old3 not in s:
+        print("server_args.py: NemotronH dispatch anchor not found, skipping")
+    else:
+        p.write_text(s.replace(old3, new3, 1))
+        print("Patched server_args.py: NemotronH dispatch includes VL/Omni wrappers")
+PATCH_NEMOTRONH_OMNI_WRAPPER_EOF
+
 # Prime ARP table on the QSFP link before NCCL tries to connect.
 # Without this, the first TCP SYNs get dropped until ARP resolves,
 # causing ~230s delay in "Init torch distributed".
