@@ -71,6 +71,13 @@
   Review getaggt. Noch **nicht gemerged** (REVIEW_REQUIRED), aber nicht mehr
   vollständig stillgelegt. SM121-Validierung von Gemma-4 NVFP4 bleibt ausstehend.
 
+  **Re-verified 2026-06-24:** PRs #22929/#22928/#22927 (SM121 NaN-clamp) still
+  OPEN and stale since 2026-04-16; PR #22615 (fp8 KV cache + KV-shared layers)
+  still OPEN (active, updated 2026-06-20). No change to status above. v0.5.13
+  remains the latest release (2026-06-13). Note: v0.5.13.post1 (2026-06-15) is
+  a bare git tag — no GitHub Release page, no scitrera Docker image — and can
+  be dismissed as a delivery vehicle for these fixes.
+
 The original v0.5.10 blockers (Transformers fallback, dual head_dim, top_k_experts
 naming) are no longer relevant for our deployment because we build the image
 from SGLang main, not from the v0.5.10 release — and they are also fixed in
