@@ -2,64 +2,85 @@
 # Model profile: nvidia/Qwen3.6-35B-A3B-NVFP4
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 #
-# NVIDIA's OWN modelopt NVFP4 quant of Qwen/Qwen3.6-35B-A3B (released 2026-05-31).
+# NVIDIA's OWN modelopt quant of Qwen/Qwen3.6-35B-A3B (NVFP4 upload 2026-05-31).
 # Three sibling packagings of the SAME base model already live in this repo:
-#   * redhatai-qwen3.6-35b-a3b-nvfp4.yml  — compressed-tensors, FULLY VALIDATED winner
-#   * mmangkad-qwen3.6-35b-a3b-nvfp4.yml  — modelopt, seed (same loader path as THIS one)
+#   * redhatai-qwen3.6-35b-a3b-nvfp4.yml  — compressed-tensors, uniform NVFP4, FULLY VALIDATED winner
+#   * mmangkad-qwen3.6-35b-a3b-nvfp4.yml  — modelopt, uniform NVFP4, seed
 #   * qwen-qwen3.6-35b-a3b-fp8.yml        — FP8 sibling
-# This profile is the NVIDIA-published modelopt variant — functionally identical
-# packaging to mmangkad's (both `quant_method: "modelopt"`), just the canonical
-# first-party upload (Apache-2.0). Confirmed from config.json (2026-06-24):
-#   quant_method "modelopt"  → SGLang loader MUST use quantization=modelopt_fp4
-#   (NOT compressed-tensors — that's the RedHatAI repackaging; mixing them errors
-#    "Quantization method ... does not match the `quantization` argument").
+#
+# ⚠️ NOT a uniform-NVFP4 checkpoint, despite the "-NVFP4" repo name, and REQUIRES a
+# sglang_launch.sh runtime patch to load on this stack. The original header claimed
+# "functionally identical packaging to mmangkad's, both modelopt → modelopt_fp4" —
+# WRONG. The actual hf_quant_config.json (modelopt 0.44.0, confirmed 2026-06-24) is
+# `quant_algo: MIXED_PRECISION`, NOT uniform NVFP4:
+#   * MoE experts + shared-expert proj (322 layers) → W4A16_NVFP4, group_size 16
+#   * linear_attn (Gated-DeltaNet) + others (260 layers) → FP8
+#   * MTP head (mtp*) → EXCLUDED (kept full precision)
+#   * kv_cache_quant_algo → FP8
+#
+# ── WHY THE PATCH IS NEEDED (SGLang 0.5.12) ──
+# _parse_modelopt_quant_config() maps MIXED_PRECISION → quant method by ARCHITECTURE:
+# NemotronH → modelopt_mixed, everything else → w4afp8. This Qwen arch
+# (Qwen3_5MoeForConditionalGeneration) falls through to w4afp8, which is a closed trap:
+#   * modelopt_fp4 / modelopt_mixed → _verify_quantization rejects the mismatch
+#     (detected w4afp8 ∉ compatible[modelopt_*] = ["modelopt"]).
+#   * w4afp8 → passes verify, but W4AFp8Config is the W4A8 (int4 + per-group fp8-scale)
+#     loader — the WRONG weight encoding for NVFP4 (e2m1) experts.
+# The ModelOptMixedPrecisionConfig loader DOES compose per-layer NVFP4+FP8 correctly
+# but is unreachable for this arch upstream. The sglang_launch.sh
+# "_sgl_mixed_nvfp4_dispatch_" patch broadens the gate: any NVFP4-bearing
+# MIXED_PRECISION checkpoint → modelopt_mixed. With that patch + `quantization:
+# modelopt_mixed` below, detection matches, verify passes, and the mixed loader runs.
+# ⚠️ If that patch is ever dropped/reverted, this profile breaks again — they are paired.
+#
 #   architectures Qwen3_5MoeForConditionalGeneration, 40 layers, 256 experts /
 #   8 routed + 1 shared per token, max_position_embeddings 262144,
 #   mtp_num_hidden_layers 1 (native MTP head → NEXTN speculative).
 # 35B total / ~3B active, Gated-DeltaNet hybrid-mamba MoE → SGLang routes it
 # through the mamba scheduler path (hence the spec-v2 + extra_buffer knobs below).
 #
-# ── VALIDATION STATUS: UNVALIDATED on this cluster (no matrix run for THIS upload) ──
-# The values below are NOT a fresh matrix winner. They are composed from two
-# validated/seed sources for the SAME base model:
+# ── VALIDATION STATUS: UNVALIDATED — first boot is first-contact for modelopt_mixed
+#    on this Qwen arch + SM121/GB10. The launch.sh patch clears the config-dispatch
+#    walls; it does NOT guarantee a clean weight-load / CUDA-graph capture. ──
+# The values below are NOT a fresh matrix winner:
 #   * MODEL-INTRINSIC knobs taken from the RedHatAI VALIDATED winner (0.5.12 matrix,
 #     Test 45, n=8 peak 438.07 tok/s — best ever on this cluster): context, MTP
 #     depth (NEXTN s=2 / draft=3, the validated sweet spot — s=3/4/5 all decayed),
-#     sampling, parsers. These are properties of the model, not the packaging, so
-#     they carry across the compressed-tensors → modelopt switch.
-#   * PACKAGING/BACKEND knobs taken from the mmangkad modelopt seed: modelopt_fp4
-#     loader, flashinfer_cutlass MoE, mem 0.6.
-# ⚠️ MoE BACKEND IS THE OPEN QUESTION. The RedHatAI WINNER ran `moe_runner_backend:
-#   triton` — but ONLY because the compressed-tensors path REJECTS flashinfer_cutlass
-#   on SGLang's MoE-kernel whitelist (only modelopt_*/bf16 accepted). On THIS modelopt
-#   path flashinfer_cutlass IS accepted (the standard SM121 NVFP4 MoE runner), so it is
-#   the safer first-contact default here. But triton MoE is what actually won n=8 on
-#   this exact model — A/B triton vs flashinfer_cutlass on the first real boot before
-#   trusting the value below. Re-run the focused sweep
-#   (matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-nvfp4-...) and rewrite with
-#   measured numbers.
+#     sampling, parsers. These are model properties, carry across to this upload.
+#   * mem 0.6 conservative first-contact (matches both uniform-NVFP4 siblings).
+# NOTE: the two uniform-NVFP4 siblings (redhatai = validated winner, mmangkad = seed)
+# already cover this base model and DON'T need the patch — prefer them unless you
+# specifically want this first-party mixed-precision upload. Re-run the focused sweep
+# (matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-nvfp4-...) and rewrite with
+# measured numbers once it boots clean.
 _model_profile:
   "nvidia/Qwen3.6-35B-A3B-NVFP4":
     knowledge_cutoff: null  # not officially disclosed; community (Reddit r/Qwen_AI) claims ~mid-2024, unconfirmed
     release_date: "2026-04-16"  # Qwen3.6-35B-A3B base; official QwenLM GitHub changelog (NVFP4 upload 2026-05-31)
     info_url: "https://huggingface.co/nvidia/Qwen3.6-35B-A3B-NVFP4"
-    # 35B/3B MoE (Gated DeltaNet hybrid), NVFP4 via modelopt (~10–12 GB on-device
-    # weights vs ~35 GB FP8). 256 experts, 8 routed + 1 shared per token. Native 262K
+    # 35B/3B MoE (Gated DeltaNet hybrid), MIXED_PRECISION modelopt: W4A16_NVFP4 MoE
+    # experts + FP8 attn (~10–12 GB on-device vs ~35 GB FP8). 256 experts, 8 routed + 1 shared per token. Native 262K
     # context (extensible to ~1M via YaRN — not enabled here). MTP-trained → NEXTN.
     context_length: 262144
-    # NVIDIA modelopt (TRT-Model-Optimizer) → modelopt_fp4. NOT compressed-tensors.
-    quantization: "modelopt_fp4"
+    # MIXED_PRECISION modelopt checkpoint (W4A16_NVFP4 MoE + FP8 attn). REQUIRES the
+    # sglang_launch.sh "_sgl_mixed_nvfp4_dispatch_" patch: stock SGLang 0.5.12 gates
+    # MIXED_PRECISION→modelopt_mixed to NemotronH arch and routes this Qwen arch to
+    # w4afp8 (wrong loader for NVFP4 experts). The patch routes NVFP4-bearing mixed
+    # checkpoints to modelopt_mixed → this value matches detection and verify passes.
+    quantization: "modelopt_mixed"
     trust_remote_code: true
     kv_cache_dtype: "fp8_e4m3"
     # 0.6 conservative first-contact (matches both 3.6-35B NVFP4 siblings); MTP draft
     # tokens want extra KV headroom and NVFP4 weights are ~3× smaller than FP8 → slack.
     mem_fraction_static: "0.6"
     nccl_transport: roce
-    # flashinfer_cutlass = safe modelopt-path default (the standalone "cutlass" runner
-    # was REMOVED in 0.5.12). ⚠️ The RedHatAI winner used `triton` MoE — A/B it here
-    # (see header); on the modelopt path both are whitelisted, unlike compressed-tensors.
+    # flashinfer_cutlass is whitelisted for modelopt_mixed (server_args
+    # _handle_moe_kernel_config) and is the runner the modelopt_mixed loader uses for
+    # the NVFP4 expert layers — correct here. A/B vs triton once it boots, but this is
+    # no longer a blind guess like it was on the w4afp8 path.
     moe_runner_backend: flashinfer_cutlass
     attention_backend: flashinfer
+    # NVFP4 expert GEMM backend — appropriate for the W4A16_NVFP4 MoE layers.
     fp4_gemm_backend: flashinfer_cutlass
     disable_deep_gemm: true
     disable_cuda_graph: false

@@ -350,7 +350,7 @@ honcho_namespace: "honcho"
 # pinned tag avoids surprise schema changes on pull. Bump deliberately; re-check
 # .env.template / config.toml.example for new/renamed keys when you do. No keel
 # auto-update annotations on this deployment by design.
-honcho_image: "ghcr.io/plastic-labs/honcho:v3.0.9"
+honcho_image: "ghcr.io/plastic-labs/honcho:v3.0.10"
 honcho_port: 8000
 # Number of deriver worker pods. Safe to scale >1 — derivers coordinate via the
 # Postgres job queue with startup jitter (no external broker).
@@ -438,7 +438,7 @@ hindsight_namespace: "hindsight"
 # PINNED to the helm chart appVersion. Both images share this tag. Bump
 # deliberately — re-check helm/hindsight/values.yaml for new/renamed env keys
 # when you do. No keel auto-update annotations by design.
-hindsight_version: "0.8.2"
+hindsight_version: "0.8.3"
 hindsight_api_image: "ghcr.io/vectorize-io/hindsight-api:{{ hindsight_version }}"
 hindsight_cp_image: "ghcr.io/vectorize-io/hindsight-control-plane:{{ hindsight_version }}"
 hindsight_api_port: 8888

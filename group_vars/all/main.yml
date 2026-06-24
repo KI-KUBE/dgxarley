@@ -452,7 +452,7 @@ sglang_port: 8000
 # sglang_model: "mistralai/Mistral-Large-3-675B-Instruct-2512-NVFP4"  # 675B MLA-MoE, multimodal, mistral-NATIVE (name-loaded) → ~101 GB/GPU TP4 (TIGHT, start ctx 64K)
 #
 # --- Nemotron-3 ---
-sglang_model: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+# sglang_model: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
 # sglang_model: "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
 #
 # --- Nex-N2 ---
@@ -482,6 +482,7 @@ sglang_model: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
 # sglang_model: "mmangkad/Qwen3.6-27B-NVFP4"                     # 27B dense NVFP4 (modelopt), Gated DeltaNet+Attention; FP8 sibling above
 # sglang_model: "Qwen/Qwen3.6-35B-A3B-FP8"
 # sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+sglang_model: "nvidia/Qwen3.6-35B-A3B-NVFP4"
 # sglang_model: "mmangkad/Qwen3.6-35B-A3B-NVFP4"                 # 35B/3B MoE NVFP4 (modelopt) — fallback to the RedHatAI compressed-tensors variant above
 #
 # --- Xiaomi MiMo ---

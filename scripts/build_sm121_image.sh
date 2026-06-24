@@ -943,6 +943,20 @@ apply_patches() {
         echo "kernels-pin Dockerfile patched"
     fi
 
+    # 2-audio. Add an `ARG AUDIO_DEPS` + gated install RUN step (librosa etc.)
+    #     for omni models that decode audio at runtime. Anchors on the kernels-pin
+    #     block above, so it MUST run after it. Always applied — no-op when the
+    #     recipe leaves AUDIO_DEPS empty. See patches/dockerfile-audio-deps.patch.
+    if [[ -f "${PATCHES_DIR}/dockerfile-audio-deps.patch" ]]; then
+        echo "Applying dockerfile-audio-deps.patch..."
+        patch --dry-run -p1 < "${PATCHES_DIR}/dockerfile-audio-deps.patch" \
+            || die "audio-deps Dockerfile patch dry-run failed — upstream Dockerfile drifted; regenerate dockerfile-audio-deps.patch"
+        patch -p1 < "${PATCHES_DIR}/dockerfile-audio-deps.patch"
+        grep -q 'ARG AUDIO_DEPS' container-build/Dockerfile.sglang-nightly \
+            || die "audio-deps Dockerfile patch verification failed"
+        echo "audio-deps Dockerfile patched"
+    fi
+
     # 2-dsv4. DeepSeek-V4-Flash FlashMLA sparse-decode kernel (sm_121a).
     #     Adds an ARG + RUN step in the builder (before the dist-packages split)
     #     that installs stock flash_mla and builds 0xSero/deepseek-v4-flash-sm120
@@ -1088,7 +1102,7 @@ run_build() {
     [[ -f "${recipe_file}" ]] || die "Recipe not found: ${recipe_file}"
 
     local R_DOCKERFILE R_TARGET R_BASE_IMAGE R_FLASHINFER_VERSION
-    local R_TRANSFORMERS_VERSION R_KERNELS_VERSION R_SGLANG_VERSION R_SGLANG_REF R_IMAGE_TAG
+    local R_TRANSFORMERS_VERSION R_KERNELS_VERSION R_AUDIO_DEPS R_SGLANG_VERSION R_SGLANG_REF R_IMAGE_TAG
     local R_FLASH_MLA_REPO R_FLASH_MLA_REF R_DSV4_KERNEL_REPO R_DSV4_KERNEL_REF R_DSV4_KERNEL_ARCH
     # shellcheck disable=SC1090
     source <(
@@ -1101,6 +1115,7 @@ run_build() {
         echo "R_FLASHINFER_VERSION='${FLASHINFER_VERSION}'"
         echo "R_TRANSFORMERS_VERSION='${TRANSFORMERS_VERSION}'"
         echo "R_KERNELS_VERSION='${KERNELS_VERSION:-}'"
+        echo "R_AUDIO_DEPS='${AUDIO_DEPS:-}'"
         echo "R_SGLANG_VERSION='${SGLANG_VERSION}'"
         echo "R_SGLANG_REF='${SGLANG_REF}'"
         echo "R_FLASH_MLA_REPO='${FLASH_MLA_REPO:-}'"
@@ -1130,6 +1145,7 @@ run_build() {
     echo "  FLASHINFER_VERSION   = ${R_FLASHINFER_VERSION}"
     echo "  TRANSFORMERS_VERSION = ${R_TRANSFORMERS_VERSION}"
     echo "  KERNELS_VERSION      = ${R_KERNELS_VERSION:-<unset, skipped>}"
+    echo "  AUDIO_DEPS           = ${R_AUDIO_DEPS:-<unset, skipped>}"
     echo "  SGLANG_VERSION       = ${R_SGLANG_VERSION}"
     echo "  SGLANG_REF           = ${R_SGLANG_REF}"
     echo "  FLASH_MLA_REPO       = ${R_FLASH_MLA_REPO:-<unset>}"
@@ -1162,6 +1178,7 @@ run_build() {
         --build-arg "FLASHINFER_VERSION=${R_FLASHINFER_VERSION}" \
         --build-arg "TRANSFORMERS_VERSION=${R_TRANSFORMERS_VERSION}" \
         --build-arg "KERNELS_VERSION=${R_KERNELS_VERSION:-}" \
+        --build-arg "AUDIO_DEPS=${R_AUDIO_DEPS:-}" \
         --build-arg "SGLANG_VERSION=${R_SGLANG_VERSION}" \
         --build-arg "SGLANG_REF=${R_SGLANG_REF}" \
         --build-arg "FLASH_MLA_REPO=${R_FLASH_MLA_REPO:-}" \

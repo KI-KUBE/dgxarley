@@ -81,6 +81,14 @@ TRANSFORMERS_VERSION=5.8.1
 # entfernen sobald transformers das upstream fixt (siehe 0.5.12-Recipe).
 KERNELS_VERSION=0.12.3
 
+# Audio multimodal deps — installed by dockerfile-audio-deps.patch (gated ARG,
+# empty = no-op). Required for omni models that decode audio at runtime, e.g.
+# nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4 (SGLang nano_nemotron_vl.py
+# get_audio_feature → librosa; upstream SGLang does NOT install it). librosa pulls
+# soundfile/audioread/numba/llvmlite as deps. Text + image/video work without this;
+# only AUDIO input needs it. Empty/remove to drop the audio stack from the image.
+AUDIO_DEPS="librosa"
+
 SGLANG_VERSION=0.5.13
 SGLANG_REF="v0.5.13"
 

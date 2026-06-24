@@ -1,0 +1,48 @@
+Install audio multimodal runtime deps (librosa + backends) into the image.
+
+Omni models whose perception path decodes audio need `librosa` at RUNTIME, e.g.
+nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-* — SGLang's model class
+NemotronH_Nano_Omni_Reasoning_V3 (python/sglang/srt/models/nano_nemotron_vl.py,
+get_audio_feature()) loads audio via librosa (Parakeet encoder front-end).
+Upstream SGLang does NOT declare librosa as an install dependency, so an audio
+request fails at runtime with ModuleNotFoundError while text + image/video work.
+The model card's own SGLang note says "librosa must be installed first".
+
+Mirrors the dockerfile-kernels-pin.patch mechanism: adds an `ARG AUDIO_DEPS`
+plus a gated RUN step in the builder stage (BEFORE directory_split2.sh, so the
+packages are carried into the runtime stage exactly like the kernels pin). The
+install is a normal (with-deps) `uv pip install` so librosa pulls soundfile /
+audioread / numba / llvmlite. Empty AUDIO_DEPS = no-op, so text/vision-only
+images stay slim — only recipes that set AUDIO_DEPS get the audio stack.
+
+Applied AFTER dockerfile-sm121.patch and dockerfile-kernels-pin.patch (it
+anchors on the kernels-pin block), same as the other dgxarley Dockerfile
+patches. The recipe drives it via the AUDIO_DEPS variable (see
+sglang-0.5.13-sm121.recipe). Remove if/when upstream SGLang adds librosa to the
+multimodal extras and the build installs that extra.
+
+Apply to: container-build/Dockerfile.sglang-nightly in the local clone of
+scitrera/cuda-containers.
+
+--- a/container-build/Dockerfile.sglang-nightly
++++ b/container-build/Dockerfile.sglang-nightly
+@@ -256,6 +256,19 @@
+         uv pip install --force-reinstall --no-deps kernels==${KERNELS_VERSION}; \
+     fi
+
++# dgxarley: audio multimodal deps for omni models that decode audio at runtime
++# (e.g. nvidia/Nemotron-3-Nano-Omni-* — SGLang nano_nemotron_vl.py
++# get_audio_feature() -> librosa; upstream SGLang does NOT install it, so audio
++# input fails without this). Gated by the recipe's AUDIO_DEPS var; empty string
++# = no-op so text/vision-only images stay slim. Plain (with-deps) install so
++# librosa pulls soundfile/audioread/numba. See patches/dockerfile-audio-deps.patch.
++ARG AUDIO_DEPS=""
++RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
++    if [ -n "$AUDIO_DEPS" ]; then \
++        echo "=== Installing audio deps: ${AUDIO_DEPS} ==="; \
++        uv pip install ${AUDIO_DEPS}; \
++    fi
++
+ # SM121 (DGX Spark GB10) shared memory fix for cutlass_moe_fp4.
+ # Patches run_fp4_blockwise_scaled_group_mm_sm120() in the JIT-compiled
+ # nvfp4_blockwise_moe.cuh to use KernelPtrArrayTmaWarpSpecializedCooperative

@@ -124,6 +124,76 @@ else:
 PATCH_GET_CONFIG_EOF
 fi
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Patch model_config.py: route NVFP4-bearing MIXED_PRECISION modelopt checkpoints
+# to the modelopt_mixed loader regardless of architecture.
+#
+# SGLang 0.5.12's _parse_modelopt_quant_config() (configs/model_config.py) maps a
+# `quant_algo: MIXED_PRECISION` checkpoint to a quant method by ARCHITECTURE:
+# NemotronH → modelopt_mixed, everything else → w4afp8. For
+# Qwen3_5MoeForConditionalGeneration (nvidia/Qwen3.6-35B-A3B-NVFP4: W4A16_NVFP4 MoE
+# experts + FP8 linear_attn, group_size 16) that fall-through is WRONG:
+#   * quantization=modelopt_fp4/modelopt_mixed → _verify_quantization rejects the
+#     mismatch (detected w4afp8 not in compatible[modelopt_*]=["modelopt"]).
+#   * quantization=w4afp8 passes verify but the W4AFp8Config loader is the W4A8
+#     (int4 + per-group fp8-scale, default group_size 128) path — the wrong weight
+#     encoding for NVFP4 (e2m1) experts.
+# The ModelOptMixedPrecisionConfig loader DOES compose per-layer NVFP4+FP8 correctly
+# but is unreachable for this arch (its override_quantization_method only fires once
+# detection already returned modelopt_mixed). Fix: also route to modelopt_mixed when
+# any quantized layer is NVFP4 — discriminate on the real checkpoint format, not the
+# arch name. NemotronH path preserved; pure-W4A8 MIXED_PRECISION still → w4afp8.
+# Pairs with quantization: modelopt_mixed in model_profiles/nvidia-qwen3.6-35b-a3b-nvfp4.yml.
+# ─────────────────────────────────────────────────────────────────────────────
+python3 - <<'PATCH_MIXED_NVFP4_DISPATCH_EOF'
+import pathlib
+p = pathlib.Path("/usr/local/lib/python3.12/dist-packages/sglang/srt/configs/model_config.py")
+if not p.exists():
+    print("sglang/srt/configs/model_config.py: not found, skipping")
+else:
+    src = p.read_text()
+    marker = "# [patch] _sgl_mixed_nvfp4_dispatch_"
+    old = (
+        '        if quant_algo == "MIXED_PRECISION":\n'
+        '            architectures = getattr(self.hf_config, "architectures", []) or []\n'
+        '            if getattr(self.hf_config, "model_type", None) == "nemotron_h" or any(\n'
+        '                arch.startswith("NemotronH") for arch in architectures\n'
+        '            ):\n'
+        '                return {"quant_method": "modelopt_mixed", "quant_algo": quant_algo}\n'
+        '            return {"quant_method": "w4afp8", "quant_algo": quant_algo}\n'
+    )
+    new = (
+        '        if quant_algo == "MIXED_PRECISION":\n'
+        '            architectures = getattr(self.hf_config, "architectures", []) or []\n'
+        '            ' + marker + '\n'
+        '            # Route NVFP4-bearing MIXED_PRECISION checkpoints (e.g.\n'
+        '            # nvidia/Qwen3.6-35B-A3B-NVFP4: W4A16_NVFP4 MoE + FP8 attn) to the\n'
+        '            # modelopt_mixed loader. Upstream gates modelopt_mixed to NemotronH\n'
+        '            # only; other archs fall through to w4afp8 (W4A8 int4), the wrong\n'
+        '            # weight format for NVFP4 experts. Discriminate on real format.\n'
+        '            _qlayers = json_quant_configs.get("quantized_layers", {}) or {}\n'
+        '            _has_nvfp4 = any(\n'
+        '                "NVFP4" in str(_li.get("quant_algo", "")).upper()\n'
+        '                for _li in _qlayers.values()\n'
+        '                if isinstance(_li, dict)\n'
+        '            )\n'
+        '            if (\n'
+        '                getattr(self.hf_config, "model_type", None) == "nemotron_h"\n'
+        '                or any(arch.startswith("NemotronH") for arch in architectures)\n'
+        '                or _has_nvfp4\n'
+        '            ):\n'
+        '                return {"quant_method": "modelopt_mixed", "quant_algo": quant_algo}\n'
+        '            return {"quant_method": "w4afp8", "quant_algo": quant_algo}\n'
+    )
+    if marker in src:
+        print("model_config.py: MIXED_PRECISION NVFP4 dispatch already patched, skipping")
+    elif old not in src:
+        print("model_config.py: MIXED_PRECISION dispatch target not found, skipping")
+    else:
+        p.write_text(src.replace(old, new, 1))
+        print("Patched model_config.py: MIXED_PRECISION NVFP4 -> modelopt_mixed dispatch")
+PATCH_MIXED_NVFP4_DISPATCH_EOF
+
 # Prime ARP table on the QSFP link before NCCL tries to connect.
 # Without this, the first TCP SYNs get dropped until ARP resolves,
 # causing ~230s delay in "Init torch distributed".
