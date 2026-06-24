@@ -1,6 +1,6 @@
 # Hermes email gateway — local patch and upstream PRs
 
-Status as of 2026-06-21.
+Status as of 2026-06-24.
 
 ## Why this exists
 
@@ -254,14 +254,42 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 > still pre-refactor). PRs #28697 / #28699 / #28702 rebased onto current `main`
 > the same day (see below).
 >
-> **⚠ NEXT bump past v2026.6.19 — plugin refactor (#41112):** `main`/`latest`
+> **⚠ NEXT bump past v2026.6.19 — plugin refactor (commit `56001054`, NOT PR #41112):** `main`/`latest`
 > after 2026-06-19 MOVE this file to `plugins/platforms/email/adapter.py` and
 > replace the static `_PLATFORMS["email"]` dict with a `register_platform()`
-> registry. A future bump to a release containing #41112 must (1) re-target the
-> patch to `plugins/platforms/email/adapter.py` and (2) change the subPath
-> `mountPath` in `hermes_webui_deployment.yaml.j2` from
-> `/opt/hermes/gateway/platforms/email.py` to
+> registry. The refactor landed as commit `56001054` (merged 2026-06-20, "refactor(gateway):
+> migrate slack/dingtalk/whatsapp/matrix/feishu/telegram/wecom/email/sms adapters to bundled
+> plugins") — the earlier reference to PR `#41112` was incorrect (that PR number does not
+> exist on the upstream repo; `56001054` is the real merge commit). A future bump to a
+> release containing `56001054` must (1) re-target the patch to
+> `plugins/platforms/email/adapter.py` and (2) change the subPath `mountPath` in
+> `hermes_webui_deployment.yaml.j2` from `/opt/hermes/gateway/platforms/email.py` to
 > `/opt/hermes/plugins/platforms/email/adapter.py`.
+
+> **2026-06-24 check — PINNED image unaffected; plugin refactor landed on `main`; PRs still open:**
+> - **Latest release:** `v2026.6.19` (v0.17.0, 2026-06-19) — unchanged; no new tag published.
+>   `gateway/platforms/email.py` at tag `v2026.6.19` is blob `d2f7e64a` (md5
+>   `a3f7dc61f40388bf806481b189b48e00`, 32908 bytes), which matches our patch header exactly.
+>   **Pinned deployment is unaffected.**
+> - **Plugin refactor landed on `main`:** commit `56001054` (merged 2026-06-20, "refactor(gateway):
+>   migrate slack/dingtalk/whatsapp/matrix/feishu/telegram/wecom/email/sms adapters to bundled
+>   plugins") moved `gateway/platforms/email.py` out of the file tree entirely. The file now
+>   lives at `plugins/platforms/email/adapter.py` (blob `3961d812`, ~1022 lines). The earlier
+>   mention of PR `#41112` in this doc has been corrected in-place above — that PR number
+>   returns 404 on the upstream repo; `56001054` is the real merge commit.
+> - **Two further main-only commits** landed on `plugins/platforms/email/adapter.py` after the
+>   refactor move: a host/config resolution fix (2026-06-20) and a blank-env OOM fix
+>   (2026-06-21). Neither is in any released tag.
+> - **Our patch features remain upstream-exclusive:** grep of
+>   `plugins/platforms/email/adapter.py` (blob `3961d812`) for `_append_to_sent`,
+>   `_finalize_message`, `_imap_move`, `_ensure_folder`, `working_folder`, `done_folder`,
+>   `sent_folder`, `process_existing` = **zero hits**. All three features (folder lifecycle,
+>   sent-folder APPEND, process-existing gate) are present only in our local patch.
+> - **PRs #28697 / #28699 / #28702** remain open; `mergeable_state: blocked` (last updated
+>   2026-06-22).
+> - **Re-sync note:** when bumping `hermes.image_tag` to any release that includes commit
+>   `56001054`, the patch target path changes from `gateway/platforms/email.py` to
+>   `plugins/platforms/email/adapter.py` (see "NEXT bump" note in the 2026-06-21 block above).
 
 1. Download the new upstream file:
 
