@@ -1,4 +1,4 @@
-# DeepSeek-V4-Flash `kv_lora_rank: null` config-parse crash (transformers 5.x + SGLang 0.5.12)
+# DeepSeek-V4-Flash `kv_lora_rank: null` config-parse crash (transformers 5.x + SGLang 0.5.12 / 0.5.13.x)
 
 > **Status 2026-05-31:** Workaround aktiv als Monkey-Patch in
 > `roles/k8s_dgx/files/sglang_launch.sh` (Block `PATCH_DSV4_KVLORA_EOF`,
@@ -15,6 +15,11 @@
 > Querverweis: `UPSTREAM_DSV4_BUGS.md` §1 / Wall 1 bestätigt den Patch „in
 > v0.5.13 weiterhin nötig". (Titel nennt SGLang 0.5.12 — Patch gilt unverändert
 > auch für v0.5.13.x.)
+>
+> **Re-verified 2026-06-24:** Issues #25165 / #23743 still OPEN;
+> `kv_lora_rank: int = 512` unchanged in transformers main; no fix in v0.5.13.
+> v0.5.13.post1 is a bare git tag (no GitHub Release, no Docker image) — not a
+> delivery vehicle. Monkey-patch still required.
 
 
 ## Summary
