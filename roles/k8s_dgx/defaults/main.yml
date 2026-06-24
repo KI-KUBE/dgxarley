@@ -51,6 +51,11 @@ _sglang_active_ep: ""
 # other instance is already up + launch order. A fixed max_total_tokens makes
 # the footprint deterministic. Precedence: inst override > profile > unset.
 _sglang_active_max_total_tokens: ""
+# Per-instance context_length override ("" = use the profile's value). Lets a
+# co-located instance run a SHORTER per-request window than its profile default
+# (e.g. trim a vision companion to 64K to cap KV) without forking the profile.
+# Precedence: inst override > profile.
+_sglang_active_context_length: ""
 
 sglang_speculative_enabled: "{{ sglang_model_profiles[_sglang_active_model].speculative_enabled | default(false) }}"
 sglang_speculative_algo: "{{ sglang_model_profiles[_sglang_active_model].speculative_algo | default('NEXTN') }}"
@@ -113,7 +118,7 @@ sglang_enable_spec_v2: "{{ sglang_model_profiles[_sglang_active_model].enable_sp
 # NOTE: you should never change the image directly here!
 sglang_image: "{{ sglang_model_profiles[_sglang_active_model].sglang_image | default(default_sglang_image) }}"
 
-sglang_context_length: "{{ sglang_model_profiles[_sglang_active_model].context_length }}"
+sglang_context_length: "{{ _sglang_active_context_length if (_sglang_active_context_length | string | length > 0) else (sglang_model_profiles[_sglang_active_model].context_length) }}"
 sglang_kv_cache_dtype: "{{ sglang_model_profiles[_sglang_active_model].kv_cache_dtype }}"
 sglang_mem_fraction_static: "{{ sglang_model_profiles[_sglang_active_model].mem_fraction_static }}"
 sglang_reasoning_parser: "{{ sglang_model_profiles[_sglang_active_model].reasoning_parser | default('') }}"
@@ -424,6 +429,9 @@ sglang_moe_config_dir: "/root/.cache/huggingface/moe_configs"
 #   max_total_tokens: absolute KV-cache cap in tokens (default: profile value,
 #                  else unset). Use for co-located instances to pin memory
 #                  deterministically on the shared GB10 unified memory.
+#   context_length: per-request context window (default: profile value). Override
+#                  to run a shorter window than the profile pins (e.g. trim a
+#                  vision companion to cap KV) without forking the profile.
 #   prefix:        K8s resource-name prefix AND the `app` label value. Default:
 #                  "sglang" for the "default" instance, "sglang-<key>" otherwise.
 #   hostname:      ingress/cert/DNS short name -> <hostname>.<dns_suffix>.
@@ -482,6 +490,41 @@ sglang_instances:
 #    pp_size: 1
 #    mem_fraction_static: 0.9
 #    max_total_tokens: 123456
+#
+#  # --- Example: Qwen3-VL-8B-Instruct-FP8 as a single-node VISION COMPANION,
+#  # tp=1 on ONE spark, co-located with the 4-node text `default` instance via
+#  # GPU time-slicing. The 8B is ~9 GB → fits trivially alongside the Nemotron
+#  # share on that GPU. Commented out — before enabling it you MUST:
+#  #   1. nvidia_gpu_timeslice_replicas >= 2 so the chosen spark's GPU is
+#  #      allocatable twice (default Nemotron pod + this vision pod share it).
+#  #      (Already at 4 replicas on this cluster.)
+#  #   2. QSFP/SR-IOV: a tp=1 instance runs NO inter-node NCCL, but the head pod
+#  #      manifest still attaches a QSFP network. In PF mode there's ONE QSFP IP
+#  #      per node, already taken by the co-located Nemotron pod → conflict. So
+#  #      enable qsfp_sriov_enabled AND add a dedicated qsfp_sriov_assignments
+#  #      entry keyed "sglang_vision" (its own VF + a 1-IP block; head_ip only,
+#  #      no workers), then re-run dgx.yml --tags qsfp_sriov + k8s_dgx.yml --tags
+#  #      multus before deploying. (If SR-IOV stays off, place this on a spark NOT
+#  #      used by `default` — not possible here since default spans all 4.)
+#  #   3. Point LiteLLM at it (e.g. a `vision-default` alias → sglang-vision.<ns>.svc).
+#  #   4. MEMORY: measured 2026-06-24, the Nemotron default holds ~90 GB/spark
+#  #      (its mem_fraction_static 0.75) → only ~6 GB free. This 8B companion
+#  #      needs ~16–18 GB (weights ~11 + KV + overhead), so it WON'T fit until
+#  #      you free room: lower the Nemotron profile's mem_fraction_static (e.g.
+#  #      0.75 → ~0.61 frees ~18 GB, at the cost of Nemotron KV/context). Pin the
+#  #      companion's footprint deterministically via max_total_tokens below
+#  #      (absolute KV tokens) — do NOT rely on mem_fraction_static on the shared
+#  #      unified-memory GPU (it's a fraction of TOTAL, so it's start-order
+#  #      dependent). KV here is fp8 → 73,728 B/token: 65536 tok ≈ 4.8 GB pool.
+  vision:
+    model: "Qwen/Qwen3-VL-8B-Instruct-FP8"
+    nodes: [3, 4]          # spark3 (head/rank0) + spark4 (worker/rank1) — NCCL over the sglang_vision VF
+    sriov_key: "sglang_vision"
+    tp_size: 2             # weights+KV shard across 2 GPUs → ~10.5 GB/GPU (vs ~18 GB at tp=1)
+    pp_size: 1             # tp*pp == #nodes (2) ✓
+    ep_size: 1             # ep divides tp ✓ (dense model, no experts)
+    max_total_tokens: 65536  # absolute KV cap = deterministic footprint; KV is sharded → ~2.4 GB/GPU
+    context_length: 65536    # per-request window (overrides the profile); keep == max_total_tokens
 
 # Merged UNDER each sglang_instances entry (entry wins). _inst_key is the dict
 # key of the current instance, set by the loop in sglang.yml. Defaults that
@@ -757,10 +800,11 @@ hf_preload_models:
   - "nvidia/Gemma-4-26B-A4B-NVFP4"
   - "nvidia/diffusiongemma-26B-A4B-it-NVFP4"
   - "google/diffusiongemma-26B-A4B-it"
-  - "nvidia/Qwen3.5-397B-A17B-NVFP4"
   - "sparkarena/Minimax-M3-v0-NVFP4"
   - "RedHatAI/Qwen3-Coder-Next-NVFP4"
   - "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"
+  - "Qwen/Qwen3-VL-8B-Instruct-FP8"
+#  - "nvidia/Qwen3.5-397B-A17B-NVFP4"
 #  - "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
 #  - "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
 #  - "nvidia/MiniMax-M2.7-NVFP4"

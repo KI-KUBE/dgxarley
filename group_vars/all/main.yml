@@ -80,7 +80,7 @@ qsfp_sriov_assignments:
     worker_ip1: "10.10.10.242"
     worker_ip2: "10.10.10.243"
     worker_ip3: "10.10.10.244"
-  sglang_res1:
+  sglang_vision:
     vf: 5
     head_ip: "10.10.10.251"
     worker_ip1: "10.10.10.252"
@@ -453,7 +453,7 @@ sglang_port: 8000
 #
 # --- Nemotron-3 ---
 # sglang_model: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"  # 31B/3B MoE NVFP4 (modelopt mixed), OMNI-multimodal (text/img/video/audio), NemotronH hybrid; SGLang class NemotronH_Nano_Omni_Reasoning_V3 (in nano_nemotron_vl.py, >=0.5.12); AUDIO needs librosa baked into the 0.5.13-sm121 image (AUDIO_DEPS recipe var). UNVALIDATED first-contact
-# sglang_model: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+sglang_model: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
 # sglang_model: "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
 #
 # --- Nex-N2 ---
@@ -483,8 +483,11 @@ sglang_port: 8000
 # sglang_model: "mmangkad/Qwen3.6-27B-NVFP4"                     # 27B dense NVFP4 (modelopt), Gated DeltaNet+Attention; FP8 sibling above
 # sglang_model: "Qwen/Qwen3.6-35B-A3B-FP8"
 # sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
-sglang_model: "nvidia/Qwen3.6-35B-A3B-NVFP4"
+# sglang_model: "nvidia/Qwen3.6-35B-A3B-NVFP4"
 # sglang_model: "mmangkad/Qwen3.6-35B-A3B-NVFP4"                 # 35B/3B MoE NVFP4 (modelopt) — fallback to the RedHatAI compressed-tensors variant above
+#
+# --- Qwen3-VL (multimodal companion) ---
+# sglang_model: "Qwen/Qwen3-VL-8B-Instruct-FP8"                  # 8B dense multimodal (vision), block-128 FP8, 256K ctx → ~9 GB, tp=1. Vision companion for the text-only Nemotron; run as its OWN instance (see sglang_instances). UNVALIDATED first-contact
 #
 # --- Xiaomi MiMo ---
 # sglang_model: "lukealonso/MiMo-V2.5-NVFP4"                     # 179B MoE (256 exp/8 active, no shared), OMNI-multimodal (text/img/audio/video), hybrid-SWA GQA, NVFP4 (modelopt) → ~25 GB/GPU TP4. UNVALIDATED first-contact; b12x-fork kernels mapped to stock; spec OFF

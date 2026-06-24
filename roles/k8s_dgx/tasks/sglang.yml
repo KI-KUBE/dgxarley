@@ -27,3 +27,4 @@
     _sglang_active_pp: "{{ inst.pp_size | default('') }}"
     _sglang_active_ep: "{{ inst.ep_size | default('') }}"
     _sglang_active_max_total_tokens: "{{ inst.max_total_tokens | default('') }}"
+    _sglang_active_context_length: "{{ inst.context_length | default('') }}"

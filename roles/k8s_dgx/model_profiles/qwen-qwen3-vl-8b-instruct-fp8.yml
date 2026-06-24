@@ -1,0 +1,93 @@
+---
+# Model profile: Qwen/Qwen3-VL-8B-Instruct-FP8
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# PURPOSE: small multimodal "companion" for the text-only Nemotron-3-Super-120B
+# default instance — handles image understanding / OCR / document & screenshot
+# parsing that the Nemotron can't (no vision head). Meant to run as its OWN
+# sglang_instance (tp=1, single spark) co-located via GPU time-slicing; wiring
+# notes at the bottom. Route to it from LiteLLM as e.g. a `vision-default` alias.
+#
+# ── VALIDATION STATUS: UNVALIDATED on this cluster ──────────────────────────
+# First-contact config. No throughput/correctness numbers exist yet. The
+# kernel-backend choices below are conservative picks from the SGLang Qwen3-VL
+# cookbook (Blackwell guidance) + the sibling FP8 profiles, NOT matrix winners.
+# Re-run a smoke test (text + an image prompt) before trusting any of it.
+_model_profile:
+  "Qwen/Qwen3-VL-8B-Instruct-FP8":
+    knowledge_cutoff: null  # not officially disclosed by Qwen
+    release_date: "2025-10-14"  # Qwen3-VL 4B/8B dense launch (Instruct & Thinking, w/ FP8 checkpoints) — Qwen blog / MarkTechPost
+    info_url: "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-FP8"
+    # ALTERNATIVE (BF16 source): https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct
+    # 8B (9B incl. vision tower) DENSE, multimodal (Qwen3VLForConditionalGeneration:
+    # text + vision; DeepStack visual merger). 36 text layers, 32 attn / 8 KV
+    # heads (4:1 GQA), head_dim=128. Native context 256K (extensible to ~1M).
+    # FP8: fine-grained block-128 (weight_block_size [128,128]), activation_scheme
+    # dynamic (W8A8-dynamic). The WHOLE vision tower (model.visual.*) + lm_head
+    # stay BF16 (modules_to_not_convert) — only the text transformer linears are
+    # FP8. ~9 GB weights → trivially fits one GB10 at tp=1. SGLang auto-detects
+    # the fp8 quant_method from config.json (no explicit `quantization` needed).
+    # SGLang support: >= 0.5.6 (cookbook); the default 0.5.12 image carries it.
+    #
+    # ── attention backends (Blackwell / SM121) ──────────────────────────────
+    # SGLang Qwen3-VL cookbook: on Blackwell (B200-class) default the multimodal
+    # vision-encoder attention to triton_attn for compatibility (fa3 is the
+    # H100/H200/A100 path). The TEXT path is a stock Qwen3 dense head_dim=128 —
+    # flashinfer is the proven SM121 path used by every Qwen FP8 sibling here.
+    # If the vision encoder crashes on triton_attn, fall back attention_backend
+    # to triton too.
+    # ── Context & memory on the SHARED GB10 (read this) ─────────────────────
+    # The GB10 is ONE unified 127.5 GB pool shared CPU+GPU. mem_fraction_static
+    # is a fraction of TOTAL (not free) memory, so on a co-tenant GPU it is
+    # NON-deterministic: whoever boots first wins. Measured 2026-06-24 with the
+    # Nemotron-3-Super default instance running (mem_fraction_static 0.75): the
+    # Nemotron scheduler holds ~90 GB/spark, leaving only ~6 GB free. So this
+    # companion does NOT fit alongside the current Nemotron config — you must
+    # carve headroom by LOWERING the Nemotron's mem_fraction_static first
+    # (~0.61 frees ~18 GB; costs Nemotron KV/context). See the instance example.
+    #
+    # DETERMINISTIC sizing = pin the KV pool by ABSOLUTE tokens via the
+    # instance's `max_total_tokens` (NOT mem_fraction_static). Footprint then =
+    #   weights (~11 GB: FP8 text + BF16 vision tower)
+    #   + KV pool (kv_cache_dtype fp8 → 73,728 B/token = 2·36 layers·8 KV·128 head)
+    #   + ~2.5 GB overhead (cuda-graph + activations + vision preprocess).
+    # KV pool size by max_total_tokens:  32K→2.4 GB  48K→3.5 GB  64K→4.8 GB  128K→9.7 GB
+    # → total footprint:                  32K→~16 GB 48K→~17 GB  64K→~18 GB  128K→~23 GB
+    # A vision companion (single image + short prompt, low QPS) rarely needs more
+    # than 32–64K. context_length here is the per-REQUEST window; keep it == the
+    # instance max_total_tokens so one request can fill the pool (or several
+    # smaller ones share it). 64K is a comfortable default; drop to 32K if tight.
+    context_length: 262144  # 256K native max. Co-located instances trim this per-instance (e.g. the `vision` instance → 64K) to cap KV.
+    kv_cache_dtype: "fp8_e4m3"  # 73,728 B/token KV (halves the pool vs bf16)
+    # HIGH mem_fraction_static so the memory-derived ceiling is NOT the binding
+    # cap — the instance's absolute max_total_tokens binds instead, making the
+    # footprint deterministic (same pattern as the co-located-instance note in
+    # defaults/main.yml). Real allocation is bounded by max_total_tokens, not by
+    # 0.85·127.5 GB, so this does NOT try to grab 108 GB.
+    mem_fraction_static: "0.85"
+    max_running_requests: 4   # low-QPS companion; small pool can't sustain high concurrency × context anyway
+    attention_backend: "flashinfer"     # text path (stock Qwen3 dense, head_dim=128)
+    mm_attention_backend: "triton_attn" # vision encoder — cookbook Blackwell pick
+    chunked_prefill_size: 8192          # cookbook: helps large image/video prefills
+    tp_size: 1   # single GPU — 8B is tiny; no NCCL/QSFP needed at tp=1 (run as a 1-node instance)
+    # FP8 GEMM: mirror the sibling FP8 profiles — DeepGEMM block-fp8 is unreliable
+    # on GB10/SM121, cutlass is the proven path. Conservative/inherited, not measured.
+    disable_deep_gemm: true
+    fp8_gemm_runner_backend: "cutlass"
+    trust_remote_code: true
+    # Tool calling (optional — the companion's job is vision, heavy tool use stays
+    # on the Nemotron). Cookbook serve example uses `--tool-call-parser qwen`.
+    # VERIFY the exact parser name against the running image before relying on it;
+    # if SGLang rejects "qwen", drop this line (image recognition works without it).
+    tool_call_parser: "qwen"
+    # Instruct = NON-thinking variant → no reasoning_parser. (The -Thinking-FP8
+    # sibling would set reasoning_parser: "qwen3".)
+    # Qwen3-VL Instruct recommended sampling (Qwen instruct convention).
+    recommended_sampling:
+      temperature: 0.7
+      top_p: 0.8
+      top_k: 20
+      repetition_penalty: 1.05
+    # Image inherited from default_sglang_image (scitrera/dgx-spark-sglang:0.5.12,
+    # which supports Qwen3VLForConditionalGeneration). Pin an sm121 variant here
+    # only if a flashinfer/triton vision-kernel issue surfaces during validation.
