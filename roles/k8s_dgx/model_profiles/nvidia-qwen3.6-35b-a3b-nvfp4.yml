@@ -18,7 +18,8 @@
 #   * MTP head (mtp*) → EXCLUDED (kept full precision)
 #   * kv_cache_quant_algo → FP8
 #
-# ── WHY THE PATCH IS NEEDED (SGLang 0.5.12) ──
+# ── WHY THE PATCH IS NEEDED (SGLang 0.5.12 AND 0.5.13 — dispatch code identical;
+#    active image: xomoxcc/dgx-spark-sglang:0.5.13-sm121) ──
 # _parse_modelopt_quant_config() maps MIXED_PRECISION → quant method by ARCHITECTURE:
 # NemotronH → modelopt_mixed, everything else → w4afp8. This Qwen arch
 # (Qwen3_5MoeForConditionalGeneration) falls through to w4afp8, which is a closed trap:
@@ -58,6 +59,11 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed; community (Reddit r/Qwen_AI) claims ~mid-2024, unconfirmed
     release_date: "2026-04-16"  # Qwen3.6-35B-A3B base; official QwenLM GitHub changelog (NVFP4 upload 2026-05-31)
     info_url: "https://huggingface.co/nvidia/Qwen3.6-35B-A3B-NVFP4"
+    # SM121 sgl-kernel build required for NVFP4 on GB10. Pinned (not the scitrera 0.5.12
+    # default) so this profile resolves correctly without a -e override. The MIXED_PRECISION
+    # dispatch the modelopt_mixed loader needs comes from the sglang_launch.sh runtime patch
+    # (works on any -sm121 image; 0.5.12/0.5.13 source identical), NOT from this build.
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-sm121"
     # 35B/3B MoE (Gated DeltaNet hybrid), MIXED_PRECISION modelopt: W4A16_NVFP4 MoE
     # experts + FP8 attn (~10–12 GB on-device vs ~35 GB FP8). 256 experts, 8 routed + 1 shared per token. Native 262K
     # context (extensible to ~1M via YaRN — not enabled here). MTP-trained → NEXTN.

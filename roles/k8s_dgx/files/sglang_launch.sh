@@ -128,7 +128,8 @@ fi
 # Patch model_config.py: route NVFP4-bearing MIXED_PRECISION modelopt checkpoints
 # to the modelopt_mixed loader regardless of architecture.
 #
-# SGLang 0.5.12's _parse_modelopt_quant_config() (configs/model_config.py) maps a
+# SGLang 0.5.12/0.5.13's _parse_modelopt_quant_config() (configs/model_config.py,
+# this function is byte-identical across both releases) maps a
 # `quant_algo: MIXED_PRECISION` checkpoint to a quant method by ARCHITECTURE:
 # NemotronH → modelopt_mixed, everything else → w4afp8. For
 # Qwen3_5MoeForConditionalGeneration (nvidia/Qwen3.6-35B-A3B-NVFP4: W4A16_NVFP4 MoE
@@ -448,7 +449,10 @@ PATCH_FI_FP4_ALLOW_EOF
 # Dev builds report __version__=0.0.0 (no setuptools-scm), so we check the image
 # tag (injected as SGLANG_IMAGE env var by Ansible) instead of the Python version.
 # The grep guards still prevent patching if the target code has changed.
-SGLANG_EXPECTED_IMAGE_PATTERN="xomoxcc/dgx-spark-sglang:.*-sm121-dev1"
+# Current production line is the 0.5.11/0.5.12/0.5.13 -sm121 family (the old
+# -sm121-dev1 dev tags were retired 2026-06-19). The grep guards on each patch
+# still no-op safely if a specific target's source has moved.
+SGLANG_EXPECTED_IMAGE_PATTERN="xomoxcc/dgx-spark-sglang:.*-sm121"
 if [ -n "$SGLANG_IMAGE" ] && ! echo "$SGLANG_IMAGE" | grep -qE "^${SGLANG_EXPECTED_IMAGE_PATTERN}$"; then
   echo "WARNING: SGLang image does not match expected pattern ${SGLANG_EXPECTED_IMAGE_PATTERN} (got ${SGLANG_IMAGE})."
   echo "         Monkey-patches may no longer apply or may need updating."
