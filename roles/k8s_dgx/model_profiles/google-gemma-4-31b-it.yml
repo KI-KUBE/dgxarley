@@ -55,7 +55,7 @@ _model_profile:
     # - num_draft_tokens MUST equal num_steps + 1 (autoadjust does not fire).
     # - attention_backend=triton: handles Gemma-4's global_head_dim=512
     #   correctly. flashinfer crashed on head_dim=512 up to flashinfer 0.6.12,
-    #   but THIS image (0.5.13-gemma4, flashinfer 0.6.13rc2) ships the fa2
+    #   but THIS image (0.5.14-gemmadiffusion-sm121, flashinfer 0.6.13rc2) ships the fa2
     #   head_dim=512 fix (PR #3576) — so triton is no longer PERMANENTLY
     #   mandatory; it stays the default ONLY until the §7 re-validation flips it
     #   (boot test on both crash paths + flashinfer-vs-triton benchmark). Do NOT

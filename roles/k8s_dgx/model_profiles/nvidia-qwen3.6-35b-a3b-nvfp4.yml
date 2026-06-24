@@ -1,0 +1,100 @@
+---
+# Model profile: nvidia/Qwen3.6-35B-A3B-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# NVIDIA's OWN modelopt NVFP4 quant of Qwen/Qwen3.6-35B-A3B (released 2026-05-31).
+# Three sibling packagings of the SAME base model already live in this repo:
+#   * redhatai-qwen3.6-35b-a3b-nvfp4.yml  — compressed-tensors, FULLY VALIDATED winner
+#   * mmangkad-qwen3.6-35b-a3b-nvfp4.yml  — modelopt, seed (same loader path as THIS one)
+#   * qwen-qwen3.6-35b-a3b-fp8.yml        — FP8 sibling
+# This profile is the NVIDIA-published modelopt variant — functionally identical
+# packaging to mmangkad's (both `quant_method: "modelopt"`), just the canonical
+# first-party upload (Apache-2.0). Confirmed from config.json (2026-06-24):
+#   quant_method "modelopt"  → SGLang loader MUST use quantization=modelopt_fp4
+#   (NOT compressed-tensors — that's the RedHatAI repackaging; mixing them errors
+#    "Quantization method ... does not match the `quantization` argument").
+#   architectures Qwen3_5MoeForConditionalGeneration, 40 layers, 256 experts /
+#   8 routed + 1 shared per token, max_position_embeddings 262144,
+#   mtp_num_hidden_layers 1 (native MTP head → NEXTN speculative).
+# 35B total / ~3B active, Gated-DeltaNet hybrid-mamba MoE → SGLang routes it
+# through the mamba scheduler path (hence the spec-v2 + extra_buffer knobs below).
+#
+# ── VALIDATION STATUS: UNVALIDATED on this cluster (no matrix run for THIS upload) ──
+# The values below are NOT a fresh matrix winner. They are composed from two
+# validated/seed sources for the SAME base model:
+#   * MODEL-INTRINSIC knobs taken from the RedHatAI VALIDATED winner (0.5.12 matrix,
+#     Test 45, n=8 peak 438.07 tok/s — best ever on this cluster): context, MTP
+#     depth (NEXTN s=2 / draft=3, the validated sweet spot — s=3/4/5 all decayed),
+#     sampling, parsers. These are properties of the model, not the packaging, so
+#     they carry across the compressed-tensors → modelopt switch.
+#   * PACKAGING/BACKEND knobs taken from the mmangkad modelopt seed: modelopt_fp4
+#     loader, flashinfer_cutlass MoE, mem 0.6.
+# ⚠️ MoE BACKEND IS THE OPEN QUESTION. The RedHatAI WINNER ran `moe_runner_backend:
+#   triton` — but ONLY because the compressed-tensors path REJECTS flashinfer_cutlass
+#   on SGLang's MoE-kernel whitelist (only modelopt_*/bf16 accepted). On THIS modelopt
+#   path flashinfer_cutlass IS accepted (the standard SM121 NVFP4 MoE runner), so it is
+#   the safer first-contact default here. But triton MoE is what actually won n=8 on
+#   this exact model — A/B triton vs flashinfer_cutlass on the first real boot before
+#   trusting the value below. Re-run the focused sweep
+#   (matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-nvfp4-...) and rewrite with
+#   measured numbers.
+_model_profile:
+  "nvidia/Qwen3.6-35B-A3B-NVFP4":
+    knowledge_cutoff: null  # not officially disclosed; community (Reddit r/Qwen_AI) claims ~mid-2024, unconfirmed
+    release_date: "2026-04-16"  # Qwen3.6-35B-A3B base; official QwenLM GitHub changelog (NVFP4 upload 2026-05-31)
+    info_url: "https://huggingface.co/nvidia/Qwen3.6-35B-A3B-NVFP4"
+    # 35B/3B MoE (Gated DeltaNet hybrid), NVFP4 via modelopt (~10–12 GB on-device
+    # weights vs ~35 GB FP8). 256 experts, 8 routed + 1 shared per token. Native 262K
+    # context (extensible to ~1M via YaRN — not enabled here). MTP-trained → NEXTN.
+    context_length: 262144
+    # NVIDIA modelopt (TRT-Model-Optimizer) → modelopt_fp4. NOT compressed-tensors.
+    quantization: "modelopt_fp4"
+    trust_remote_code: true
+    kv_cache_dtype: "fp8_e4m3"
+    # 0.6 conservative first-contact (matches both 3.6-35B NVFP4 siblings); MTP draft
+    # tokens want extra KV headroom and NVFP4 weights are ~3× smaller than FP8 → slack.
+    mem_fraction_static: "0.6"
+    nccl_transport: roce
+    # flashinfer_cutlass = safe modelopt-path default (the standalone "cutlass" runner
+    # was REMOVED in 0.5.12). ⚠️ The RedHatAI winner used `triton` MoE — A/B it here
+    # (see header); on the modelopt path both are whitelisted, unlike compressed-tensors.
+    moe_runner_backend: flashinfer_cutlass
+    attention_backend: flashinfer
+    fp4_gemm_backend: flashinfer_cutlass
+    disable_deep_gemm: true
+    disable_cuda_graph: false
+    # RedHatAI winner ran piecewise-CG ON (disable_piecewise_cuda_graph: false). The
+    # mmangkad modelopt seed kept it OFF for boot safety. Start safe (true); flip to
+    # false and re-measure once it boots clean — piecewise was part of the 438 winner.
+    disable_piecewise_cuda_graph: true
+    pp_async_batch_depth: 0
+    cuda_graph_max_bs: 32
+    jit_max_jobs: 4
+    ep_size: 1
+    tp_size: 4
+    num_experts: 256
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
+    reasoning_parser: "qwen3"
+    tool_call_parser: "qwen3_coder"
+    # thinking (default) + non-thinking via chat_template_kwargs={"enable_thinking":false}.
+    #   thinking:        temperature=1.0  top_p=0.95  top_k=20  presence_penalty=1.5
+    #   thinking_coding: temperature=0.6  top_p=0.95  top_k=20  presence_penalty=0.0
+    #   non_thinking:    temperature=0.7  top_p=0.80  top_k=20  presence_penalty=1.5
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      presence_penalty: 1.5
+    # MTP / speculative (NEXTN) — native 1-layer MTP head (mtp_num_hidden_layers: 1).
+    # s=2 / draft=3 is the VALIDATED sweet spot from the RedHatAI matrix (Tests 45–48:
+    # n=8 peak s=2→438.07, s=3→387.42, s=4→366.38, s=5→350.36 — monotonic decay with
+    # depth). The two hybrid-mamba knobs (extra_buffer + spec_v2) avoid the
+    # spec-v2-vs-radix-cache boot crash on this Gated-DeltaNet MoE arch.
+    speculative_enabled: true
+    speculative_algo: NEXTN
+    speculative_num_steps: 2
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 3
+    mamba_scheduler_strategy: extra_buffer
+    enable_spec_v2: true
