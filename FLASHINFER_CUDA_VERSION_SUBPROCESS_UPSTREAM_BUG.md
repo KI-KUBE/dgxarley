@@ -399,6 +399,12 @@ dynamo tracing.
 
 **Status 2026-06-14:** SGLang v0.5.13 was published as a full GitHub Release on 2026-06-13 and officially bumps flashinfer from 0.6.11.post1 to **0.6.12** (SGLang PR #26854). However, `scitrera/dgx-spark-sglang:0.5.13` does not yet exist on DockerHub — the cluster default remains `scitrera/dgx-spark-sglang:0.5.12`, so all local patches and the `disable_piecewise_cuda_graph: true` profiles stay required. The statements above about SGLang 0.5.12 / 0.5.12.post1 pinning 0.6.11.post1 remain accurate for those image versions.
 
+**Status 2026-06-24:** Two updates:
+
+1. **Patch 1 (`get_cuda_version` subprocess bypass, `PATCH_FI_CUDA_VER_EOF` / `_fi_cuda_ver_subprocess_bypass_`) is CONFIRMED still required on flashinfer >= 0.6.12.** `cpp_ext.py:get_cuda_version()` still calls `subprocess.check_output([nvcc, "--version"])` in **both flashinfer 0.6.12 AND 0.6.13rc2** (the latest release as of this date). PR #3081 only wrapped `fp4_quantize` with `custom_op`/`register_fake` — it did NOT touch `get_cuda_version()`. The subprocess path in `flashinfer/jit/cpp_ext.py` is structurally unchanged. Patch 1 therefore remains necessary for any image that uses flashinfer, regardless of version.
+
+2. **SGLang release status:** the current SGLang GitHub Release is **v0.5.13** (2026-06-13). `v0.5.13.post1` exists as a bare git tag (2026-06-15) with no GitHub Release page and no corresponding `scitrera/dgx-spark-sglang` Docker image — it is effectively a PyPI-only increment. Whether the cluster images have moved to a 0.5.13-based build is still TBD and unchanged from the 2026-06-14 note above.
+
 - **Issue #2999** ("fp4_quantize is incompatible with torch.compile (lazy JIT +
   raw data_ptr access)") was filed independently on 2026-04-15 and closed on
   2026-05-22 by **PR #3081** ("Add torch.compile-compatible custom op for

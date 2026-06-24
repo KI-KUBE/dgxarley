@@ -1,6 +1,22 @@
 # FlashInfer Upstream Bug: head_dim=512 not supported (Gemma-4 global attention)
 
-## Status 2026-06-19 — v0.6.13rc2 (GitHub Latest, 2026-06-17) contains #3576; bump target identified
+## Status 2026-06-24 — BF16 Gemma profiles now pin the 0.6.13rc2 image (PR #3576 present); triton retained pending §7 re-validation
+
+The two BF16 Gemma-4 profiles (`google-gemma-4-26b-a4b-it.yml`,
+`google-gemma-4-31b-it.yml`) now pin
+**`xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121`** (flashinfer
+**0.6.13rc2**, *testweise*), which **does contain PR #3576**. This **supersedes**
+the 2026-06-19 claim below that "none of the images we ship or build today
+contain #3576" and that the BF16 profiles run on `0.5.11-gemma4-sm121`
+(flashinfer 0.6.11) — both are now stale.
+
+`attention_backend: triton` nevertheless remains the **active default** on all
+four Gemma-4 profiles — but now only because the §7 re-validation (boot test on
+**both** crash paths + flashinfer-vs-triton benchmark, see Follow-up below) has
+not yet run, **not** because no image carries the fix. Do not flip to
+`flashinfer` before that test passes. This matches the in-profile comments.
+
+## Status 2026-06-19 (image facts superseded by 2026-06-24) — v0.6.13rc2 (GitHub Latest, 2026-06-17) contains #3576; bump target identified
 
 **The upstream fix has landed.** PR
 [#3576](https://github.com/flashinfer-ai/flashinfer/pull/3576)
@@ -425,8 +441,10 @@ Gemma 4 on SM120/121"). PR #3576 ist noch nicht in einem Release enthalten
 
 ## Files
 
-- `roles/k8s_dgx/model_profiles/google-gemma-4-26b-a4b-it.yml` — must use
-  `attention_backend: triton` (workaround, still required on 0.5.11+0.6.11).
+- `roles/k8s_dgx/model_profiles/google-gemma-4-26b-a4b-it.yml` — uses
+  `attention_backend: triton` (workaround retained as default; the now-pinned
+  `0.5.14-gemmadiffusion-sm121` / flashinfer 0.6.13rc2 image carries PR #3576 —
+  flip to `flashinfer` only after the §7 re-validation, see top status block).
 - `roles/k8s_dgx/model_profiles/google-gemma-4-31b-it.yml` — same.
 - NVFP4 profiles are blocked by other bugs before reaching this one, but
   would also need `attention_backend: triton` once unblocked.
