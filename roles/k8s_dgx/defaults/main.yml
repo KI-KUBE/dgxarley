@@ -525,6 +525,7 @@ sglang_instances:
     ep_size: 1             # ep divides tp ✓ (dense model, no experts)
     max_total_tokens: 65536  # absolute KV cap = deterministic footprint; KV is sharded → ~2.4 GB/GPU
     context_length: 65536    # per-request window (overrides the profile); keep == max_total_tokens
+    external_enabled: false  # in-cluster only (ClusterIP for litellm); no external ingress/cert/DNS
 
 # Merged UNDER each sglang_instances entry (entry wins). _inst_key is the dict
 # key of the current instance, set by the loop in sglang.yml. Defaults that
@@ -1055,15 +1056,23 @@ _litellm_model_list_base:
 # (shared with k8s_infra's prometheus.yml, like litellm_port / litellm_master_key).
 
 # router_settings: rendered as the router_settings block in config.yaml.
-# model_group_alias maps the stable hermes-default name onto the live SGLang
-# model group (sglang_served_model_name) WITHOUT a duplicate model_list
-# deployment — keeps saved Hermes sessions resumable across SGLang model swaps
-# while leaving a SINGLE litellm_deployment_state series (one Grafana tile).
-# The alias stays visible in /v1/models so clients can still select it.
-# Empty (litellm_hermes_alias_model: "") → empty dict → block omitted, no alias.
+# model_group_alias maps stable alias names onto live SGLang model groups WITHOUT
+# a duplicate model_list deployment — keeps saved sessions resumable across model
+# swaps while leaving a SINGLE litellm_deployment_state series per backend (one
+# Grafana tile). Aliases stay visible in /v1/models so clients can select them.
+#   hermes-default  → sglang_served_model_name (the default/active SGLang model)
+#   vision-default  → litellm_vision_model     (the sglang-vision companion)
+# Each alias is gated independently: set its *_alias_model var to "" to omit it.
+# The vision alias additionally needs litellm_vision_model (its target group, the
+# real served name registered via litellm_model_list_append in group_vars).
 litellm_router_settings: >-
-  {{ {'model_group_alias': {litellm_hermes_alias_model: sglang_served_model_name}}
-     if litellm_hermes_alias_model else {} }}
+  {{ {'model_group_alias':
+        ({}
+         | combine({litellm_hermes_alias_model: sglang_served_model_name}
+                   if (litellm_hermes_alias_model | default('')) else {})
+         | combine({litellm_vision_alias_model: litellm_vision_model}
+                   if ((litellm_vision_alias_model | default('')) and (litellm_vision_model | default(''))) else {}))}
+     if ((litellm_hermes_alias_model | default('')) or (litellm_vision_alias_model | default(''))) else {} }}
 
 # litellm_settings: rendered as the litellm_settings block in config.yaml
 litellm_settings:

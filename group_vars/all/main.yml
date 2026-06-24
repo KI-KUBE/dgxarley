@@ -499,6 +499,22 @@ litellm_port: 4000
 # durable model name). Routes to whatever SGLang currently serves.
 litellm_hermes_alias_model: "hermes-default"
 
+# Qwen3-VL vision companion (sglang-vision instance), wired EXACTLY like
+# hermes-default: the backend is registered in model_list under its REAL served
+# name (litellm_vision_model) — a single, distinct deployment, NOT a duplicate —
+# and litellm_vision_alias_model is a router model_group_alias onto it (see
+# litellm_router_settings). Set litellm_vision_alias_model: "" to drop the alias.
+litellm_vision_alias_model: "vision-default"
+litellm_vision_model: "Qwen/Qwen3-VL-8B-Instruct-FP8"   # == served_model_name of the sglang-vision instance
+litellm_model_list_append:
+  - model_name: "{{ litellm_vision_model }}"
+    litellm_params:
+      model: "openai/{{ litellm_vision_model }}"
+      api_base: "http://sglang-vision.{{ sglang_namespace }}.svc.cluster.local:{{ sglang_port }}/v1"
+      api_key: "none"
+      input_cost_per_token: "{{ litellm_default_input_cost_per_token }}"
+      output_cost_per_token: "{{ litellm_default_output_cost_per_token }}"
+
 # --- Ollama embedding coordinates ---
 ollama_port: 11434
 # Active ollama embedding model — parameters pulled from ollama_embed_model_profiles
