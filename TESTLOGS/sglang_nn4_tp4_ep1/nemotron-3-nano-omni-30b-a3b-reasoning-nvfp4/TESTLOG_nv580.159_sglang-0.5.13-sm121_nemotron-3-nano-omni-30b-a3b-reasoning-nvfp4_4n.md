@@ -62,8 +62,8 @@ The arch class loads, but `flashinfer_cutlass` MoE on this *wrapper* REQUIRES th
 
 | #  | Block | axis    | Δ vs case-02 baseline                | Status   | n=1 tok/s | n=4 peak | n=8 peak | Output |
 |----|-------|---------|--------------------------------------|----------|-----------|----------|----------|--------|
-| 01 | A     | CG      | **no-CG (eager)** — BOOT LITMUS      | UNTESTED | —         | —        | —        | —      |
-| 02 | A     | CG      | — (baseline: full-CG)                | UNTESTED | —         | —        | —        | —      |
+| 01 | A     | CG      | **no-CG (eager)** — BOOT LITMUS      | **ok**     | 44.5      | 168.0    | 328.6    | clean ✓ |
+| 02 | A     | CG      | — (baseline: full-CG)                | **ok 🏆**  | 90.1      | 268.1    | 437.9    | clean ✓ |
 | 03 | B     | parser  | reasoning_parser **deepseek-r1**     | UNTESTED | —         | —        | —        | —      |
 | 04 | C     | mem     | mem_fraction_static **0.75**         | UNTESTED | —         | —        | —        | —      |
 | 05 | C     | mem     | mem_fraction_static **0.80**         | UNTESTED | —         | —        | —        | —      |
@@ -114,7 +114,24 @@ From running the model through the live `default` SGLang instance on 2026-06-25,
 
 ## Results
 
-**UNTESTED — matrix not yet driven via kikube-bench.** Fill the table above + per-case sections below once the run completes.
+**IN PROGRESS** (run started 2026-06-25 ~18:08). **2 / 13 cases complete** (Block A) — both `ok`, 0 failed requests at every concurrency. Peak = sum of per-request tok/s.
+
+### Block A complete — CUDA graph (01 eager / 02 full-CG)
+
+| #  | Config              | n=1 peak | n=4 peak | n=8 peak | n=16 peak | ok      | n=8 finish     | quality |
+|----|---------------------|---------:|---------:|---------:|----------:|---------|----------------|---------|
+| 01 | no-CG (eager) LITMUS|    44.5  |  168.0   |  328.6   |   610.7   | 1/4/8/16 | length×4 stop×4 | clean ✓ |
+| 02 | full-CG (baseline)  |  **90.1**| **268.1**| **437.9**| **660.8** | 1/4/8/16 | length×5 stop×3 | clean ✓ |
+
+Findings so far:
+1. **BOOT LITMUS PASSED.** Case 01 (eager) boots, serves, and emits coherent text — the Omni wrapper resolves its MoE defaults on this image (no `nx2_w1` / `cutlass_moe_fp4` assert, no mamba-kernel crash). The `_sgl_nemotronh_omni_wrapper_` launch patch is effective in `0.5.13-sm121`. All downstream cases are therefore meaningful.
+2. **CUDA graphs are a large win** — full-CG (02) vs eager (01): n=1 **90.1 vs 44.5 (+102 %)**, n=8 **437.9 vs 328.6 (+33 %)**. (NOT the usual eager-MoE collapse — `flashinfer_cutlass` MoE graph-captures fine; the earlier manual-boot `init_cuda_graph_state` illegal-memory-access did NOT recur.) Case 02 is the current **winner** (matrix summary agrees).
+3. **Output quality clean** on both: reasoning splits (`think_tokens_est` > 0 in 8/8), no `!`-token collapse, TTR_min 0.62 (02) / 0.65 (01) — well above the ~0.53 word-salad floor seen on the Qwen3.6-35B-NVFP4 sibling. Snippets are on-topic and diverse (DNS resolution, GC comparison, bash scripts, Gödel). ⚠️ Snippets begin with a "We need to answer as…" CoT-style preamble — likely the `<think>` segment leading the snippet; whether `nemotron_3` cleanly strips think from the *served* content (vs leaking) is exactly the **Block B (case 03)** correctness question — verify there from the `kikube-bench-*.log` answer text.
+4. Throughput shape is concurrency-bound by the Mamba state-cache clamp (`max_running_requests=32`): per-request tok/s falls 90→67→55→41 as n goes 1→4→8→16 while peak still climbs — expected for a hybrid-Mamba MoE.
+
+**Remaining: cases 03–13 (Blocks B–J) still running / pending.** Table below auto-updated by the 10-min `/loop` check against `matrixtest/2026-06-25/results`.
+
+Run with:
 
 Run with:
 ```
