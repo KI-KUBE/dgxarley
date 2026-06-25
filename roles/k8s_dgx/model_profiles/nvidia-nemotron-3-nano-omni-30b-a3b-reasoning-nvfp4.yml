@@ -50,13 +50,18 @@
 # should work; AUDIO input will fail until librosa is added to the recipe (or pip-installed
 # into the running pod). Add `librosa` to the 0.5.13-sm121 recipe if audio is required.
 #
-# >>> EVERYTHING BELOW IS UNVALIDATED / FIRST-CONTACT SEED <<<
-# No matrix run has happened yet. The text-core knobs are
-# inherited from the validated Super-120B NemotronH sibling
-# (nvidia-nvidia-nemotron-3-super-120b-a12b-nvfp4.yml) by architecture analogy;
-# the multimodal/Omni knobs are pure guesses. Re-derive the whole thing from a
-# real boot once SGLang NVFP4-multimodal lands; treat the comments below as
-# hypotheses, not measurements.
+# >>> VALIDATED 2026-06-25 — 13-case matrix run (TP=4 EP=1) <<<
+# TESTLOG: TESTLOGS/sglang_nn4_tp4_ep1/nemotron-3-nano-omni-30b-a3b-reasoning-nvfp4/
+#   TESTLOG_nv580.159_sglang-0.5.13-sm121_…_4n.md
+# The shape below IS the matrix WINNER (case 02): boots, serves, output clean
+# (reasoning splits, TTR 0.62, no collapse). Peak n=8 437.9 tok/s, n=16 660.8.
+# Validated axes: kernels (fi_cutlass MoE + fi attn + fi_cutlass FP4), full-CG,
+# reasoning_parser nemotron_3, fp8_e4m3 KV (beats bf16), mem_fraction_static
+# (0.60/0.75/0.80 all equal — kept 0.60), cuda_graph_max_bs 32 (64/128 no gain),
+# 2× context (524288) boots+serves. CUDA graphs are the only real throughput
+# lever (+33 % n=8 vs eager). Still OPEN (see per-line notes): ep=4 (crashed at
+# capture, INCONCLUSIVE — retry to confirm), piecewise (flag never engaged in the
+# probe), AUDIO (librosa missing), and long-context QUALITY (no RULER curve).
 _model_profile:
   "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4":
     knowledge_cutoff: "2026-02"  # NOT separately published for Nano-Omni; family post-training value — VERIFY
@@ -70,7 +75,7 @@ _model_profile:
     # and the Super sibling. BUT this is a small model: ~21 GB NVFP4 weights fit a SINGLE
     # 128 GB Spark, so the NVIDIA card targets TP=1 single-GPU. If you ever run a single-node
     # SGLang instance, tp_size: 1 is the natural fit (no all-reduce, KV is cheap). At TP=4 the
-    # 2 KV heads replicate across rank-pairs (4 % 2 == 0) — valid GQA, same as Super. UNVALIDATED.
+    # 2 KV heads replicate across rank-pairs (4 % 2 == 0) — valid GQA, same as Super. VALIDATED at TP=4.
     tp_size: 4
     # 262144 native (config.json max_position_embeddings). NemotronH attention is NoPE, so the
     # cap is conservative and raisable via json_model_override_args (auto-sets
@@ -83,16 +88,22 @@ _model_profile:
     # (auto_map) that SGLang must execute. Safe: official nvidia/ repo.
     trust_remote_code: true
     # flashinfer_cutlass MoE — the proven NVFP4 MoE runner on SM121 (Super/qwen3-235b/glm-4.7).
-    # triton is NOT an alternative on the modelopt NVFP4 path (falls through to cutlass_moe_fp4).
+    # VALIDATED as the winner here. triton is NOT an alternative on the modelopt NVFP4 path (falls
+    # through to cutlass_moe_fp4 → CONFIRMED: case 12 hit `cutlass_moe.py AssertionError: mismatch
+    # in expected n`, i.e. the nx2_w1 assert). fi_cudnn FP4 works + ties throughput but had a
+    # repetition wobble (case 09) — no upside; stay on fi_cutlass.
     # ⚠️ REQUIRES the sglang_launch.sh "_sgl_nemotronh_omni_wrapper_" patch (PR #25024): without
     # it, this Omni *wrapper* arch (NemotronH_Nano_Omni_Reasoning_V3) bypasses the NemotronH MoE
     # defaults hook → llm_config-nested MoE settings unresolved → backend stays AUTO → falls to
     # the sm_100-only cutlass_moe_fp4 and trips the nx2_w1 shape assert during flashinfer autotune
     # (even with this flashinfer_cutlass set — the hook does the llm_config resolution this needs).
-    # 128 experts % 4 == 0, so ep_size below mirrors the Super EP=4 default. UNVALIDATED first-contact.
+    # The wrapper patch is CONFIRMED effective on 0.5.13-sm121 (boot-litmus / case 01 passed 2026-06-25).
     moe_runner_backend: "flashinfer_cutlass"
+    # fp8_e4m3 KV VALIDATED: ~3 % faster than bf16 (case 08) at half the KV memory, no quality cost.
     kv_cache_dtype: "fp8_e4m3"
-    # Small model → lots of headroom. Card's Spark guidance: mem-fraction-static 0.70–0.80.
+    # Small model → lots of headroom. VALIDATED: 0.60/0.75/0.80 are throughput-EQUAL (model is
+    # Mamba-state-clamped at max_running_requests=32, not KV-bound), so a bigger KV pool buys nothing
+    # → kept 0.60. Raise only if a workload needs the larger pool for long single requests.
     mem_fraction_static: "0.60"
     # attention_backend MUST NOT be triton — SGLang's apply_nemotron_h_defaults hard-asserts
     # against it on NemotronHForCausalLM (first layer may be Mamba, not attention). flashinfer
@@ -101,16 +112,24 @@ _model_profile:
     attention_backend: "flashinfer"
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4
-    # NemotronH hybrid graph: the Super card sets --disable-piecewise-cuda-graph; mirror it.
+    # NemotronH hybrid graph: the Super card sets --disable-piecewise-cuda-graph; mirror it. The
+    # matrix piecewise PROBE (case 13) never actually engaged (the flag stayed True in server_args),
+    # so piecewise remains UNTESTED here — keep it off, the proven default.
     disable_piecewise_cuda_graph: true
+    # full-CG VALIDATED as the ONLY real throughput lever: +33 % n=8 vs eager (case 01). Captures
+    # cleanly (the earlier transient init_cuda_graph_state crash did NOT recur across the matrix).
     disable_cuda_graph: false
+    # cuda_graph_max_bs VALIDATED at 32: 64/128 (cases 06/07) gave NO throughput gain — the decode
+    # batch never exceeds the max_running_requests=32 clamp, so a larger captured bs is unused.
     cuda_graph_max_bs: 32
     pp_async_batch_depth: 0
     # NVFP4 scale_fmt != ue8m0 → DeepGemm JIT not optimized; disable (same as all NVFP4 here).
     disable_deep_gemm: true
     num_experts: 128
-    # ep_size 4 by analogy to the Super EP=4 winner + the gemma-4 NVFP4 swizzle-pad lesson
-    # (full intermediate per rank dodges the gated-padding assert). 128 % 4 == 0. UNVALIDATED.
+    # ep_size=1 is the VALIDATED default. EP=4 PROBE (case 11) CRASHED at CUDA-graph capture — but
+    # with NO EP-specific assert (no gated-padding/swizzle-pad/nx2), the SAME silent-at-capture
+    # signature as a transient GPU-state crash, so it's INCONCLUSIVE, not confirmed-broken. Retry
+    # `--start-at 11` before trusting EP=4. 128 % 4 == 0, so the layout is shardable in principle.
     # Dynamic-safe form if sglang_nnodes ever changes:
     #   ep_size: "{{ sglang_nnodes if (128 % (sglang_nnodes | int) == 0) else 1 }}"
     ep_size: 1
@@ -145,10 +164,12 @@ _model_profile:
     # CONCURRENCY note (deferred): NemotronH is a hybrid Mamba model, so max_running_requests
     # is clamped by the Mamba state-cache pool (max_mamba_cache_size // mamba_ratio), NOT by
     # KV/cuda_graph — same as the Super. Without MTP there is no extra_buffer doubling, so the
-    # ratio is smaller. Set max_mamba_cache_size explicitly once a real boot shows the pool
-    # line; left auto for first contact. See the Super profile's long note for the mechanics.
+    # ratio is smaller. MEASURED 2026-06-25: the boot allocates max_mamba_cache_size and clamps
+    # max_running_requests=32 — left auto (that clamp is fine for current load); set it explicitly
+    # only if concurrency tuning needs it. See the Super profile's long note for the mechanics.
     #
-    # Pin the SM121-hardened build: it carries the Omni class (v0.5.13) AND the NVFP4
-    # MoE SM121 fix the stock image lacks. ⚠️ Audio needs librosa added to this image's
-    # recipe (see AUDIO GAP in header) — text+image work without it. UNVALIDATED first boot.
+    # Pin the SM121-hardened build: it carries the Omni class (v0.5.13) AND the NVFP4 MoE SM121 fix
+    # the stock image lacks. TEXT path VALIDATED on this build (2026-06-25 matrix). image/video
+    # untested (architecturally present, not exercised). ⚠️ AUDIO still needs librosa added to this
+    # image's recipe (see AUDIO GAP in header) — the Parakeet path fails at runtime without it.
     sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-sm121"

@@ -64,17 +64,17 @@ The arch class loads, but `flashinfer_cutlass` MoE on this *wrapper* REQUIRES th
 |----|-------|---------|--------------------------------------|----------|-----------|----------|----------|--------|
 | 01 | A     | CG      | **no-CG (eager)** — BOOT LITMUS      | **ok**     | 44.5      | 168.0    | 328.6    | clean ✓ |
 | 02 | A     | CG      | — (baseline: full-CG)                | **ok 🏆**  | 90.1      | 268.1    | 437.9    | clean ✓ |
-| 03 | B     | parser  | reasoning_parser **deepseek-r1**     | UNTESTED | —         | —        | —        | —      |
-| 04 | C     | mem     | mem_fraction_static **0.75**         | UNTESTED | —         | —        | —        | —      |
-| 05 | C     | mem     | mem_fraction_static **0.80**         | UNTESTED | —         | —        | —        | —      |
-| 06 | D     | cgbs    | cuda_graph_max_bs **64**             | UNTESTED | —         | —        | —        | —      |
-| 07 | D     | cgbs    | cuda_graph_max_bs **128**            | UNTESTED | —         | —        | —        | —      |
-| 08 | E     | kv      | kv_cache_dtype **auto (bf16)**       | UNTESTED | —         | —        | —        | —      |
-| 09 | F     | fp4_gemm| fp4_gemm **flashinfer_cudnn** PROBE  | UNTESTED | —         | —        | —        | —      |
-| 10 | G     | context | context_length **524288** (2×) PROBE | UNTESTED | —         | —        | —        | —      |
-| 11 | H     | ep      | ep_size **4** PROBE                  | UNTESTED | —         | —        | —        | —      |
-| 12 | I     | moe     | moe_runner **triton** PROBE          | UNTESTED | —         | —        | —        | —      |
-| 13 | J     | piecewise | **piecewise CG** PROBE             | UNTESTED | —         | —        | —        | —      |
+| 03 | B     | parser  | reasoning_parser **deepseek-r1**     | **ok**     | 87.8      | 264.2    | 432.8    | clean ✓ |
+| 04 | C     | mem     | mem_fraction_static **0.75**         | **ok**     | 88.7      | 256.0    | 418.2    | clean ✓ |
+| 05 | C     | mem     | mem_fraction_static **0.80**         | **ok**     | 90.1      | 263.2    | 428.2    | clean ✓ |
+| 06 | D     | cgbs    | cuda_graph_max_bs **64**             | **ok**     | 85.3      | 267.1    | 435.0    | clean ✓ |
+| 07 | D     | cgbs    | cuda_graph_max_bs **128**            | **ok**     | 89.8      | 265.0    | 432.6    | clean ✓ |
+| 08 | E     | kv      | kv_cache_dtype **auto (bf16)**       | **ok**     | 90.5      | 263.4    | 424.5    | clean ✓ |
+| 09 | F     | fp4_gemm| fp4_gemm **flashinfer_cudnn** PROBE  | **ok⚠**    | 89.3      | 267.1    | 438.6    | **flag** ⚠ |
+| 10 | G     | context | context_length **524288** (2×) PROBE | **ok**     | 91.0      | 262.6    | 430.5    | clean ✓ |
+| 11 | H     | ep      | ep_size **4** PROBE                  | **crash S**| —         | —        | —        | (capture)|
+| 12 | I     | moe     | moe_runner **triton** PROBE          | **crash S**| —         | —        | —        | (assert) |
+| 13 | J     | piecewise | **piecewise CG** PROBE             | ok (n/a)   | 91.2      | 268.8    | 436.6    | clean ✓§ |
 
 ### Column legend
 
@@ -114,22 +114,61 @@ From running the model through the live `default` SGLang instance on 2026-06-25,
 
 ## Results
 
-**IN PROGRESS** (run started 2026-06-25 ~18:08). **2 / 13 cases complete** (Block A) — both `ok`, 0 failed requests at every concurrency. Peak = sum of per-request tok/s.
+**COMPLETE** (2026-06-25 ~18:08 → ~19:1x). **13 / 13 cases attempted** — **11 ok** (1 with a quality flag), **2 startup_crash** (case 11 ep=4 inconclusive, case 12 triton-MoE confirmed-assert). Peak = sum of per-request tok/s. **WINNER: case 02 (full-CG baseline) — which is the existing profile default. No profile change needed.**
 
-### Block A complete — CUDA graph (01 eager / 02 full-CG)
+### All 13 cases
 
-| #  | Config              | n=1 peak | n=4 peak | n=8 peak | n=16 peak | ok      | n=8 finish     | quality |
-|----|---------------------|---------:|---------:|---------:|----------:|---------|----------------|---------|
-| 01 | no-CG (eager) LITMUS|    44.5  |  168.0   |  328.6   |   610.7   | 1/4/8/16 | length×4 stop×4 | clean ✓ |
-| 02 | full-CG (baseline)  |  **90.1**| **268.1**| **437.9**| **660.8** | 1/4/8/16 | length×5 stop×3 | clean ✓ |
+| #  | Block · Δ                  | n=1 peak | n=4 peak | n=8 peak | n=16 peak | ok      | quality |
+|----|----------------------------|---------:|---------:|---------:|----------:|---------|---------|
+| 01 | A · no-CG (eager) LITMUS   |    44.5  |  168.0   |  328.6   |   610.7   | 1/4/8/16 | clean ✓ |
+| 02 | A · full-CG (baseline) 🏆  |  **90.1**| **268.1**| **437.9**| **660.8** | 1/4/8/16 | clean ✓ |
+| 03 | B · deepseek-r1 parser     |    87.8  |  264.2   |  432.8   |   670.9   | 1/4/8/16 | clean ✓ |
+| 04 | C · mem_fraction 0.75      |    88.7  |  256.0   |  418.2   |   644.6   | 1/4/8/16 | clean ✓ |
+| 05 | C · mem_fraction 0.80      |    90.1  |  263.2   |  428.2   |   654.6   | 1/4/8/16 | clean ✓ |
+| 06 | D · cuda_graph_max_bs 64   |    85.3  |  267.1   |  435.0   |   669.6   | 1/4/8/16 | clean ✓ |
+| 07 | D · cuda_graph_max_bs 128  |    89.8  |  265.0   |  432.6   |   661.3   | 1/4/8/16 | clean ✓ |
+| 08 | E · kv_cache bf16 (auto)   |    90.5  |  263.4   |  424.5   |   646.6   | 1/4/8/16 | clean ✓ |
+| 09 | F · fp4_gemm fi_cudnn PROBE|    89.3  |  267.1   |  438.6   |  628.2†   | 1/4/8/**15** | flag ⚠ |
+| 10 | G · context 524288 (2×)    |    91.0  |  262.6   |  430.5   |   665.4   | 1/4/8/16 | clean ✓‡ |
+| 11 | H · ep_size 4 PROBE        |    —     |   —      |   —      |    —      | **crash S** | — |
+| 12 | I · moe_runner triton PROBE|    —     |   —      |   —      |    —      | **crash S** | — |
+| 13 | J · piecewise CG PROBE §   |    91.2  |  268.8   |  436.6   |   654.4   | 1/4/8/16 | clean ✓ |
+
+`†` case-09 n16 drop is the 1 dropped (repetition-aborted) request, not a throughput regression. `‡` case-10 only proves the 2× extension boots+serves short prompts — long-context quality untested. `§` **case-13 did NOT actually exercise piecewise** — the launched `server_args` show `disable_piecewise_cuda_graph=True` despite the case intending `false` (the kikube patch didn't flip it / it's force-disabled on this hybrid arch), so case 13 is effectively a re-run of case 02. Piecewise remains untested, not "confirmed working".
 
 Findings so far:
 1. **BOOT LITMUS PASSED.** Case 01 (eager) boots, serves, and emits coherent text — the Omni wrapper resolves its MoE defaults on this image (no `nx2_w1` / `cutlass_moe_fp4` assert, no mamba-kernel crash). The `_sgl_nemotronh_omni_wrapper_` launch patch is effective in `0.5.13-sm121`. All downstream cases are therefore meaningful.
 2. **CUDA graphs are a large win** — full-CG (02) vs eager (01): n=1 **90.1 vs 44.5 (+102 %)**, n=8 **437.9 vs 328.6 (+33 %)**. (NOT the usual eager-MoE collapse — `flashinfer_cutlass` MoE graph-captures fine; the earlier manual-boot `init_cuda_graph_state` illegal-memory-access did NOT recur.) Case 02 is the current **winner** (matrix summary agrees).
 3. **Output quality clean** on both: reasoning splits (`think_tokens_est` > 0 in 8/8), no `!`-token collapse, TTR_min 0.62 (02) / 0.65 (01) — well above the ~0.53 word-salad floor seen on the Qwen3.6-35B-NVFP4 sibling. Snippets are on-topic and diverse (DNS resolution, GC comparison, bash scripts, Gödel). ⚠️ Snippets begin with a "We need to answer as…" CoT-style preamble — likely the `<think>` segment leading the snippet; whether `nemotron_3` cleanly strips think from the *served* content (vs leaking) is exactly the **Block B (case 03)** correctness question — verify there from the `kikube-bench-*.log` answer text.
 4. Throughput shape is concurrency-bound by the Mamba state-cache clamp (`max_running_requests=32`): per-request tok/s falls 90→67→55→41 as n goes 1→4→8→16 while peak still climbs — expected for a hybrid-Mamba MoE.
+5. **Block B (03, deepseek-r1 parser): throughput-neutral vs nemotron_3** — n=8 432.8 vs case 02's 437.9 (within noise), as expected for a pure correctness axis. Quality clean (TTR 0.635, think-split 8/8). NOTE: the "We need to answer as…" CoT preamble in the snippets appears under BOTH parsers (02 nemotron_3 AND 03 deepseek-r1), so it's the model's reasoning style leading the snippet, not a parser artifact. The definitive "does `<think>` leak into *served content*" judgment still needs the `kikube-bench-*.log` answer text (the bench's `think_tokens_est` shows it IS being separated; both parsers behave equivalently here). No reason yet to switch the profile off `nemotron_3`.
+6. **Block C complete (04 mem 0.75 / 05 mem 0.80): no throughput benefit — flat across 0.60/0.75/0.80.** n=8 = 437.9 / 418.2 / 428.2 (all within noise of the 0.60 baseline). Lifting mem_fraction widens the KV pool, but this model is Mamba-state-clamped (`max_running_requests=32`), not KV-bound, so a bigger KV pool buys nothing. All clean (TTR 0.652 / 0.657). **Keep the profile at mem_fraction_static 0.60** — no throughput reason to raise it (would only matter if a future workload needs the larger KV pool for long single requests).
 
-**Remaining: cases 03–13 (Blocks B–J) still running / pending.** Table below auto-updated by the 10-min `/loop` check against `matrixtest/2026-06-25/results`.
+7. **Block D complete (06 cgbs 64 / 07 cgbs 128): throughput-neutral — flat across 32/64/128.** n=8 = 437.9 / 435.0 / 432.6. Larger graph-capture batches capture cleanly (no OOM/capture failure on the hybrid Mamba/attn graph) but buy nothing at n≤16 — concurrency is Mamba-state-clamped (`max_running_requests=32`), so the decode batch never grows enough for a bigger captured bs to matter. Both clean (TTR 0.62). **Keep cuda_graph_max_bs 32.**
+
+8. **Block E (08, kv_cache_dtype bf16/auto): works, fp8 marginally faster — keep fp8.** n=8 424.5 (bf16) vs 437.9 (fp8_e4m3, case 02) — fp8 KV is ~3 % faster AND uses half the KV memory, with no quality cost (bf16 clean TTR 0.641, fp8 clean too). **No fp8-KV breakage on the Omni text core** (the fleet-wide fp8-KV concern does NOT apply here). **Keep `kv_cache_dtype: fp8_e4m3`.**
+9. **Block F (09, fp4_gemm flashinfer_cudnn PROBE): the build DOES carry cuDNN-FP4 — hypothesis wrong.** It did NOT fail to import (contra the pre-run note that `0.5.13-sm121` might lack the cuDNN-FP4 wheels — they're present). Throughput is **tied with fi_cutlass at n=8 (438.6 vs 437.9)**, NOT the ~10 % deficit seen on the Qwen3.6-35B-NVFP4 sibling. BUT a **quality wobble**: 1 of 16 requests at n=16 hit a `repetition` abort (the † on the n16 660.8→628.2 drop is the missing request, NOT a throughput regression — `feedback_throughput_failure_normalization`), and n=8 TTR_min 0.583 is the lowest of any case (fp8 cases sit 0.62–0.66). Reads as fi_cudnn FP4 being slightly numerically looser → occasional repetition degeneration under load. **Keep `fp4_gemm_backend: flashinfer_cutlass`** (the default) for reliability; fi_cudnn is viable but marginally less stable, no upside.
+
+10. **Block G (10, context 524288 2× extension): boots + serves, throughput-neutral.** n=8 430.5 ≈ baseline; the NoPE cap-lift (`json_model_override_args={"max_position_embeddings":524288}`) works — KV pool fits (fp8 KV), no OOM. ‡ This ONLY proves the 2× extension boots and serves short prompts; long-context QUALITY is untested (no RULER curve). TTR_min 0.577 on the short bench prompts is the lowest of the clean cases but with no repetition abort — keep the profile at native 262144 until a real long-context quality number exists.
+11. **Block H (11, ep_size=4 PROBE): startup_crash — INCONCLUSIVE, not confirmed EP-broken.** It loaded weights, allocated KV + Mamba cache, completed FlashInfer autotune, then died **silently during CUDA-graph capture** (`Capture cuda graph begin … avail mem=42.42 GB` is the last line; NO traceback, and crucially NO EP-specific assert — no gated-padding / swizzle-pad / nx2_w1 in the head log). That is the SAME signature as the transient manual-boot crash (Preliminary Observations) that cleared on redeploy — so this is ambiguous between "EP=4 genuinely won't capture on this wrapper" and "another transient GPU-state crash at capture". **A single retry of case 11 would disambiguate** (re-run `--start-at 11`); do NOT record EP=4 as broken on this evidence alone. EP=1 (the profile seed) is unaffected and remains the default.
+
+12. **Block I (12, moe_runner triton PROBE): startup_crash — CONFIRMED closed-axis assumption.** Clear traceback (unlike case 11): `fused_moe_triton/layer.py forward → run_moe_core → cutlass_moe_fp4 (cutlass_moe.py:428) → AssertionError: mismatch in expected n`. So on the modelopt NVFP4 path, `moe_runner_backend=triton` falls through to `cutlass_moe_fp4`, which trips the `n`-dimension (nx2_w1) shape assert — exactly the failure the boot-litmus warned about. **triton MoE is NOT a viable alternative; keep `flashinfer_cutlass`.** NB this DIFFERENT, explicit assert (vs case 11's silent capture crash) reinforces that case 11's ep=4 crash is NOT the cutlass_moe_fp4 assert.
+13. **Block J (13, piecewise PROBE): INVALID — piecewise never actually engaged.** The case boots+benches `ok` (n=8 436.6, clean TTR 0.603), BUT the launched `server_args` dump shows `disable_piecewise_cuda_graph=True` even though the case set `disable_piecewise_cuda_graph: false`. The flag did not take effect (kikube patch didn't flip it, or it's force-disabled on the NemotronH hybrid), so **case 13 ran identical to case 02** (hence the near-identical numbers) and piecewise was NOT exercised. **Piecewise remains untested** — do NOT read this as "piecewise works". If piecewise is wanted, fix the flag plumbing and re-run.
+
+---
+
+## Conclusion
+
+**Matrix complete: 11/13 ok, 2 startup_crash. The winner is case 02 — which is already the profile default, so the profile needs NO change.** The validated production shape is: `flashinfer_cutlass` MoE + `flashinfer` attn + `flashinfer_cutlass` FP4 GEMM + `nemotron_3` parser + `fp8_e4m3` KV + `full-CG` (piecewise off) + `cuda_graph_max_bs=32` + `mem_fraction_static=0.60` + `ep=1` + native `262144` context. Peak n=8 **437.9 tok/s**, n=16 660.8, all output clean.
+
+Key takeaways:
+- **CUDA graphs (full-CG) are the ONLY real throughput lever** — +33 % n=8 over eager. Every other A/B axis (reasoning_parser, mem_fraction 0.60/0.75/0.80, cuda_graph_max_bs 32/64/128, fp8-vs-bf16 KV) is throughput-neutral and quality-clean.
+- **The Omni wrapper resolves its MoE defaults on `0.5.13-sm121`** (boot-litmus passed) — the `_sgl_nemotronh_omni_wrapper_` launch patch is effective; the earlier manual-boot capture crash did not recur in the matrix.
+- **2× context (524288) boots + serves** (NoPE cap-lift works) — but long-context quality is untested (no RULER); stay native.
+- **Confirmed-bad:** triton MoE (falls to cutlass_moe_fp4 → `n`-assert). **Skip:** fi_cudnn FP4 (works + tied throughput, but a repetition wobble + lowest TTR — no upside over fi_cutlass).
+- **Inconclusive / follow-ups:** (a) **ep=4** crashed silently at CUDA-graph capture with NO EP-assert — same signature as the transient manual-boot crash; **retry `--start-at 11`** to tell "EP=4 won't capture" from "another transient". (b) **piecewise** never engaged (flag plumbing) — re-run with the flag actually set if wanted. (c) reasoning-parser think-leak: both parsers behave equivalently in the bench; the definitive `<think>`-vs-content split judgment still wants a look at a raw `kikube-bench-*.log` answer.
+
+**Profile action:** none required — seed already matched the winner. Safe to drop the profile's "UNVALIDATED / FIRST-CONTACT" header caveats for the now-validated axes (kernels, CG, parser, mem, kv, context-boot), keeping the open notes only for ep=4, piecewise, audio (librosa), and long-context quality.
 
 Run with:
 
