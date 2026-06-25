@@ -18,13 +18,13 @@ geoblock:
   - cn
 
 localnets:
-  - { cidr: "10.0.0.0/8", comment: "private-rfc1918" }
-  - { cidr: "172.16.0.0/12", comment: "private-rfc1918" }
-  - { cidr: "192.168.0.0/16", comment: "private-rfc1918" }
-  - { cidr: "169.254.0.0/16", comment: "link-local" }
+  - {cidr: "10.0.0.0/8", comment: "private-rfc1918"}
+  - {cidr: "172.16.0.0/12", comment: "private-rfc1918"}
+  - {cidr: "192.168.0.0/16", comment: "private-rfc1918"}
+  - {cidr: "169.254.0.0/16", comment: "link-local"}
 
 localnets_ipv6:
-  - { cidr: "fe80::/10", comment: "link-local" }
+  - {cidr: "fe80::/10", comment: "link-local"}
 
 # OpenWebUI
 openwebui_secret_key: "CHANGEME_SECRET_KEY"
@@ -191,14 +191,14 @@ litellm_ui_password: "changeme"
 litellm_virtual_keys:
   - key_alias: "openwebui-chat"
     user_id: "openwebui-chat"
-    max_budget: null
+    max_budget:
     budget_duration: "30d"
     tpm_limit: 0
     rpm_limit: 0
     models: []
   - key_alias: "openwebui-embedding"
     user_id: "openwebui-embedding"
-    max_budget: null
+    max_budget:
     budget_duration: "30d"
     tpm_limit: 0
     rpm_limit: 0
@@ -228,13 +228,13 @@ seafile:
     root_password: "changeme"
     password: "changeme"
   images:
-    server:    { repo: "seafileltd/seafile-mc", tag: "13.0-latest" }
-    mariadb:   { repo: "mariadb",               tag: "11.4" }
-    memcached: { repo: "memcached",             tag: "1.6-alpine" }
+    server: {repo: "seafileltd/seafile-mc", tag: "13.0-latest"}
+    mariadb: {repo: "mariadb", tag: "11.4"}
+    memcached: {repo: "memcached", tag: "1.6-alpine"}
   resources:
-    server:    { memory_request: "512Mi", memory_limit: "2Gi" }
-    mariadb:   { memory_request: "256Mi", memory_limit: "1Gi" }
-    memcached: { memory_limit: "128Mi" }
+    server: {memory_request: "512Mi", memory_limit: "2Gi"}
+    mariadb: {memory_request: "256Mi", memory_limit: "1Gi"}
+    memcached: {memory_limit: "128Mi"}
 
 # Forgejo (Gitea fork) — dummy values; real secrets in group_vars/all/vault.yml.
 # hash_behaviour=replace: vault.yml's `forgejo:` overrides this entirely, so the
@@ -263,9 +263,9 @@ forgejo:
     email: "admin@example.com"
     password: "changeme"
   images:
-    server: { repo: "codeberg.org/forgejo/forgejo", tag: "15.0.3" }
+    server: {repo: "codeberg.org/forgejo/forgejo", tag: "15.0.3"}
   resources:
-    server: { memory_request: "256Mi", memory_limit: "1Gi" }
+    server: {memory_request: "256Mi", memory_limit: "1Gi"}
 
 # Keel
 keel_basic_auth_password: "changeme"
