@@ -82,7 +82,7 @@ BRANCH_NAME="sm121"
 # Current set (v0.5.13 line — DEFAULT):
 #   sglang-0.5.13-sm121.recipe         — THE production image. SGLang v0.5.13 +
 #                                        SM121 sgl-kernel patches + flashinfer
-#                                        0.6.13rc2 + TWO STACKED unmerged model
+#                                        0.6.13 + TWO STACKED unmerged model
 #                                        PRs (each gated by its own APPLY_* var,
 #                                        disjoint model paths):
 #                                          · DeepSeek-V4 NVFP4 MoE PR #25820
@@ -118,13 +118,13 @@ BRANCH_NAME="sm121"
 #                                        state. See SGLANG_GEMMA4_UPSTREAM_BUG.md.
 #   sglang-0.5.13-gemma4-sm121.recipe  — sglang-0.5.13-sm121 + the same Gemma-4
 #                                        NVFP4 source patches + flashinfer
-#                                        0.6.13rc2 (PR #3576 head_dim=512).
+#                                        0.6.13 (PR #3576 head_dim=512).
 #                                        Tag: xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121
 #                                        SAME upstream-blocked caveat as the
 #                                        0.5.12-gemma4 variant; DSV4 patches are
 #                                        NOT combinable (same Dockerfile region).
 #                                        Only relevant if the NVFP4 Gemma-4
-#                                        profiles need 0.6.13rc2.
+#                                        profiles need 0.6.13.
 #
 # Previous set (v0.5.11 line — kept for rollback / A/B comparison, and as the
 # only working build for Gemma-4 BF16 vs the still-blocked NVFP4 variant):
