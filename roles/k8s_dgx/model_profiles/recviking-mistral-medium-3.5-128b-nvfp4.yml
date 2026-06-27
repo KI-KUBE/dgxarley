@@ -34,7 +34,10 @@
 #   ~108 GB/GPU free for KV + activations + CUDA graphs, so long context and
 #   high concurrency are cheap here (the opposite of the 675B's squeeze).
 #
-# >>> BOOT / VALIDATION (2026-06-27: BOOTS + SERVES on :8000) <<<
+# >>> BOOT / VALIDATION (2026-06-27: BOOTS + SERVES + VISION VERIFIED on :8000) <<<
+#   Multimodal smoke test passed: a generated image (red circle / green square /
+#   blue triangle) was described correctly via /v1/chat/completions — vision tower
+#   works end-to-end in BF16 with the _sgl_vlm_ignore_fix patch.
 #   1. ARCH SUPPORT — Mistral3ForConditionalGeneration is registered in SGLang
 #      (Mistral-Small-3 / Pixtral lineage), but the INNER text model_type
 #      "ministral3" + config transformers_version 5.7.0 are newer than the
