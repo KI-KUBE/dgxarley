@@ -73,14 +73,25 @@ _model_profile:
     tp_size: 4
     # Native 262144 (config max_position_embeddings). Memory is NOT the constraint
     # here, so this can likely go to the YaRN-extended ceiling later if needed.
-    # >>> CAPPED TO 128K FOR MTP <<< The EAGLE draft (speculative_enabled below)
-    # derives only 128000 context from its config. With the target at 262144,
-    # SGLang's _derive_context_length aborts the draft-worker init with
-    # "Target context_length (262144) > derived (128000)" → head sigquits → the
-    # whole TP group crash-loops. Capping the target to the draft's 128K limit
-    # makes target == derived so the guard passes. Restore 262144 ONLY if
-    # speculative_enabled is set back to false (no draft → no 128K ceiling).
-    # context_length: 262144   # full 256K — requires speculative_enabled: false
+    # >>> CAPPED TO 128K FOR MTP <<< NOTE: the EAGLE draft's OWN params.json
+    # actually declares max_position_embeddings 262144 (YaRN factor 64 × 4096,
+    # i.e. the SAME 256K as the target) — so the draft is NOT natively limited to
+    # 128K. The 128000 is a SGLang FALLBACK: the draft is Mistral-native
+    # (params.json + consolidated.safetensors, NO config.json), and SGLang can't
+    # parse its YaRN rope offline ("Missing validation function for
+    # rope_type=deepseek_yarn" + generation_config load fails) → _derive_context_
+    # length falls back to 128000. The HF-format target parses its config.json
+    # fine → 262144. The mismatch (target 262144 > draft-derived 128000) aborts
+    # the draft-worker init → head sigquits → whole TP group crash-loops.
+    # Capping the TARGET to 128000 makes target == derived so the guard passes.
+    # Tradeoff: caps the whole instance to 128K even though both models support
+    # 256K. Alternatives if 256K is needed WITH MTP: (a) feed the draft an
+    # HF-format config.json so SGLang derives 262144, or (b) SGLANG_ALLOW_
+    # OVERWRITE_LONGER_CONTEXT_LEN=1 (draft then runs at its 128000 fallback;
+    # drafts past 128K positions may be junk → rejected by target verify, so
+    # correctness holds but no speedup there, and CUDA-index risk). Restore
+    # 262144 outright ONLY if speculative_enabled is set back to false.
+    # context_length: 262144   # full 256K — requires speculative off OR a draft config.json
     context_length: 128000
     # compressed-tensors NVFP4 → SGLang AUTO-DETECTS from config.json. Do NOT set
     # `quantization: modelopt_fp4` (that's the ModelOpt packaging; this repo is
@@ -91,6 +102,15 @@ _model_profile:
     # runtime hooks) before first boot if paranoid.
     trust_remote_code: true
     kv_cache_dtype: "fp8_e4m3"
+    # Compute dtype → --dtype bfloat16. REQUIRED for EAGLE MTP (speculative below):
+    # the Mistral-native EAGLE draft's params.json has NO dtype field, so --dtype
+    # auto makes the draft fall back to fp32→fp16, which collides with this bf16
+    # target's shared embed/head → "out_dtype must be Half or BFloat16" crash at
+    # draft graph capture (SGLang cookbook Mistral-Medium-3.5 §3.3). This does NOT
+    # touch the NVFP4 weights (config.json: dtype bfloat16 + nvfp4-pack-quantized
+    # are orthogonal — weights stay FP4, --dtype only sets compute dtype, which the
+    # target already does under auto). Harmless to keep even with speculative off.
+    dtype: "bfloat16"
     # DENSE model — NO moe_runner_backend / num_experts / ep_size keys. The whole
     # NVFP4-gated-MoE padding-crash matrix (see reference_nvfp4_gated_moe_padding)
     # does NOT apply: there is no MoE FFN. fp4_gemm_backend still governs the dense
@@ -146,10 +166,16 @@ _model_profile:
     speculative_enabled: true
     speculative_algo: "EAGLE"
     speculative_draft_model_path: "mistralai/Mistral-Medium-3.5-128B-EAGLE"
-    # Draft ships FP8 (params.json quantization.qformat_weight fp8_e4m3); force the
-    # draft loader to honour that rather than inheriting the target's compressed-
-    # tensors NVFP4 path. "fp8" if the loader accepts it; "unquant" as a fallback
-    # if the FP8 draft loader errors (same escape hatch as the qwen3-235b draft).
+    # Draft ships FP8 (params.json quantization.qformat_weight fp8_e4m3) — keep it
+    # fp8: the SGLang cookbook (Mistral-Medium-3.5 §3.3) runs this exact draft
+    # FP8-quantized and does NOT set this flag (auto-detect → fp8). "unquant" does
+    # NOT help here anyway: SGLang normalizes "unquant" → None → auto-detect → the
+    # Mistral-native params.json's fp8 wins regardless (verified 2026-06-27).
+    # >>> The fp8-draft "out_dtype must be Half or BFloat16" crash is NOT a quant
+    # problem — it's a dtype problem, fixed at the ROOT by `dtype: bfloat16` above
+    # (--dtype bfloat16 stops the draft's fp32→fp16 fallback). The fc monkeypatch
+    # _sgl_eagle_fp8_out_dtype_fix in sglang_launch.sh stays as a belt-and-suspenders
+    # safety net (only triggers on a non-half/bf16 fc input).
     speculative_draft_model_quantization: "fp8"
     speculative_num_steps: 3
     speculative_eagle_topk: 1

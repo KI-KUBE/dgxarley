@@ -81,6 +81,7 @@
         SGLANG_MODEL: "{{ _sglang_active_model }}"
         SGLANG_CONTEXT_LENGTH: "{{ sglang_context_length | string }}"
         SGLANG_KV_CACHE_DTYPE: "{{ sglang_kv_cache_dtype }}"
+        SGLANG_MODEL_DTYPE: "{{ sglang_model_dtype }}"
         SGLANG_MEM_FRACTION: "{{ sglang_mem_fraction_static }}"
         SGLANG_REASONING_PARSER: "{{ sglang_reasoning_parser }}"
         SGLANG_TOOL_CALL_PARSER: "{{ sglang_tool_call_parser }}"

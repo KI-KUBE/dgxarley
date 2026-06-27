@@ -120,6 +120,11 @@ sglang_image: "{{ sglang_model_profiles[_sglang_active_model].sglang_image | def
 
 sglang_context_length: "{{ _sglang_active_context_length if (_sglang_active_context_length | string | length > 0) else (sglang_model_profiles[_sglang_active_model].context_length) }}"
 sglang_kv_cache_dtype: "{{ sglang_model_profiles[_sglang_active_model].kv_cache_dtype }}"
+# Model compute/activation dtype → --dtype. Default 'auto' (SGLang reads the model
+# config's torch_dtype). Override per-profile (field `dtype`) when a model needs an
+# explicit dtype — e.g. EAGLE MTP with a Mistral-native draft (no dtype in its
+# params.json → auto falls back to fp32→fp16, colliding with the bf16 target).
+sglang_model_dtype: "{{ sglang_model_profiles[_sglang_active_model].dtype | default('auto') }}"
 sglang_mem_fraction_static: "{{ sglang_model_profiles[_sglang_active_model].mem_fraction_static }}"
 sglang_reasoning_parser: "{{ sglang_model_profiles[_sglang_active_model].reasoning_parser | default('') }}"
 sglang_tool_call_parser: "{{ sglang_model_profiles[_sglang_active_model].tool_call_parser | default('') }}"

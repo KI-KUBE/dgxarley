@@ -535,6 +535,59 @@ else:
 PATCH_TRANSFORMERS_TOPK_EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Patch apply_fp8_linear: coerce a non-half/bf16 input to bf16 before the fp8 GEMM.
+#
+# Symptom (RecViking/Mistral-Medium-3.5-128B-NVFP4 + EAGLE MTP, fp8 draft, SM121):
+#   eagle_draft_cuda_graph_runner → mistral_eagle.py:116 self.fc(torch.cat((embed,
+#   target_hidden), -1)) → fp8.py Fp8LinearMethod.apply → fp8_utils.apply_fp8_linear
+#   → fp8_scaled_mm(..., out_dtype=input.dtype) → "RuntimeError: out_dtype must be
+#   Half or BFloat16".
+#
+# Why: the EAGLE fusion fc concatenates the draft's embedding with the NVFP4
+#   target's previous hidden state. That fused tensor's dtype is neither fp16 nor
+#   bf16 (float32 in the captured graph), and apply_fp8_linear passes
+#   out_dtype=input.dtype straight into the sgl_kernel, which only accepts
+#   half/bf16. NOT fixable via --speculative-draft-model-quantization unquant:
+#   SGLang normalizes "unquant" to None → auto-detects the Mistral-native draft's
+#   params.json qformat_weight fp8_e4m3 → the draft loads fp8 regardless.
+#
+# ROOT FIX is elsewhere: --dtype bfloat16 (profile `dtype: bfloat16` → SGLANG_MODEL_DTYPE)
+#   stops the draft's fp32→fp16 fallback so the fc input is bf16 in the first place
+#   (SGLang cookbook Mistral-Medium-3.5 §3.3). This source patch is a BELT-AND-
+#   SUSPENDERS safety net behind that, kept deliberately: cast input to bf16 at the
+#   top of apply_fp8_linear when its dtype is not already half/bf16. The input is
+#   fp8-quantized immediately after anyway, so the f32→bf16 downcast is lossless in
+#   effect. Harmless for every normal fp8 linear (their input is already half/bf16
+#   → branch not taken). Idempotent via marker.
+# ─────────────────────────────────────────────────────────────────────────────
+python3 - <<'PATCH_FP8_OUT_DTYPE_EOF'
+import pathlib
+p = pathlib.Path("/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/quantization/fp8_utils.py")
+if not p.exists():
+    print("sglang fp8_utils.py: not found, skipping")
+else:
+    src = p.read_text()
+    marker = "# [patch] _sgl_eagle_fp8_out_dtype_fix"
+    anchor = "    # View input as 2D matrix for fp8 methods\n    input_2d = input.view(-1, input.shape[-1])"
+    if marker in src:
+        print("sglang fp8_utils.py: out_dtype fix already patched, skipping")
+    elif anchor not in src:
+        print("sglang fp8_utils.py: input_2d anchor not found, skipping")
+    else:
+        inject = (
+            "    " + marker + " — EAGLE fc fuses NVFP4 target hidden states → input\n"
+            "    # dtype is neither fp16 nor bf16; fp8_scaled_mm out_dtype=input.dtype\n"
+            "    # then asserts Half/BFloat16. Cast to bf16 (input is fp8-quantized next).\n"
+            "    if input.dtype not in (torch.float16, torch.bfloat16):\n"
+            "        input = input.to(torch.bfloat16)\n"
+            + anchor
+        )
+        src = src.replace(anchor, inject, 1)
+        p.write_text(src)
+        print("Patched sglang fp8_utils.py: apply_fp8_linear casts non-half/bf16 input to bf16")
+PATCH_FP8_OUT_DTYPE_EOF
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Patch flashinfer.jit.cpp_ext.get_cuda_version: avoid subprocess from inside a
 # torch.compile/dynamo trace.
 #
@@ -1459,6 +1512,18 @@ args=(
   --nccl-init-addr "${QSFP_IP_SPARK1}:${NCCL_PORT}"
   --port "$SGLANG_PORT"
 )
+# Model compute dtype (--dtype). Unset/"auto" → SGLang reads torch_dtype from the
+# model config (correct for almost everything, incl. NVFP4 targets whose config
+# already declares dtype bfloat16 — the FP4 weights are unaffected, --dtype only
+# sets the compute/activation dtype). Set explicitly when a model needs it —
+# notably EAGLE MTP with a Mistral-native draft: the draft params.json carries NO
+# dtype field, so --dtype auto falls back to fp32→fp16 and collides with the bf16
+# target's shared embed/head → "out_dtype must be Half or BFloat16" at draft graph
+# capture. Forcing bfloat16 pins the draft to the target's dtype (SGLang cookbook
+# Mistral-Medium-3.5 §3.3: "--dtype bfloat16 is required").
+if [ -n "$SGLANG_MODEL_DTYPE" ] && [ "$SGLANG_MODEL_DTYPE" != "auto" ]; then
+  args+=(--dtype "$SGLANG_MODEL_DTYPE")
+fi
 # PP async micro-batching: overlap forward passes across pipeline stages.
 if [ -n "$PP_ASYNC_BATCH_DEPTH" ] && [ "$PP_ASYNC_BATCH_DEPTH" != "0" ]; then
   args+=(--pp-async-batch-depth "$PP_ASYNC_BATCH_DEPTH")
