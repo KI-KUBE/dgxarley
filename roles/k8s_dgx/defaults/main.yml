@@ -783,6 +783,8 @@ hf_cache_path: "/var/lib/hf-cache"
 hf_token: "hf_CHANGEME"
 # HuggingFace model pre-download Job
 hf_preload_models:
+  - "cyankiwi/Hermes-4.3-36B-AWQ-4bit"
+  - "TheBloke/Nous-Hermes-2-Mixtral-8x7B-DPO-AWQ"
   - "nvidia/Qwen3.6-35B-A3B-NVFP4"
   - "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
   - "saricles/MiniMax-M2.5-REAP-139B-A10B-NVFP4-GB10"

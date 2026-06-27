@@ -1,0 +1,82 @@
+---
+# Model profile: cyankiwi/Hermes-4.3-36B-AWQ-4bit
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# FIRST CONTACT / UNVALIDATED (written 2026-06-27). No matrix run yet — values
+# below are a conservative seed inherited from the dense sibling profiles
+# (qwen-qwen2.5-coder-32b-instruct-awq.yml for the int4 path, qwen3.6-27b-fp8 for
+# the cuda-graph shape). Rewrite with the winner config + measured throughput
+# after the first sweep.
+#
+# WHAT THIS CHECKPOINT IS (verified against HF config.json 2026-06-27) ─────────
+#   arch SeedOssForCausalLM (model_type "seed_oss") — Nous Research's Hermes 4.3
+#   finetune of the ByteDance Seed-OSS-36B base. DENSE (no MoE): 64 layers,
+#   hidden_size 5120, intermediate_size 27648, num_attention_heads 80,
+#   num_key_value_heads 8 (GQA), head_dim 128, vocab 155136. rope default,
+#   rope_theta 1e7, max_position_embeddings 524288 (512K native).
+#
+#   QUANT — the repo is NAMED "AWQ-4bit" but the on-disk format is NOT classic
+#   AWQ: config.json quantization_config.quant_method == "compressed-tensors",
+#   format "pack-quantized", num_bits 4, group_size 32, symmetric int, weight-
+#   only (W4A16), ignore [lm_head]. (The AWQ *algorithm* was used to calibrate,
+#   then serialized as compressed-tensors.) SGLang AUTO-DETECTS this from
+#   config.json → CompressedTensorsW4A16 (Marlin int4). Therefore: intentionally
+#   NO quantization key. Do NOT set `quantization: awq` / `awq_marlin` — that
+#   forces the AWQConfig path and mis-reads a compressed-tensors checkpoint.
+#   ~18 GB weights (5 shards) → ~4.5 GB/GPU at TP=4 (tiny; huge KV headroom).
+#
+# >>> BOOT / VALIDATION RISK (read before deploying) <<<
+#   1. ARCH SUPPORT — SeedOssForCausalLM / "seed_oss" must be registered in the
+#      SGLang base image's transformers (checkpoint is transformers 4.57.3). If
+#      load_model raises an unknown-model-type error, the base image needs a
+#      transformers bump (same failure mode as the qwen3.5-397b / mistral-medium
+#      profiles). No remote code in the repo, so trust_remote_code is NOT set.
+#   2. compressed-tensors pack-quantized int4 (W4A16) on SGLang/SM121 is the same
+#      auto-detect path as Qwen2.5-Coder-32B-AWQ (validated), but UNTESTED for
+#      the seed_oss arch — may startup-crash on first contact.
+_model_profile:
+  "cyankiwi/Hermes-4.3-36B-AWQ-4bit":
+    knowledge_cutoff: null  # not officially disclosed (Hermes 4.3 card silent)
+    release_date: "2025-11-14"  # quant build date (config quant version 0.12.3.a20251114); base Hermes 4.3 (Seed-OSS-36B finetune) earlier
+    info_url: "https://huggingface.co/cyankiwi/Hermes-4.3-36B-AWQ-4bit"
+    nccl_transport: "roce"
+    # ~18 GB / TP=4 → ~4.5 GB/GPU. TP=4 valid: num_key_value_heads=8, 8 % 4 == 0
+    # → 2 KV heads/rank (clean GQA); num_attention_heads 80 % 4 == 0. The model
+    # also fits TP=1/TP=2 comfortably (~18/9 GB) — drop tp_size if running it as
+    # its own small-footprint instance instead of on the full 4-node deployment.
+    tp_size: 4
+    # Native 524288 (config max_position_embeddings). Capped to 256K as the
+    # operational default; memory is NOT the constraint on this tiny model, so
+    # raise toward the 524288 ceiling if a long-context use case needs it.
+    context_length: 262144
+    # compressed-tensors pack-quantized int4 → SGLang AUTO-DETECTS from
+    # config.json. See header: intentionally NO quantization key.
+    kv_cache_dtype: "fp8_e4m3"
+    # Conservative dense seed: fi-attn + CG on + piecewise off.
+    attention_backend: "flashinfer"
+    disable_deep_gemm: true        # DeepGemm targets FP8/ue8m0 scales, not int4
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    cuda_graph_max_bs: 8
+    pp_async_batch_depth: 0
+    # ~4.5 GB/GPU weights → tons of headroom. 0.85 is safe; can push higher.
+    mem_fraction_static: "0.85"
+    # REASONING — Hermes 4.3 is a HYBRID-mode thinking model. It emits
+    # <think>…</think> ONLY when deliberation is activated; reasoning is OFF by
+    # default and toggled PER REQUEST via the chat template (chat_template_kwargs
+    # {"thinking": true}) or the deep-thinking system prompt from the model card.
+    # SGLang's deepseek-r1 parser splits the <think>/</think> pair into
+    # reasoning_content when present (harmless when reasoning is off).
+    reasoning_parser: "deepseek-r1"
+    # TOOL CALLS — Hermes <tool_call>…</tool_call> tags. The model card states
+    # explicitly: "set the tool parser in VLLM to `hermes` and in SGLang to
+    # `qwen25`" (Qwen2.5 shares the Hermes-style tool-call format in SGLang).
+    tool_call_parser: "qwen25"
+    recommended_sampling:
+      # Model card "Inference Notes": temperature=0.6, top_p=0.95, top_k=20.
+      temperature: 0.6
+      top_p: 0.95
+      top_k: 20
+    sampling_overrides: {}
+    # No speculative draft published for this checkpoint — MTP/EAGLE off.
+    speculative_enabled: false

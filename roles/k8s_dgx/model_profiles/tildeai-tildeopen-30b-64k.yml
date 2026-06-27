@@ -1,0 +1,72 @@
+# Model profile: TildeAI/TildeOpen-30b-64k
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# FIRST CONTACT / UNVALIDATED (written 2026-06-27). No matrix run yet — seed
+# values inherited from the dense-BF16 shape. Rewrite with the winner config +
+# measured throughput after the first sweep.
+#
+# WHAT THIS CHECKPOINT IS (verified against HF config.json 2026-06-27) ─────────
+#   arch LlamaForCausalLM (model_type "llama") — TildeAI's TildeOpen 30B, a
+#   European multilingual FOUNDATION model (33+ EU languages, Baltic/Eastern-
+#   European focus). DENSE: 60 layers, hidden_size 6144, intermediate_size 21504,
+#   num_attention_heads 48, num_key_value_heads 8 (GQA), head_dim 128,
+#   vocab 131072, bos/eos token id 48.
+#
+#   >>> BASE MODEL — NOT instruction-tuned, NOT human-aligned <<< (model card,
+#   verbatim). No chat template ships in tokenizer_config → this is COMPLETION-
+#   ONLY. There is no reasoning or tool-call format. Intentionally NO
+#   reasoning_parser / tool_call_parser; recommended_sampling below is a generic
+#   generation default, not an instruct guidance.
+#
+#   QUANT — NONE. torch_dtype bfloat16, no quantization_config → full BF16.
+#   ~61.4 GB weights (13 shards) → ~15.3 GB/GPU at TP=4 (comfortable).
+#
+#   CONTEXT — 65536 (64K) via YaRN. rope_scaling: rope_type "yarn", factor 10
+#   (DeepSeek-V3-style 10x overscale, not the usual 8x), original_max_position_
+#   embeddings 8192, beta_fast 32 / beta_slow 1, truncate true, rope_theta 2e5.
+#
+# >>> BOOT / VALIDATION RISK (read before deploying) <<<
+#   1. CUSTOM CODE IS A transformers<5 SHIM, NOT A RUNTIME HOOK — the repo ships
+#      configuration_llama.py / modeling_llama.py / llama_yarn_patch_4x.py via
+#      auto_map. The card says it's only needed to back-port YaRN to older HF
+#      transformers; "primarily intended for transformers >= 5 or vLLM". SGLang
+#      uses its OWN native LlamaForCausalLM + native YaRN, so trust_remote_code
+#      is intentionally OFF (loading the shim would conflict with SGLang's model
+#      code). If SGLang errors on an unknown rope/config field, that's the signal
+#      the base image's rope reader is too old — bump the image, do NOT flip
+#      trust_remote_code.
+#   2. YaRN `truncate: true` + 10x overscale — SGLang/vLLM YaRN reads factor /
+#      original_max_position_embeddings / beta_fast / beta_slow, but may not honor
+#      the `truncate` flag identically. Won't block boot; could shift long-context
+#      quality vs the reference. Validate with a needle test before trusting 64K.
+_model_profile:
+  "TildeAI/TildeOpen-30b-64k":
+    knowledge_cutoff: null  # not officially disclosed (base model card silent)
+    release_date: null  # TildeOpen-30B base described in arXiv 2603.08182; 64k long-context (YaRN) variant — exact card date not stated
+    info_url: "https://huggingface.co/TildeAI/TildeOpen-30b-64k"
+    nccl_transport: "roce"
+    # ~61.4 GB BF16 / TP=4 → ~15.3 GB/GPU. TP=4 valid: num_key_value_heads=8,
+    # 8 % 4 == 0 → 2 KV heads/rank (clean GQA); num_attention_heads 48 % 4 == 0.
+    # Also fits TP=2 (~30 GB/GPU) — drop tp_size for a smaller-footprint instance.
+    tp_size: 4
+    # Native 65536 (config max_position_embeddings) — the full YaRN-extended 64K.
+    context_length: 65536
+    # NO quantization key — full BF16 checkpoint (SGLang serves it unquantized).
+    kv_cache_dtype: "fp8_e4m3"
+    # Conservative dense seed: fi-attn + CG on + piecewise off.
+    attention_backend: "flashinfer"
+    disable_deep_gemm: true        # no FP8 weights → DeepGemm path irrelevant
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    cuda_graph_max_bs: 8
+    pp_async_batch_depth: 0
+    # ~15 GB/GPU weights → ample headroom for 64K KV. 0.85 is safe.
+    mem_fraction_static: "0.85"
+    # BASE MODEL: no chat template, no reasoning/tool format → NO reasoning_parser,
+    # NO tool_call_parser (see header). Generic completion sampling only.
+    recommended_sampling:
+      temperature: 0.7
+      top_p: 0.95
+    sampling_overrides: {}
+    # No speculative draft for this checkpoint — MTP/EAGLE off.
+    speculative_enabled: false

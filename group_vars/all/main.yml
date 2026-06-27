@@ -422,6 +422,10 @@ sglang_port: 8000
 # NOTE: every model in roles/k8s_dgx/model_profiles/*.yml must be listed here
 # under its family (selector parity — keep in sync when adding a profile).
 #
+# --- Apertus (Swiss AI / ETH+EPFL; ApertusForCausalLM, xIELU+qk_norm — arch support is the boot risk) ---
+# sglang_model: "bg-digitalservices/Apertus-70B-Instruct-2509-NVFP4"     # 70B DENSE, modelopt NVFP4 (W4A4), Instruct, 64K ctx (llama3 rope) → ~10.7 GB/GPU TP4. Apertus tool format (no stock parser); no reasoning. UNVALIDATED first-contact
+# sglang_model: "swiss-ai/Apertus-v1.1-1.5B-Instruct-vLLM-NVFP4A16"      # 1.5B DENSE, compressed-tensors NVFP4 W4A16 (weight-only), Instruct, 4K ctx → ~1.6 GB, TP=1 own instance. Cheap Apertus-arch smoke-test. UNVALIDATED first-contact
+#
 # --- DeepSeek-V4 ---
 # sglang_model: "nvidia/DeepSeek-V4-Flash-NVFP4"                 # 284B/13B MoE, NVFP4 experts + FP8 base, 1M ctx — ~42 GB/GPU TP4; needs SGLang #25820 + v0.5.13 sm121 image
 # sglang_model: "nvidia/DeepSeek-V4-Pro-NVFP4"                   # 1.6T/49B MoE, NVFP4 experts + FP8 base — STAGING ONLY, does NOT fit on 4× GB10 (~225 GB/GPU TP4)
@@ -441,6 +445,10 @@ sglang_port: 8000
 # sglang_model: "nvidia/GLM-5-NVFP4"
 # sglang_model: "lukealonso/GLM-5.2-NVFP4"                       # 744B/40B MoE (256 exp/8 active +1 shared), GlmMoeDsa (MLA+DSA), NVFP4 (modelopt, community) → PP=4/TP=1 (EP4/TP4 OOMs); 1M ctx. UNVALIDATED first-contact
 #
+# --- Hermes (Nous Research) ---
+# sglang_model: "cyankiwi/Hermes-4.3-36B-AWQ-4bit"              # 36B DENSE (ByteDance Seed-OSS base), compressed-tensors int4 W4A16 (repo NAME says AWQ, format is compressed-tensors), hybrid <think> reasoning OFF by default → ~4.5 GB/GPU TP4 (tiny). UNVALIDATED first-contact
+# sglang_model: "TheBloke/Nous-Hermes-2-Mixtral-8x7B-DPO-AWQ"  # 47B/13B MoE (Mixtral 8x7B), GENUINE AWQ int4 (gemm), ChatML, 32K ctx, no reasoning → ~6.2 GB/GPU TP4 (tiny). UNVALIDATED first-contact
+#
 # --- MiniMax ---
 # sglang_model: "nvidia/MiniMax-M2.5-NVFP4"
 # sglang_model: "nvidia/MiniMax-M2.7-NVFP4"
@@ -448,11 +456,11 @@ sglang_port: 8000
 # sglang_model: "saricles/MiniMax-M2.5-REAP-139B-A10B-NVFP4-GB10"  # REAP-pruned M2.5 (256→154 experts), 139B/10B MoE, NVFP4 compressed-tensors, GB10-tuned
 #
 # --- Mistral (NVFP4; reasoning OFF by default, per-request reasoning_effort=high) ---
-# sglang_model: "RecViking/Mistral-Medium-3.5-128B-NVFP4"        # 128B DENSE, multimodal, HF-format → ~20 GB/GPU TP4 (easy fit). EAGLE-MTP pre-staged/off
+sglang_model: "RecViking/Mistral-Medium-3.5-128B-NVFP4"        # 128B DENSE, multimodal, HF-format → ~20 GB/GPU TP4 (easy fit). EAGLE-MTP pre-staged/off
 # sglang_model: "mistralai/Mistral-Large-3-675B-Instruct-2512-NVFP4"  # 675B MLA-MoE, multimodal, mistral-NATIVE (name-loaded) → ~101 GB/GPU TP4 (TIGHT, start ctx 64K)
 #
 # --- Nemotron-3 ---
-sglang_model: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"  # 31B/3B MoE NVFP4 (modelopt mixed), OMNI-multimodal (text/img/video/audio), NemotronH hybrid; SGLang class NemotronH_Nano_Omni_Reasoning_V3 (in nano_nemotron_vl.py, >=0.5.12); AUDIO needs librosa baked into the 0.5.13-sm121 image (AUDIO_DEPS recipe var). UNVALIDATED first-contact
+# sglang_model: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"  # 31B/3B MoE NVFP4 (modelopt mixed), OMNI-multimodal (text/img/video/audio), NemotronH hybrid; SGLang class NemotronH_Nano_Omni_Reasoning_V3 (in nano_nemotron_vl.py, >=0.5.12); AUDIO needs librosa baked into the 0.5.13-sm121 image (AUDIO_DEPS recipe var). UNVALIDATED first-contact
 # sglang_model: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
 # sglang_model: "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
 #
@@ -488,6 +496,9 @@ sglang_model: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"  # 31B/3B Mo
 #
 # --- Qwen3-VL (multimodal companion) ---
 # sglang_model: "Qwen/Qwen3-VL-8B-Instruct-FP8"                  # 8B dense multimodal (vision), block-128 FP8, 256K ctx → ~9 GB, tp=1. Vision companion for the text-only Nemotron; run as its OWN instance (see sglang_instances). UNVALIDATED first-contact
+#
+# --- Tilde (European multilingual foundation) ---
+# sglang_model: "TildeAI/TildeOpen-30b-64k"                     # 30B DENSE BF16 (Llama arch), BASE/foundation — NOT instruct, no chat template, completion-only; 33+ EU languages, 64K via YaRN → ~15.3 GB/GPU TP4. UNVALIDATED first-contact
 #
 # --- Xiaomi MiMo ---
 # sglang_model: "lukealonso/MiMo-V2.5-NVFP4"                     # 179B MoE (256 exp/8 active, no shared), OMNI-multimodal (text/img/audio/video), hybrid-SWA GQA, NVFP4 (modelopt) → ~25 GB/GPU TP4. UNVALIDATED first-contact; b12x-fork kernels mapped to stock; spec OFF

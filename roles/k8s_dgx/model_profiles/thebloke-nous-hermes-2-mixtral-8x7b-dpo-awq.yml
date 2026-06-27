@@ -1,0 +1,76 @@
+# Model profile: TheBloke/Nous-Hermes-2-Mixtral-8x7B-DPO-AWQ
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# FIRST CONTACT / UNVALIDATED (written 2026-06-27). No matrix run yet — seed
+# values inherited from the AWQ-MoE sibling quanttrio-qwen3-235b-a22b-thinking-
+# 2507-awq.yml (quant path) at a far smaller scale. Rewrite with the winner
+# config + measured throughput after the first sweep.
+#
+# WHAT THIS CHECKPOINT IS (verified against HF config.json 2026-06-27) ─────────
+#   arch MixtralForCausalLM (model_type "mixtral") — Nous Research's Hermes-2
+#   DPO finetune of Mixtral-8x7B. MoE: num_local_experts 8, num_experts_per_tok 2
+#   (~47B total / ~13B active). 32 layers, hidden_size 4096, intermediate_size
+#   14336, num_attention_heads 32, num_key_value_heads 8 (GQA), rope_theta 1e6,
+#   max_position_embeddings 32768 (32K native), vocab 32002. ChatML prompt format
+#   (<|im_start|>/<|im_end|>, eos_token_id 32000). Older model (early 2024) — a
+#   general instruct/chat model, NOT a reasoning or structured-tool-call finetune.
+#
+#   QUANT — GENUINE AWQ (unlike cyankiwi/Hermes-4.3-36B-AWQ-4bit, which is
+#   compressed-tensors despite its name): config.json quant_method "awq", bits 4,
+#   group_size 128, version "gemm", zero_point true, modules_to_not_convert
+#   ["gate"] (the MoE router stays FP16). ~24.7 GB weights (3 shards) →
+#   ~6.2 GB/GPU at TP=4 (tiny; lots of KV headroom).
+#
+# AWQ + MoE QUANTIZATION PATH (see the full table in quanttrio-qwen3-235b-...-awq):
+#   - Auto-detect (no `quantization` key) → AWQMarlinConfig, MoE-aware via
+#     FusedMoE.weight_loader. Needs a Marlin repack (old+new tensors coexist),
+#     but at ~25 GB the peak is trivial on 128 GB GB10 (the 109 GB-peak OOM that
+#     forced moe_wna16 on the 235B does NOT apply here) → leave it on auto.
+#   - Do NOT set `quantization: awq` — AWQConfig.get_quant_method() returns None
+#     for FusedMoE → FP16 fallback → OOM. `awq_marlin` == auto; `moe_wna16` only
+#     if a future OOM appears (carries the qzeros EP bug + monkey-patch).
+#   Therefore: intentionally NO quantization key (auto-detect → AWQMarlin).
+#
+# >>> BOOT / VALIDATION RISK <<<
+#   Mixtral is a reference arch (very well supported), so low risk. AWQ-Marlin
+#   int4 on SM121 is the same validated path as Qwen2.5-Coder-32B-AWQ. If the
+#   flashinfer backend hits a MoE edge case on SM121 (as the 235B-AWQ profile
+#   documents), switch attention_backend to "triton".
+_model_profile:
+  "TheBloke/Nous-Hermes-2-Mixtral-8x7B-DPO-AWQ":
+    knowledge_cutoff: null  # not officially disclosed (Nous-Hermes-2 card silent)
+    release_date: "2024-01-15"  # Nous-Hermes-2-Mixtral-8x7B-DPO base; Nous Research announcement
+    info_url: "https://huggingface.co/TheBloke/Nous-Hermes-2-Mixtral-8x7B-DPO-AWQ"
+    nccl_transport: "roce"
+    # ~24.7 GB / TP=4 → ~6.2 GB/GPU. TP=4 valid: num_key_value_heads=8, 8 % 4 == 0
+    # → clean GQA; num_attention_heads 32 % 4 == 0. Experts stay TP-sharded (no EP
+    # needed at this size — avoids the qzeros EP bug entirely). Also fits TP=1/TP=2
+    # comfortably — drop tp_size if running it as its own small-footprint instance.
+    tp_size: 4
+    # Native 32768 (config max_position_embeddings) — Mixtral's full context.
+    context_length: 32768
+    # GENUINE AWQ MoE → SGLang AUTO-DETECTS AWQMarlinConfig from config.json.
+    # See header: intentionally NO quantization key; do NOT set `quantization: awq`.
+    kv_cache_dtype: "fp8_e4m3"
+    # Conservative MoE seed: fi-attn + CG on + piecewise off. Switch attention
+    # backend to "triton" if flashinfer hits an SM121 MoE edge case (see header).
+    attention_backend: "flashinfer"
+    disable_deep_gemm: true        # DeepGemm targets FP8/ue8m0 scales, not AWQ int4
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    cuda_graph_max_bs: 8
+    pp_async_batch_depth: 0
+    # ~6.2 GB/GPU weights → tons of headroom. 0.85 is safe; can push higher.
+    mem_fraction_static: "0.85"
+    # NO reasoning — Nous-Hermes-2 (early 2024) is a plain ChatML instruct/chat
+    # model, no <think> hybrid mode. Intentionally NO reasoning_parser.
+    # NO tool_call_parser — this DPO finetune is general chat, NOT the dedicated
+    # Hermes-2-Pro function-calling model, so it has no reliable structured
+    # <tool_call> format. (Try "qwen25" at your own risk if you need tool calls.)
+    recommended_sampling:
+      # Model card transformers example: temperature=0.8, top_p=0.95.
+      temperature: 0.8
+      top_p: 0.95
+    sampling_overrides: {}
+    # No speculative draft for this checkpoint — MTP/EAGLE off.
+    speculative_enabled: false

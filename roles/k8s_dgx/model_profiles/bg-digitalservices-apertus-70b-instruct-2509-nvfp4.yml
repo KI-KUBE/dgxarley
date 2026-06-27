@@ -1,0 +1,74 @@
+---
+# Model profile: bg-digitalservices/Apertus-70B-Instruct-2509-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# FIRST CONTACT / UNVALIDATED (written 2026-06-27). No matrix run yet — seed
+# values inherited from the dense modelopt-NVFP4 siblings (nvidia-gemma-4-31b-it-
+# nvfp4 / mmangkad-qwen3.6-27b-nvfp4). Rewrite with the winner config + measured
+# throughput after the first sweep.
+#
+# WHAT THIS CHECKPOINT IS (verified against HF config.json 2026-06-27) ─────────
+#   arch ApertusForCausalLM (model_type "apertus") — Swiss AI's (ETH Zürich +
+#   EPFL) Apertus-70B-Instruct (2509 = 2025-09 release). DENSE: 80 layers,
+#   hidden_size 8192, intermediate_size 43008, num_attention_heads 64,
+#   num_key_value_heads 8 (GQA), head_dim 128, vocab 131072.
+#   Apertus arch specifics: hidden_act "xielu" (xIELU), qk_norm true,
+#   post_norm false. rope llama3 (factor 8, original 8192, rope_theta 1.2e7),
+#   max_position_embeddings 65536 (64K). Instruct (chat_template ships).
+#
+#   QUANT — modelopt NVFP4 (config quant_method "modelopt", quant_algo "NVFP4",
+#   group_size 16, weights + input_activations FP4 = W4A4, ignore [lm_head]).
+#   This is the ModelOpt packaging (NOT compressed-tensors) → set
+#   `quantization: modelopt_fp4` (the card's vLLM serve uses `--quantization
+#   modelopt`; SGLang's NVFP4 key is modelopt_fp4, same as the nvidia/* profiles).
+#   ~42.8 GB weights (5 shards) → ~10.7 GB/GPU at TP=4 (comfortable).
+#
+# >>> BOOT / VALIDATION RISK (read before deploying) <<<
+#   1. ARCH SUPPORT — ApertusForCausalLM / "apertus" (xIELU + qk_norm) is a newer,
+#      uncommon arch; the checkpoint is transformers 5.5.0. The SGLang base image
+#      MUST register the apertus model type or load_model raises unknown-model-type
+#      (same failure mode as the qwen3.5-397b / mistral-medium profiles). If it
+#      errors, bump the base image — do NOT flip trust_remote_code (no remote code
+#      in the repo).
+#   2. TOOL CALLS use an APERTUS-SPECIFIC format — chat_template wraps calls in
+#      <|tools_prefix|>[{"name": args}]<|tools_suffix|>, NOT the Hermes/Qwen/Mistral
+#      shapes. No stock SGLang tool_call_parser matches that, so tool_call_parser
+#      is intentionally LEFT UNSET (calls arrive as raw content). Set it only after
+#      confirming an "apertus" parser exists in the image's SGLang.
+_model_profile:
+  "bg-digitalservices/Apertus-70B-Instruct-2509-NVFP4":
+    knowledge_cutoff: null  # not officially disclosed (Apertus card silent)
+    release_date: "2025-09-02"  # base Apertus-70B-Instruct-2509 launch (Swiss AI); NVFP4 community quant (bg-digitalservices) later
+    info_url: "https://huggingface.co/bg-digitalservices/Apertus-70B-Instruct-2509-NVFP4"
+    nccl_transport: "roce"
+    # ~42.8 GB / TP=4 → ~10.7 GB/GPU. TP=4 valid: num_key_value_heads=8,
+    # 8 % 4 == 0 → 2 KV heads/rank (clean GQA); num_attention_heads 64 % 4 == 0.
+    tp_size: 4
+    # Native 65536 (config max_position_embeddings) — llama3-scaled 64K.
+    context_length: 65536
+    # modelopt NVFP4 packaging → explicit key (NOT auto-detect like the
+    # compressed-tensors NVFP4 repos). See header.
+    quantization: "modelopt_fp4"
+    kv_cache_dtype: "fp8_e4m3"
+    # DENSE model — NO moe_runner_backend / num_experts / ep_size keys. fp4_gemm_
+    # backend governs the dense FP4 linear GEMM. Conservative seed: fi-attn +
+    # fi_cutlass FP4 GEMM + CG on + piecewise off.
+    attention_backend: "flashinfer"
+    fp4_gemm_backend: "flashinfer_cutlass"
+    disable_deep_gemm: true        # DeepGemm targets FP8/ue8m0 scales, not NVFP4
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    cuda_graph_max_bs: 8
+    pp_async_batch_depth: 0
+    # ~10.7 GB/GPU weights → ample headroom for 64K KV. 0.85 is safe.
+    mem_fraction_static: "0.85"
+    # NO reasoning — Apertus Instruct has no <think> hybrid mode (chat_template has
+    # no think tokens). Intentionally NO reasoning_parser. tool_call_parser unset
+    # (Apertus <|tools_prefix|> format, see header).
+    recommended_sampling:
+      # Card gives no sampling guidance — generic instruct default.
+      temperature: 0.7
+      top_p: 0.95
+    sampling_overrides: {}
+    # No speculative draft for this checkpoint — MTP/EAGLE off.
+    speculative_enabled: false

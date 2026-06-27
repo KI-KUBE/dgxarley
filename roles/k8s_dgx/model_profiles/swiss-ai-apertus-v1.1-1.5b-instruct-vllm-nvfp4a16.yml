@@ -1,0 +1,66 @@
+---
+# Model profile: swiss-ai/Apertus-v1.1-1.5B-Instruct-vLLM-NVFP4A16
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# FIRST CONTACT / UNVALIDATED (written 2026-06-27). Tiny model — a cheap smoke-
+# test for the Apertus arch on this cluster before committing the 70B. Rewrite
+# with the winner config + measured throughput after the first sweep.
+#
+# WHAT THIS CHECKPOINT IS (verified against HF config.json 2026-06-27) ─────────
+#   arch ApertusForCausalLM (model_type "apertus") — Swiss AI's OFFICIAL
+#   Apertus-v1.1-1.5B-Instruct. DENSE: 16 layers, hidden_size 2048,
+#   intermediate_size 12288, num_attention_heads 32, num_key_value_heads 8 (GQA),
+#   vocab 131072. Apertus specifics: hidden_act "xielu", qk_norm true,
+#   post_norm false. rope DEFAULT (theta 5e5, NO scaling), max_position_
+#   embeddings 4096 — only 4K context (vs the 70B's YaRN 64K). Instruct.
+#
+#   QUANT — compressed-tensors "nvfp4-pack-quantized", and crucially **A16**:
+#   weights num_bits 4 (FP4, group_size 16), but input_activations NULL → this is
+#   WEIGHT-ONLY NVFP4 (W4A16), activations stay 16-bit. This DIFFERS from the
+#   70B sibling (modelopt W4A4, weights+activations FP4). Because it's
+#   compressed-tensors (NOT modelopt), SGLang AUTO-DETECTS from config.json →
+#   intentionally NO quantization key. Do NOT set `quantization: modelopt_fp4`
+#   (that's the ModelOpt path; this is llm-compressor / compressed-tensors).
+#   ~1.6 GB weights (1 shard) → trivially fits one GPU.
+#
+# >>> BOOT / VALIDATION RISK (read before deploying) <<<
+#   1. ARCH SUPPORT — same as the 70B: ApertusForCausalLM / "apertus" (xIELU +
+#      qk_norm, transformers 5.5.0) must be registered in the base image's SGLang.
+#      This 1.6 GB model is the cheapest way to validate that BEFORE the 70B.
+#   2. NVFP4**A16** (weight-only) is an unusual variant — most NVFP4 here is W4A4.
+#      The compressed-tensors W4A16 NVFP4 GEMM path on SGLang/SM121 is untested;
+#      fp4_gemm_backend is left unset (let SGLang pick the weight-only kernel)
+#      rather than forcing flashinfer_cutlass (which targets W4A4 FP4 activations).
+#   3. TOOL CALLS use the Apertus-specific <|tools_prefix|> format (same as the
+#      70B) — no stock SGLang parser matches → tool_call_parser intentionally unset.
+_model_profile:
+  "swiss-ai/Apertus-v1.1-1.5B-Instruct-vLLM-NVFP4A16":
+    knowledge_cutoff: null  # not officially disclosed (Apertus card silent)
+    release_date: null  # Apertus v1.1 revision; original Apertus launch 2025-09-02, v1.1 point-update date not stated on card
+    info_url: "https://huggingface.co/swiss-ai/Apertus-v1.1-1.5B-Instruct-vLLM-NVFP4A16"
+    nccl_transport: "roce"
+    # 1.6 GB — a single GB10 holds it many times over. TP=1: run as its OWN
+    # single-node instance (see sglang_instances), NOT spread over the 4-node
+    # deployment — TP across nodes would add pure NCCL overhead for nothing.
+    tp_size: 1
+    # Only 4096 native (config max_position_embeddings; rope default, no scaling).
+    context_length: 4096
+    # compressed-tensors nvfp4-pack-quantized (W4A16) → SGLang AUTO-DETECTS.
+    # See header: intentionally NO quantization key, NO forced fp4_gemm_backend.
+    kv_cache_dtype: "fp8_e4m3"
+    attention_backend: "flashinfer"
+    disable_deep_gemm: true        # DeepGemm targets FP8/ue8m0 scales, not NVFP4
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    cuda_graph_max_bs: 8
+    pp_async_batch_depth: 0
+    # Tiny weights → memory is a non-issue at 4K context.
+    mem_fraction_static: "0.85"
+    # NO reasoning (no <think>); tool_call_parser unset (Apertus format, see header).
+    recommended_sampling:
+      # Card gives no sampling guidance — generic instruct default.
+      temperature: 0.7
+      top_p: 0.95
+    sampling_overrides: {}
+    # No speculative draft for this checkpoint — MTP/EAGLE off.
+    speculative_enabled: false
