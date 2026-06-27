@@ -84,7 +84,7 @@ _model_profile:
     jit_max_jobs: 4
     # Plenty of headroom (~20 GB/GPU weights). 0.85 is safe; can push higher for
     # even more KV if a sweep shows benefit. NOT the tight 0.75 the big MoEs need.
-    mem_fraction_static: "0.85"
+    mem_fraction_static: "0.7"
     # REASONING — Medium-3.5 IS a thinking model (tokenizer_config has [THINK]
     # special tokens; chat_template exposes reasoning_effort 'none'|'high'). It is
     # OFF by default (reasoning_effort defaults to 'none' → no thinking tokens) and
