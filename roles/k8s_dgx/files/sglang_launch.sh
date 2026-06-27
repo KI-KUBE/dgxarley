@@ -258,6 +258,105 @@ else:
 PATCH_MIXED_NVFP4_VARIANT_EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Patch compressed_tensors/utils.py: keep VLM vision tower + multimodal projector
+# in BF16 for compressed-tensors NVFP4 checkpoints (e.g. Mistral3/Pixtral such as
+# RecViking/Mistral-Medium-3.5-128B-NVFP4).
+#
+# These checkpoints quantize ONLY the text transformer and list the entire
+# vision_tower + multi_modal_projector in the `ignore` list (→ BF16). But
+# should_ignore_layer() compares the checkpoint `ignore` names against the RUNTIME
+# module names, and SGLang's Mistral3/Pixtral loader renames four families on load:
+#   q/k/v_proj            → qkv_proj         (fusion; pixtral.py stacked_params_mapping)
+#   gate/up_proj          → gate_up_proj     (fusion)
+#   attention.o_proj      → attention.proj   (rename; pixtral.py)
+#   model.vision_tower.X          → vision_tower.X           (model. strip; mistral.py/llava.py)
+#   model.multi_modal_projector.X → multi_modal_projector.X  (model. strip; mistral.py/llava.py)
+# (the inner Mistral3/Llava model mounts vision_tower + projector WITHOUT the
+#  checkpoint's leading "model." — so the runtime prefix must be toggled to match)
+# AND Pixtral/Mistral3ForConditionalGeneration define NO packed_modules_mapping, so
+# the fused-decomposition branch never runs (fused_mapping is empty). Net effect:
+# the vision tower is quantized to NVFP4 and crashes at warmup:
+#   ValueError: mm_fp4 accepts 2d tensors, got torch.Size([1, 16, 832]) ...
+# Upstream PR #24929 (OPEN) only fixes the unrelated ".linear" suffix variant.
+#
+# Fix: wrap should_ignore_layer to (1) inject the canonical fused mapping so the
+# vision qkv_proj/gate_up_proj decompose to the checkpoint's unfused names, and
+# (2) also test the inverse-remapped checkpoint-namespace candidates (model.-prefix
+# for the projector, o_proj for attention.proj). The wrapper appends to utils.py so
+# the `from .utils import should_ignore_layer` in compressed_tensors.py (executed
+# later) binds to the patched function. The try/except keeps non-VLM compressed-
+# tensors models (asymmetric fused-shard ignore) on the original behaviour.
+# Verified at the matcher level against the real 340-entry ignore list (all vision +
+# projector linears → BF16, all text linears → quantized).
+# ─────────────────────────────────────────────────────────────────────────────
+python3 - <<'PATCH_VLM_IGNORE_EOF'
+import pathlib
+p = pathlib.Path(
+    "/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/quantization/compressed_tensors/utils.py"
+)
+if not p.exists():
+    print("compressed_tensors/utils.py: not found, skipping")
+else:
+    src = p.read_text()
+    marker = "# [patch] _sgl_vlm_ignore_fix"
+    block = '''
+
+# [patch] _sgl_vlm_ignore_fix — keep VLM vision tower + multimodal projector in BF16.
+# See sglang_launch.sh for the full rationale (4 weight-loader name remaps + missing
+# packed_modules_mapping cause compressed-tensors NVFP4 VLMs to quantize the vision
+# tower -> "mm_fp4 accepts 2d tensors" crash). Wrap should_ignore_layer to inject the
+# canonical fused mapping and test inverse-remapped checkpoint-namespace candidates.
+_sgl_orig_should_ignore_layer = should_ignore_layer
+_sgl_vlm_fused_default = {
+    "qkv_proj": ["q_proj", "k_proj", "v_proj"],
+    "gate_up_proj": ["gate_proj", "up_proj"],
+}
+
+
+def _sgl_vlm_ignore_candidates(rt):
+    base = {rt}
+    # SGLang's Mistral3/Llava loader strips a leading "model." from the inner
+    # multimodal submodels (vision_tower, multi_modal_projector) — they are mounted
+    # at "vision_tower." / "multi_modal_projector." (no "model.") while the checkpoint
+    # ignore list keeps the "model." prefix. Toggle it so names line up either way.
+    if rt.startswith("model."):
+        base.add(rt[len("model."):])
+    else:
+        base.add("model." + rt)
+    names = set(base)
+    for n in base:
+        if n.endswith(".attention.proj"):  # vision attn output: runtime proj <- ckpt o_proj
+            names.add(n[: -len(".attention.proj")] + ".attention.o_proj")
+    return names
+
+
+def should_ignore_layer(layer_name, ignore=tuple(), fused_mapping=None):
+    base_fm = fused_mapping if fused_mapping else {}
+    fm = dict(base_fm)
+    if layer_name:
+        _proj = layer_name.rsplit(".", 1)[-1]
+        if _proj in _sgl_vlm_fused_default and _proj not in fm:
+            fm[_proj] = _sgl_vlm_fused_default[_proj]
+    try:
+        return any(
+            _sgl_orig_should_ignore_layer(c, ignore=ignore, fused_mapping=fm)
+            for c in _sgl_vlm_ignore_candidates(layer_name or "")
+        )
+    except ValueError:  # mixed-scheme fused group with injected mapping -> defer to original
+        return _sgl_orig_should_ignore_layer(
+            layer_name, ignore=ignore, fused_mapping=base_fm
+        )
+'''
+    if marker in src:
+        print("compressed_tensors/utils.py: VLM ignore fix already patched, skipping")
+    elif "def should_ignore_layer(" not in src:
+        print("compressed_tensors/utils.py: should_ignore_layer anchor not found, skipping")
+    else:
+        p.write_text(src + block)
+        print("Patched compressed_tensors/utils.py: VLM vision/projector ignore-list fix")
+PATCH_VLM_IGNORE_EOF
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Patch NemotronH VL/Omni wrapper MoE routing — upstream PR #25024 (OPEN, not in
 # v0.5.13), rebased onto v0.5.13. Three small Python edits across 3 files.
 #
