@@ -34,7 +34,7 @@
 #   ~108 GB/GPU free for KV + activations + CUDA graphs, so long context and
 #   high concurrency are cheap here (the opposite of the 675B's squeeze).
 #
-# >>> BOOT / VALIDATION RISK (read before deploying) <<<
+# >>> BOOT / VALIDATION (2026-06-27: BOOTS + SERVES on :8000) <<<
 #   1. ARCH SUPPORT — Mistral3ForConditionalGeneration is registered in SGLang
 #      (Mistral-Small-3 / Pixtral lineage), but the INNER text model_type
 #      "ministral3" + config transformers_version 5.7.0 are newer than the
@@ -42,11 +42,23 @@
 #      an unknown-model-type / config-parse error, the base image needs a
 #      transformers bump (or a dev image) — same failure mode noted in the
 #      qwen3.5-397b profile. trust_remote_code is set to give the repo's own
-#      code a chance to register the type.
-#   2. compressed-tensors NVFP4 on SGLang/SM121 is read but UNTESTED on this
-#      base for a dense Mistral3 — may startup-crash. Because the cluster shares
-#      profiles across engines, the safest first smoke-test is the vLLM path
-#      (:8001), which RecViking-style llm-compressor quants are validated on.
+#      code a chance to register the type. (Loaded fine on 0.5.12 in practice.)
+#   2. >>> RESOLVED — VISION-TOWER NVFP4 CRASH (was: boot crash at ~3 min) <<<
+#      compressed-tensors NVFP4 VLMs keep the ENTIRE vision_tower + projector in
+#      BF16 via the checkpoint `ignore` list, but SGLang 0.5.12 quantized them
+#      anyway → "ValueError: mm_fp4 accepts 2d tensors, got [1,16,832]..." in the
+#      vision attention qkv_proj. Root cause: should_ignore_layer() matches the
+#      checkpoint `ignore` names against RUNTIME module names that differ via four
+#      loader remaps (q/k/v->qkv, gate/up->gate_up, attention.o_proj->attention.proj,
+#      and the inner Mistral3/Llava mount STRIPS the leading "model." from
+#      vision_tower/multi_modal_projector), and the model class has NO
+#      packed_modules_mapping so the fused branch never runs. NOT a fp4_gemm_backend
+#      issue. Fixed by the idempotent `# [patch] _sgl_vlm_ignore_fix` block in
+#      sglang_launch.sh (wraps should_ignore_layer to inject the fused mapping +
+#      test inverse-remapped names). With the patch the head boots, loads the vision
+#      tower as BF16, and serves /v1/models. Upstream PR #24929 (OPEN) only covers
+#      the unrelated ".linear" suffix variant. See memory
+#      reference_vlm_compressed_tensors_ignore_mismatch.
 _model_profile:
   "RecViking/Mistral-Medium-3.5-128B-NVFP4":
     knowledge_cutoff: null  # not officially disclosed (Mistral Medium 3.5 card silent)
