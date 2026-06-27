@@ -996,6 +996,8 @@ async def run_parallel_test(
     extra_info: dict[str, object] | None = None,
     stall_timeout: float = 120.0,
     abort_event: threading.Event | None = None,
+    temperature: float | None = None,
+    top_p: float | None = None,
 ) -> None:
     """Run ``n`` parallel streaming requests with a live Rich display.
 
@@ -1083,6 +1085,12 @@ async def run_parallel_test(
                     payload[k] = p[k]
             extra = p.get("extra_body", {})
             payload.update(extra)  # type: ignore[arg-type]
+        # Per-run CLI overrides win over the profile preset (e.g. raise temperature
+        # for a reasoning_effort=high run without editing the model profile).
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if top_p is not None:
+            payload["top_p"] = top_p
         payloads.append(payload)
 
     url = f"{sglang_url.rstrip('/')}/v1/chat/completions"
@@ -1101,6 +1109,10 @@ async def run_parallel_test(
         think_info = f" | Thinking budget: {thinking_budget}"
     else:
         think_info = ""
+    if temperature is not None:
+        think_info += f" | temperature: {temperature} (override)"
+    if top_p is not None:
+        think_info += f" | top_p: {top_p} (override)"
     _header_lines = [
         f"[bold]Starting {n} parallel requests to {url}[/]",
         f"[dim]Model: {model_id} | Preset: {preset} | Max tokens: {max_tokens}{think_info}[/]",
@@ -1369,6 +1381,19 @@ def main() -> None:
         "default to no reasoning and accept only none/high). Ignored with --no-think.",
     )
     parser.add_argument(
+        "--temperature",
+        type=float,
+        default=None,
+        help="Override sampling temperature for the parallel test (wins over the model "
+        "profile preset). Use e.g. 0.7 when turning reasoning ON via --reasoning-effort high.",
+    )
+    parser.add_argument(
+        "--top-p",
+        type=float,
+        default=None,
+        help="Override top_p for the parallel test (wins over the model profile preset).",
+    )
+    parser.add_argument(
         "--no-guard",
         nargs="?",
         const="both",
@@ -1412,6 +1437,8 @@ def main() -> None:
         "thinking_budget": args.thinking_budget,
         "num_requests": args.num_requests,
         "preset": args.preset,
+        "temperature": args.temperature,
+        "top_p": args.top_p,
         "no_guard": args.no_guard,
     }
     Console().print(
@@ -1454,6 +1481,8 @@ def main() -> None:
                 reasoning_effort=args.reasoning_effort,
                 no_guard=args.no_guard,
                 result_file=args.result_file,
+                temperature=args.temperature,
+                top_p=args.top_p,
             )
         )
 
