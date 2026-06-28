@@ -323,7 +323,11 @@ sglang_nccl_env: "{{ _sglang_nccl_env_roce if sglang_nccl_transport == 'roce' el
 nccl_nvls_enable: "0"
 # sglang_port lifted to group_vars/all/main.yml (shared w/ k8s_infra)
 sglang_internal_port: 30080
-sglang_haproxy_timeout: 4000
+# Raised 4000 -> 8000 to let long reasoning traces (reasoning_effort=high on
+# hard AIME/GPQA items) complete instead of HAProxy resetting the connection
+# mid-generation. Must stay >= the eval client --request-timeout (we run up to
+# 7200s). litellm_settings.request_timeout below is kept >= this value.
+sglang_haproxy_timeout: 8000
 sglang_dist_timeout: 1800
 # Timeout (seconds) for the head's wait-for-worker initContainer.
 # Must be long enough for all workers to become Ready (model download + pod scheduling).
@@ -1096,7 +1100,9 @@ litellm_settings:
   # timeout. Covers the entire request lifecycle from send to final byte.
   # Must be >= the longest backend timeout (SGLang HAProxy: {{ sglang_haproxy_timeout }}s,
   # vLLM: no proxy, but long-running thinking requests can take minutes).
-  request_timeout: 4000
+  # Kept in lockstep with sglang_haproxy_timeout (raised 4000 -> 8000 for long
+  # reasoning traces).
+  request_timeout: 8000
   # drop_params: false — pass through backend-specific params (top_k, min_p,
   # chat_template_kwargs, thinking_budget, custom logit processors, etc.)
   # so clients can use SGLang/vLLM-native features via extra_body.
