@@ -1,21 +1,32 @@
 # SGLang Upstream Bugs / Gaps: DeepSeek-V4-Flash on SM121 (DGX Spark)
 
-## Status (verified 2026-05-31, upstream re-checked 2026-06-08, re-verified 2026-06-11, re-verifiziert 2026-06-14, 2026-06-22)
+## Status (verified 2026-05-31, upstream re-checked 2026-06-08, re-verified 2026-06-11, re-verifiziert 2026-06-14, 2026-06-22, 2026-06-29)
 
-> **Update 2026-06-22 — PR #25820 ist GEMERGT (main, noch in KEINEM Release).**
+> **Update 2026-06-29 — PR #25820 ist im offiziellen v0.5.14-Release enthalten (2026-06-26).**
+> SGLang **v0.5.14** wurde am **2026-06-26T22:57Z** veröffentlicht und enthält
+> [PR #25820](https://github.com/sgl-project/sglang/pull/25820) explizit in
+> den Release Notes (Abschnitt „NVFP4 MoE for DeepSeek-V4"). Das Build-Recipe-Gate
+> **`APPLY_DSV4_NVFP4_PR25820=1` ist damit obsolet** — bei einem Wechsel auf ein
+> v0.5.14+-basiertes Image kann der Gate-Flag und der zugehörige Source-Patch
+> entfernt werden (kein Eingriff in Build-Recipes/Dockerfiles nötig, bis das
+> Cluster-Image auf v0.5.14 aktualisiert wird). Der `flashinfer_cutlass`-Pin im
+> Modellprofil `nvidia-deepseek-v4-flash-nvfp4.yml` **bleibt für SM121 die
+> richtige Wahl** — v0.5.14 default-routet weiterhin auf `flashinfer_trtllm_routed`
+> (B200/SM100-only, vgl. #26324 noch offen). Ebenfalls in v0.5.14 enthalten:
+> **PR #27986** „[dsv4] Prewarm MHC prenorm kernel at startup" (beseitigt den
+> ~2-min-First-Request-JIT-Stall auf v0.5.14+, vgl. §6 Post-load warmup).
+
+> **Update 2026-06-22 — PR #25820 ist GEMERGT (main).**
 > [PR #25820](https://github.com/sgl-project/sglang/pull/25820) „[NVIDIA]
 > Support NVFP4 MoE for DeepSeek-V4" wurde am **2026-06-22T02:35Z in den
 > sglang-`main` gemergt** (vorher DIRTY / CHANGES_REQUESTED, vgl.
-> 2026-06-16-Block). **In KEINEM Release enthalten** — v0.5.13.post1
-> (PyPI 2026-06-15, aktuell letztes Release) wurde vor dem Merge getaggt; der
-> Fix landet erst in v0.5.14 oder einem späteren Post-Release. Der PR routet
-> weiterhin default auf `flashinfer_trtllm_routed` (B200/SM100-only, vgl. #26324;
-> im PR-Body nur auf B200 getestet, kein SM120/121-Test) → der
+> 2026-06-16-Block). **Im offiziellen v0.5.14-Release seit 2026-06-26 enthalten**
+> (zuvor: v0.5.13.post1, PyPI 2026-06-15, war vor dem Merge getaggt). Der PR
+> routet weiterhin default auf `flashinfer_trtllm_routed` (B200/SM100-only,
+> vgl. #26324; im PR-Body nur auf B200 getestet, kein SM120/121-Test) → der
 > `flashinfer_cutlass`-Pin im Modellprofil `nvidia-deepseek-v4-flash-nvfp4.yml`
-> bleibt für SM121 die richtige Wahl. Das lokale Build-Recipe-Gate
-> `APPLY_DSV4_NVFP4_PR25820=1` bleibt nötig, bis ein Release-Image den Merge
-> trägt — kann dann durch den nativen v0.5.14+-Pfad ersetzt werden. #26324
-> (flashinfer_trtllm-Assert) war beim Merge noch offen.
+> bleibt für SM121 die richtige Wahl. #26324 (flashinfer_trtllm-Assert) war
+> beim Merge noch offen und ist weiterhin offen.
 
 > **2026-06-08 — DSV4 ist nicht mehr der aktive Default.** `defaults/main.yml`
 > hat auf `sglang_model: RedHatAI/Qwen3.6-35B-A3B-NVFP4` auf Image
@@ -107,7 +118,7 @@ Flash serving is still being stabilized upstream.
 |---|-------|-------|---------------|
 | 1 | `kv_lora_rank=None` strict-dataclass crash at config parse | **Worked around** (launch patch) | Blocks ANY V4-Flash checkpoint until patched |
 | 2 | compressed-tensors `wqkv_a` vs `fused_wqa_wkv` target mismatch | **Open upstream** (#23724) | Makes RedHatAI / kylesayrs / canada-quant NVFP4 unloadable |
-| 3 | NVFP4 MoE / FP4 indexer for V4 not implemented | **Partial** — FP4 indexer #26209 merged 2026-06-02 (main, in v0.5.13-Tag); NVFP4 MoE #25820 **merged 2026-06-22 (main, noch in keinem Release; B200-only)** | Kein nutzbarer NVFP4-Pfad auf SGLang für uns, bis ein Release-Image #25820 trägt (v0.5.14+) |
+| 3 | NVFP4 MoE / FP4 indexer for V4 not implemented | **Partial** — FP4 indexer #26209 merged 2026-06-02 (main, in v0.5.13-Tag); NVFP4 MoE #25820 **merged 2026-06-22 (main, im offiziellen v0.5.14-Release seit 2026-06-26; default `flashinfer_trtllm_routed`, B200-only)** | NVFP4-Pfad in v0.5.14 verfügbar; `flashinfer_cutlass`-Pin für SM121 weiterhin nötig (vgl. #26324); `APPLY_DSV4_NVFP4_PR25820=1` bei Wechsel auf v0.5.14+-Image obsolet |
 | 4 | NVFP4 runner instability on V4-Flash/Pro | **Open / partly closed** (#26324, #25704) | Even where NVFP4 loads, output is NaN/garbage except EAGLE |
 | 5 | `nvidia/DeepSeek-V4-Pro-NVFP4` does not fit; `nvidia/DeepSeek-V4-Flash-NVFP4` needs verification | N/A (capacity) | Pro: 913 GB vs 512 GB — does not fit. Flash NVFP4 (~162B params) may fit TP=4 — unverified, see §5 |
 
@@ -213,8 +224,8 @@ support:
 - `models/deepseek_v4.py` has exactly one quant branch: `w4afp8` (line ~1401).
   No NVFP4 / ModelOpt path for the attention projections.
 - [#25820](https://github.com/sgl-project/sglang/issues/25820) **[NVIDIA] Support
-  NVFP4 MoE for DeepSeek-V4** — **merged 2026-06-22 (main, noch in keinem
-  Release; default `flashinfer_trtllm_routed`, B200-only).**
+  NVFP4 MoE for DeepSeek-V4** — **merged 2026-06-22 (main); im offiziellen
+  v0.5.14-Release seit 2026-06-26; default `flashinfer_trtllm_routed`, B200-only.**
 - [#26209](https://github.com/sgl-project/sglang/issues/26209) **Add FP4 Indexer
   for DeepSeek V4** — **merged 2026-06-02** (in `main`, merged_at
   2026-06-02T07:14:39Z; enthalten im offiziellen v0.5.13-Release seit 2026-06-13).
@@ -375,6 +386,11 @@ the **first** request after startup takes ~2 min (one-time JIT/compile of the
 TileLang MHC-prenorm path et al. on first real forward) — the request can outlast
 a 120 s client timeout while the server still completes it (200 OK). Warm
 requests are normal latency. Do not mistake the first-request stall for a hang.
+**Update (v0.5.14+):** [PR #27986](https://github.com/sgl-project/sglang/pull/27986)
+„[dsv4] Prewarm MHC prenorm kernel at startup" ist im v0.5.14-Release (2026-06-26)
+enthalten und löst diesen First-Request-JIT-Stall nativ — der Kernel wird beim
+Serverstart vorcompiliert statt beim ersten Forward. Bei Verwendung eines
+v0.5.14+-Images entfällt das ~2-min-Warm-up.
 
 **On `load_format`.** Verified 2026-05-31: `load_format: auto` (in-process MoE
 fusion, no pre-sharding) loaded cleanly on the BestEffort serving Deployment
@@ -479,7 +495,7 @@ PD-disagg) may surface new walls if turned on.
 | PR #24692 | feat: SM120 (Blackwell Desktop) support for DeepSeek-V4 inference | **merged 2026-06-01; im offiziellen v0.5.13-GitHub-Release seit 2026-06-13** |
 | #23602 | DeepSeek V4 Roadmap | open |
 | #23724 | Support DeepSeek-V4 Compressed-tensor W4A16 | open |
-| #25820 | [NVIDIA] Support NVFP4 MoE for DeepSeek-V4 | **merged 2026-06-22 (main, noch in keinem Release — v0.5.14+; default `flashinfer_trtllm_routed`, B200-only, kein SM120/121-Test)** |
+| #25820 | [NVIDIA] Support NVFP4 MoE for DeepSeek-V4 | **merged 2026-06-22 (main); im offiziellen v0.5.14-Release seit 2026-06-26; default `flashinfer_trtllm_routed`, B200-only, kein SM120/121-Test; `APPLY_DSV4_NVFP4_PR25820=1` bei v0.5.14+-Image obsolet** |
 | #26209 | Add FP4 Indexer for DeepSeek V4 | **merged 2026-06-02; im offiziellen v0.5.13-GitHub-Release seit 2026-06-13** |
 | #26324 | flashinfer_trtllm MoE runner asserts on DeepSeek-V4-Flash NVFP4 (B200) | open |
 | #25704 | V4-Pro NVFP4 B200: NaN/garbage except EAGLE | closed |
@@ -516,7 +532,7 @@ einem v0.5.13-Image ändert.
 | 0 | FlashMLA sparse-decode (SM121) | 0xSero-vendored Kernel + `.pth`-Hook nötig (§7) | **Redundant** — nativ via `deepseek_v4_backend.py` (`_is_sm120=True`); Hook kann entfernt werden |
 | 1 | `kv_lora_rank=None` strict-dataclass crash | Launch-Patch nötig (`int → int\|None`) | **Weiterhin nötig** — `kv_lora_rank: int = 512` in `configuration_deepseek_v3.py` unverändert; `_DeepseekV4ConfigAlias` in v0.5.13 überschreibt das Feld nicht |
 | 2 | `wqkv_a` vs `fused_wqa_wkv` target mismatch | Nicht patchbar (§2) | **Unverändert** — kein Fix in #24692 |
-| 3 | NVFP4 MoE / FP4-Indexer | FP4-Indexer merged (#26209), MoE-Pfad offen | **Teilweise** — #26209 im offiziellen v0.5.13-Release (2026-06-13); NVFP4 MoE (#25820) weiterhin offen/ungemergt (updatedAt 2026-06-13) |
+| 3 | NVFP4 MoE / FP4-Indexer | FP4-Indexer merged (#26209), MoE-Pfad offen | **Gelöst in v0.5.14** — #26209 im v0.5.13-Release (2026-06-13); NVFP4 MoE (#25820) im v0.5.14-Release (2026-06-26); `flashinfer_cutlass`-Pin für SM121 weiterhin nötig |
 | 4 | DeepGEMM MHC-prenorm (SM121) | `SGLANG_OPT_DEEPGEMM_HC_PRENORM=0` nötig | **Weiterhin nötig** — `configurer.py` gated DeepGEMM bei exakt `sm_version==120`, nicht 121; `mhc.py` prüft nur `SGLANG_OPT_DEEPGEMM_HC_PRENORM`; kein Auto-Routing für SM121 in #24692 |
 | 5 | `paged_mqa_logits` DeepGEMM SM121-Lücke | `SGLANG_FP8_PAGED_MQA_LOGITS_TORCH=1` nötig | **Weiterhin nötig** (Env-Var-Routing unverändert) |
 | 6 | `seq_lens.shape`-Assert im torch-Fallback | Launch-Source-Patch nötig | **Redundant** — `fp8_paged_mqa_logits_torch_sm120` in v0.5.13 handhabt Squeeze intern; Patch kann entfernt werden |
