@@ -86,7 +86,9 @@ work is in progress — see "Open: semantic fix" below.
 
 **Update 2026-06-19:** PRs #20869 and #21630 were **closed without merge on 2026-06-18** by maintainer `hnyls2002`, marked as superseded. The functionality they carried — EP input-scale slicing (`_slice_scale`), `CutlassMoEParams` with `num_local_experts`, and SM120 MoE-backend auto-resolution — is now handled on `main`. However, **none of this landed in v0.5.13** (tag cut 2026-06-11, before the fixes were committed to `main`). The **`_shuffle_rows_torch` OOB is separately still unfixed** in all released versions including v0.5.13 and is not addressed by anything in those PRs. The `flashinfer_cutlass` workaround remains unchanged.
 
-Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, and **v0.5.13** (tag cut 2026-06-11 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
+**Re-verified 2026-06-29:** SGLang **v0.5.14** released 2026-06-26. The v0.5.14 release notes contain no fix for the `_shuffle_rows_torch` `a_map`/`c_map` `torch.empty` OOB under EP — no mention of `_shuffle_rows_torch`, `a_map`, `c_map`, or any `cutlass_moe_fp4` EP OOB fix. PR #27588 ("[quantization] NVFP4 MoE: split fused w13 gate/up global scales", merged 2026-06-15, included in v0.5.14) is a separate correctness fix for checkpoints with per-half gate/up quantization and does **not** address the `a_map` OOB. The `flashinfer_cutlass` workaround remains required and unchanged.
+
+Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, v0.5.13, and **v0.5.14** (released 2026-06-26 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
 
 The final root cause (uninitialized `torch.empty` on `a_map`) was identified
 during our sm121 CUTLASS SMEM debug session on 2026-04-11 after chasing it
