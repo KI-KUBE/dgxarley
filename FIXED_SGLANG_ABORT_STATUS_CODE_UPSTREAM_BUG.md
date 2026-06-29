@@ -4,7 +4,7 @@
 
 **Fixed upstream** as of 2026-04-16 (PR [#22535](https://github.com/sgl-project/sglang/pull/22535),
 commit [`f639425f`](https://github.com/sgl-project/sglang/commit/f639425ff06db7b5d379d749b6954eeb38d56972)).
-Re-verified 2026-05-09, 2026-05-31, and 2026-06-26 (PR #22535 merged 2026-04-16, in v0.5.11/v0.5.12 — the current default image `scitrera/dgx-spark-sglang:0.5.12` includes it; no in-repo workaround ever existed. Latest upstream release is now v0.5.13, which also carries the fix):
+Re-verified 2026-05-09, 2026-05-31, and 2026-06-26 (PR #22535 merged 2026-04-16, in v0.5.11/v0.5.12 — the current default image `scitrera/dgx-spark-sglang:0.5.12` includes it; no in-repo workaround ever existed. Latest upstream release is now v0.5.14 (released 2026-06-26), which also carries the fix):
 
 - **Still present** in legacy images `scitrera/dgx-spark-sglang:0.5.10` and
   `:0.5.10.post1` — both predate the fix commit.
@@ -122,6 +122,6 @@ subsequent requests are unaffected. The log noise is cosmetic.
 
 ## Related
 
-- `SGLANG_REASONING_TOKENS_UPSTREAM_BUG.md`
+- `FIXED_SGLANG_REASONING_TOKENS_UPSTREAM_BUG.md`
 - `SGLANG_TP_EP_MOE_UPSTREAM_BUG.md`
 - `SGLANG_SHARDED_SPECULATIVE_UPSTREAM_BUG.md`
