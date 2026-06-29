@@ -35,6 +35,17 @@
 # (EP=4 @ctx524k = 201.5 clean 8/8). Spec conclusions (3/4 wins, no NaN, 05/06 crash) all
 # carry over. ep_size set to 4 below; revert to 1 for the simpler TP-MoE path (n=8 wash).
 #
+# MIGRATED TO v0.5.14 NATIVE 2026-06-29 — dropped the dedicated dev image. The
+# production xomoxcc:0.5.14-sm121 carries the MTP enablement NATIVELY: #24955 +
+# #28102 are ancestors of the v0.5.14 tag, and spec-v2 is now the UNCONDITIONAL
+# path (the boot log prints "SGLANG_ENABLE_SPEC_V2 has been removed"), so the
+# 0.5.13-dev-nemotronh-mtp image AND PR #27998 are OBSOLETE. Live-confirmed on
+# 0.5.14-sm121: EAGLE 3/4 MTP boots clean (no extra_buffer/spec-v2 crash, ~3.5 min),
+# radix cache ON, mamba_radix_cache_strategy='extra_buffer' auto-selected,
+# accept_len 2.65–2.96 (= the 2026-06-16 ~2.7 band), per-request ~33 tok/s @ n=4,
+# zero runtime errors. Performance parity with the dev image; the detailed n=1/n=8
+# numbers below are from the 0.5.13-mtp matrix and still describe the tuning optimum.
+#
 # >>> IMAGE CAVEAT — RESOLVED 2026-06-04 <<<  Although the model card serves this on a
 # DEDICATED dev image (lmsysorg/sglang:dev-cu13-nemotronh-nano-omni-reasoning-v3), the
 # mainline UPSTREAM base scitrera/dgx-spark-sglang:0.5.12 DOES carry the
@@ -241,8 +252,9 @@ _model_profile:
     # NVIDIA Advanced Deployment Guide (2026-06, where the cookbook 5/5 comes from):
     #   https://docs.nvidia.com/nemotron/latest/usage-cookbook/Nemotron-3-Super/AdvancedDeploymentGuide/README.html
     #
-    # >>> PRIOR BLOCKERS — ALL RESOLVED on xomoxcc:0.5.13-dev-nemotronh-mtp-sm121 <<<
-    # (kept for provenance; these were the pre-run risks, now confirmed cleared)
+    # >>> PRIOR BLOCKERS — ALL RESOLVED, now NATIVE in v0.5.14 (xomoxcc:0.5.14-sm121) <<<
+    # (first cleared on the 0.5.13-dev-nemotronh-mtp image; #24955/#28102 are ancestors of
+    #  the v0.5.14 tag and #27998's spec-v2 path is now unconditional — kept for provenance)
     #   * sgl-project/sglang#24955 (DP attn + MTP, MERGED), #28102 (DP+EP fix, MERGED),
     #     #27184 (spec-v2/B200 docs, MERGED), #27998 (MTP + radix cache, GB10-validated):
     #     all present in this image. MTP boots, no --disable-radix-cache needed.
@@ -262,7 +274,14 @@ _model_profile:
     speculative_num_draft_tokens: 4  # VALIDATED WINNER 2026-06-16 — beats cookbook 5/5 + 5/7
     speculative_eagle_topk: 1
     speculative_draft_model_path: ""
-    # enable_spec_v2: true                       # Case 14: boots but NO win over 3/4 default → leave OFF
+    # enable_spec_v2: REMOVED in v0.5.14 — spec-v2 is now the UNCONDITIONAL worker
+    #   ("SGLANG_ENABLE_SPEC_V2 has been removed" in the boot log). Nothing to set; the
+    #   0.5.13 Case 14 "boots but no win" finding is moot. (--disable-overlap-schedule
+    #   selects the synchronous path if ever needed.)
     # mamba_scheduler_strategy: "extra_buffer"   # Case 13: NO benefit (degenerate n=1 repetition);
-    #   #27998 auto-selects it for spec+radix anyway → never set manually. Leave OFF.
-    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-dev-nemotronh-mtp-sm121"
+    #   v0.5.14 auto-selects extra_buffer for spec+radix anyway (confirmed live 2026-06-29:
+    #   mamba_radix_cache_strategy='extra_buffer') → never set manually. Leave OFF.
+    # 2026-06-29: serves on the production v0.5.14 image (native MTP, see migration note
+    # at top). The dedicated dev image below is OBSOLETE — kept only as a rollback ref.
+    # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-dev-nemotronh-mtp-sm121"  # OBSOLETE (pre-v0.5.14)
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-sm121"
