@@ -56,6 +56,10 @@ set -euo pipefail
 #SRC_IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.13-sm121"
 #IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.13-sm121"
 
+#   current production lean image (v0.5.14):
+#SRC_IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.14-sm121"
+#IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.14-sm121"
+
 #
 #   gemma4-sm121 (with Gemma-4 source patches):
 SRC_IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"

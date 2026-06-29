@@ -1,5 +1,5 @@
 #
-# Custom recipe: SGLang main @ 3a1417a (post-v0.5.13) + SM121 sgl-kernel patches
+# Custom recipe: SGLang v0.5.14 + SM121 sgl-kernel patches
 #                + Gemma-4 NVFP4 source patch + DiffusionGemma dLLM (unmerged #28054).
 #
 # Tag: xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121
@@ -9,29 +9,27 @@
 #   - NVFP4 (nvidia/Gemma-4-31B-IT-NVFP4, nvidia/Gemma-4-26B-A4B-NVFP4)
 #   - DiffusionGemma dLLM (nvidia/diffusiongemma-26B-A4B-it-NVFP4)
 #
-# WHY FORWARD-PINNED TO 3a1417a (main, 2026-06-12) INSTEAD OF THE v0.5.13 TAG:
-#   1. FROZEN_KV_MTP fix. v0.5.13 (2026-06-11) shipped a short-lived BROKEN
-#      FrozenKVMTPCudaGraphRunner — Gemma-4 BF16 MTP dies at boot with
-#      "'NoneType' object has no attribute 'target_token_to_kv_pool'"
-#      (kv_context is None). PR #28081 (merged 2026-06-12, commit 3a1417a) folds
-#      that runner onto the shared DecodeCudaGraphRunner base and fixes it. The
-#      PR diff does NOT apply onto the v0.5.13 tag (the crashing file diverged),
-#      so we pin the source forward to the commit that has it natively.
-#   2. Cleaner DiffusionGemma bake. PR #28054 is authored against main; baking it
-#      onto the v0.5.13 TAG was main-vs-tag (drift risk on scheduler.py /
-#      server_args.py / forward_batch_info.py). On this main-ahead base it is
-#      main-vs-main (~same day) → much cleaner apply.
-#   3. EAGLE v1 is still present at 3a1417a (removed later by #28129/#28133,
-#      2026-06-13) — we pin BEFORE that removal to minimise drift; we don't need
-#      it. To include the EAGLE-v1 cleanup, bump SGLANG_REF to
-#      27ba13358eebcc05e494596706c2ac63ce00fb82.
+# MOVED FROM THE 3a1417a DEV-PIN TO THE v0.5.14 TAG (2026-06-29):
+#   This recipe was originally forward-pinned to main commit 3a1417a because
+#   v0.5.13 lacked the FROZEN_KV_MTP fix (PR #28081) — Gemma-4 BF16 MTP died at
+#   boot with "'NoneType' object has no attribute 'target_token_to_kv_pool'"
+#   (kv_context is None). v0.5.14 (released 2026-06-26, commit 49e384ce) now
+#   carries #28081 natively: git ancestry confirms #28081 is an ancestor of
+#   v0.5.14 but NOT of v0.5.13 (v0.5.13 was cut from a diverging release branch).
+#   So the forward-pin is no longer needed and SGLANG_REF moves to the clean tag.
+#   EAGLE-v1 was removed upstream by #28129/#28133 (2026-06-13) and is therefore
+#   already gone in v0.5.14 — we never used it, no impact.
+#   STILL OPEN at v0.5.14: PR #28054 (DiffusionGemma) — the source patch stays
+#   (see below). The v0.5.14 release notes cite "#27824 DiffusionGemma" but that
+#   is only a cookbook/docs PR, NOT the model-support code.
 #
-# ⚠️  FIRST-CONTACT / main-ahead build — NOT a tagged release. Main risk: the
-#     SM121 sgl-kernel source patches (always_source_patches: sgl-kernel-sm121
-#     .patch et al.) were validated against the v0.5.13 tag. One day of main
-#     drift may shift the sgl-kernel C++ source (nvfp4_blockwise_moe.cuh /
-#     CMakeLists). The in-container `patch --dry-run` gates this — if it FAILS,
-#     regenerate the sgl-kernel patch against 3a1417a before this recipe builds.
+# ⚠️  v0.5.14 is a tagged release but 248 commits past v0.5.13 (and past the old
+#     3a1417a pin). The SM121 sgl-kernel source patches (always_source_patches:
+#     sgl-kernel-sm121.patch et al.) were validated against the v0.5.13 tag and
+#     are BEST-EFFORT here — drift in the sgl-kernel C++ source
+#     (nvfp4_blockwise_moe.cuh / CMakeLists) is possible. The in-container
+#     `patch --dry-run` gates this — if it FAILS, regenerate the failing
+#     sgl-kernel patch against the v0.5.14 source tree before this recipe builds.
 #
 # The filename contains "gemma4" → build_sm121_image.sh applies the gemma4-NVFP4
 # source patch (#22928 geglu-nan-clamp; inert on dense BF16, needed by NVFP4
@@ -69,23 +67,30 @@ FLASHINFER_VERSION=0.6.13
 # → autoregressive Gemma-4-Profile (BF16/NVFP4/FROZEN_KV_MTP) auf 5.11.0 neu verifizieren.
 TRANSFORMERS_VERSION=5.11.0
 
-KERNELS_VERSION=0.12.3
+# kernels 0.14.1 — exakt SGLang v0.5.14s pyproject-Pin (kernels>=0.14.1,<0.15),
+# bumped von 0.12.3. Perf-neutral für SM121 (der HF-Hub-Loader ist auf GB10 nicht
+# im Hotpath; sgl-flash-attn3 ist via _is_fa3_supported deaktiviert und hat keine
+# sm_121/ARM64-Builds). Detailbegründung: sglang-0.5.14-sm121.recipe.
+KERNELS_VERSION=0.14.1
 
-# main-ahead pin (post-v0.5.13, 2026-06-12). 40-hex SHA → build clones + checks
-# out the commit. SGLANG_VERSION is a dev string >= 0.5.12 so the build SKIPS the
-# Gemma-4 MTP cherry-pick (#24436 is native here; re-applying would fail).
-SGLANG_VERSION=0.5.14.dev20260612
-SGLANG_REF="3a1417a0c16cde6ab89922b6908c74ab32a791bb"
-# Alt — "all three spec PRs" incl. EAGLE-v1 removal (#28129/#28133), 2026-06-13:
-# SGLANG_REF="27ba13358eebcc05e494596706c2ac63ce00fb82"
+# v0.5.14 tag (released 2026-06-26, commit 49e384ce). SGLANG_VERSION >= 0.5.12 so
+# the build SKIPS the Gemma-4 MTP cherry-pick (#24436 native since v0.5.12;
+# re-applying would fail). #28081 (FROZEN_KV_MTP) and the EAGLE-v1 removal
+# (#28129/#28133) are already in this tag — see the header.
+SGLANG_VERSION=0.5.14
+SGLANG_REF="v0.5.14"
 
-# Main-ahead sgl-kernel patch variant. Between v0.5.13 and 3a1417a sgl-kernel
-# refactored the mscclpp link (dropped mscclpp_static from the common_ops_sm90/
-# sm100 link lines + removed the mscclpp-build block), which drifts
-# sgl-kernel-skip-sm90-target.patch (Hunk #3 FAILED at 398). This flag makes
-# build_sm121_image.sh install the "-mainahead" patch variants (regenerated
-# against 3a1417a) under the canonical names, while the v0.5.13 recipes keep
-# the originals. Drop it if SGLANG_REF moves back to a tagged release.
+# Main-ahead sgl-kernel patch variant. The mscclpp link refactor (dropped
+# mscclpp_static from the common_ops_sm90/sm100 link lines + removed the
+# mscclpp-build block) landed between v0.5.13 and 3a1417a and broke the canonical
+# sgl-kernel-skip-sm90-target.patch (Hunk #3 FAILED at 398). v0.5.14 is 248
+# commits past v0.5.13 (well past 3a1417a) and CONTAINS that refactor, so this
+# flag MUST stay on even though SGLANG_REF is now a tagged release. It makes
+# build_sm121_image.sh install the "-mainahead" patch siblings (regenerated
+# against 3a1417a) under the canonical names where they exist (skip-sm90-target,
+# diffusiongemma); the v0.5.13 recipes keep the originals. The in-container
+# dry-run gates everything — if a -mainahead patch still fails against v0.5.14,
+# regenerate it against the v0.5.14 source tree.
 SGL_KERNEL_MAINAHEAD=1
 
 # DiffusionGemma dLLM runtime — upstream PR #28054 (OPEN). Gated dockerfile-

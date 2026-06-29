@@ -147,6 +147,11 @@ if grep -q 'num_experts=layer.num_experts,  # global num experts' "$MODELOPT_QUA
   echo "Patched modelopt_quant.py: CutlassMoEParams uses num_local_experts for EP"
 fi
 
+# TODO (followup 2026-06-29): REMOVABLE on any image built from SGLang v0.5.14+.
+# PR #25820 (merged 2026-06-22, shipped in the v0.5.14 release 2026-06-26) adds a
+# get_model_loader() short-circuit that routes SHARDED_STATE before ModelOptModelLoader
+# is reached, so this monkey-patch becomes dead code there. Drop this whole block once
+# the pinned sglang_image is v0.5.14+. Ref: SGLANG_TP_EP_MOE_UPSTREAM_BUG.md.
 # Patch ModelOptModelLoader to support load_format=sharded_state (SGLang 0.5.9 bug).
 # ModelOptModelLoader inherits DefaultModelLoader whose _prepare_weights() doesn't
 # handle LoadFormat.SHARDED_STATE → "Unknown load_format" error. Fix: for pre-quantized

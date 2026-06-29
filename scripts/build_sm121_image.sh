@@ -79,52 +79,56 @@ BRANCH_NAME="sm121"
 # source patches (PRs #22929/#22928) are also applied — the underlying
 # build steps and SM121 sgl-kernel patches are identical.
 #
-# Current set (v0.5.13 line — DEFAULT):
-#   sglang-0.5.13-sm121.recipe         — THE production image. SGLang v0.5.13 +
-#                                        SM121 sgl-kernel patches + flashinfer
-#                                        0.6.13 + TWO STACKED unmerged model
-#                                        PRs (each gated by its own APPLY_* var,
-#                                        disjoint model paths):
-#                                          · DeepSeek-V4 NVFP4 MoE PR #25820
-#                                            (APPLY_DSV4_NVFP4_PR25820=1) — drops
-#                                            the 0xSero DSV4-FlashMLA bake (native
-#                                            SM120/121 via PR #24692 in v0.5.13,
-#                                            UPSTREAM_DSV4_BUGS.md §8).
+# Current set (v0.5.14 line — DEFAULT):
+#   sglang-0.5.14-sm121.recipe         — THE production image. SGLang v0.5.14 +
+#                                        SM121 sgl-kernel patches (mainahead) +
+#                                        flashinfer 0.6.13 + kernels 0.14.1. DSV4
+#                                        NVFP4 MoE (PR #25820) is NATIVE in v0.5.14
+#                                        → its patch is OFF (APPLY_DSV4_NVFP4_PR25820
+#                                        =0). ONE stacked unmerged model PR remains:
 #                                          · Qwen3.6 ModelOpt mixed NVFP4 PR #27906
 #                                            (APPLY_QWEN36_MIXED_NVFP4_PR27906=1,
-#                                            added 2026-06-24) — modelopt_mixed +
+#                                            still OPEN) — modelopt_mixed +
 #                                            W4A16_NVFP4 lm_head/MoE/linears +
-#                                            wrapper-prefix + MTP. Its dockerfile
-#                                            patch uses trailing-context-only so it
-#                                            STACKS after the DSV4 step.
-#                                        Both rebased onto v0.5.13. Targets:
-#                                        nvidia/DeepSeek-V4-Flash-NVFP4 +
-#                                        nvidia/Qwen3.6-35B-A3B-NVFP4.
+#                                            wrapper-prefix + MTP. Trailing-context-
+#                                            only dockerfile patch.
+#                                        Serves nvidia/DeepSeek-V4-Flash/Pro-NVFP4
+#                                        (native) + nvidia/Qwen3.6-35B-A3B-NVFP4.
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.14-sm121
+#   sglang-0.5.14-gemma4-diffusion-sm121.recipe — THE unified Gemma-4 image, now
+#                                        pinned to the v0.5.14 TAG (was main-ahead
+#                                        3a1417a): FROZEN_KV_MTP #28081 native +
+#                                        DiffusionGemma #28054 (still OPEN, patched)
+#                                        + gemma4-NVFP4 patch. Serves ALL five
+#                                        Gemma-4 profiles (BF16 MTP, NVFP4, diffusion).
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121
+#   sglang-0.5.14-gemma4-sm121.recipe  — gemma4-NVFP4 standalone. DO NOT BUILD
+#                                        PROACTIVELY (superseded by the unified
+#                                        image; NVFP4 Gemma-4 PRs blocked upstream).
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.14-gemma4-sm121
+#
+# Previous set (v0.5.13 line — kept for rollback):
+#   sglang-0.5.13-sm121.recipe         — prior production image. SGLang v0.5.13 +
+#                                        DSV4 NVFP4 (PR #25820, patched — unmerged
+#                                        at the time) + Qwen3.6 #27906 + flashinfer
+#                                        0.6.13 + kernels 0.12.3.
 #                                        Tag: xomoxcc/dgx-spark-sglang:0.5.13-sm121
+#   sglang-0.5.13-gemma4-sm121.recipe  — v0.5.13 gemma4-NVFP4 standalone (same
+#                                        upstream-blocked caveat).
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121
+#   sglang-0.5.13-dev-nemotronh-mtp-sm121.recipe — v0.5.13 + PR #27998 (MTP +
+#                                        radix cache) experiment. NOT bumped to
+#                                        v0.5.14 (MTP enablement #24955 is native
+#                                        in v0.5.14; test that first).
+#                                        Tag: …:0.5.13-dev-nemotronh-mtp-sm121
 #
 # Previous set (v0.5.12 line):
 #   sglang-0.5.12-sm121.recipe         — SGLang v0.5.12 + six SM121 sgl-kernel
 #                                        patches + flashinfer 0.6.11.post1.
 #                                        Tag: xomoxcc/dgx-spark-sglang:0.5.12-sm121
-#                                        This is what most workloads want
-#                                        (Gemma-4 BF16 + MTP are now native).
-#   sglang-0.5.12-gemma4-sm121.recipe  — same + Gemma-4 NVFP4 source patches
-#                                        (PRs #22929/#22928) stacked on top.
+#   sglang-0.5.12-gemma4-sm121.recipe  — same + Gemma-4 NVFP4 source patches.
 #                                        Tag: xomoxcc/dgx-spark-sglang:0.5.12-gemma4-sm121
-#                                        DO NOT BUILD PROACTIVELY — the four
-#                                        SM120/121 Gemma-4 NVFP4 PRs are still
-#                                        blocked upstream as of 2026-05-21;
-#                                        rebuilding only reproduces the blocked
-#                                        state. See SGLANG_GEMMA4_UPSTREAM_BUG.md.
-#   sglang-0.5.13-gemma4-sm121.recipe  — sglang-0.5.13-sm121 + the same Gemma-4
-#                                        NVFP4 source patches + flashinfer
-#                                        0.6.13 (PR #3576 head_dim=512).
-#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121
-#                                        SAME upstream-blocked caveat as the
-#                                        0.5.12-gemma4 variant; DSV4 patches are
-#                                        NOT combinable (same Dockerfile region).
-#                                        Only relevant if the NVFP4 Gemma-4
-#                                        profiles need 0.6.13.
+#                                        DO NOT BUILD PROACTIVELY (blocked upstream).
 #
 # Previous set (v0.5.11 line — kept for rollback / A/B comparison, and as the
 # only working build for Gemma-4 BF16 vs the still-blocked NVFP4 variant):
@@ -147,30 +151,46 @@ BRANCH_NAME="sm121"
 # PR #24436 is merged into the release. The DSV4 NVFP4 patch (PR #25820) is
 # gated by the recipe variable APPLY_DSV4_NVFP4_PR25820=1 instead of a name
 # pattern — see apply_patches().
-RECIPE_NAME="sglang-0.5.13-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-sm121"
+#
+# RESOLVED (2026-06-29): the DSV4 NVFP4 gate is now OFF in the v0.5.14 base recipe
+# — PR #25820 shipped in the v0.5.14 release (2026-06-26), so the new
+# sglang-0.5.14-sm121.recipe sets APPLY_DSV4_NVFP4_PR25820=0 (re-applying a merged
+# patch fails the in-container dry-run). The rebased sglang-dsv4-nvfp4-pr25820
+# .patch stays on disk for the 0.5.13 recipe + git history. Ref: UPSTREAM_DSV4_BUGS.md.
+RECIPE_NAME="sglang-0.5.14-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.14-sm121"
 
+# Rollback: previous production line (v0.5.13). DSV4 NVFP4 (#25820) was still
+# patched there; it is native in v0.5.14 and the patch is OFF in the 0.5.14 recipe.
+#RECIPE_NAME="sglang-0.5.13-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-sm121"
+
+# gemma4-NVFP4 standalone — DO NOT BUILD PROACTIVELY (superseded by the unified
+# gemma-diffusion image below; SM120/121 Gemma-4 NVFP4 PRs still blocked upstream).
+#RECIPE_NAME="sglang-0.5.14-gemma4-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.14-gemma4-sm121"
 #RECIPE_NAME="sglang-0.5.13-gemma4-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121"
 
-# THE UNIFIED GEMMA-4 IMAGE: main-ahead pin (commit 3a1417a, 2026-06-12) →
-# FROZEN_KV_MTP fix (#28081) native + DiffusionGemma dLLM bake (#28054) +
-# gemma4-NVFP4 patch. Serves ALL five Gemma-4 profiles (BF16 MTP, NVFP4,
-# diffusion) off one build. First-contact / main-ahead — see the recipe header
-# for the sgl-kernel-patch re-validation caveat. SCOPE: DIFFUSIONGEMMA_SGLANG_SCOPE.md.
+# THE UNIFIED GEMMA-4 IMAGE: now pinned to the v0.5.14 TAG (was main-ahead commit
+# 3a1417a until 2026-06-29) → FROZEN_KV_MTP fix (#28081) native + DiffusionGemma
+# dLLM bake (#28054, still OPEN) + gemma4-NVFP4 patch. Serves ALL five Gemma-4
+# profiles (BF16 MTP, NVFP4, diffusion) off one build. See the recipe header for
+# the sgl-kernel-patch re-validation caveat. SCOPE: DIFFUSIONGEMMA_SGLANG_SCOPE.md.
 #RECIPE_NAME="sglang-0.5.14-gemma4-diffusion-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"
 
-# NemotronH MTP experiment: v0.5.13 + unmerged PR #27998 (MTP + radix cache).
-# Enables native speculative decoding for Nemotron-3-Super-120B-NVFP4 without
-# --disable-radix-cache. See that model profile's MTP block + the recipe header.
-
+# NemotronH MTP experiment: NOT bumped to v0.5.14 (deferred 2026-06-29). The MTP
+# enablement (#24955) is now native in v0.5.14, so test native MTP + radix cache
+# on the production 0.5.14-sm121 image FIRST; only re-cut this dev recipe against
+# v0.5.14 if the spec-v2 crash (PR #27998, still OPEN) actually reappears.
 #RECIPE_NAME="sglang-0.5.13-dev-nemotronh-mtp-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-dev-nemotronh-mtp-sm121"
 
-# NB: Qwen3.6 mixed-NVFP4 support (PR #27906) is NOT a separate recipe — it is
-# baked into the production sglang-0.5.13-sm121 recipe above (APPLY_QWEN36_MIXED_
-# NVFP4_PR27906=1), stacked on top of the DSV4 patch. Target:
+# NB: Qwen3.6 mixed-NVFP4 support (PR #27906, still OPEN) is NOT a separate
+# recipe — it is baked into the production sglang-0.5.14-sm121 recipe above
+# (APPLY_QWEN36_MIXED_NVFP4_PR27906=1). On v0.5.14 the DSV4 patch is OFF (#25820
+# merged), so qwen36 is the only stacked model patch. Target:
 # nvidia/Qwen3.6-35B-A3B-NVFP4.
 
 #RECIPE_NAME="sglang-0.5.12-sm121"

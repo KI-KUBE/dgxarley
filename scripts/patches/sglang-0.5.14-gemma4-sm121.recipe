@@ -1,0 +1,71 @@
+#
+# Custom recipe: SGLang v0.5.14 + SM121 sgl-kernel patches + Gemma-4 NVFP4 source patches.
+#
+# ⚠️  REDUNDANT / DO NOT BUILD PROACTIVELY. Two reasons:
+#   1. SUPERSEDED by sglang-0.5.14-gemma4-diffusion-sm121.recipe — that UNIFIED
+#      image serves ALL five Gemma-4 profiles (BF16+MTP, NVFP4, diffusion) off
+#      one build and carries the same gemma4-NVFP4 geglu-nan-clamp patch. This
+#      standalone variant exists only for parity with the 0.5.11/0.5.12/0.5.13
+#      gemma4 recipes (rollback / A-B). For actual Gemma-4 NVFP4 serving use the
+#      unified image.
+#   2. The SM120/121 Gemma-4 NVFP4 upstream PRs (#22929/#22928/#22927/#22615)
+#      are still blocked/open upstream (SGLANG_GEMMA4_UPSTREAM_BUG.md). v0.5.14
+#      does not change that — a build only reproduces the blocked state on a
+#      newer SGLang base. NB: an earlier note in the 0.5.13-gemma4 recipe claimed
+#      #22929 (per-expert NVFP4 loading) was merged 2026-06-19; the v0.5.14
+#      release-notes audit lists #22929 as STILL OPEN — treat as unmerged until
+#      confirmed against the v0.5.14 source.
+#
+# Basiert auf sglang-0.5.14-sm121.recipe (gleicher SGLang-Ref, Base-Image,
+# sgl-kernel-Patches, flashinfer-0.6.13-Override, kernels 0.14.1). Der einzige
+# Delta ist der gemma4-NVFP4-Source-Patch, der via RECIPE_NAME == *gemma4* in
+# build_sm121_image.sh::apply_patches stapelt:
+#   - sglang-gemma4-geglu-nan-clamp.patch (PR #22928, OPEN) — GEGLU-Aktivierung
+#     für cutlass_moe_fp4 + FP4-Block-Scale NaN-Clamp auf SM120/121 (inert auf
+#     dense BF16; nur die NVFP4-Gemma-Profile brauchen ihn).
+# Gemma-4 BF16 ist nativ seit 0.5.11, Gemma-4 MTP nativ seit 0.5.12 (#24436) —
+# die `-gemma4-`-Variante ist daher NUR für die NVFP4-Patches relevant. Dense
+# BF16 Gemma-4 NICHT hierher hängen (das gemma4-Image schleppt die NVFP4-Pfade
+# mit); dafür ist die lean sglang-0.5.14-sm121 da.
+#
+# Drift-Risiko: Die PRs sind gegen einen pre-v0.5.11-Tree geschrieben; bis v0.5.14
+# sind >800 PRs gemerged — patch-context-Offsets KÖNNEN verschoben sein. Der
+# in-container `patch --dry-run`-Step fängt das ab. Bei Drift: `gh pr diff 22928`
+# re-exportieren und manuell gegen v0.5.14-Source rebasen.
+#
+# DSV4/qwen36 bewusst NICHT enthalten: deren Dockerfile-Patches ankern auf
+# DERSELBEN Dockerfile-Region wie der gemma4-NVFP4-Patch und sind NICHT
+# kombinierbar (build_sm121_image.sh). Eine Recipe = gemma4-NVFP4 ODER dsv4/qwen36.
+#
+DOCKERFILE=Dockerfile.sglang-nightly
+TARGET=runtime
+
+BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
+
+# 0.6.13 (stable, released 2026-06-24) — flashinfer PR #3576 (head_dim=512 /
+# Gemma-4 Global-Attention auf SM120/121, Issue #3297) + NVFP4-Quant-Kernel-
+# Verbesserungen. v0.5.14 pinnt im pyproject weiterhin 0.6.12 → Override nötig.
+# Roll-back: FLASHINFER_VERSION=0.6.12.
+# FLASHINFER_VERSION=0.6.12
+FLASHINFER_VERSION=0.6.13
+
+# transformers 5.8.1 — exakt SGLang v0.5.14s pyproject-Pin (==5.8.1). NICHT
+# isoliert bumpen. (Die DiffusionGemma-Variante hebt auf 5.11.0; dieser
+# autoregressive Gemma-4-NVFP4-Pfad braucht das nicht.)
+TRANSFORMERS_VERSION=5.8.1
+
+# kernels 0.14.1 — exakt SGLang v0.5.14s pyproject-Pin (kernels>=0.14.1,<0.15),
+# bumped von 0.12.3. Perf-neutral für SM121. Detailbegründung:
+# sglang-0.5.14-sm121.recipe.
+KERNELS_VERSION=0.14.1
+
+SGLANG_VERSION=0.5.14
+SGLANG_REF="v0.5.14"
+
+# main-ahead sgl-kernel patch variant — v0.5.14 contains the mscclpp link
+# refactor (landed post-v0.5.13) that broke the canonical
+# sgl-kernel-skip-sm90-target.patch. Same rationale as sglang-0.5.14-sm121.recipe;
+# the in-container dry-run gates each patch — regen against v0.5.14 if one fails.
+SGL_KERNEL_MAINAHEAD=1
+
+IMAGE_TAG=xomoxcc/dgx-spark-sglang:0.5.14-gemma4-sm121

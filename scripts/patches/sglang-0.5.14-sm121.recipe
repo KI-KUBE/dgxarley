@@ -1,0 +1,130 @@
+#
+# Custom recipe: SGLang v0.5.14 + our SM121 sgl-kernel patches
+#                + Qwen3.6 ModelOpt mixed NVFP4 (unmerged upstream PR #27906).
+#
+# This is THE production 0.5.14-sm121 image, successor to sglang-0.5.13-sm121
+# .recipe. Serves nvidia/DeepSeek-V4-Flash-NVFP4 (now NATIVE, see below) AND
+# nvidia/Qwen3.6-35B-A3B-NVFP4 (PR #27906, still patched). Created 2026-06-29.
+#
+# Pinned to upstream tag `v0.5.14` (released 2026-06-26T22:57Z, commit 49e384ce;
+# 248 commits past v0.5.13). The 0.5.13-sm121 recipe is kept for rollback.
+#
+# ── DELTA gegenüber sglang-0.5.13-sm121.recipe ──────────────────────────────
+#   1. SGLANG_VERSION 0.5.13 → 0.5.14, SGLANG_REF v0.5.13 → v0.5.14.
+#   2. DSV4 NVFP4 MoE (PR #25820) is now NATIVE in v0.5.14 (merged upstream
+#      2026-06-22, listed in the v0.5.14 release notes). APPLY_DSV4_NVFP4_PR25820
+#      is therefore set to 0 — re-applying a merged patch fails the in-container
+#      dry-run and aborts the build. The DSV4-Flash/Pro profiles still serve off
+#      this image; the source patch + tilelang-018-compat are simply no longer
+#      copied/applied. (sglang-dsv4-nvfp4-pr25820.patch is retained on disk for
+#      the 0.5.13 recipe and for git history.)
+#   3. Qwen3.6 mixed NVFP4 (PR #27906) is STILL OPEN upstream → kept at 1.
+#      ⚠️  sglang-qwen36-mixed-nvfp4-pr27906.patch was rebased onto v0.5.13 and
+#      applies with `git apply` strict/fuzz=0 against THAT tag. Against v0.5.14
+#      (248 commits ahead) it may no longer apply cleanly — the in-container
+#      patch step gates this; if it FAILS, re-export `gh pr diff 27906` and
+#      rebase onto v0.5.14 before rebuilding.
+#   4. KERNELS_VERSION 0.12.3 → 0.14.1 — see the KERNELS_VERSION block below.
+#   5. SGL_KERNEL_MAINAHEAD=1 — see the SGL_KERNEL_MAINAHEAD block below.
+#
+# ⚠️  v0.5.14 is a tagged release but it is 248 commits past v0.5.13, well past
+#     the 3a1417a commit the gemma-diffusion recipe was pinned to. The SM121
+#     sgl-kernel source patches (sgl-kernel-sm121 / arch-prune / disable-fa3 /
+#     skip-sm90-target / skip-flashmla) were last verified against the v0.5.13
+#     tag (2026-06-12). They are BEST-EFFORT here and MUST pass the in-container
+#     `patch --dry-run` gate. If any FAILS, regenerate it against the v0.5.14
+#     source tree (and add a "<base>-mainahead.patch" sibling if the canonical
+#     form no longer fits — see SGL_KERNEL_MAINAHEAD).
+#
+# RUNTIME CAVEAT (unchanged from 0.5.13): the DSV4 NVFP4 path default-routes to
+# moe_runner_backend=flashinfer_trtllm_routed which is not runnable on SM121
+# (#26324). The DSV4 model profiles pin flashinfer_cutlass explicitly.
+#
+# Voraussetzungen: xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132 Base
+# auf spark4 (scripts/build_pytorch_base_image.sh, siehe
+# ensure_base_image_present in build_sm121_image.sh).
+#
+DOCKERFILE=Dockerfile.sglang-nightly
+TARGET=runtime
+
+BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
+
+# Override über den v0.5.14-Upstream-Pin (flashinfer_python[cu13]==0.6.12) hinaus
+# auf 0.6.13 (stable, released 2026-06-24) — enthält flashinfer PR #3576
+# (head_dim=512 / Gemma-4 SM120/121, Issue #3297) + NVFP4-Quant-Kernel-
+# Verbesserungen. v0.5.14 pinnt im pyproject weiterhin 0.6.12, der Override bleibt
+# also nötig (identisch zur 0.5.13-sm121-Recipe).
+# Roll-back auf den Upstream-Pin: FLASHINFER_VERSION=0.6.12.
+# FLASHINFER_VERSION=0.6.12
+FLASHINFER_VERSION=0.6.13
+
+# transformers 5.8.1 pinning — exakt SGLang v0.5.14s pyproject-Pin (==5.8.1,
+# unverändert ggü. v0.5.13). NICHT isoliert über die SGLang-Ref hinaus bumpen
+# (kein Perf-Nutzen — transformers ist nicht im Inferenz-Hot-Path).
+TRANSFORMERS_VERSION=5.8.1
+
+# kernels 0.14.1 — exakt SGLang v0.5.14s pyproject-Pin (kernels>=0.14.1,<0.15).
+# Bumped von 0.12.3; der alte "kernels<0.13"-Pin begründete sich mit einer
+# transformers-5.x/hub_kernels.py-Inkompat (LayerRepository braucht revision/
+# version), die sich bei Source-Prüfung als UNBEGRÜNDET erwies — keine kernels-
+# Version macht diese Args mandatory, und upstream v0.5.14 liefert transformers
+# 5.8.1 + kernels 0.14.1 als getestete Kombination. PERF-NEUTRAL für SM121: der
+# einzige hub-geladene SGLang-Kernel (sgl-flash-attn3) ist auf GB10 hart
+# deaktiviert (_is_fa3_supported → major==9||8, GB10 ist major==12) und hat
+# ohnehin keine sm_121/ARM64-Builds; der SM121-Hotpath läuft über das
+# kompilierte sgl-kernel + flashinfer, nicht über den HF-Hub. 0.14.1 (nicht
+# open-ended): 0.14.0 hat einen breaking repo-type-change, 0.14.1 ist der Bugfix.
+KERNELS_VERSION=0.14.1
+
+# Audio multimodal deps — installed by dockerfile-audio-deps.patch (gated ARG,
+# empty = no-op). Required for omni models that decode audio at runtime, e.g.
+# nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4 (SGLang nano_nemotron_vl.py
+# get_audio_feature → librosa; upstream SGLang does NOT install it). librosa pulls
+# soundfile/audioread/numba/llvmlite as deps. Text + image/video work without this;
+# only AUDIO input needs it. Empty/remove to drop the audio stack from the image.
+AUDIO_DEPS="librosa"
+
+SGLANG_VERSION=0.5.14
+SGLANG_REF="v0.5.14"
+
+# main-ahead sgl-kernel patch variant. v0.5.14 contains the mscclpp link refactor
+# (dropped mscclpp_static from the common_ops_sm90/sm100 link lines + removed the
+# mscclpp-build block) that landed between v0.5.13 and commit 3a1417a and broke
+# the canonical sgl-kernel-skip-sm90-target.patch (Hunk #3 FAILED at 398). This
+# flag makes build_sm121_image.sh install the "-mainahead" patch siblings under
+# their canonical names where they exist (currently skip-sm90-target). The other
+# sgl-kernel patches have no -mainahead sibling and are applied canonically; the
+# in-container dry-run gates all of them — if one fails against v0.5.14,
+# regenerate it against the v0.5.14 source tree. Drop this flag only if a future
+# SGLANG_REF predates the mscclpp refactor.
+SGL_KERNEL_MAINAHEAD=1
+
+# ── DeepSeek-V4 FlashMLA kernel: DROPPED (native SM120/121 since v0.5.13) ─────
+# PR #24692 (in v0.5.13, still in v0.5.14) ships a native SM120/121 sparse-decode
+# path; the 0xSero vendored sm_121a kernel + stock-flash_mla install are
+# redundant (UPSTREAM_DSV4_BUGS.md §8, walls 0+6). Empty values skip the step.
+FLASH_MLA_REPO=
+FLASH_MLA_REF=
+DSV4_KERNEL_REPO=
+DSV4_KERNEL_REF=
+DSV4_KERNEL_ARCH=
+
+# ── DeepSeek-V4 NVFP4 MoE: NATIVE in v0.5.14 (PR #25820 merged) → OFF ────────
+# PR #25820 merged upstream 2026-06-22 and is in the v0.5.14 tag (release notes).
+# Set to 0: re-applying a merged patch fails the in-container dry-run and aborts
+# the build. The DSV4 profiles still serve off this image natively. (Was =1 on
+# the 0.5.13 recipe, where the PR was unmerged.)
+APPLY_DSV4_NVFP4_PR25820=0
+
+# ── Qwen3.6 ModelOpt mixed NVFP4: upstream PR #27906, STILL OPEN → ON ────────
+# Gates dockerfile-qwen36-mixed-nvfp4.patch in build_sm121_image.sh::apply_patches.
+# Target: nvidia/Qwen3.6-35B-A3B-NVFP4 (modelopt MIXED_PRECISION → modelopt_mixed
+# + W4A16_NVFP4 lm_head/MoE/linears + wrapper-prefix + MTP). The dockerfile patch
+# is trailing-context-only, so it still stacks cleanly with the DSV4 step now
+# DISABLED. Set to 0 / delete once PR #27906 is merged into the pinned SGLANG_REF.
+# ⚠️  The SOURCE patch (sglang-qwen36-mixed-nvfp4-pr27906.patch) is rebased onto
+#     v0.5.13; if the in-container apply fails against v0.5.14, re-export
+#     `gh pr diff 27906` and rebase onto v0.5.14.
+APPLY_QWEN36_MIXED_NVFP4_PR27906=1
+
+IMAGE_TAG=xomoxcc/dgx-spark-sglang:0.5.14-sm121
