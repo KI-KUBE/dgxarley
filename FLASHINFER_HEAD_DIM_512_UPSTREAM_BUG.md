@@ -1,5 +1,30 @@
 # FlashInfer Upstream Bug: head_dim=512 not supported (Gemma-4 global attention)
 
+## Status 2026-06-29 — SGLang allowlist permanently blocks `attention_backend=flashinfer` for Gemma4; TESTWEISE flip moot
+
+**CRITICAL (cross-ref `FLASHINFER_0.6.12_TODO.local.md` update 2026-06-21):** SGLang's
+`_handle_model_specific_adjustments` in `server_args.py` rejects
+`attention_backend=flashinfer` for `Gemma4ForConditionalGeneration` via an explicit
+allowlist **before any weight load**, with `AssertionError: "Gemma4 only supports
+trtllm_mha, triton, or intel_xpu attention backend"`. Live-confirmed on the
+`nvidia-gemma-4-31b-it-nvfp4.yml` profile. Consequences:
+
+1. **PR #3576 is moot for Gemma4.** Even in flashinfer 0.6.13 stable, SGLang never
+   routes Gemma4 to the flashinfer attention backend. #3576 can only benefit Gemma4
+   if SGLang's allowlist is relaxed in a future release.
+2. **The 2026-06-24 TESTWEISE flip** (`attention_backend: triton` → `flashinfer` on
+   `google-gemma-4-26b-a4b-it.yml` and `google-gemma-4-31b-it.yml`) was applied without
+   knowledge of the allowlist and must be reverted. `attention_backend: triton` is
+   **permanently mandatory** for all Gemma-4 profiles — not "until validated on
+   ≥ 0.6.13rc2". **Action: verify both BF16 profiles are back on `triton` and update
+   stale "triton mandatory until flashinfer bumped" comments to say "triton permanently
+   mandatory per SGLang allowlist".**
+3. **The §7 follow-up items** (flip triton → flashinfer, test crash paths, benchmark
+   flashinfer-attn vs triton-attn) are **superseded**. The open Gemma-4 attention
+   optimization path is **`trtllm_mha` vs `triton`** — both allowlist-permitted;
+   `trtllm_mha` routes through flashinfer's trtllm-gen kernels and may benefit from
+   PR #3576 (unverified on our cluster).
+
 ## Status 2026-06-26 — flashinfer **v0.6.13 stable** released (2026-06-24T22:36Z); PR #3576 now in a STABLE release
 
 PR #3576 (merged to `main` 2026-06-15, present in v0.6.13rc2) is now also in
@@ -64,7 +89,11 @@ profiles for now. See the **Follow-up** section below for the bump trigger.
 
 ### Follow-up — monitor for the release that ships #3576
 
-- [ ] **Watch for flashinfer 0.6.13 stable** (or a chosen nightly
+> **Update 2026-06-29: Release-monitoring items done; flashinfer-attn follow-up
+> superseded by SGLang allowlist — see Status 2026-06-29 at the top of this document.
+> Open item: `trtllm_mha`-vs-`triton` benchmark.**
+
+- [x] **Watch for flashinfer 0.6.13 stable** (or a chosen nightly
   ≥ `v0.6.13-20260615` / `0.6.13.dev20260615`) containing PR #3576.
   Releases: <https://github.com/flashinfer-ai/flashinfer/releases>.
 
@@ -80,25 +109,51 @@ profiles for now. See the **Follow-up** section below for the bump trigger.
   > MANDATORY until the image is actually bumped to rc2 (or later) and both
   > crash paths are confirmed green.**
 
-- [ ] When available, bump `FLASHINFER_VERSION` in
+  > **Update 2026-06-26:** flashinfer **v0.6.13 stable** released 2026-06-24T22:36Z. ✓ Done.
+
+- [x] When available, bump `FLASHINFER_VERSION` in
   `scripts/patches/sglang-0.5.12-sm121.recipe:63` (or pin the nightly) and
   rebuild the image. Verify in-image: `python3 -c "import flashinfer;
   print(flashinfer.__version__)"`.
+
+  > **Update 2026-06-26:** Recipes bumped to `FLASHINFER_VERSION=0.6.13` stable;
+  > see `FLASHINFER_0.6.12_TODO.local.md` update 2026-06-26. Re-build outstanding. ✓ Done (recipes).
+
 - [ ] Flip `attention_backend: "triton"` → `"flashinfer"` on the **two BF16
   profiles** (`google-gemma-4-26b-a4b-it.yml:63`, `google-gemma-4-31b-it.yml:60`)
   and re-validate. The two NVFP4 profiles already carry
   `attention_backend: "flashinfer"` (latent — blocked by other bugs before
   attention; do not assume it works until those clear).
+
+  > **Update 2026-06-29: MOOT — SGLang allowlist (see Status 2026-06-29).** SGLang rejects
+  > `attention_backend=flashinfer` for `Gemma4ForConditionalGeneration` before weight load.
+  > The 2026-06-24 TESTWEISE flip must be reverted; `triton` is permanently mandatory.
+
 - [ ] **Test BOTH crash paths** — passing one does NOT imply the other:
   CG-on (decode tuple, fires at startup capture) and `--disable-cuda-graph`
   (prefill/extend tuple, fires on first forward).
+
+  > **Update 2026-06-29: MOOT** — SGLang blocks `attention_backend=flashinfer` for
+  > Gemma4 before weight load; crash paths unreachable.
+
 - [ ] **Benchmark flashinfer-attn vs triton-attn** (peak throughput, see
   `feedback_peak_not_agg`) before flipping any profile flag in production —
   the only reason to leave triton is if flashinfer isn't actually faster.
   #3576's own DGX Spark/GB10 numbers (prefill 34.6 TFLOP/s @ s_qo=8192;
   decode KV-bandwidth-bound) suggest a win but it is unmeasured on our cluster.
-- [ ] Once validated, drop the "triton mandatory" comments from the two BF16
-  profiles and close out TODO §7 in `FLASHINFER_0.6.12_TODO.md`.
+
+  > **Update 2026-06-29: SUPERSEDED.** flashinfer-attn not selectable for Gemma4
+  > (SGLang allowlist). See new `trtllm_mha`-vs-`triton` benchmark item below.
+
+- [ ] **Benchmark `trtllm_mha` vs `triton` on Gemma-4** (peak throughput, see
+  `feedback_peak_not_agg`). Both are allowlist-permitted. `trtllm_mha` routes through
+  flashinfer's trtllm-gen kernels and may benefit from the head_dim=512 work in PR #3576
+  (unverified on our cluster). Only replace `triton` if `trtllm_mha` is measurably
+  faster on both decode and prefill paths.
+- [ ] Update the "triton mandatory" comments in the two BF16 profiles
+  (`google-gemma-4-26b-a4b-it.yml`, `google-gemma-4-31b-it.yml`) to state
+  **"triton permanently mandatory per SGLang allowlist"** (not "until validated on
+  ≥ 0.6.13rc2") and close out TODO §7 in `FLASHINFER_0.6.12_TODO.md`.
 
 ## Status 2026-06-14 (superseded by the 2026-06-16 entry above)
 
@@ -456,10 +511,12 @@ Gemma 4 on SM120/121"). PR #3576 ist noch nicht in einem Release enthalten
 
 ## Files
 
-- `roles/k8s_dgx/model_profiles/google-gemma-4-26b-a4b-it.yml` — now on
-  `attention_backend: flashinfer` (TESTWEISE since 2026-06-24, flipped from
-  triton; the pinned `0.5.14-gemmadiffusion-sm121` / flashinfer 0.6.13rc2 image
-  carries PR #3576). Revert to `triton` if a crash path fires or it isn't faster.
+- `roles/k8s_dgx/model_profiles/google-gemma-4-26b-a4b-it.yml` — **must be on
+  `attention_backend: triton` permanently** (SGLang allowlist, see Status 2026-06-29).
+  The 2026-06-24 TESTWEISE flip to `flashinfer` is moot and must be reverted if not
+  already done. The pinned `0.5.14-gemmadiffusion-sm121` / flashinfer 0.6.13rc2 image
+  carries PR #3576, but SGLang blocks `attention_backend=flashinfer` for Gemma4
+  regardless of the flashinfer version.
 - `roles/k8s_dgx/model_profiles/google-gemma-4-31b-it.yml` — same.
 - NVFP4 profiles are blocked by other bugs before reaching this one, but
   would also need `attention_backend: triton` once unblocked.
