@@ -2,20 +2,26 @@
 
 ## Status (re-verified 2026-06-11)
 
-- **BF16 variants — WORKING** on our **`xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121`**
-  image (SGLang **v0.5.11** + SM121 sgl-kernel patches + flashinfer 0.6.11 +
+- **BF16 variants — WORKING** on our **`xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121`**
+  image (SGLang **v0.5.14** + SM121 sgl-kernel patches + flashinfer 0.6.13 +
   the two locally vendored Gemma-4 NVFP4 source patches). Both dense
   (`google/gemma-4-31B-it`) and MoE (`google/gemma-4-26B-A4B-it`) deploy and
   serve, with the MoE producing **180.5 tok/s @ n=8** — the fastest model on
   the cluster. Required: `attention_backend=triton` (the FlashInfer
-  `global_head_dim=512` blocker is now technically resolved by flashinfer 0.6.11
-  in this image, see `FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md`, but the
-  triton-backend numbers above are what we currently bench against).
+  `global_head_dim=512` blocker was technically resolved by flashinfer 0.6.11,
+  see `FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md`; however, SGLang's
+  `_handle_model_specific_adjustments` **hard-rejects `attention_backend=flashinfer`**
+  for `Gemma4ForConditionalGeneration` with `AssertionError: "Gemma4 only
+  supports trtllm_mha, triton, or intel_xpu attention backend"`, discovered
+  2026-06-21 — making `triton` **permanently mandatory**, not a temporary bench
+  choice. The triton-backend numbers above are what we bench against and remain
+  the correct production config).
   Note: **SGLang v0.5.11** (released 2026-05-05) merged Gemma-4 native model
   support (PR #21952 plus follow-ups #22079, #24048, #22842 per the v0.5.11
-  release notes), so the BF16 path is now in stable releases. Our `0.5.11-gemma4-sm121`
-  recipe is built on top of v0.5.11 — the older dev1 / `main-gemma4-sm121`
-  images are no longer needed for BF16 variants and are kept for rollback only.
+  release notes), so the BF16 path is now in stable releases. Our current
+  `0.5.14-gemmadiffusion-sm121` recipe is built on top of v0.5.14 — the older
+  `0.5.11-gemma4-sm121`, dev1 / `main-gemma4-sm121` images are no longer needed
+  for BF16 variants and are kept for rollback only.
 
 - **NVFP4 variants — PARTIALLY UNBLOCKED UPSTREAM, LOCAL VALIDATION PENDING.**
   Update 2026-06-11: Two significant upstream merges change the picture:
@@ -83,6 +89,16 @@
   since 2026-04-16; PR #22615 (fp8 KV cache + KV-shared layers) still OPEN,
   REVIEW_REQUIRED. None of these fixes are in v0.5.14. SM121 validation of
   Gemma-4 NVFP4 remains pending.
+
+  **Re-verified 2026-06-30:** v0.5.14 (released 2026-06-26) is the latest
+  release; no change to open PRs — #22929/#22928/#22927 (SM121 NaN-clamp) still
+  OPEN and stale since 2026-04-16; #22615 (fp8 KV cache + KV-shared layers)
+  still OPEN, REVIEW_REQUIRED. BF16 image bumped to
+  `xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121` on 2026-06-29
+  (flashinfer 0.6.13). SGLang's `_handle_model_specific_adjustments` allowlist
+  hard-rejects `attention_backend=flashinfer` for `Gemma4ForConditionalGeneration`
+  (discovered 2026-06-21) — `triton` is permanently mandatory for BF16 variants.
+  SM121 validation of Gemma-4 NVFP4 remains pending.
 
 The original v0.5.10 blockers (Transformers fallback, dual head_dim, top_k_experts
 naming) are no longer relevant for our deployment because we build the image
@@ -207,17 +223,26 @@ Last `gh pr view` check: 2026-06-29. PRs #22929/#22928/#22927 still open and sta
 
 ### BF16 variants (google/gemma-4-*) — DONE
 
-Minimum was PR #21952 (native Gemma-4). Now in stable SGLang **v0.5.11**, baked
-into our `xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121` image (which is what
+Minimum was PR #21952 (native Gemma-4). Now in stable SGLang **v0.5.14**, baked
+into our `xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121` image (which is what
 the BF16 profiles point at). Both `google/gemma-4-31B-it` (dense) and
 `google/gemma-4-26B-A4B-it` (MoE) deploy and serve. The model profiles in
 `roles/k8s_dgx/model_profiles/` are pinned to the working configuration:
 
-- `attention_backend: triton` (mandatory — FlashInfer crashes on `head_dim=512`)
+- `attention_backend: triton` (mandatory — SGLang's `_handle_model_specific_adjustments` allowlist hard-rejects `attention_backend=flashinfer` for `Gemma4ForConditionalGeneration` (2026-06-21); see allowlist note in the Status block above and `FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md`)
 - `kv_cache_dtype: fp8_e4m3`
 - `mem_fraction_static: 0.85`
 - `disable_piecewise_cuda_graph: false` (BF16 is unaffected by the fp4-quantize
   dynamo bug; piecewise gives ~6.5% over fixed-BS graphs at n=8)
+
+> **Outstanding revert (2026-06-30):** The live BF16 profiles
+> (`google-gemma-4-26b-a4b-it.yml`, `google-gemma-4-31b-it.yml`) currently carry
+> `attention_backend: flashinfer` (set 2026-06-24 as a test). This is
+> **INCOMPATIBLE** with SGLang's allowlist (which hard-rejects `flashinfer` for
+> `Gemma4ForConditionalGeneration` with an `AssertionError`) and will cause a
+> crash on the next deploy. Reverting to `attention_backend: triton` is an
+> **outstanding action** — tracked in `FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md`.
+> Do NOT deploy BF16 Gemma4 profiles until this is reverted.
 
 To activate: set `sglang_active_model` in your inventory and run
 `ansible-playbook k8s_dgx.yml --tags sglang -e sglang_enabled=true`.
