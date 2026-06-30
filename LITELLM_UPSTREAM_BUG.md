@@ -93,7 +93,7 @@ ollama/ssl/embed-related entries.
 
 - Related issue: [#6499](https://github.com/BerriAI/litellm/issues/6499) ("How to disable ssl verification for ollama?", closed). Maintainer acknowledged the embedding path was not migrated, but the issue was closed after only the chat path was fixed.
 - The TODO comment `[TODO]: migrate embeddings to a base handler as well.` is still present at the top of `handler.py`.
-- PR [#24704](https://github.com/BerriAI/litellm/pull/24704) — adjacent embedding bug (model name prefix stripping). **Still open**, last activity 2026-03-28 (no movement since), does not address SSL/TLS.
+- PR [#24704](https://github.com/BerriAI/litellm/pull/24704) — adjacent embedding bug (model name prefix stripping). **Still open**; no code movement since 2026-03-28, but auto-marked stale by bot on 2026-06-27 — will be auto-closed if no further activity. Does not address SSL/TLS.
 
 **Partial mitigation**: Setting `litellm.ssl_verify = False` **globally before the first embedding call** may work, because the singleton `HTTPHandler` picks up `litellm.ssl_verify` at creation time via `get_ssl_configuration()`. However, this is fragile — it depends on initialization order, and per-request `ssl_verify=false` (as used in our model config) is still silently dropped for the ollama embedding path.
 
