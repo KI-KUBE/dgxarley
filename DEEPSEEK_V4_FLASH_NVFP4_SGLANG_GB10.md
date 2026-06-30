@@ -4,6 +4,11 @@
 
 All patches referenced below live in [`scripts/patches/`](scripts/patches/); the serving config lives in the `nvidia/DeepSeek-V4-Flash-NVFP4` model profile under `roles/k8s_dgx/model_profiles/`.
 
+> **Update 2026-06-30:** Several open items from the original write-up are now resolved:
+> - **PR sgl-project/sglang#25820** (NVFP4 MoE path via `HybridFp8NvFp4Config`) merged to `sgl-project/sglang` on **2026-06-22** and ships natively in **SGLang v0.5.14** (released 2026-06-26). The patch `sglang-dsv4-nvfp4-pr25820.patch` (and the TileLang indexer compat patch it gates) are retained on-disk for rollback/history but are **no longer applied** in the `0.5.14-sm121` build (`APPLY_DSV4_NVFP4_PR25820=0` in `scripts/patches/sglang-0.5.14-sm121.recipe`). The NVFP4 MoE path is now native in v0.5.14.
+> - **DeepGEMM PR #324** (SM121/SM120 support) merged into `deepseek-ai/DeepGEMM` on **2026-06-24**. Whether this has been pulled into `sgl-project/DeepGEMM` (the fork used by SGLang) remains open as of 2026-06-30 — the TileLang indexer path is still active and correct for our cluster.
+> - The cluster image was bumped to **`xomoxcc/dgx-spark-sglang:0.5.14-sm121`** on 2026-06-29.
+
 ---
 
 ## Setup
@@ -13,7 +18,7 @@ All patches referenced below live in [`scripts/patches/`](scripts/patches/); the
 | Hardware | 4× DGX Spark (ASUS Ascent GX10), 120 GB unified memory / node |
 | Arch | sm_121 (GB10, Grace ARM64) |
 | Interconnect | QSFP56-200G, RoCE v2 (NCCL over SR-IOV VFs) |
-| Engine | SGLang v0.5.13, custom image `xomoxcc/dgx-spark-sglang:0.5.13-sm121` |
+| Engine | SGLang v0.5.14, custom image `xomoxcc/dgx-spark-sglang:0.5.14-sm121` |
 | Model | `nvidia/DeepSeek-V4-Flash-NVFP4` (MIXED_PRECISION: NVFP4 routed experts, block-FP8 base, MTP head unquantized) |
 | Serving config | TP=4, EP=4, context 262 144, CUDA-graph on (`max_bs=32`), EAGLE-MTP |
 | Orchestration | K3s cluster (SGLang head on spark1, workers on spark2-4) |
@@ -26,7 +31,7 @@ The base image is the `sgl-kernel` SM121 build from `scitrera/cuda-containers`; 
 
 ### Fix 1 — PR #25820 IndentationError
 
-SGLang does not yet natively support the NVFP4 MoE path for the DeepSeek-V4 architecture. The unmerged PR [sgl-project/sglang#25820](https://github.com/sgl-project/sglang/pull/25820) adds it via `HybridFp8NvFp4Config`. We cherry-pick it as a patch in the image build.
+PR [sgl-project/sglang#25820](https://github.com/sgl-project/sglang/pull/25820) adds native NVFP4 MoE path support for the DeepSeek-V4 architecture via `HybridFp8NvFp4Config`. **Merged to `sgl-project/sglang` on 2026-06-22; ships natively in SGLang v0.5.14 (released 2026-06-26).** It was previously cherry-picked as a patch in the image build; as of the `0.5.14-sm121` build (`APPLY_DSV4_NVFP4_PR25820=0` in the recipe), the patch is no longer applied — the native upstream support is used instead.
 
 On rebase the patch had a one-line placement error: the `gemm1_clamp_limit=` kwarg was placed _after_ the closing `)` of the constructor call rather than _inside_ it. This causes:
 
@@ -74,7 +79,7 @@ DeepSeek-V4-Flash uses a DSA (Lightning-Indexer) attention mechanism. The hot ke
 
 1. `deep_gemm/_C.so` has an SM allowlist (`SM100`, `SM120`) — SM121 returns `Unsupported architecture (attention.hpp:219)`.
 2. The SM100 kernel uses `tcgen05`, UMMA, and TMEM instructions absent on GB10; no sm121 impl exists in `deepseek-ai/DeepGEMM` main.
-3. [DeepGEMM PR #324](https://github.com/deepseek-ai/DeepGEMM/pull/324) ("feat: add sm120 support") exists and explicitly targets sm120/sm121, but it is not merged as of this writing and is against a `nv_dev` branch of the deepseek-ai fork — not the `sgl-project/DeepGEMM` fork used by SGLang.
+3. [DeepGEMM PR #324](https://github.com/deepseek-ai/DeepGEMM/pull/324) ("feat: add sm120 support") targets sm120/sm121 and **merged into `deepseek-ai/DeepGEMM` on 2026-06-24**. It was against the `nv_dev` branch of the deepseek-ai fork — whether it has been pulled into `sgl-project/DeepGEMM` (the fork used by SGLang) remains open as of 2026-06-30.
 
 SGLang falls back to a **pure-torch dispatch per step** — outside the CUDA graph, taking ~18 ms/step for 20 layers. This creates a hard ~18 tok/s ceiling regardless of batch size or MTP.
 
@@ -196,16 +201,16 @@ SGLANG_OPT_DEEPGEMM_HC_PRENORM=0
 --speculative-moe-runner-backend marlin
 ```
 
-And the two image patches needed:
-1. [`scripts/patches/sglang-dsv4-nvfp4-pr25820.patch`](scripts/patches/sglang-dsv4-nvfp4-pr25820.patch) — NVFP4 MoE path (PR #25820 + IndentationError fix + Marlin branch)
-2. [`scripts/patches/sglang-tilelang-018-indexer-compat.patch`](scripts/patches/sglang-tilelang-018-indexer-compat.patch) — TileLang 0.1.8 1D→2D shared-buffer fix
+The two image patches referenced above (retained on-disk for rollback/history; **neither is applied in the `0.5.14-sm121` build**):
+1. [`scripts/patches/sglang-dsv4-nvfp4-pr25820.patch`](scripts/patches/sglang-dsv4-nvfp4-pr25820.patch) — NVFP4 MoE path (PR #25820 + IndentationError fix + Marlin branch). Not applied: `APPLY_DSV4_NVFP4_PR25820=0` in `scripts/patches/sglang-0.5.14-sm121.recipe`; PR #25820 merged 2026-06-22, native in v0.5.14.
+2. [`scripts/patches/sglang-tilelang-018-indexer-compat.patch`](scripts/patches/sglang-tilelang-018-indexer-compat.patch) — TileLang 0.1.8 1D→2D shared-buffer fix. Not applied: gated by `APPLY_DSV4_NVFP4_PR25820` in the recipe.
 
 ---
 
 ## Open questions / what's next
 
 - **Clean long-context numbers pending** — will update once the re-run (unique prompts, `ignore_eos`, more output tokens) completes.
-- **DeepGEMM PR #324** — if this lands and gets pulled into `sgl-project/DeepGEMM`, the TileLang path would no longer be needed and throughput might improve further.
+- **DeepGEMM PR #324** — **merged into `deepseek-ai/DeepGEMM` on 2026-06-24.** Whether it has been pulled into `sgl-project/DeepGEMM` (used by SGLang) remains open as of 2026-06-30. If/when it lands in the SGLang fork, the TileLang path would no longer be needed and throughput might improve further.
 - **opt_fp8_wo_a_gemm** — untested on this setup; may offer an additional throughput gain for the FP8 base GEMM.
 
 ---
