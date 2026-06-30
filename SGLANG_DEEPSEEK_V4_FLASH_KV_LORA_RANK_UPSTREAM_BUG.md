@@ -1,11 +1,12 @@
-# DeepSeek-V4-Flash `kv_lora_rank: null` config-parse crash (transformers 5.x + SGLang 0.5.12 / 0.5.13.x)
+# DeepSeek-V4-Flash `kv_lora_rank: null` config-parse crash (transformers 5.x + SGLang 0.5.12 / 0.5.13.x / 0.5.14)
 
 > **Status 2026-05-31:** Workaround aktiv als Monkey-Patch in
 > `roles/k8s_dgx/files/sglang_launch.sh` (Block `PATCH_DSV4_KVLORA_EOF`,
 > Commits `8b5a268` + `1b36164`). Klärt nur den Config-Parse-Blocker — Flash
 > kann downstream noch auf weitere Upstream-Issues treffen (sgl-project/sglang
 > #25165 / #23743). Begleitend zu Modellprofil
-> `roles/k8s_dgx/model_profiles/sgl-project-deepseek-v4-flash-fp8.yml`.
+> `roles/k8s_dgx/model_profiles/nvidia-deepseek-v4-flash-nvfp4.yml` and
+> `roles/k8s_dgx/model_profiles/redhatai-deepseek-v4-flash-nvfp4-fp8.yml`.
 >
 > **Re-verifiziert 2026-06-22:** Workaround weiterhin nötig.
 > `kv_lora_rank: int = 512` in transformers' `configuration_deepseek_v3.py`
