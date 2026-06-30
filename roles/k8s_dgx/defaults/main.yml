@@ -1075,19 +1075,22 @@ _litellm_model_list_base:
 # a duplicate model_list deployment — keeps saved sessions resumable across model
 # swaps while leaving a SINGLE litellm_deployment_state series per backend (one
 # Grafana tile). Aliases stay visible in /v1/models so clients can select them.
-#   hermes-default  → sglang_served_model_name (the default/active SGLang model)
-#   vision-default  → litellm_vision_model     (the sglang-vision companion)
-#   coder-default   → litellm_coder_model      (the sglang-coder companion)
+#   hermes-default  → sglang_served_model_name   (the default/active SGLang model)
+#   vision-default  → litellm_vision_alias_target (the sglang-vision companion when
+#                     enable_vision_model, else the base model when
+#                     litellm_vision_alias_fallback_to_base — see group_vars/all)
+#   coder-default   → litellm_coder_model         (the sglang-coder companion)
 # Each alias is gated independently: set its *_alias_model var to "" to omit it.
-# The vision/coder aliases additionally need their *_model var (the target group,
-# the real served name registered via litellm_model_list_append in group_vars).
+# The coder alias additionally needs its *_model var (the target group, the real
+# served name registered via litellm_model_list_append in group_vars); the vision
+# alias resolves its target via litellm_vision_alias_target (VL or base fallback).
 litellm_router_settings: >-
   {{ {'model_group_alias':
         ({}
          | combine({litellm_hermes_alias_model: sglang_served_model_name}
                    if (litellm_hermes_alias_model | default('')) else {})
-         | combine({litellm_vision_alias_model: litellm_vision_model}
-                   if ((litellm_vision_alias_model | default('')) and (litellm_vision_model | default(''))) else {})
+         | combine({litellm_vision_alias_model: litellm_vision_alias_target}
+                   if ((litellm_vision_alias_model | default('')) and (litellm_vision_alias_target | default(''))) else {})
          | combine({litellm_coder_alias_model: litellm_coder_model}
                    if ((litellm_coder_alias_model | default('')) and (litellm_coder_model | default(''))) else {}))}
      if ((litellm_hermes_alias_model | default(''))

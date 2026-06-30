@@ -215,6 +215,13 @@ hermes:
   # describe images. Stable LiteLLM alias → the sglang-vision companion. Empty
   # ("") → no auxiliary.vision block rendered (image tasks then route to the
   # text-only main model and fail). Per-user override via item.vision_model.
+  # Wired whenever the vision-default alias EXISTS (litellm_vision_alias_model
+  # non-empty) — i.e. with enable_vision_model OR litellm_vision_alias_fallback_to_base.
+  # Rationale: enabling the fallback is an operator statement that the base model
+  # IS vision-capable (otherwise leave the switch off), so Hermes should route
+  # image tasks at the same vision-default alias the LiteLLM router exposes. Empty
+  # alias → no auxiliary.vision block (image tasks then hit the text main model
+  # and fail). Per-user override via item.vision_model still wins regardless.
   vision_model: "{{ litellm_vision_alias_model | default('') }}"
   litellm_url: "http://litellm.litellm.svc.cluster.local:4000"
   # Timezone for the hermes pods. The container images default to UTC (no TZ),

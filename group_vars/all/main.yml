@@ -461,7 +461,7 @@ sglang_port: 8000
 #
 # --- Nemotron-3 ---
 # sglang_model: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"  # 31B/3B MoE NVFP4 (modelopt mixed), OMNI-multimodal (text/img/video/audio), NemotronH hybrid; SGLang class NemotronH_Nano_Omni_Reasoning_V3 (in nano_nemotron_vl.py, >=0.5.12); AUDIO needs librosa baked into the 0.5.13-sm121 image (AUDIO_DEPS recipe var). UNVALIDATED first-contact
-sglang_model: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+# sglang_model: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
 # sglang_model: "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
 #
 # --- Nex-N2 ---
@@ -491,7 +491,7 @@ sglang_model: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
 # sglang_model: "mmangkad/Qwen3.6-27B-NVFP4"                     # 27B dense NVFP4 (modelopt), Gated DeltaNet+Attention; FP8 sibling above
 # sglang_model: "Qwen/Qwen3.6-35B-A3B-FP8"
 # sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
-# sglang_model: "nvidia/Qwen3.6-35B-A3B-NVFP4"
+sglang_model: "nvidia/Qwen3.6-35B-A3B-NVFP4"
 # sglang_model: "mmangkad/Qwen3.6-35B-A3B-NVFP4"                 # 35B/3B MoE NVFP4 (modelopt) — fallback to the RedHatAI compressed-tensors variant above
 #
 # --- Qwen3-VL (multimodal companion) ---
@@ -543,13 +543,30 @@ enable_vision_model: true
 #   ansible-playbook k8s_dgx.yml --tags sglang,litellm
 enable_coder_model: false
 
+# Switch for the vision alias when enable_vision_model is false:
+#   false (default) → the `vision-default` alias is DROPPED entirely; a request
+#                     for it 404s, and Hermes renders no auxiliary.vision slot.
+#   true            → keep `vision-default` ALIVE, pointed at the base model
+#                     (sglang_served_model_name). Enable this ONLY when the base
+#                     model is itself vision-capable (multimodal) — turning it on
+#                     is a statement that image requests route fine to the base.
+#                     It ALSO wires Hermes' auxiliary.vision slot at the same alias
+#                     (roles/k8s_infra/defaults/main.yml vision_model), so image
+#                     tasks go to the base too. If the base is text-only, image
+#                     payloads degrade (ignored / error) — then leave this false.
+# Has NO effect when enable_vision_model is true (alias → real VL group as usual).
+litellm_vision_alias_fallback_to_base: false
+
 # Qwen3-VL vision companion (sglang-vision instance), wired EXACTLY like
 # hermes-default: the backend is registered in model_list under its REAL served
 # name (litellm_vision_model) and litellm_vision_alias_model is a router
-# model_group_alias onto it (see litellm_router_settings). Both are gated on
-# enable_vision_model above (alias "" → litellm_router_settings omits it).
-litellm_vision_alias_model: "{{ 'vision-default' if (enable_vision_model | default(true)) else '' }}"
+# model_group_alias onto it (see litellm_router_settings).
+# The alias NAME exists when vision is enabled OR the fallback switch is on; its
+# TARGET (litellm_vision_alias_target) is the real VL group when enabled, else the
+# base text group (fallback). With both off, the name is "" → router omits it.
+litellm_vision_alias_model: "{{ 'vision-default' if ((enable_vision_model | default(true)) or (litellm_vision_alias_fallback_to_base | default(false))) else '' }}"
 litellm_vision_model: "Qwen/Qwen3-VL-8B-Instruct-FP8"   # == served_model_name of the sglang-vision instance
+litellm_vision_alias_target: "{{ litellm_vision_model if (enable_vision_model | default(true)) else sglang_served_model_name }}"
 # Qwen3-Coder-Next companion (sglang-coder instance), wired the same way, gated on
 # enable_coder_model. litellm_coder_model == its served_model_name (the model id).
 litellm_coder_alias_model: "{{ 'coder-default' if (enable_coder_model | default(false)) else '' }}"
