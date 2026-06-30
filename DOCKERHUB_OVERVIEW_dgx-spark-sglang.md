@@ -24,7 +24,7 @@ kernels for.
 
 ## What's inside
 
-- **SGLang** built from upstream tags (currently `v0.5.13`)
+- **SGLang** built from upstream tags (currently `v0.5.14`)
 - **sgl-kernel** with SM121 patches: CUTLASS NVFP4 blockwise MoE
   (`StageCount<1>` + `KernelPtrArrayTmaWarpSpecialized`), arch-prune to
   `sm_121` only, FA3 / sm90 / FlashMLA stripped (the bundled FlashMLA is
@@ -123,8 +123,10 @@ kernels for.
 
 | Tag                                 | Notes                                                                       |
 |-------------------------------------|------------------------------------------------------------------------------|
-| `0.5.13-sm121`                      | SGLang v0.5.13 + SM121 patches + DeepSeek-V4 NVFP4 MoE (PR #25820); native SM120/121 FlashMLA (PR #24692), no vendored kernel; flashinfer 0.6.13rc2 (current) |
+| `0.5.14-sm121`                      | SGLang v0.5.14 + SM121 patches; native NVFP4-MoE dispatch (PR #25820), native MTP for Nemotron-3 Super 120B, ModelOptMixedPrecisionConfig / W4A16_NVFP4 support for Qwen3.6; flashinfer 0.6.13 — **(current)** |
+| `0.5.13-sm121`                      | SGLang v0.5.13 + SM121 patches + DeepSeek-V4 NVFP4 MoE (PR #25820); native SM120/121 FlashMLA (PR #24692), no vendored kernel; flashinfer 0.6.13rc2 |
 | `0.5.14-gemmadiffusion-sm121`       | **Unified Gemma-4 image** — main-ahead (`3a1417a`, post-v0.5.13) serving all five Gemma-4 profiles incl. DiffusionGemma dLLM (PR #28054) + FROZEN_KV_MTP fix (PR #28081). First-contact |
+| `0.5.13-gemmadiffusion-sm121`       | Gemma-4 diffusion build on v0.5.13 base (2026-06-19); rollback / A/B against `0.5.14-gemmadiffusion-sm121` |
 | `0.5.13-dev-nemotronh-mtp-sm121`    | v0.5.13 + SM121 patches + NemotronH MTP/radix-cache (unmerged PR #27998); A/B against `0.5.13-sm121`. Experimental |
 | `0.5.13-gemma4-sm121`               | v0.5.13 + SM121 patches + Gemma-4 NVFP4 source patch (PR #22928); for NVFP4 Gemma-4 on flashinfer 0.6.13rc2 (DSV4 deliberately omitted — mutually exclusive) |
 | `0.5.12.post1-sm121`                | SGLang v0.5.12.post1 + SM121 patches + vendored sm_121 DeepSeek-V4-Flash FlashMLA kernel (previous, kept for rollback / A/B) |
