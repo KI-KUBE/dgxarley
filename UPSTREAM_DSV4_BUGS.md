@@ -574,5 +574,5 @@ einem v0.5.13-Image ändert.
   size `dgx_swap_size`); kubelet policy `roles/k3sserver/templates/etc_rancher_k3s_kubelet-config.yaml.j2`
   (`failSwapOn: false`, `swapBehavior: LimitedSwap`)
 - Active model: `roles/k8s_dgx/defaults/main.yml` (`sglang_model`)
-- Image: `xomoxcc/dgx-spark-sglang:0.5.12.post1-sm121` — recipe `scripts/patches/sglang-0.5.12-sm121.recipe`
-- Release notes: `SGLANG_v0.5.12.post1_VERSION_CHANGES.md`
+- Image: `xomoxcc/dgx-spark-sglang:0.5.14-sm121` — recipe `scripts/patches/sglang-0.5.14-sm121.recipe`
+- Release notes: see the 2026-06-29 block at the top of this file
