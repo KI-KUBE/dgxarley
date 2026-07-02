@@ -1,0 +1,45 @@
+---
+# Delete all K8s resources of the STANDALONE Ollama embedding service. Imported
+# from main.yml with the inverse guard of ollama_embed.yml (same tag
+# ollama_embed) when enable_ollama_embed is false. Ansible does not prune
+# resources it no longer manages, so flipping the flag alone would leave the pod
+# running and holding a time-sliced GPU share on spark2 — this actively removes
+# it. state: absent is idempotent (no-op once gone). Names mirror
+# ollama_embed.yml.
+#
+# Deliberately NOT deleted (shared with tasks/ollama.yml, which also creates
+# them): the ollama Namespace, the ollama-tls-haproxy-config ConfigMap and the
+# ollama-ip-allowlist / redirect-myhttps Middlewares. The model cache hostPath
+# /var/lib/ollama-embed-data on spark2 also stays — remove manually to reclaim
+# disk.
+- name: Delete ollama-embed deployment / service / configmaps / ingress / cert
+  kubernetes.core.k8s:
+    state: absent
+    api_version: "{{ item.api_version }}"
+    kind: "{{ item.kind }}"
+    namespace: ollama
+    name: "{{ item.name }}"
+  loop:
+    - {api_version: apps/v1, kind: Deployment, name: ollama-embed}
+    - {api_version: v1, kind: Service, name: ollama-embed}
+    - {api_version: v1, kind: ConfigMap, name: ollama-embed-config}
+    - {api_version: v1, kind: ConfigMap, name: ollama-embed-pull-models-script}
+    - {api_version: v1, kind: ConfigMap, name: ollama-embed-warmup-script}
+    - {api_version: traefik.io/v1alpha1, kind: IngressRoute, name: ollama-embed-ingress}
+    - {api_version: traefik.io/v1alpha1, kind: IngressRoute, name: ollama-embed-https-ingress}
+    - {api_version: cert-manager.io/v1, kind: Certificate, name: "ollama-embed.{{ dns_external_domain_suffix }}"}
+    # cert-manager does NOT garbage-collect the issued Secret with the Certificate
+    - {api_version: v1, kind: Secret, name: "ollama-embed.{{ dns_external_domain_suffix }}"}
+  loop_control:
+    label: "{{ item.kind }}/{{ item.name }}"
+
+- name: Remove DNS A record for ollama-embed
+  community.general.nsupdate:
+    server: "{{ nsupdate_server }}"
+    zone: "{{ nsupdate_zone }}"
+    key_name: "{{ nsupdate_tsig_key_name }}"
+    key_secret: "{{ nsupdate_tsig_key_secret }}"
+    key_algorithm: "{{ nsupdate_tsig_algorithm }}"
+    record: "ollama-embed.{{ dns_external_domain_suffix }}."
+    type: A
+    state: absent

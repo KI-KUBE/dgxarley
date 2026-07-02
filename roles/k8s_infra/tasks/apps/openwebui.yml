@@ -173,7 +173,7 @@
               "chunk_overlap": {{ openwebui_embedding_chunk_overlap }},
               "chunk_min_size_target": {{ openwebui_embedding_chunk_min_size }},
               "embedding_engine": "{{ openwebui_embedding_engine }}",
-              "embedding_model": "{{ ollama_embedding_model }}",
+              "embedding_model": "{{ openwebui_embedding_model }}",
               "embedding_batch_size": {{ openwebui_embedding_batch_size }},
               "embedding_model_length_max": {{ ollama_embedding_model_max_ctx }},
               "top_k": 8,

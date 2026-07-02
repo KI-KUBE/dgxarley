@@ -48,9 +48,20 @@
   ansible.builtin.import_tasks: ollama.yml
   tags: ollama
 
+# Gated by enable_ollama_embed (group_vars/all/main.yml, default true) — the
+# legacy standalone embedding service being replaced by sglang-embed
+# (enable_embedding_model). Independent flags: both run in parallel during the
+# cutover. When false, the teardown import below actively removes the running
+# resources (Ansible does not prune resources it no longer manages).
 - name: Deploy Ollama embedding service
   ansible.builtin.import_tasks: ollama_embed.yml
   tags: ollama_embed
+  when: enable_ollama_embed | default(true)
+
+- name: Tear down disabled Ollama embedding service
+  ansible.builtin.import_tasks: ollama_embed_teardown.yml
+  tags: ollama_embed
+  when: not (enable_ollama_embed | default(true))
 
 - name: Deploy docling-serve
   ansible.builtin.import_tasks: docling.yml

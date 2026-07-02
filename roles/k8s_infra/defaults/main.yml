@@ -130,6 +130,14 @@ openwebui_embedding_openai_url: "http://litellm.{{ litellm_namespace }}.svc.clus
 # Use a LiteLLM virtual key (scoped to the embedding model) in production.
 openwebui_embedding_openai_key: "CHANGEME_LITELLM_EMBED_KEY"
 openwebui_embedding_ollama_url: "http://ollama-embed.ollama.svc.cluster.local:{{ ollama_port }}"
+# Embedding model NAME sent to LiteLLM — GATED on enable_embedding_model (cutover):
+#   false → ollama_embedding_model (qwen3-embedding:4b-q8_0, the ollama LiteLLM entry).
+#   true  → embed-default (stable alias → sglang-embed). OpenWebUI already routes via
+#           LiteLLM (openai engine) either way; only the model name flips. Both are
+#           2560-dim Qwen3-Embedding-4B, so the existing RAG vectors stay valid (no
+#           re-index). NOTE: the embedding virtual key (openwebui_embedding_openai_key)
+#           must be allowed to call embed-default in LiteLLM (unrestricted keys are fine).
+openwebui_embedding_model: "{{ litellm_embed_alias_model if (enable_embedding_model | default(false)) else ollama_embedding_model }}"
 
 openwebui_embedding_chunk_size: 20000
 openwebui_embedding_chunk_overlap: 750
@@ -391,16 +399,22 @@ honcho_deriver_base: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{
 honcho_dialectic_base: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
 honcho_summary_base: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
 honcho_dream_base: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
-# Embedding defaults to ollama-embed direct (the path OpenWebUI uses), NOT through
-# LiteLLM, to avoid OpenAI→Ollama param-translation surprises — but it's a plain
-# overridable endpoint like the rest: repoint it anywhere OpenAI-compatible.
-honcho_embedding_base: "{{ openwebui_embedding_ollama_url }}/v1"
+# Embedding endpoint — GATED on enable_embedding_model (the sglang-embed cutover):
+#   false → ollama-embed direct /v1 (legacy path, same as OpenWebUI used).
+#   true  → LiteLLM, via the stable `embed-default` alias (→ sglang-embed). Routing
+#           through LiteLLM (openai/ provider) gives the same alias-stability benefit
+#           as the text-gen paths and drops the ollama/ coupling. honcho_embedding_api_key
+#           is already litellm_master_key in vault, so no key change is needed.
+# Auto-switches when the master switch flips — safe to set now (inert until cutover).
+honcho_embedding_base: "{{ ('http://litellm.' ~ litellm_namespace ~ '.svc.cluster.local:' ~ litellm_port ~ '/v1') if (enable_embedding_model | default(false)) else (openwebui_embedding_ollama_url ~ '/v1') }}"
 # --- models ---
 honcho_deriver_model: "{{ litellm_hermes_alias_model }}"
 honcho_dialectic_model: "{{ litellm_hermes_alias_model }}"
 honcho_summary_model: "{{ litellm_hermes_alias_model }}"
 honcho_dream_model: "{{ litellm_hermes_alias_model }}"
-honcho_embedding_model: "{{ ollama_embed_model }}"
+# embed-default (LiteLLM alias) at cutover, else the ollama model name. Same 2560-dim
+# either way (Qwen3-Embedding-4B) → honcho_embedding_dimensions unchanged, no DB wipe.
+honcho_embedding_model: "{{ litellm_embed_alias_model if (enable_embedding_model | default(false)) else ollama_embed_model }}"
 
 # --- per-feature API keys (DUMMIES) ---
 # Lowest-precedence dummies so the role is self-contained and never undefined.
@@ -470,16 +484,19 @@ hindsight_llm_provider: "openai"
 hindsight_llm_base_url: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
 hindsight_llm_model: "{{ litellm_hermes_alias_model }}"
 
-# --- Embeddings → ollama-embed direct (same path OpenWebUI/honcho use) ---
-# Provider `openai` against ollama's OpenAI-compatible /v1 endpoint. Dimensions
-# are intentionally NOT sent (HINDSIGHT_API_EMBEDDINGS_OPENAI_DIMENSIONS unset):
-# ollama returns the model's native-dim vectors (Qwen3-Embedding-4B = 2560) and
-# rejecting an unsupported `dimensions` param is avoided. Hindsight fixes the
-# pgvector column on first migration — changing the embedding model later means
-# wiping the hindsight DB.
+# --- Embeddings — GATED on enable_embedding_model (the sglang-embed cutover) ---
+# Provider `openai`. Dimensions are intentionally NOT sent
+# (HINDSIGHT_API_EMBEDDINGS_OPENAI_DIMENSIONS unset): the backend returns the
+# model's native-dim vectors (Qwen3-Embedding-4B = 2560) and rejecting an
+# unsupported `dimensions` param is avoided. Hindsight fixes the pgvector column
+# on first migration — the model stays 2560-dim across the cutover, so no wipe.
+#   false → ollama-embed direct /v1 (legacy path).
+#   true  → LiteLLM, via the stable `embed-default` alias (→ sglang-embed). Needs
+#           hindsight_embeddings_api_key == litellm_master_key (set in vault).
+# Auto-switches when the master switch flips — safe to set now (inert until cutover).
 hindsight_embeddings_provider: "openai"
-hindsight_embeddings_base_url: "{{ openwebui_embedding_ollama_url }}/v1"
-hindsight_embeddings_model: "{{ ollama_embed_model }}"
+hindsight_embeddings_base_url: "{{ ('http://litellm.' ~ litellm_namespace ~ '.svc.cluster.local:' ~ litellm_port ~ '/v1') if (enable_embedding_model | default(false)) else (openwebui_embedding_ollama_url ~ '/v1') }}"
+hindsight_embeddings_model: "{{ litellm_embed_alias_model if (enable_embedding_model | default(false)) else ollama_embed_model }}"
 
 # --- Reranker: `rrf` disables model-based reranking (no HF download). Set to
 # `litellm` / `cohere` / `local` etc. to enable; see configuration docs. ---
