@@ -72,6 +72,13 @@ fi
 if [ -n "${SGLANG_KV_CACHE_DTYPE:-}" ]; then
   args+=(--kv-cache-dtype "$SGLANG_KV_CACHE_DTYPE")
 fi
+# Quantization escape hatch: compressed-tensors FP8 (chroma-core FP8-Dynamic) is
+# AUTO-DETECTED from the checkpoint's quantization_config, so the profile leaves
+# this empty. Set profile.quantization only if a load error shows auto-detect
+# missed it; then it flows here.
+if [ -n "${SGLANG_QUANTIZATION:-}" ]; then
+  args+=(--quantization "$SGLANG_QUANTIZATION")
+fi
 if [ -n "${SGLANG_SCHEDULE_POLICY:-}" ]; then
   args+=(--schedule-policy "$SGLANG_SCHEDULE_POLICY")
 fi

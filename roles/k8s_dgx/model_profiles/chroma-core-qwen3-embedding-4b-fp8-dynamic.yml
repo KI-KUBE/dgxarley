@@ -1,5 +1,5 @@
 ---
-# Model profile: Qwen/Qwen3-Embedding-4B
+# Model profile: chroma-core/Qwen3-Embedding-4B-FP8-Dynamic
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 #
 # PURPOSE: the cluster's TEXT-EMBEDDING backend — replaces the standalone Ollama
@@ -17,16 +17,30 @@
 # also the SAME model family already served under Ollama, and its native 2560-dim
 # == honcho_embedding_dimensions, so the honcho/hindsight pgvector columns do NOT
 # need re-provisioning on cutover.
+#
+# WHY the FP8 quant (chroma-core/Qwen3-Embedding-4B-FP8-Dynamic) and NOT BF16:
+# FP8 E4M3 dynamic (compressed-tensors — weights static per-channel FP8, acts
+# dynamic per-token) halves the weights (~7.5 → ~4 GiB) with negligible
+# embedding-quality loss (FP8-dynamic is the conservative quant; unlike 4-bit
+# NVFP4 it does not meaningfully shift retrieval cosine distances). FP8 does NOT
+# change the 2560-dim output → still no pgvector/honcho/hindsight impact. From
+# chroma-core (the Chroma vector-DB org), apache-2.0. The quant is AUTO-DETECTED
+# by SGLang from the checkpoint's quantization_config (no --quantization flag);
+# the `quantization` knob below is the escape hatch if auto-detect ever fails.
 _model_profile:
-  "Qwen/Qwen3-Embedding-4B":
+  "chroma-core/Qwen3-Embedding-4B-FP8-Dynamic":
     knowledge_cutoff: null
     release_date: "2025-06-05"  # Qwen3-Embedding series launch
-    info_url: "https://huggingface.co/Qwen/Qwen3-Embedding-4B"
-    # 4B DENSE Qwen3 decoder repurposed for embeddings (last-token pooling).
-    # Native output dim 2560 (MRL-capable, but we serve the native dim). BF16
-    # source (~8 GB weights) → trivially fits one GB10 at tp=1. Multilingual +
-    # code, context up to 32K. SGLang serves it with --is-embedding (Qwen3
-    # decoder embedding path — the embed launcher adds that flag).
+    info_url: "https://huggingface.co/chroma-core/Qwen3-Embedding-4B-FP8-Dynamic"
+    # 4B DENSE Qwen3 decoder repurposed for embeddings (last-token pooling),
+    # quantized to FP8 E4M3 dynamic (compressed-tensors). Native output dim 2560
+    # (MRL-capable, but we serve the native dim). ~4 GiB FP8 weights → trivially
+    # fits one GB10 at tp=1. Multilingual + code, context up to 32K. SGLang serves
+    # it with --is-embedding (Qwen3 decoder embedding path — the embed launcher
+    # adds that flag) and auto-applies the compressed-tensors FP8 quant.
+    # quantization left UNSET → SGLang auto-detects from quantization_config; set
+    # it (e.g. "compressed-tensors") only if a first-boot load error shows the
+    # auto-detect missed it (the embed launcher wires --quantization when non-empty).
     #
     # NOTE: most generation knobs (kv_cache_dtype/mem_fraction/attention_backend)
     # are still resolved by defaults/main.yml even for the embed instance, so the

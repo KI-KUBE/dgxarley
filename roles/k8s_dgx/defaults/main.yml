@@ -537,10 +537,14 @@ _sglang_coder_instance:
 # `embed` instance is EMBEDDING-mode (is_embedding: true) → served by the minimal
 # files/sglang_embed_launch.sh, no QSFP network annotation. Placed on spark2 (the
 # node ollama-embed used). Replaces roles/k8s_dgx/tasks/ollama_embed.yml.
-# served-model-name kept == the old ollama logical name (see sglang_served_model_name
-# note) so LiteLLM/honcho/hindsight/OpenWebUI need no model-name change on cutover.
+# served-model-name follows the model id (sglang_served_model_name == _sglang_active_model),
+# so it changes with the model — but consumers reach embeddings via the STABLE
+# `embed-default` LiteLLM alias (litellm_embed_alias_model), which is repointed at
+# the new served name in the same change, so honcho/hindsight/OpenWebUI are unaffected.
+# FP8 quant of Qwen3-Embedding-4B (see the model profile: same 2560-dim output, so
+# no pgvector re-provisioning). Keep litellm_embed_model (group_vars/all) == this id.
 _sglang_embed_instance:
-  model: "Qwen/Qwen3-Embedding-4B"
+  model: "chroma-core/Qwen3-Embedding-4B-FP8-Dynamic"
   nodes: [2]               # single-node on spark2 (where ollama-embed lived)
   tp_size: 1               # tp*pp == #nodes (1) → pp forced to 1; empty worker loop
   pp_size: 1

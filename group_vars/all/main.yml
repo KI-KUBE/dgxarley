@@ -552,7 +552,7 @@ enable_coder_model: false
 # true only stands up sglang-embed; the consumers (LiteLLM/honcho/hindsight) are
 # rewired to it in a SEPARATE step (see the cutover plan), so do NOT rewire them
 # before sglang-embed is Ready or in-cluster embeddings break.
-#   true  → sglang-embed is deployed (Qwen/Qwen3-Embedding-4B, --is-embedding).
+#   true  → sglang-embed is deployed (chroma-core/Qwen3-Embedding-4B-FP8-Dynamic, --is-embedding).
 #   false → dropped from the deploy loop, and a `--tags sglang` run TEARS DOWN
 #           any running sglang-embed resources.
 # HOWTO: set the flag, then  ansible-playbook k8s_dgx.yml --tags sglang
@@ -608,7 +608,7 @@ litellm_coder_model: "RedHatAI/Qwen3-Coder-Next-NVFP4"   # == served_model_name 
 # id). `embed-default` is a STABLE alias so honcho/hindsight/OpenWebUI keep
 # resolving embeddings across an embed-model swap (same benefit as hermes-default).
 litellm_embed_alias_model: "{{ 'embed-default' if (enable_embedding_model | default(false)) else '' }}"
-litellm_embed_model: "Qwen/Qwen3-Embedding-4B"   # == served_model_name of the sglang-embed instance
+litellm_embed_model: "chroma-core/Qwen3-Embedding-4B-FP8-Dynamic"   # == served_model_name of the sglang-embed instance (FP8 quant)
 # litellm_model_list_append / _exclude below are PUBLIC DUMMY values. The REAL
 # ones live in group_vars/all/vault.yml (its cloud entry carries a secret
 # api_key); vault.yml loads AFTER main.yml so it OVERRIDES these — the standard
