@@ -407,6 +407,14 @@ sglang_chat_template_kwargs: "{{ sglang_model_profiles[_sglang_active_model].cha
 # per-request latency and memory spikes. 0 = SGLang default (no override).
 sglang_chunked_prefill_size: "{{ sglang_model_profiles[_sglang_active_model].chunked_prefill_size | default(0) }}"
 
+# Embedding mode: when the active model's profile sets is_embedding, this
+# instance serves EMBEDDINGS (--is-embedding) instead of generation. Drives
+# SGLANG_IS_EMBEDDING in the ConfigMap AND the sglang_instance.yml template
+# guards (embed launcher selection, no QSFP annotation). Profile is the source
+# of truth for the RUNTIME flag; the _sglang_embed_instance also sets the
+# matching instance key is_embedding for the (Jinja-evaluated) template guards.
+sglang_is_embedding: "{{ sglang_model_profiles[_sglang_active_model].is_embedding | default(false) }}"
+
 # MoE Triton kernel config directory (host path, under hf_cache_path).
 # Tuned configs are produced by the sglang_tune_moe Job.
 sglang_moe_config_path: "{{ hf_cache_path }}/moe_configs"
@@ -517,9 +525,33 @@ _sglang_coder_instance:
   pp_size: 1               # tp*pp == #nodes (4) ✓
   external_enabled: false  # in-cluster only (ClusterIP for litellm); no external ingress/cert/DNS
 
-# `default` is ALWAYS present (whole cluster, active sglang_model); `vision` and
-# `coder` join only when their enable_*_model flag is true. To add MORE instances
-# define them like _sglang_vision_instance above and combine() them in here.
+# ---------------------------------------------------------------------------
+# enable_embedding_model (group_vars/all/main.yml) is the MASTER SWITCH for the
+# EMBEDDING companion, default OFF. Same machinery as vision/coder: true → joins
+# the deploy loop (key `embed` → prefix "sglang-embed"); false → dropped AND a
+# `--tags sglang` run tears down any running sglang-embed resources.
+#
+# ALWAYS single-node tp=1 (embedding needs no NCCL/QSFP): nodes is a ONE-element
+# list, so the assert forces pp=1, the worker loop range(1,1) is empty (head-only
+# Deployment), and the wait-for-worker initContainer no-ops (WAIT_COUNT=0). The
+# `embed` instance is EMBEDDING-mode (is_embedding: true) → served by the minimal
+# files/sglang_embed_launch.sh, no QSFP network annotation. Placed on spark2 (the
+# node ollama-embed used). Replaces roles/k8s_dgx/tasks/ollama_embed.yml.
+# served-model-name kept == the old ollama logical name (see sglang_served_model_name
+# note) so LiteLLM/honcho/hindsight/OpenWebUI need no model-name change on cutover.
+_sglang_embed_instance:
+  model: "Qwen/Qwen3-Embedding-4B"
+  nodes: [2]               # single-node on spark2 (where ollama-embed lived)
+  tp_size: 1               # tp*pp == #nodes (1) → pp forced to 1; empty worker loop
+  pp_size: 1
+  is_embedding: true       # → embed launcher + no QSFP annotation (template guards)
+  hostname: "sglang-embed"
+  external_enabled: false  # in-cluster only (ClusterIP for litellm/honcho/hindsight)
+
+# `default` is ALWAYS present (whole cluster, active sglang_model); `vision`,
+# `coder` and `embed` join only when their enable_*_model flag is true. To add
+# MORE instances define them like _sglang_vision_instance above and combine()
+# them in here.
 # NAMING: the instance KEY ("coder") → prefix/hostname "sglang-<key>", so it MUST
 # be RFC1123-safe (lowercase/digits/'-', NO underscore); sriov_key is only a
 # qsfp_sriov_assignments lookup so it MAY contain underscores. Co-located
@@ -529,7 +561,9 @@ sglang_instances: >-
      | combine({'vision': _sglang_vision_instance}
                if (enable_vision_model | default(true)) else {})
      | combine({'coder': _sglang_coder_instance}
-               if (enable_coder_model | default(false)) else {}) }}
+               if (enable_coder_model | default(false)) else {})
+     | combine({'embed': _sglang_embed_instance}
+               if (enable_embedding_model | default(false)) else {}) }}
 
 # Merged UNDER each sglang_instances entry (entry wins). _inst_key is the dict
 # key of the current instance, set by the loop in sglang.yml. Defaults that
@@ -569,6 +603,7 @@ _sglang_instance_defaults:
   nccl_port: "{{ nccl_bootstrap_port }}"
   enable_metrics: "{{ sglang_enable_metrics }}"
   external_enabled: "{{ sglang_external_enabled }}"
+  is_embedding: false
 
 # ============================================================================
 # vLLM — drop-in alternative to SGLang for distributed LLM inference.
@@ -1080,6 +1115,8 @@ _litellm_model_list_base:
 #                     enable_vision_model, else the base model when
 #                     litellm_vision_alias_fallback_to_base — see group_vars/all)
 #   coder-default   → litellm_coder_model         (the sglang-coder companion)
+#   embed-default   → litellm_embed_model          (the sglang-embed instance;
+#                     stable EMBEDDING alias — routes /v1/embeddings across swaps)
 # Each alias is gated independently: set its *_alias_model var to "" to omit it.
 # The coder alias additionally needs its *_model var (the target group, the real
 # served name registered via litellm_model_list_append in group_vars); the vision
@@ -1092,10 +1129,13 @@ litellm_router_settings: >-
          | combine({litellm_vision_alias_model: litellm_vision_alias_target}
                    if ((litellm_vision_alias_model | default('')) and (litellm_vision_alias_target | default(''))) else {})
          | combine({litellm_coder_alias_model: litellm_coder_model}
-                   if ((litellm_coder_alias_model | default('')) and (litellm_coder_model | default(''))) else {}))}
+                   if ((litellm_coder_alias_model | default('')) and (litellm_coder_model | default(''))) else {})
+         | combine({litellm_embed_alias_model: litellm_embed_model}
+                   if ((litellm_embed_alias_model | default('')) and (litellm_embed_model | default(''))) else {}))}
      if ((litellm_hermes_alias_model | default(''))
          or (litellm_vision_alias_model | default(''))
-         or (litellm_coder_alias_model | default(''))) else {} }}
+         or (litellm_coder_alias_model | default(''))
+         or (litellm_embed_alias_model | default(''))) else {} }}
 
 # litellm_settings: rendered as the litellm_settings block in config.yaml
 litellm_settings:

@@ -160,6 +160,11 @@
         SGLANG_ENABLE_EPLB: "{{ sglang_enable_eplb | string | lower }}"
         SGLANG_ENABLE_EXPERT_DISTRIBUTION_METRICS: "{{ sglang_enable_expert_distribution_metrics | string | lower }}"
         SGLANG_ENABLE_METRICS: "{{ inst.enable_metrics | string | lower }}"
+        # Embedding mode (from the model profile via sglang_is_embedding): when
+        # "true", the minimal embed launcher (sglang_embed_launch.sh, selected in
+        # the launch-script ConfigMap below) adds --is-embedding and skips all
+        # generation/distributed machinery. Inert for generation instances.
+        SGLANG_IS_EMBEDDING: "{{ sglang_is_embedding | string | lower }}"
         SGLANG_CHUNKED_PREFILL_SIZE: "{{ sglang_chunked_prefill_size | string }}"
         SGLANG_ENABLE_JIT_DEEPGEMM: "{{ 'false' if sglang_disable_deep_gemm | bool else 'true' }}"
         # Flash Attention 4 CuTe DSL JIT: enable persistent disk cache so compiled
@@ -224,7 +229,10 @@
         name: "{{ inst.prefix }}-launch-script"
         namespace: "{{ sglang_namespace }}"
       data:
-        launch.sh: "{{ lookup('file', role_path ~ '/files/sglang_launch.sh') }}"
+        # Embedding instances (inst.is_embedding) get the minimal embed launcher;
+        # generation instances get the full generation launcher. Same mount path
+        # (/scripts/launch.sh), so the pod spec is unchanged either way.
+        launch.sh: "{{ lookup('file', role_path ~ '/files/' ~ ('sglang_embed_launch.sh' if (inst.is_embedding | default(false)) else 'sglang_launch.sh')) }}"
         # DSV4 unified-memory load probe (copied to dist-packages by launch.sh
         # only when SGLANG_MEMPROBE=1). Pinpoints the post-weight-load action
         # that doubles GB10 unified memory.
@@ -528,7 +536,12 @@
               # template only.
               sglang_instance: "{{ _inst_key }}"
             annotations:
-              k8s.v1.cni.cncf.io/networks: "{{ '[{\"name\":\"qsfp-vf' ~ qsfp_sriov_assignments[_sglang_active_sriov_key].vf ~ '\",\"ips\":[\"' ~ _sglang_qsfp_ips[0] ~ '/24\"]}]' if qsfp_sriov_enabled | default(false) else 'qsfp-direct' }}"
+              # Embedding instances need NO QSFP/Multus (single-node, no NCCL) →
+              # omit the network annotation entirely (runs on the default pod net).
+              # `omit` also short-circuits the qsfp_sriov_assignments[sriov_key]
+              # lookup, which would KeyError for the embed instance (no assignment)
+              # when qsfp_sriov_enabled is globally true.
+              k8s.v1.cni.cncf.io/networks: "{{ omit if (inst.is_embedding | default(false)) else ('[{\"name\":\"qsfp-vf' ~ qsfp_sriov_assignments[_sglang_active_sriov_key].vf ~ '\",\"ips\":[\"' ~ _sglang_qsfp_ips[0] ~ '/24\"]}]' if qsfp_sriov_enabled | default(false) else 'qsfp-direct') }}"
               kubectl.kubernetes.io/default-container: sglang
               # SGLang Prometheus scrape — HEAD only (workers run no HTTP server).
               # Port = inst.port (HAProxy-fronted; /metrics passes through the L4 TCP
@@ -536,7 +549,7 @@
               prometheus.io/scrape: "{{ inst.enable_metrics | string | lower }}"
               prometheus.io/port: "{{ inst.port | string }}"
               prometheus.io/path: "/metrics"
-              checksum/launch-script: "{{ (lookup('file', role_path ~ '/files/sglang_launch.sh') ~ lookup('file', role_path ~ '/files/dsv4_memprobe.py')) | hash('sha256') }}"
+              checksum/launch-script: "{{ (lookup('file', role_path ~ '/files/' ~ ('sglang_embed_launch.sh' if (inst.is_embedding | default(false)) else 'sglang_launch.sh')) ~ lookup('file', role_path ~ '/files/dsv4_memprobe.py')) | hash('sha256') }}"
               checksum/config: "{{ _sglang_configmap.result.data | to_json(sort_keys=True) | hash('sha256') }}"  # hash of the WHOLE rendered sglang-config ConfigMap (omit-stripped by k8s, sort_keys-stable) → rolls pods on ANY config/knob change (cuda_graph_max_bs, moe_runner_backend, mamba_*, …), not a hand-picked field subset
           spec:
             serviceAccountName: "{{ inst.prefix }}-head"

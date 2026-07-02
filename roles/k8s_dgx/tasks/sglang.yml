@@ -47,4 +47,6 @@
       {{ ([{'prefix': 'sglang-vision', 'workers': (_sglang_vision_instance.nodes | length) - 1}]
             if not (enable_vision_model | default(true)) else [])
          + ([{'prefix': 'sglang-coder', 'workers': (_sglang_coder_instance.nodes | length) - 1}]
-            if not (enable_coder_model | default(false)) else []) }}
+            if not (enable_coder_model | default(false)) else [])
+         + ([{'prefix': 'sglang-embed', 'workers': (_sglang_embed_instance.nodes | length) - 1}]
+            if not (enable_embedding_model | default(false)) else []) }}
