@@ -12,8 +12,14 @@ set -e
 # /scripts/launch.sh in place of the big script).
 #
 # Reads the SAME sglang-<prefix>-config ConfigMap env vars as the big launcher,
-# but only the small subset an embedding server actually consumes. Single-node
-# means NO --nnodes/--node-rank/--nccl-init-addr (no distributed group).
+# but only the subset an embedding server actually consumes: the model/serving
+# basics PLUS the full resource envelope (max_total_tokens, max_running_requests,
+# mem_fraction_static, context_length, chunked_prefill_size, kv_cache_dtype,
+# page_size, schedule_policy, cuda-graph, dtype, log_level). Everything else in
+# the ConfigMap is generation-only (speculative decoding, MoE runner backends,
+# NCCL/RoCE, mamba, DSV4/DeepGEMM kernel toggles) and is INTENTIONALLY ignored —
+# inert for a dense embedding model. Single-node means NO --nnodes/--node-rank/
+# --nccl-init-addr (no distributed group).
 #
 # Model choice rationale (Qwen3-Embedding, decoder arch): serving bge-m3
 # (XLM-RoBERTa) here would hit sglang#7590 on GB10/SM121 (position-tensor assert
@@ -36,13 +42,56 @@ args=(
   --context-length "$SGLANG_CONTEXT_LENGTH"
   --mem-fraction-static "$SGLANG_MEM_FRACTION"
   --port "$SGLANG_PORT"
-  # Embedding-mode hygiene: no prefix reuse (radix cache is a decode-time KV
-  # optimization, useless for one-shot embed passes) and no prefill chunking
-  # (-1 = single-chunk prefill; avoids the chunked-prefill position handling
-  # that trips encoder position asserts).
+  # Radix cache (prefix KV reuse) is a decode-time optimization, useless for
+  # one-shot embed passes. No env knob — always off for embedding.
   --disable-radix-cache
-  --chunked-prefill-size -1
 )
+
+# --- Serving envelope, wired from the shared sglang-<prefix>-config ConfigMap --
+# The embed server's MEMORY should be pinned by the ABSOLUTE --max-total-tokens
+# (a deterministic KV-pool token cap), NOT by --mem-fraction-static: the latter
+# is (weights + KV pool) / TOTAL GPU capacity, so on the shared/time-sliced GB10
+# the derived pool size shifts with whatever a co-tenant already holds and with
+# instance start order. SGLang allocates a KV pool even in --is-embedding mode
+# (sgl-project/sglang#9181), so this cap is what actually bounds it. The profile
+# therefore sets mem_fraction_static high (headroom only) and max_total_tokens as
+# the real, start-order-independent cap. Each knob is guarded so an empty/sentinel
+# value (defaults/main.yml) is a no-op — set -e safe via if/then, NOT `&&` chains
+# (a failed `[ ]` test under set -e would kill the script).
+if [ -n "${SGLANG_MAX_TOTAL_TOKENS:-}" ]; then
+  args+=(--max-total-tokens "$SGLANG_MAX_TOTAL_TOKENS")
+fi
+if [ -n "${SGLANG_MAX_RUNNING_REQUESTS:-}" ]; then
+  args+=(--max-running-requests "$SGLANG_MAX_RUNNING_REQUESTS")
+fi
+# -1 = single-chunk prefill (the embedding default; sidesteps chunked-prefill
+# position handling). Tunable via the profile's chunked_prefill_size.
+if [ -n "${SGLANG_CHUNKED_PREFILL_SIZE:-}" ]; then
+  args+=(--chunked-prefill-size "$SGLANG_CHUNKED_PREFILL_SIZE")
+fi
+if [ -n "${SGLANG_KV_CACHE_DTYPE:-}" ]; then
+  args+=(--kv-cache-dtype "$SGLANG_KV_CACHE_DTYPE")
+fi
+if [ -n "${SGLANG_SCHEDULE_POLICY:-}" ]; then
+  args+=(--schedule-policy "$SGLANG_SCHEDULE_POLICY")
+fi
+# page_size / cuda_graph_max_bs use 0 as the "no override" sentinel (defaults).
+if [ -n "${SGLANG_PAGE_SIZE:-}" ] && [ "${SGLANG_PAGE_SIZE}" != "0" ]; then
+  args+=(--page-size "$SGLANG_PAGE_SIZE")
+fi
+if [ "${SGLANG_DISABLE_CUDA_GRAPH:-false}" = "true" ]; then
+  args+=(--disable-cuda-graph)
+elif [ -n "${SGLANG_CUDA_GRAPH_MAX_BS:-}" ] && [ "${SGLANG_CUDA_GRAPH_MAX_BS}" != "0" ]; then
+  args+=(--cuda-graph-max-bs "$SGLANG_CUDA_GRAPH_MAX_BS")
+fi
+# dtype: "auto" (the resolver default) == SGLang's own default → skip to avoid
+# clutter; only pass when the profile forces a specific dtype.
+if [ -n "${SGLANG_MODEL_DTYPE:-}" ] && [ "${SGLANG_MODEL_DTYPE}" != "auto" ]; then
+  args+=(--dtype "$SGLANG_MODEL_DTYPE")
+fi
+if [ -n "${SGLANG_LOG_LEVEL:-}" ]; then
+  args+=(--log-level "$SGLANG_LOG_LEVEL")
+fi
 
 # --host 127.0.0.1 (from the pod env): the HAProxy sidecar forwards
 # 0.0.0.0:<inst.port> → 127.0.0.1:<inst.internal_port>, same EADDRINUSE fix as

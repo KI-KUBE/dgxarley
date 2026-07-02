@@ -31,18 +31,34 @@ _model_profile:
     # NOTE: most generation knobs (kv_cache_dtype/mem_fraction/attention_backend)
     # are still resolved by defaults/main.yml even for the embed instance, so the
     # three no-default resolvers (context_length, kv_cache_dtype,
-    # mem_fraction_static) MUST be set here. The embed launcher only consumes a
-    # subset (context_length, mem_fraction, attention_backend, served_model_name).
-    context_length: 32768       # native max; embed requests are short, this is the ceiling
-    kv_cache_dtype: "auto"      # required by the resolver; embedding barely uses KV
-    # Embedding has almost no KV pool and modest weights (~8 GB on the 127.5 GB
-    # unified pool). Keep the static fraction LOW so a co-tenant on the same spark
-    # (GPU time-slicing) is not starved. Pinned absolute footprint is unnecessary
-    # here (no large KV growth).
-    mem_fraction_static: "0.30"
+    # mem_fraction_static) MUST be set here. The embed launcher consumes the full
+    # resource envelope below (max_total_tokens, max_running_requests,
+    # chunked_prefill_size, kv_cache_dtype, page_size, schedule_policy, cuda-graph,
+    # dtype, log_level) — generation-only knobs (speculative/MoE/NCCL/…) are inert.
+    context_length: 32768       # native max; also the per-request input ceiling
+    kv_cache_dtype: "auto"      # required by the resolver; pool dtype (auto=fp16)
+    # MEMORY ENVELOPE — pinned by the ABSOLUTE max_total_tokens, NOT the fraction.
+    # mem_fraction_static is (weights + KV pool) / TOTAL GPU capacity, so on the
+    # shared/time-sliced GB10 a fraction-derived pool shifts with co-tenant memory
+    # and instance start order (fragile, non-deterministic). Set the fraction HIGH
+    # (headroom only) and let max_total_tokens be the real, start-order-independent
+    # cap. SGLang allocates a KV pool even for --is-embedding (sgl #9181), so
+    # max_total_tokens is what actually bounds it.
+    # WARNING: 0.99 is ONLY safe BECAUSE max_total_tokens caps the real allocation
+    # — do NOT drop max_total_tokens while leaving the fraction high, or the pool
+    # grabs ~the whole 128 GB unified pool and starves co-tenants.
+    mem_fraction_static: "0.99"
+    max_total_tokens: 32768     # absolute KV-pool token cap (== context_length)
+    # -1 = single-chunk prefill (embedding default; avoids chunked-prefill position
+    # handling). NOW consumed by sglang_embed_launch.sh (was hardcoded there).
+    chunked_prefill_size: -1
     # Encoder/embedding attention: triton is the conservative, broadly-compatible
     # backend (SGLang's BGE/embedding guidance). flashinfer is a generation pick.
     attention_backend: "triton"
+    # Concurrency cap — NOW actually wired into the embed launcher (the minimal
+    # launcher previously DROPPED it, so this was a silent no-op falling back to
+    # the SGLang default). With max_total_tokens=32768 the pool bounds in-flight
+    # tokens regardless; this caps the request count for short inputs.
     max_running_requests: 16
     trust_remote_code: true
     # is_embedding drives BOTH: (1) sglang_is_embedding resolver → SGLANG_IS_EMBEDDING
