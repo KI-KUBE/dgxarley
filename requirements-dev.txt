@@ -7,6 +7,8 @@ isort
 mypy
 pytest
 Pillow
+rich
+typer
 sglang
 pyserial
 fastapi
