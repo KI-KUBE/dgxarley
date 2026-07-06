@@ -8,6 +8,8 @@ All patches referenced below live in [`scripts/patches/`](scripts/patches/); the
 > - **PR sgl-project/sglang#25820** (NVFP4 MoE path via `HybridFp8NvFp4Config`) merged to `sgl-project/sglang` on **2026-06-22** and ships natively in **SGLang v0.5.14** (released 2026-06-26). The patch `sglang-dsv4-nvfp4-pr25820.patch` (and the TileLang indexer compat patch it gates) are retained on-disk for rollback/history but are **no longer applied** in the `0.5.14-sm121` build (`APPLY_DSV4_NVFP4_PR25820=0` in `scripts/patches/sglang-0.5.14-sm121.recipe`). The NVFP4 MoE path is now native in v0.5.14.
 > - **DeepGEMM PR #324** (SM121/SM120 support) merged into `deepseek-ai/DeepGEMM` on **2026-06-24**. Whether this has been pulled into `sgl-project/DeepGEMM` (the fork used by SGLang) remains open as of 2026-06-30 — the TileLang indexer path is still active and correct for our cluster.
 > - The cluster image was bumped to **`xomoxcc/dgx-spark-sglang:0.5.14-sm121`** on 2026-06-29.
+>
+> **Update 2026-07-06:** The follow-up in `sgl-project/DeepGEMM` has surfaced as **`sgl-project/DeepGEMM#55`** ("Add minimal SM120 FP4 paged MQA support") plus companion **`sgl-project/sglang#27059`** ("Add FP4 Indexer for DeepSeek V4 on SM120") — both still **OPEN, unmerged**, no activity since 2026-07-01. Note on scope: PR #55 gates on `arch_major == 12` (numerically covers both SM120 and SM121, since GB10 reports major=12) and its fallback compute path is `#if __CUDA_ARCH__ >= 1200` (also covers SM121) — so it's **SM120-tested / SM121-unverified**, not a hard code-level exclusion of SM121. Practical conclusion unchanged: the TileLang indexer path remains the correct/active choice for GB10/SM121.
 
 ---
 
@@ -79,7 +81,7 @@ DeepSeek-V4-Flash uses a DSA (Lightning-Indexer) attention mechanism. The hot ke
 
 1. `deep_gemm/_C.so` has an SM allowlist (`SM100`, `SM120`) — SM121 returns `Unsupported architecture (attention.hpp:219)`.
 2. The SM100 kernel uses `tcgen05`, UMMA, and TMEM instructions absent on GB10; no sm121 impl exists in `deepseek-ai/DeepGEMM` main.
-3. [DeepGEMM PR #324](https://github.com/deepseek-ai/DeepGEMM/pull/324) ("feat: add sm120 support") targets sm120/sm121 and **merged into `deepseek-ai/DeepGEMM` on 2026-06-24**. It was against the `nv_dev` branch of the deepseek-ai fork — whether it has been pulled into `sgl-project/DeepGEMM` (the fork used by SGLang) remains open as of 2026-06-30.
+3. [DeepGEMM PR #324](https://github.com/deepseek-ai/DeepGEMM/pull/324) ("feat: add sm120 support") targets sm120/sm121 and **merged into `deepseek-ai/DeepGEMM` on 2026-06-24**. It was against the `nv_dev` branch of the deepseek-ai fork — whether it has been pulled into `sgl-project/DeepGEMM` (the fork used by SGLang) remains open as of 2026-06-30. **Update 2026-07-06:** the SGLang-side follow-up is `sgl-project/DeepGEMM#55` + `sgl-project/sglang#27059`, both still OPEN/unmerged (last updated 2026-07-01), SM120-tested / SM121-unverified — see the note at the top of this document.
 
 SGLang falls back to a **pure-torch dispatch per step** — outside the CUDA graph, taking ~18 ms/step for 20 layers. This creates a hard ~18 tok/s ceiling regardless of batch size or MTP.
 
@@ -210,7 +212,7 @@ The two image patches referenced above (retained on-disk for rollback/history; *
 ## Open questions / what's next
 
 - **Clean long-context numbers pending** — will update once the re-run (unique prompts, `ignore_eos`, more output tokens) completes.
-- **DeepGEMM PR #324** — **merged into `deepseek-ai/DeepGEMM` on 2026-06-24.** Whether it has been pulled into `sgl-project/DeepGEMM` (used by SGLang) remains open as of 2026-06-30. If/when it lands in the SGLang fork, the TileLang path would no longer be needed and throughput might improve further.
+- **DeepGEMM PR #324** — **merged into `deepseek-ai/DeepGEMM` on 2026-06-24.** Whether it has been pulled into `sgl-project/DeepGEMM` (used by SGLang) remains open as of 2026-06-30. If/when it lands in the SGLang fork, the TileLang path would no longer be needed and throughput might improve further. **Update 2026-07-06:** tracked as `sgl-project/DeepGEMM#55` + `sgl-project/sglang#27059`, both still OPEN/unmerged as of 2026-07-01 (SM120-tested / SM121-unverified, not a hard SM121 exclusion) — no change to the practical conclusion.
 - **opt_fp8_wo_a_gemm** — untested on this setup; may offer an additional throughput gain for the FP8 base GEMM.
 
 ---
