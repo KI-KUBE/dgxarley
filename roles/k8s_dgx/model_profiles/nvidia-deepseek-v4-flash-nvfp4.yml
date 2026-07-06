@@ -2,9 +2,12 @@
 # Model profile: nvidia/DeepSeek-V4-Flash-NVFP4
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 #
-# UNTESTED + UPSTREAM-BLOCKED first-contact (written 2026-06-12) — pre-staged so
-# the model can be flipped on the moment the blocker clears. Read the BLOCKER
-# section before deploying. Background: UPSTREAM_DSV4_BUGS.md (esp. §3/§5/§8).
+# STATUS 2026-07-06: the former upstream blocker has CLEARED (see STATUS section
+# below). Non-spec decode RUNS on this cluster on the pinned 0.5.14-sm121 image.
+# EAGLE-MTP is enabled first-contact and depends on image patches that the
+# 0.5.14 recipe DISABLED — re-verify MTP/tilelang on the current image before
+# trusting them (details in the STATUS + build-path notes). Background:
+# UPSTREAM_DSV4_BUGS.md (§3/§5/§8), DEEPSEEK_V4_FLASH_NVFP4_SGLANG_GB10.md.
 #
 # WHAT THIS CHECKPOINT IS (verified against HF 2026-06-12; repo created
 # 2026-05-18, last modified 2026-06-10 in the PR #25820 quant-config fix cycle):
@@ -25,19 +28,24 @@
 #   kills the RedHatAI/kylesayrs/canada-quant repos (UPSTREAM_DSV4_BUGS.md §2)
 #   does NOT apply here.
 #
-# ── BLOCKER: SGLang NVFP4-MoE support for V4 is not merged ─────────────────────
-#   PR sgl-project/sglang#25820 "[NVIDIA] Support NVFP4 MoE for DeepSeek-V4" is
-#   still OPEN (2026-06-12: CI-blocked, 13 reviewers requested). Per its
-#   2026-06-11 comment "Flash NVFP4 is working now" (GSM8K 96.21% on B200, after
-#   the 2026-06-10 HF-side quant-config fix) — but NO SM120/121 test, and the PR
-#   is not in any release. Our current images (0.5.12.post1-based) have NO NVFP4
-#   path in models/deepseek_v4.py (only a w4afp8 branch) → expect failure at
-#   quant/MoE dispatch, before any kernel runs. Also needed: the FP4 indexer
-#   (#26209, merged 2026-06-02) and SM120 inference support (#24692, merged
-#   2026-06-01) — both first shipped in v0.5.13 (PyPI 2026-06-11, no sm121 image
-#   built yet). DEPLOY PATH: build a v0.5.13+ sm121 image that contains a merged
-#   #25820, then re-validate every kernel choice below. Until then this profile
-#   exists for preload (hf_preload_models) and as the staging target.
+# ── STATUS: former blocker CLEARED (was: SGLang NVFP4-MoE for V4 not merged) ───
+#   PR sgl-project/sglang#25820 "[NVIDIA] Support NVFP4 MoE for DeepSeek-V4"
+#   MERGED 2026-06-22 (commit c0bb04b) and ships NATIVELY in SGLang v0.5.14
+#   (released 2026-06-26; the merge commit is an ancestor of the v0.5.14 tag).
+#   Prereqs also merged: FP4 indexer (#26209, 2026-06-02) and SM120 inference
+#   (#24692, 2026-06-01), both in v0.5.13. The cluster default image is
+#   xomoxcc/dgx-spark-sglang:0.5.14-sm121 (bumped 2026-06-29), built from the
+#   v0.5.14 tag with the NATIVE NVFP4-MoE dispatch; the old cherry-pick is
+#   retired (APPLY_DSV4_NVFP4_PR25820=0 in sglang-0.5.14-sm121.recipe).
+#   Non-spec boot VALIDATED 2026-06-20 (head Ready, coherent output) — the
+#   known-good baseline; the profile pins that image below and is ready to
+#   serve, NOT a preload-only staging target.
+#   ⚠ MTP caveat: the marlin draft-MoE branch AND the tilelang-0.1.8 indexer
+#   compat both rode ON the now-disabled #25820 cherry-pick, so they are NOT in
+#   the 0.5.14 image unless re-added — i.e. speculative_moe_runner_backend=marlin
+#   and opt_use_tilelang_indexer (below) may lack image support on 0.5.14.
+#   Re-verify EAGLE-MTP + the TileLang indexer on the current image; if MTP
+#   crashes, set speculative_enabled: false (native non-spec is unaffected).
 #
 # Architecture (DeepseekV4ForCausalLM, model_type=deepseek_v4) — identical to
 # the other Flash checkpoints: 43 layers, hidden=4096, MQA (num_attention_heads
@@ -206,11 +214,15 @@ _model_profile:
     # sglang-dsv4-nvfp4-pr25820.patch + an image rebuild. Inert while
     # speculative_enabled: false.
     speculative_moe_runner_backend: marlin
-    # Build path exists since 2026-06-12: scripts/patches/sglang-0.5.13-sm121
-    # .recipe = SGLang v0.5.13 (#26209 + #24692 included) + PR #25820 rebased
-    # on top (sglang-dsv4-nvfp4-pr25820.patch, recipe gate
-    # APPLY_DSV4_NVFP4_PR25820=1) + the SM121 sgl-kernel patch stack. Build
-    # via scripts/build_sm121_image.sh (its active RECIPE_NAME/IMAGE_TAG pair
-    # points at this recipe). The 0.5.12.post1-sm121 image canNOT serve this
-    # model — its SGLang predates #25820, the NVFP4-MoE dispatch fails.
+    # Image build: scripts/patches/sglang-0.5.14-sm121.recipe = SGLang v0.5.14
+    # (SGLANG_REF=v0.5.14) with the NATIVE #25820 NVFP4-MoE path + #26209 FP4
+    # indexer + #24692 SM120 (all merged upstream) + the SM121 sgl-kernel patch
+    # stack. The #25820 cherry-pick is RETIRED (APPLY_DSV4_NVFP4_PR25820=0) — and
+    # with it the marlin draft-MoE branch + tilelang-0.1.8 indexer-compat patch
+    # are NO LONGER applied (both lived in that cherry-pick). So non-spec serving
+    # is native, but EAGLE-MTP (marlin) and opt_use_tilelang_indexer need those
+    # pieces re-added to the recipe (or an upstream equivalent) to work on
+    # 0.5.14 — verify on the running image. Build via scripts/build_sm121_image.sh.
+    # Any image whose SGLang predates v0.5.14 (e.g. 0.5.12.post1-sm121) canNOT
+    # serve this model — the NVFP4-MoE dispatch fails without the rebased patch.
     sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-sm121"

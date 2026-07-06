@@ -59,3 +59,12 @@ _model_profile:
     recommended_sampling:
       temperature: 1.0
       top_p: 0.95
+    # MTP / speculative decoding (NEXTN): this checkpoint has a trained MTP head
+    # (num_nextn_predict_layers=1, MTP layer stays BF16). NEXTN uses the model's own
+    # head — no external draft model. Same GLM family as nvidia/GLM-4.7-NVFP4, where
+    # MTP is VALIDATED (+68% n=1, +35% n=4/n=8); values mirror that profile.
+    # UNVALIDATED on GLM-5 — flip speculative_enabled:false if the head misbehaves.
+    speculative_enabled: true
+    speculative_algo: NEXTN
+    speculative_num_steps: 3
+    speculative_num_draft_tokens: 4
