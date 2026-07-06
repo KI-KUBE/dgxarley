@@ -301,6 +301,26 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 > - `gateway/platforms/email.py` at tag `v2026.6.19` is unchanged (blob `d2f7e64a`); our patch
 >   is still clean. No re-sync required.
 
+> **2026-07-06 check — ⚠ New release ships the plugin refactor; re-sync target now confirmed:**
+> - **Latest release:** `v2026.7.1` (v0.18.0, "The Judgment Release"), published 2026-07-01T20:08:06Z —
+>   supersedes the 2026-06-30 check's "v2026.6.19 still latest" note.
+> - **The plugin refactor anticipated in the 2026-06-21/06-24 "NEXT bump" warnings (commit
+>   `56001054`) is now IN a real tag.** At ref `v2026.7.1`, `gateway/platforms/email.py` is
+>   **gone (404)**; the file now lives at `plugins/platforms/email/adapter.py`, blob
+>   `c9d1cb499fe6f31068119414540d2d1f61d1e095`, 49488 bytes.
+> - **Our patch features remain upstream-exclusive:** grep of the new adapter.py for
+>   `_append_to_sent`, `_finalize_message`, `_imap_move`, `_ensure_folder`, `working_folder`,
+>   `done_folder`, `sent_folder`, `process_existing` = **zero hits**, same as the 2026-06-24 check
+>   against the pre-release `main` blob.
+> - **PRs #28697 / #28699 / #28702** all still open, `updatedAt` unchanged since 2026-06-29T11:53–54Z
+>   — no new activity.
+> - **This makes the "NEXT bump" re-sync warning above directly actionable:** when
+>   `hermes.image_tag` is bumped to `v2026.7.1` (or later), the patch target moves from
+>   `gateway/platforms/email.py` to `plugins/platforms/email/adapter.py`, and the subPath
+>   `mountPath` in `hermes_webui_deployment.yaml.j2` must change to
+>   `/opt/hermes/plugins/platforms/email/adapter.py`, exactly as described there.
+> - **Pinned deployment (`hermes.image_tag: v2026.6.19`) is unaffected** — no action forced yet.
+
 1. Download the new upstream file:
 
    ```bash
