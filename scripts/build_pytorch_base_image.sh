@@ -19,22 +19,24 @@
 # ------------------------------------------------------------------------------
 # 1. Preflight: verify the active pytorch-*-dev-v1.recipe is present, podman is
 #    installed locally, and the dedicated SSH identity for podman is usable.
-# 2. Ensure a registered podman connection to the arm64 build host (spark4).
+# 2. Ensure a registered podman connection to the arm64 build host (default
+#    spark4 — override via --remote-host / BUILD_PYTORCH_REMOTE_HOST).
 #    Reuses the same connection name as build_sm121_image.sh.
 # 3. Clone or update scitrera/cuda-containers locally on x86 (shared clone
 #    with build_sm121_image.sh). Switch to a local 'sm121' branch, hard-
 #    reset to origin/main (idempotent), drop our custom recipe file in.
 # 4. Invoke `podman --connection <name> build` — the build context is
-#    streamed from x86 to spark4 over the podman socket. The pytorch_builder
-#    target stage compiles NCCL (from the zyang-dev fork) + PyTorch 2.11 +
-#    torchvision 0.26 + torchaudio 2.11 all from source on arm64.
-# 5. Result is stored in spark4's local podman image store as
-#    xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132. It is NOT pushed to
-#    Docker Hub — we keep it local so the subsequent sgl-kernel sm121
-#    build (build_sm121_image.sh) finds it by name without a pull attempt.
+#    streamed from x86 to the build host over the podman socket. The
+#    pytorch_builder target stage compiles NCCL + PyTorch + torchvision +
+#    torchaudio all from source on arm64 (versions per the active recipe).
+# 5. Result is stored in the build host's local podman image store as
+#    ${IMAGE_TAG}. By default it is ALSO scp'd back to the x86 control host
+#    and pushed to Docker Hub (same flow as build_sm121_image.sh) — pass
+#    --no-push to keep it local-only so the subsequent sgl-kernel sm121
+#    build (build_sm121_image.sh) finds it by name on that same host without
+#    a pull attempt.
 # 6. build_sm121_image.sh's sgl-kernel recipe should reference
-#    BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132 to consume
-#    this local image.
+#    BASE_IMAGE=${IMAGE_TAG} to consume this image.
 #
 # Build time expectations
 # -----------------------
@@ -63,8 +65,9 @@
 #   not support ssh-agent or encrypted keys.
 # - git, rsync (for local cuda-containers clone management)
 #
-# Prerequisites on spark4 (the build host)
-# ----------------------------------------
+# Prerequisites on the remote build host (default spark4; --remote-host /
+# BUILD_PYTORCH_REMOTE_HOST selects a different one)
+# ------------------------------------------------------------------------
 # - podman installed, podman.socket enabled as root
 # - ~200 GB free disk (PyTorch from-source is bulky; intermediate layers
 #   before the final squashed image easily hit 100+ GB)
@@ -108,13 +111,13 @@ PODMAN_SSH_IDENTITY="${BUILD_PYTORCH_SSH_IDENTITY:-${HOME}/.ssh/id_podman}"
 # Build-time parallelism. Same considerations as build_sm121_image.sh but
 # PyTorch from source is more memory-hungry than sgl-kernel. Start at 8
 # and drop if OOM; 6 is a safer conservative choice if you know other
-# workloads are running on spark4.
+# workloads are running on the build host.
 BUILD_JOBS="${BUILD_PYTORCH_BUILD_JOBS:-8}"
 
 # Docker Hub push. ON by default to match build_sm121_image.sh's behavior —
-# pass --no-push to keep the image local on spark4 only. Push uses the x86
-# host's pre-configured registry credentials after scp'ing the image back
-# from the remote build host.
+# pass --no-push to keep the image local-only on the remote build host. Push
+# uses the x86 host's pre-configured registry credentials after scp'ing the
+# image back from the remote build host.
 PUSH_IMAGE=1
 
 # ============================================================================
@@ -129,7 +132,7 @@ usage() {
     cat <<EOF
 Usage: $(basename "$0") [--no-push] [--remote-host user@host] [--help]
 
-Builds ${IMAGE_TAG} on spark4 via remote podman socket.
+Builds ${IMAGE_TAG} on the remote build host (${REMOTE_HOST}) via remote podman socket.
 
 This is a one-time-ish build that produces the base image consumed by
 build_sm121_image.sh. By default the result is scp'd back to the x86
@@ -138,9 +141,9 @@ Expected duration: 3-5 hours cold build.
 
 Options:
   --no-push              Skip the scp+push steps and keep the image only in
-                         spark4's local podman store. Useful for iteration on
-                         the recipe without consuming Docker Hub bandwidth.
-                         Default: push.
+                         the remote build host's local podman store. Useful
+                         for iteration on the recipe without consuming Docker
+                         Hub bandwidth. Default: push.
   --remote-host HOST     user@host for the arm64 build host, overriding both
                          the default and BUILD_PYTORCH_REMOTE_HOST. Also
                          re-derives the podman connection name from HOST
@@ -149,8 +152,8 @@ Options:
   --help                 Show this help.
 
 Environment overrides:
-  BUILD_PYTORCH_REMOTE_HOST        user@host for spark4 SSH. Overridden by
-                                   --remote-host if both are given.
+  BUILD_PYTORCH_REMOTE_HOST        user@host for the remote build host's SSH.
+                                   Overridden by --remote-host if both are given.
                                    Default: ${REMOTE_HOST}
   BUILD_PYTORCH_PODMAN_CONNECTION  Registered podman connection name. Pins
                                    the connection regardless of --remote-host.
