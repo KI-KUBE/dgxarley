@@ -77,23 +77,24 @@ See: `roles/k8s_dgx/tasks/ollama.yml` — ConfigMap `ollama-tls-haproxy-config`,
 
 ## Upstream Status
 
-**Still open** — re-verified 2026-06-29. No fix merged. LiteLLM has since
-advanced to **v1.90.0** (stable, latest; published 2026-06-27 — contains no
-ollama/ssl/embedding-related fix; v1.89.4 was 2026-06-25, v1.89.3 was
-2026-06-20, v1.89.1 was 2026-06-16) and the bug is
-unchanged: `ollama_aembeddings()` in
+**Still open** — re-verified 2026-07-06. No fix merged. LiteLLM has since
+advanced to **v1.91.0** (stable, latest; published 2026-07-04 — contains no
+ollama/ssl/embedding-related fix; intermediate releases v1.89.5 (07-02),
+v1.90.1/v1.90.2/v1.90.3 (07-03) likewise touch none of it; v1.90.0 was
+2026-06-27, v1.89.4 was 2026-06-25, v1.89.3 was 2026-06-20, v1.89.1 was
+2026-06-16) and the bug is byte-identical: `ollama_aembeddings()` in
 `litellm/llms/ollama/completion/handler.py` still calls
 `litellm.module_level_aclient.post(...)` without `ssl_verify`, and the
 `[TODO]: migrate embeddings to a base handler` comment is still at the top of
 the file. (Previously tracked at v1.89.4, 2026-06-26.)
 The ollama embedding path has still not been migrated to the base handler;
 no PR addressing `ollama_aembeddings` + `ssl_verify` exists upstream as of
-today, and the v1.90.x release notes contain no
-ollama/ssl/embed-related entries.
+today, and the v1.91.0 release notes' embedding-related fixes (bedrock,
+cohere, sagemaker, watsonx, caching) do not touch ollama or SSL.
 
 - Related issue: [#6499](https://github.com/BerriAI/litellm/issues/6499) ("How to disable ssl verification for ollama?", closed). Maintainer acknowledged the embedding path was not migrated, but the issue was closed after only the chat path was fixed.
 - The TODO comment `[TODO]: migrate embeddings to a base handler as well.` is still present at the top of `handler.py`.
-- PR [#24704](https://github.com/BerriAI/litellm/pull/24704) — adjacent embedding bug (model name prefix stripping). **Still open**; no code movement since 2026-03-28, but auto-marked stale by bot on 2026-06-27 — will be auto-closed if no further activity. Does not address SSL/TLS.
+- PR [#24704](https://github.com/BerriAI/litellm/pull/24704) — adjacent embedding bug (model name prefix stripping). **CLOSED unmerged 2026-07-05** (auto-closed after stale-bot inactivity, never merged) — the outcome this doc predicted after the 2026-06-27 stale flag. Never addressed SSL/TLS, so no loss to the ollama/ssl bug tracked here. **2026-07-06 note:** no upstream fix is in flight; the HAProxy TLS sidecar workaround below remains required.
 
 **Partial mitigation**: Setting `litellm.ssl_verify = False` **globally before the first embedding call** may work, because the singleton `HTTPHandler` picks up `litellm.ssl_verify` at creation time via `get_ssl_configuration()`. However, this is fragile — it depends on initialization order, and per-request `ssl_verify=false` (as used in our model config) is still silently dropped for the ollama embedding path.
 
