@@ -88,3 +88,12 @@ dgx_swap_min_free_pct: 10
 # swapoff'd, rm'd, and stripped from fstab); never put a block-device partition here.
 dgx_swap_foreign_files:
   - /swap.img
+
+# Protect DGX-OS platform packages from `apt autoremove` (tasks/protect_platform_pkgs.yml).
+# DGX-OS installs GPU/boot/kernel-tuning packages as AUTO-marked deps of a
+# metapackage, so a bare `apt autoremove` offers to sweep essentials. This regex
+# is matched against `apt-mark showauto`; matching packages are flipped to
+# "manual" (apt-mark only touches the flag — never installs/removes). Kept broad
+# on purpose: marking any nvidia/dgx package manual is always safe on a DGX node.
+# Pure utilities (ipcalc, python3-psutil) are deliberately NOT matched.
+dgx_protect_pkg_regex: '^(nvidia-|nv-|nvgpu-|dgx-|hpc-sdk-repo|kdump-tools|kexec-tools|linux-crashdump|makedumpfile|msecli|tpm2-tools|libtss2-)'

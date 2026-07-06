@@ -24,6 +24,40 @@
     - installbasicpackages
     - cups
 
+# Ubuntu Pro client (apt-news + esm-cache hourly timers) is useless on this
+# air-gapped cluster and — since we tear down + purge apparmor (below, when
+# deinstall_apparmor) while the kernel AppArmor LSM stays active — its systemd
+# units spam hourly "apparmor DENIED change_onexec ... ubuntu_pro_apt_news /
+# _esm_cache (label not found)" trying to enter profiles no longer loaded.
+#
+# We MASK the noisy units — we do NOT purge ubuntu-advantage-tools. On DGX-OS the
+# DGX platform metapackage `nvidia-system-core` DEPENDS on ubuntu-advantage-tools
+# (via nvidia-esm-hook-epilogue), so `apt purge ubuntu-advantage-tools` cascades:
+# it removes nvidia-system-core, which un-anchors the ENTIRE nv-*/nvidia-*
+# platform (all ~30 pkgs then become `apt autoremove` candidates). Masking the
+# timers stops the noise while keeping the package — and the platform anchor —
+# intact. (See dgx_prepare tasks/protect_platform_pkgs.yml for the belt-and-
+# suspenders apt-mark-manual guard on those platform packages.)
+# Mask is safe on hosts without Ubuntu Pro too (masks a would-be unit); absent
+# units are tolerated via failed_when below.
+- name: Silence Ubuntu Pro apt-news / esm-cache timers (mask; avoids apparmor DENIED spam)
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    masked: true
+    state: stopped
+  loop:
+    - apt-news.service
+    - apt-news.timer
+    - esm-cache.service
+    - esm-cache.timer
+  register: _ubuntu_pro_mask
+  failed_when:
+    - _ubuntu_pro_mask is failed
+    - "'Could not find' not in (_ubuntu_pro_mask.msg | default(''))"
+  tags:
+    - installbasicpackages
+    - ubuntu_pro
+
 #- name: Check if apparmor is installed
 #  ansible.builtin.package_facts:
 #    manager: apt

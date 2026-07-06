@@ -1,0 +1,31 @@
+---
+# Protect DGX-OS platform packages from `apt autoremove`.
+#
+# DGX-OS installs its GPU/boot/kernel-tuning packages as AUTO-marked dependencies
+# of a metapackage, so a bare `apt autoremove` offers to sweep essentials
+# (dgx-release, dgx-repo, nv-*, nvidia-* boot/GPU config, kdump, tpm2, msecli,
+# libtss2). Marking them "manual" removes them from autoremove candidates.
+#
+# apt-mark is NON-DESTRUCTIVE — it only flips the auto/manual flag, never
+# installs or removes. Idempotent: we act only on packages that are BOTH
+# installed AND currently auto-marked (`apt-mark showauto`), so a second run
+# finds nothing left to change.
+
+- name: Collect auto-marked DGX platform packages
+  ansible.builtin.shell: >-
+    set -o pipefail;
+    apt-mark showauto | grep -E {{ dgx_protect_pkg_regex | quote }} || true
+  args:
+    executable: /bin/bash
+  register: _dgx_auto_pkgs
+  changed_when: false
+  check_mode: false
+  tags: protect_pkgs
+
+- name: Mark DGX platform packages as manually installed (shield from autoremove)
+  ansible.builtin.command:
+    argv: "{{ ['apt-mark', 'manual'] + (_dgx_auto_pkgs.stdout_lines | select | list) }}"
+  register: _dgx_mark
+  when: _dgx_auto_pkgs.stdout_lines | select | list | length > 0
+  changed_when: "'set to manually installed' in _dgx_mark.stdout"
+  tags: protect_pkgs

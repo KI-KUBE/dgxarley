@@ -19,6 +19,10 @@
   ansible.builtin.import_tasks: spark_repo.yml
   tags: spark_repo
 
+- name: Protect DGX-OS platform packages from apt autoremove
+  ansible.builtin.import_tasks: protect_platform_pkgs.yml
+  tags: protect_pkgs
+
 - name: NVIDIA CDI and driver setup
   ansible.builtin.import_tasks: nvidia_setup.yml
   tags: nvidia
