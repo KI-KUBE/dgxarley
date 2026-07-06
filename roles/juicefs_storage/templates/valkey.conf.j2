@@ -1,7 +1,7 @@
 # Managed by Ansible (juicefs_storage) — do not edit.
 # Valkey as the JuiceFS metadata engine: AOF durability + noeviction + auth.
 
-bind 127.0.0.1 {{ juicefs_storage_address }}
+bind 127.0.0.1 {{ juicefs_valkey_bind_addresses }}
 protected-mode yes
 port 6379
 tcp-backlog 511

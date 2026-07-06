@@ -25,7 +25,13 @@
 
 - name: Mount JuiceFS on mount nodes
   ansible.builtin.import_tasks: mount.yml
-  when: inventory_hostname in groups[juicefs_mount_group]
+  # Hosts in juicefs_mount_group always; the k3s master ONLY when explicitly
+  # opted in via juicefs_mount_master (it has no QSFP → mounts over the mgmt
+  # VLAN, which requires the Valkey dual-bind + per-client address resolution
+  # in defaults/main.yml). isk3smaster is set inline for the master in hosts.yml.
+  when: >-
+    inventory_hostname in groups[juicefs_mount_group]
+    or (juicefs_mount_master | bool and isk3smaster | default(false) | bool)
   tags: [juicefs_mount]
 
 - name: Configure metadata-backup cron job

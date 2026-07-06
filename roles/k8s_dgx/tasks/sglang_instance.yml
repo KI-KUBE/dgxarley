@@ -169,9 +169,14 @@
         SGLANG_ENABLE_JIT_DEEPGEMM: "{{ 'false' if sglang_disable_deep_gemm | bool else 'true' }}"
         # Flash Attention 4 CuTe DSL JIT: enable persistent disk cache so compiled
         # kernels survive pod restarts. First start compiles (~slow), subsequent
-        # starts load from cache. Cache dir on hf-cache hostPath for persistence.
+        # starts load from cache. Cache dir is a DEDICATED node-local hostPath
+        # volume (fa4-cute-dsl-cache below), deliberately OUTSIDE the hf-cache
+        # mount at /root/.cache/huggingface: this JIT cache is per-node compiled
+        # kernels on the inference hot path, so it must stay on local NVMe and
+        # must NOT ride onto JuiceFS when hf-cache is migrated there. Same
+        # rationale (and same carve-out pattern) as flashinfer/triton below.
         FLASH_ATTENTION_CUTE_DSL_CACHE_ENABLED: "1"
-        FLASH_ATTENTION_CUTE_DSL_CACHE_DIR: "/root/.cache/huggingface/fa4_cute_dsl_cache"
+        FLASH_ATTENTION_CUTE_DSL_CACHE_DIR: "/root/.cache/fa4_cute_dsl_persistent"
         # FlashInfer 0.6.6 CUTLASS MoE JIT: on first inference, flashinfer_cutlass
         # generates and compiles ~30+ CUTLASS instantiations (moe_gemm_kernels_*,
         # cutlass_kernel_file_gemm_sm90_M{64,128}_group*) via nvcc/cicc/cc1plus.
@@ -405,6 +410,9 @@
                 volumeMounts:
                   - name: hf-cache
                     mountPath: /root/.cache/huggingface
+                    # HostToContainer when JuiceFS-backed so the pod survives a
+                    # JuiceFS FUSE remount; None (default) for a plain local dir.
+                    mountPropagation: "{{ 'HostToContainer' if hf_cache_on_juicefs | bool else 'None' }}"
                   - name: model-download-script
                     mountPath: /scripts
                     readOnly: true
@@ -476,18 +484,26 @@
                 volumeMounts:
                   - name: hf-cache
                     mountPath: /root/.cache/huggingface
+                    # HostToContainer when JuiceFS-backed so the pod survives a
+                    # JuiceFS FUSE remount; None (default) for a plain local dir.
+                    mountPropagation: "{{ 'HostToContainer' if hf_cache_on_juicefs | bool else 'None' }}"
                   - name: flashinfer-cache
                     mountPath: /root/.cache/flashinfer_persistent
                   - name: triton-cache
                     mountPath: /root/.triton/cache
+                  - name: fa4-cute-dsl-cache
+                    mountPath: /root/.cache/fa4_cute_dsl_persistent
                   - name: launch-script
                     mountPath: /scripts
                     readOnly: true
             volumes:
               - name: hf-cache
                 hostPath:
-                  path: "{{ hf_cache_path }}"
-                  type: DirectoryOrCreate
+                  # hf_cache_on_juicefs: shared JuiceFS (its root maps onto
+                  # /root/.cache/huggingface → hub at <mount>/hub) vs local NVMe.
+                  # type Directory when on JuiceFS → fail loudly if not mounted.
+                  path: "{{ hf_cache_juicefs_path if hf_cache_on_juicefs | bool else hf_cache_path }}"
+                  type: "{{ 'Directory' if hf_cache_on_juicefs | bool else 'DirectoryOrCreate' }}"
               - name: flashinfer-cache
                 hostPath:
                   path: "{{ hf_cache_path }}/flashinfer_cache"
@@ -495,6 +511,12 @@
               - name: triton-cache
                 hostPath:
                   path: "{{ hf_cache_path }}/triton_cache"
+                  type: DirectoryOrCreate
+              # fa4-cute-dsl-cache — node-local JIT cache, NOT migrated to JuiceFS
+              # (see FLASH_ATTENTION_CUTE_DSL_CACHE_DIR in the ConfigMap above).
+              - name: fa4-cute-dsl-cache
+                hostPath:
+                  path: "{{ hf_cache_path }}/fa4_cute_dsl_cache"
                   type: DirectoryOrCreate
               - name: model-download-script
                 configMap:
@@ -572,6 +594,9 @@
                 volumeMounts:
                   - name: hf-cache
                     mountPath: /root/.cache/huggingface
+                    # HostToContainer when JuiceFS-backed so the pod survives a
+                    # JuiceFS FUSE remount; None (default) for a plain local dir.
+                    mountPropagation: "{{ 'HostToContainer' if hf_cache_on_juicefs | bool else 'None' }}"
                   - name: model-download-script
                     mountPath: /scripts
                     readOnly: true
@@ -670,10 +695,15 @@
                 volumeMounts:
                   - name: hf-cache
                     mountPath: /root/.cache/huggingface
+                    # HostToContainer when JuiceFS-backed so the pod survives a
+                    # JuiceFS FUSE remount; None (default) for a plain local dir.
+                    mountPropagation: "{{ 'HostToContainer' if hf_cache_on_juicefs | bool else 'None' }}"
                   - name: flashinfer-cache
                     mountPath: /root/.cache/flashinfer_persistent
                   - name: triton-cache
                     mountPath: /root/.triton/cache
+                  - name: fa4-cute-dsl-cache
+                    mountPath: /root/.cache/fa4_cute_dsl_persistent
                   - name: launch-script
                     mountPath: /scripts
                     readOnly: true
@@ -690,8 +720,11 @@
             volumes:
               - name: hf-cache
                 hostPath:
-                  path: "{{ hf_cache_path }}"
-                  type: DirectoryOrCreate
+                  # hf_cache_on_juicefs: shared JuiceFS (its root maps onto
+                  # /root/.cache/huggingface → hub at <mount>/hub) vs local NVMe.
+                  # type Directory when on JuiceFS → fail loudly if not mounted.
+                  path: "{{ hf_cache_juicefs_path if hf_cache_on_juicefs | bool else hf_cache_path }}"
+                  type: "{{ 'Directory' if hf_cache_on_juicefs | bool else 'DirectoryOrCreate' }}"
               - name: flashinfer-cache
                 hostPath:
                   path: "{{ hf_cache_path }}/flashinfer_cache"
@@ -699,6 +732,12 @@
               - name: triton-cache
                 hostPath:
                   path: "{{ hf_cache_path }}/triton_cache"
+                  type: DirectoryOrCreate
+              # fa4-cute-dsl-cache — node-local JIT cache, NOT migrated to JuiceFS
+              # (see FLASH_ATTENTION_CUTE_DSL_CACHE_DIR in the ConfigMap above).
+              - name: fa4-cute-dsl-cache
+                hostPath:
+                  path: "{{ hf_cache_path }}/fa4_cute_dsl_cache"
                   type: DirectoryOrCreate
               - name: model-download-script
                 configMap:
