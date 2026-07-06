@@ -218,6 +218,10 @@
 - name: Render hermes email-gateway patch ConfigMap
   kubernetes.core.k8s:
     state: present
+    # apply (kubectl-apply three-way merge) so a renamed data key is pruned
+    # instead of lingering — a plain strategic merge left a stale `email.py`
+    # key behind when this file moved email.py → adapter.py (upstream #41112).
+    apply: true
     definition:
       apiVersion: v1
       kind: ConfigMap
