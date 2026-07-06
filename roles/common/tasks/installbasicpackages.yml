@@ -40,16 +40,18 @@
 # suspenders apt-mark-manual guard on those platform packages.)
 # Mask is safe on hosts without Ubuntu Pro too (masks a would-be unit); absent
 # units are tolerated via failed_when below.
-- name: Silence Ubuntu Pro apt-news / esm-cache timers (mask; avoids apparmor DENIED spam)
+# The two profiles that DENIED are exactly these `static` services (verified on
+# the sparks: there is NO apt-news.timer / esm-cache.timer — they're driven by
+# ua-timer.timer + apt hooks). Masking them makes every trigger a no-op, so the
+# change_onexec into the unloaded apparmor profile never happens.
+- name: Silence Ubuntu Pro apt-news / esm-cache services (mask; avoids apparmor DENIED spam)
   ansible.builtin.systemd:
     name: "{{ item }}"
     masked: true
     state: stopped
   loop:
     - apt-news.service
-    - apt-news.timer
     - esm-cache.service
-    - esm-cache.timer
   register: _ubuntu_pro_mask
   failed_when:
     - _ubuntu_pro_mask is failed
