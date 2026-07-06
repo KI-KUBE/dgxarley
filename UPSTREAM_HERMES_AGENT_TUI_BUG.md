@@ -328,6 +328,12 @@ small (~50 MB) and the node has fast local storage.
   workspace-lockfile mismatch behind Trigger 2 — Action Item §5 (file a fresh Trigger 2
   issue) may now be redundant; cross-reference instead. All other tracked merges/closures
   still hold.
+- **Re-verified 2026-07-06:** hermes-agent released **v2026.7.1 / v0.18.0**
+  ("The Judgment Release") on **2026-07-01** — now the latest release. Issue
+  **#45657 is still OPEN** (updatedAt 2026-06-23), unaffected by this release.
+  All previously-tracked merges (#33045, #38591, #19520, #21267) and the
+  closure of #18800 still hold (they predate this tag). Action Items §1–5
+  remain pending/unexecuted.
 
 ## Action Items
 
