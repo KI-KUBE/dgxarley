@@ -1,0 +1,242 @@
+---
+# Kyverno policy engine — INSTALL.
+# Split out of the former eso_keyverno.yml (2026-07). In this cluster Kyverno
+# exists SOLELY to enforce the ESO namespace-secret-isolation ClusterPolicy
+# (kyverno_policy.yml). Gated by `kyverno_enabled`; teardown is the second block in
+# THIS file (`-e kyverno_teardown=true`). NOTE: tearing Kyverno down also removes its CRDs, which
+# cascades to the ClusterPolicy in kyverno_policy.yml.
+
+# --- INSTALL (runs on a normal play when kyverno_enabled and NOT kyverno_teardown) ---
+- name: Kyverno policy engine — install
+  when:
+    - kyverno_enabled | default(true)
+    - not (kyverno_teardown | default(false))
+  block:
+    - name: Install Kyverno via Kustomize
+      vars:
+        # kyverno_version now lives in roles/k8s_infra/defaults/main.yml (next to
+        # eso_version/sealed_secrets_version), single source of truth for the manifest URL.
+        kyverno_temp_dir: "/tmp/kyverno-install"
+      block:
+        - name: Ensure Kyverno temporary directory exists
+          ansible.builtin.file:
+            path: "{{ kyverno_temp_dir }}"
+            state: directory
+            mode: '0755'
+
+        # ┌───────────────────────┬─────────────┬───────────┬────────────────┬──────────────┬──────────────────────────────────────────┐
+        # │      Controller       │ CPU Request │ CPU Limit │ Memory Request │ Memory Limit │ Probe Overrides                          │
+        # ├───────────────────────┼─────────────┼───────────┼────────────────┼──────────────┼──────────────────────────────────────────┤
+        # │ admission-controller  │ 100m        │ 500m      │ 128Mi          │ 384Mi        │ liveness fTh=6, startup timeout=5        │
+        # ├───────────────────────┼─────────────┼───────────┼────────────────┼──────────────┼──────────────────────────────────────────┤
+        # │ background-controller │ 50m         │ 250m      │ 64Mi           │ 256Mi        │                                          │
+        # ├───────────────────────┼─────────────┼───────────┼────────────────┼──────────────┼──────────────────────────────────────────┤
+        # │ cleanup-controller    │ 50m         │ 250m      │ 64Mi           │ 256Mi        │ liveness fTh=6, startup timeout=5        │
+        # ├───────────────────────┼─────────────┼───────────┼────────────────┼──────────────┼──────────────────────────────────────────┤
+        # │ reports-controller    │ 50m         │ 250m      │ 64Mi           │ 256Mi        │                                          │
+        # └───────────────────────┴─────────────┴───────────┴────────────────┴──────────────┴──────────────────────────────────────────┘
+        # Cross-component podAntiAffinity (preferred) on app.kubernetes.io/instance=kyverno for all 4 deployments
+        - name: Create Kyverno kustomization.yaml
+          ansible.builtin.copy:
+            dest: "{{ kyverno_temp_dir }}/kustomization.yaml"
+            mode: '0644'
+            content: |
+              apiVersion: kustomize.config.k8s.io/v1beta1
+              kind: Kustomization
+
+              resources:
+                - https://github.com/kyverno/kyverno/releases/download/{{ kyverno_version }}/install.yaml
+                # OpenReports CRDs (required for --openreportsEnabled=true)
+                - https://raw.githubusercontent.com/openreports/reports-api/main/config/crd/openreports.io_reports.yaml
+                - https://raw.githubusercontent.com/openreports/reports-api/main/config/crd/openreports.io_clusterreports.yaml
+
+              patches:
+                # admission-controller resources
+                - target:
+                    kind: Deployment
+                    name: kyverno-admission-controller
+                    namespace: kyverno
+                  patch: |-
+                    - op: add
+                      path: /spec/template/spec/containers/0/resources
+                      value:
+                        requests:
+                          cpu: 100m
+                          memory: 128Mi
+                        limits:
+                          cpu: 500m
+                          memory: 384Mi
+                    - op: add
+                      path: /spec/template/spec/containers/0/args/-
+                      value: "--admissionReports=true"
+                    - op: replace
+                      path: /spec/template/spec/containers/0/livenessProbe/failureThreshold
+                      value: 6
+                    - op: replace
+                      path: /spec/template/spec/containers/0/startupProbe/timeoutSeconds
+                      value: 5
+                # background-controller resources
+                - target:
+                    kind: Deployment
+                    name: kyverno-background-controller
+                    namespace: kyverno
+                  patch: |-
+                    - op: add
+                      path: /spec/template/spec/containers/0/resources
+                      value:
+                        requests:
+                          cpu: 50m
+                          memory: 64Mi
+                        limits:
+                          cpu: 250m
+                          memory: 256Mi
+                # cleanup-controller resources + probe tuning
+                - target:
+                    kind: Deployment
+                    name: kyverno-cleanup-controller
+                    namespace: kyverno
+                  patch: |-
+                    - op: add
+                      path: /spec/template/spec/containers/0/resources
+                      value:
+                        requests:
+                          cpu: 50m
+                          memory: 64Mi
+                        limits:
+                          cpu: 250m
+                          memory: 256Mi
+                    - op: replace
+                      path: /spec/template/spec/containers/0/livenessProbe/failureThreshold
+                      value: 6
+                    - op: replace
+                      path: /spec/template/spec/containers/0/startupProbe/timeoutSeconds
+                      value: 5
+                # reports-controller resources + openreportsEnabled (strategic merge)
+                - target:
+                    kind: Deployment
+                    name: kyverno-reports-controller
+                    namespace: kyverno
+                  patch: |-
+                    apiVersion: apps/v1
+                    kind: Deployment
+                    metadata:
+                      name: kyverno-reports-controller
+                    spec:
+                      template:
+                        spec:
+                          containers:
+                            - name: controller
+                              resources:
+                                requests:
+                                  cpu: 50m
+                                  memory: 64Mi
+                                limits:
+                                  cpu: 250m
+                                  memory: 256Mi
+                              args:
+                                - --disableMetrics=false
+                                - --openreportsEnabled=true
+                                - --otelConfig=prometheus
+                                - --metricsPort=8000
+                                - --resyncPeriod=15m
+                                - --admissionReports=true
+                                - --aggregateReports=true
+                                - --policyReports=true
+                                - --validatingAdmissionPolicyReports=true
+                                - --mutatingAdmissionPolicyReports=false
+                                - --backgroundScan=true
+                                - --backgroundScanWorkers=2
+                                - --backgroundScanInterval=1h
+                                - --skipResourceFilters=true
+                                - --enableConfigMapCaching=true
+                                - --enableDeferredLoading=true
+                                - --maxAPICallResponseLength=2000000
+                                - --loggingFormat=text
+                                - --v=2
+                                - --omitEvents=PolicyApplied,PolicySkipped
+                                - --enablePolicyException=false
+                                - --allowInsecureRegistry=false
+                                - --registryCredentialHelpers=default,google,amazon,azure,github
+                                - --enableReporting=validate,mutate,mutateExisting,imageVerify,generate
+                # Cross-component anti-affinity: spread all Kyverno pods across nodes
+                - target:
+                    kind: Deployment
+                    namespace: kyverno
+                  patch: |-
+                    apiVersion: apps/v1
+                    kind: Deployment
+                    metadata:
+                      name: placeholder
+                    spec:
+                      template:
+                        spec:
+                          nodeSelector:
+                            kubernetes.io/arch: amd64
+                          affinity:
+                            podAntiAffinity:
+                              preferredDuringSchedulingIgnoredDuringExecution:
+                                - weight: 50
+                                  podAffinityTerm:
+                                    labelSelector:
+                                      matchExpressions:
+                                        - key: app.kubernetes.io/instance
+                                          operator: In
+                                          values:
+                                            - kyverno
+                                    topologyKey: kubernetes.io/hostname
+
+        - name: Apply Kyverno Kustomize build to cluster
+          kubernetes.core.k8s:
+            definition: "{{ lookup('kubernetes.core.kustomize', dir=kyverno_temp_dir) }}"
+            state: present
+    #        wait: true
+    #        wait_timeout: 300
+
+      always:
+        - name: Cleanup Kyverno temporary directory
+          ansible.builtin.file:
+            path: "{{ kyverno_temp_dir }}"
+            state: absent
+
+    - name: Wait for Kyverno deployment to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: kyverno-admission-controller
+        namespace: kyverno
+      register: kyverno_deployment
+      until: >
+        kyverno_deployment.resources | length > 0 and
+        (kyverno_deployment.resources[0].status.readyReplicas | default(0)) >= 1
+      retries: 30
+      delay: 10
+
+# --- TEARDOWN (opt-in: run the play with -e kyverno_teardown=true) ---
+# Kyverno policy engine — TEARDOWN.
+# Opt-in: runs only with `-e kyverno_teardown=true` (e.g.
+# `--tags kyverno -e kyverno_teardown=true`); NOT triggered by
+# `kyverno_enabled: false`. Destructive: removes the Kyverno namespace, CRDs,
+# webhooks and cluster RBAC. Deleting the Kyverno CRDs also removes the
+# `eso-namespace-secret-isolation` ClusterPolicy (kyverno_policy.yml) — after this,
+# ExternalSecrets are no longer namespace-isolation-enforced.
+- name: Kyverno policy engine — teardown
+  when: kyverno_teardown | default(false)
+  block:
+    - name: Delete Kyverno namespace
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Namespace
+        name: kyverno
+
+    - name: Delete Kyverno CRDs, webhooks and cluster RBAC (label-selected)
+      ansible.builtin.command:
+        cmd: >-
+          kubectl delete {{ item }}
+          -l app.kubernetes.io/part-of=kyverno --ignore-not-found
+      loop:
+        - crd
+        - validatingwebhookconfiguration,mutatingwebhookconfiguration
+        - clusterrole,clusterrolebinding
+      changed_when: true
+
