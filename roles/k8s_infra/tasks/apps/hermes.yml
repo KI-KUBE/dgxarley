@@ -483,7 +483,7 @@
         namespace: "{{ hermes.namespace }}"
       spec:
         dnsNames:
-          - "{{ item.username }}.hermes.{{ dns_external_domain_suffix }}"
+          - "{{ item.username }}.{{ hermes.agent.subdomain }}.{{ dns_external_domain_suffix }}"
         secretName: "hermes-agent-{{ item.username }}-tls"
         issuerRef:
           name: letsencrypt-production
@@ -525,7 +525,7 @@
           - websecure
         routes:
           - kind: Rule
-            match: "Host(`{{ item.username }}.hermes.{{ dns_external_domain_suffix }}`)"
+            match: "Host(`{{ item.username }}.{{ hermes.agent.subdomain }}.{{ dns_external_domain_suffix }}`)"
             priority: 10
             services:
               - kind: Service
@@ -558,7 +558,7 @@
     key_name: "{{ nsupdate_tsig_key_name }}"
     key_secret: "{{ nsupdate_tsig_key_secret }}"
     key_algorithm: "{{ nsupdate_tsig_algorithm }}"
-    record: "{{ item.username }}.hermes.{{ dns_external_domain_suffix }}."
+    record: "{{ item.username }}.{{ hermes.agent.subdomain }}.{{ dns_external_domain_suffix }}."
     type: A
     ttl: "{{ nsupdate_ttl }}"
     value: "{{ nsupdate_ingress_ip }}"
@@ -643,7 +643,7 @@
         namespace: "{{ hermes.namespace }}"
       spec:
         dnsNames:
-          - "{{ item.username }}.hermes-webui.{{ dns_external_domain_suffix }}"
+          - "{{ item.username }}.{{ hermes.webui.subdomain }}.{{ dns_external_domain_suffix }}"
         secretName: "hermes-webui-{{ item.username }}-tls"
         issuerRef:
           name: letsencrypt-production
@@ -685,7 +685,7 @@
           - websecure
         routes:
           - kind: Rule
-            match: "Host(`{{ item.username }}.hermes-webui.{{ dns_external_domain_suffix }}`)"
+            match: "Host(`{{ item.username }}.{{ hermes.webui.subdomain }}.{{ dns_external_domain_suffix }}`)"
             priority: 10
             services:
               - kind: Service
@@ -718,7 +718,7 @@
     key_name: "{{ nsupdate_tsig_key_name }}"
     key_secret: "{{ nsupdate_tsig_key_secret }}"
     key_algorithm: "{{ nsupdate_tsig_algorithm }}"
-    record: "{{ item.username }}.hermes-webui.{{ dns_external_domain_suffix }}."
+    record: "{{ item.username }}.{{ hermes.webui.subdomain }}.{{ dns_external_domain_suffix }}."
     type: A
     ttl: "{{ nsupdate_ttl }}"
     value: "{{ nsupdate_ingress_ip }}"

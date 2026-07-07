@@ -22,7 +22,7 @@
             crypto default token lifetime 86400
             crypto key sign-verify {env.JWT_SIGNING_KEY}
             enable identity store localdb
-            cookie domain {{ item.username }}.hermes-dashboard.{{ dns_external_domain_suffix }}
+            cookie domain {{ item.username }}.{{ hermes.agent.subdomain }}.{{ dns_external_domain_suffix }}
             cookie lifetime 86400
             cookie insecure off
             ui {
@@ -80,6 +80,17 @@
             # code 4403 → HTTP 403. With XFF removed, uvicorn falls back to
             # the actual TCP peer (127.0.0.1) and the loopback check passes.
             header_up -X-Forwarded-For
+            # Rewrite the Origin header to loopback on the upstream hop.
+            # WebSocket upgrades (/api/pty, /api/events) hit Hermes'
+            # `_ws_host_origin_reason` guard, which — on a loopback bind —
+            # rejects any Origin whose host isn't in {localhost,127.0.0.1,::1}
+            # with `origin_mismatch` → 403 (the browser sends the PUBLIC origin
+            # https://<user>.hermes.<dns>). Plain HTTP passes because its
+            # middleware only checks Host, not Origin. Rewriting Origin to a
+            # loopback value satisfies both the WS guard and the localhost-only
+            # CORS regex. Without this the dashboard chat's PTY/events sockets
+            # close with 1006 ("events feed disconnected").
+            header_up Origin http://127.0.0.1
         }
     }
 }

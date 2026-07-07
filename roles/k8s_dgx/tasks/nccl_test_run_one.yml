@@ -133,14 +133,14 @@
   delay: 5
 
 - name: "{{ _transport_name }}: fetch rank 0 logs"
-  ansible.builtin.command:
-    cmd: >-
-      kubectl --context=ht@dgxarley -n {{ sglang_namespace }}
-      logs nccl-test-{{ _transport_name | replace('_', '-') }}-rank0
+  kubernetes.core.k8s_log:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ sglang_namespace }}"
+    name: "nccl-test-{{ _transport_name | replace('_', '-') }}-rank0"
   register: _nccl_log
   ignore_errors: true
-  become: false
 
 - name: "{{ _transport_name }}: results"
   ansible.builtin.debug:
-    msg: "{{ _nccl_log.stdout_lines | default(['(no output — check pod logs manually)']) }}"
+    msg: "{{ _nccl_log.log_lines | default(['(no output — check pod logs manually)']) }}"

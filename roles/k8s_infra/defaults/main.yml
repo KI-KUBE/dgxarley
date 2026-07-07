@@ -306,10 +306,25 @@ hermes:
     image_tag: "latest"
     port: 8787
     enabled_default: false            # deploy the webui pod by default
+    # DNS label the webui is published under: <user>.<subdomain>.<dns>.
+    # Single source of truth — referenced by the cert dnsNames, IngressRoute
+    # Host() match and the nsupdate A record in hermes.yml. Keep the agent and
+    # webui subdomains distinct (a rename that touched only some of those
+    # places is exactly how the cookie-domain drift happened).
+    subdomain: "hermes-webui"
   # Native dashboard (`hermes dashboard`) + its Caddy auth sidecar.
   agent:
     proxy_port: 9118
     dashboard_enabled_default: true
+    # DNS label the dashboard is published under: <user>.<subdomain>.<dns>.
+    # Referenced by the cert dnsNames, IngressRoute Host() match, nsupdate A
+    # record (hermes.yml) AND the Caddy cookie domain (hermes_caddyfile.j2).
+    subdomain: "hermes"
+    # Port of the gateway's OpenAI-compatible api_server (aiohttp), which also
+    # serves the unauthenticated GET /health the dashboard probes for
+    # cross-container gateway liveness (GATEWAY_HEALTH_URL). Matches the image's
+    # DEFAULT_PORT (gateway/platforms/api_server.py). localhost-only, same pod.
+    gateway_api_port: 8642
     # NOTE: the former `dashboard_tui_default` gate was removed 2026-07. Upstream
     # dropped the `--tui` flag in v0.16.0 (PR #38591); the dashboard chat is on
     # by default now, so the gate was a no-op. See UPSTREAM_HERMES_AGENT_TUI_BUG.md.
