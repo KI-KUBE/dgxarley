@@ -87,6 +87,9 @@ spec:
         # gateway: rolls the pod to add/drop the hermes-gateway sidecar (and the
         # api_server /health the dashboard probes). Folded flag, not an if/endif.
         checksum/gateway: "{{ _gateway_enabled | bool }}"
+        # themes: rolls the pod so init-dashboard-themes re-copies an updated
+        # shipped theme YAML into /opt/data/dashboard-themes/.
+        checksum/themes: "{{ lookup('file', 'hermes_dashboard_theme_cyberpunk_lg.yaml') | hash('sha256') }}"
     spec:
       restartPolicy: Always
 {% if _gateway_enabled %}
@@ -170,6 +173,29 @@ spec:
               readOnly: true
             - name: seed-secret
               mountPath: /seed-secret
+              readOnly: true
+        # Install shipped dashboard themes into $HERMES_HOME/dashboard-themes/
+        # where `_discover_user_themes()` reads them. We COPY (not subPath-mount
+        # the ConfigMap onto the dir) so the directory stays writable and any
+        # user-created themes there survive. Overwrites the shipped ones each
+        # start so an updated theme YAML propagates. chown to the runtime uid.
+        - name: init-dashboard-themes
+          image: busybox:latest
+          env:
+            - name: TZ
+              value: "{{ hermes.timezone }}"
+          command:
+            - sh
+            - -c
+            - "mkdir -p /opt/data/dashboard-themes && cp /seed-themes/*.yaml /opt/data/dashboard-themes/ && chown -R {{ item.uid }}:{{ item.gid }} /opt/data/dashboard-themes"
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+            - name: dashboard-themes
+              mountPath: /seed-themes
               readOnly: true
         # 2026-06-11: copy-ui-tui disabled for a test deploy — the pinned
         # v2026.6.5 image contains both PR #33045 (entrypoint chowns
@@ -349,6 +375,17 @@ spec:
               value: "{{ item.uid }}"
             - name: HERMES_GID
               value: "{{ item.gid }}"
+            # Working directory for the agent's file-tools + `!`-shell. config.yaml
+            # `terminal.cwd` alone is NOT enough for the dashboard: hermes bridges
+            # it to the TERMINAL_CWD env only on a COPY of os.environ for the
+            # spawned TUI subprocess (web_server.py apply_terminal_config_to_env
+            # on `os.environ.copy()`), so the IN-PROCESS chat agent's file_tools —
+            # which read `os.environ["TERMINAL_CWD"]` directly — never see it and
+            # fall back to the process cwd (/opt/hermes). Setting it on the
+            # container puts it in os.environ for every context. No deprecation
+            # warning fires because config.yaml still declares terminal.cwd.
+            - name: TERMINAL_CWD
+              value: "{{ item.terminal_cwd | default(hermes.terminal_cwd) }}"
             # --- dashboard built-in auth (BasicAuthProvider) ---
             # The 0.0.0.0 bind requires an auth provider; these env vars make
             # hermes auto-register the username/password provider at startup
@@ -507,6 +544,10 @@ spec:
             # land where the dashboard container reads them.
             - name: HERMES_HOME
               value: "/opt/data"
+            # Same reason as the dashboard container: anchor gateway-originated
+            # agent file-tools to /workspace, not the process cwd.
+            - name: TERMINAL_CWD
+              value: "{{ item.terminal_cwd | default(hermes.terminal_cwd) }}"
             # api_server needs a >=16-char key to start (connect() refuses
             # otherwise). localhost-only in-pod; the /health probe is
             # unauthenticated so the dashboard never sends it.
@@ -595,6 +636,9 @@ spec:
         - name: merge-config
           configMap:
             name: hermes-merge-config
+        - name: dashboard-themes
+          configMap:
+            name: hermes-dashboard-themes
         - name: seed-config
           configMap:
             name: "hermes-config-{{ item.username }}"

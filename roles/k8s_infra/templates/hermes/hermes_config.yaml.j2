@@ -34,8 +34,23 @@ auxiliary:
 
 terminal:
   backend: "local"
-  cwd: "."
+  # Working directory for `!`-shell commands + agent file-tools (what `!pwd`
+  # shows). "." resolves to the process cwd, which is the read-only image
+  # WORKDIR /opt/hermes for the dashboard — so pin an absolute path. Default
+  # /workspace = the per-user file shelf (hostPath, or the seadrive Seafile
+  # mount). NOT $HOME/HERMES_HOME (/opt/data) — that holds hermes internals.
+  # config.yaml is the canonical surface; the TERMINAL_CWD env var is deprecated.
+  cwd: "{{ item.terminal_cwd | default(hermes.terminal_cwd) }}"
   timeout: 180
+
+# Web-dashboard visual defaults. Only theme+font are ops-managed here; the
+# deep-merge in hermes_merge_config.py preserves any OTHER dashboard.* keys the
+# user sets via the Preferences panel (e.g. show_token_analytics). NOTE: a
+# user's in-UI theme/font change is reset to these values on the next pod
+# restart (ops wins) — move to a per-user override if that's unwanted.
+dashboard:
+  theme: "{{ item.dashboard_theme | default(hermes.dashboard_theme) }}"
+  font: "{{ item.dashboard_font | default(hermes.dashboard_font) }}"
 
 # Web search via in-cluster SearXNG (search-only). SEARXNG_URL is set in .env.
 # Extract/crawl backends are not configured — Hermes' web_extract / web_crawl

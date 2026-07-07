@@ -282,6 +282,25 @@
       data:
         hermes_gateway_state_refresher.py: "{{ lookup('file', 'hermes_gateway_state_refresher.py') }}"
 
+- name: Render hermes dashboard user-themes ConfigMap
+  # Shipped dashboard themes (one YAML per key). The init-dashboard-themes
+  # initContainer in the agent pod copies these into $HERMES_HOME/dashboard-
+  # themes/ where `_discover_user_themes()` reads them. Add more themes by
+  # adding data keys here (each `<name>.yaml` → files/hermes_dashboard_theme_*).
+  kubernetes.core.k8s:
+    state: present
+    apply: true  # kubectl-apply three-way merge → prune renamed/removed data keys
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: hermes-dashboard-themes
+        namespace: "{{ hermes.namespace }}"
+        labels:
+          app: hermes
+      data:
+        cyberpunk-lg.yaml: "{{ lookup('file', 'hermes_dashboard_theme_cyberpunk_lg.yaml') }}"
+
 # === Per-user shared ConfigMaps + Secrets (used by both agent + webui pods) ===
 
 - name: Render per-user hermes config.yaml ConfigMap

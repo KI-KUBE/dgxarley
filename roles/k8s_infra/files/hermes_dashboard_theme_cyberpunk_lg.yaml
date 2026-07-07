@@ -1,0 +1,32 @@
+# Hermes dashboard user-theme: "Cyberpunk (Large)".
+# A faithful clone of the built-in `cyberpunk` theme (colors copied from the
+# frontend web/src/themes/presets.ts) with a larger baseSize — themes have no
+# `extends`, so bigger-font variants must restate the palette.
+#
+# Deployed by the `hermes` tag: rendered into ConfigMap `hermes-dashboard-themes`
+# and copied into $HERMES_HOME/dashboard-themes/ by the init-dashboard-themes
+# initContainer, where `_discover_user_themes()` picks it up. Select it via
+# config.yaml `dashboard.theme: cyberpunk-lg` (hermes.dashboard_theme).
+#
+# Re-sync the palette/typography if the upstream cyberpunk preset changes on an
+# image bump.
+name: cyberpunk-lg
+palette:
+  background: "#040608"
+  midground: "#9bffcf"
+  warmGlow: "rgba(0, 255, 136, 0.22)"
+  noiseOpacity: 1.2
+typography:
+  # The whole point of this variant — upstream default is 15px.
+  baseSize: "19px"
+  lineHeight: "1.6"
+  fontSans: '"Share Tech Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace'
+  fontMono: '"Share Tech Mono", "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace'
+  fontUrl: "https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=JetBrains+Mono:wght@400;700&display=swap"
+layout:
+  radius: "0"
+  density: "comfortable"
+colorOverrides:
+  success: "#00ff88"
+  warning: "#ffd700"
+  destructive: "#ff0055"
