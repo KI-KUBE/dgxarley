@@ -151,6 +151,7 @@
                                 - --enableConfigMapCaching=true
                                 - --enableDeferredLoading=true
                                 - --maxAPICallResponseLength=2000000
+                                - --apiCallTimeout=30s          # added upstream in v1.18.0; our list replaces args wholesale, so keep in sync
                                 - --loggingFormat=text
                                 - --v=2
                                 - --omitEvents=PolicyApplied,PolicySkipped
