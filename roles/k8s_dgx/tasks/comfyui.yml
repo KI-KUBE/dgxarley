@@ -1,261 +1,286 @@
 ---
-- name: Create comfyui namespace
-  kubernetes.core.k8s:
-    name: "{{ comfyui_namespace }}"
-    api_version: v1
-    kind: Namespace
-    state: present
+- name: Comfyui — install
+  when:
+    - comfyui_enabled | default(false) | bool
+    - not (comfyui_teardown | default(false) | bool)
+  block:
+    - name: Create comfyui namespace
+      kubernetes.core.k8s:
+        name: "{{ comfyui_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
 
-# HF token Secret — ComfyUI doesn't need it for FLUX.1-schnell (Apache-2.0,
-# ungated) but any future gated model download will. Mounted as envFrom so the
-# launch script can call huggingface-cli transparently.
-- name: Create comfyui huggingface token secret
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: comfyui-hf-token
-        namespace: "{{ comfyui_namespace }}"
-      type: Opaque
-      stringData:
-        HF_TOKEN: "{{ hf_token | default('') }}"
-        HUGGING_FACE_HUB_TOKEN: "{{ hf_token | default('') }}"
-
-
-# Launch script lebt in einer ConfigMap, damit Änderungen keinen Image-Rebuild
-# erfordern. Das Script selbst liegt in templates/comfyui_launch.sh.j2 —
-# `lookup('template', ...)` rendert es und füttert's hier rein. Dieselbe
-# Template-Datei wird unten im Deployment als checksum-Quelle herangezogen,
-# damit jede Änderung am Script automatisch einen Rollout triggert.
-- name: Create comfyui launch script configmap
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        name: comfyui-launch-script
-        namespace: "{{ comfyui_namespace }}"
-      data:
-        launch.sh: "{{ lookup('template', 'comfyui_launch.sh.j2') }}"
-
-
-- name: Create comfyui service
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      kind: Service
-      apiVersion: v1
-      metadata:
-        name: comfyui
-        namespace: "{{ comfyui_namespace }}"
-        labels:
-          app: comfyui
-      spec:
-        selector:
-          app: comfyui
-        ports:
-          - port: "{{ comfyui_port }}"
-            name: http
-            targetPort: "{{ comfyui_port }}"
-            protocol: TCP
-
-
-- name: Create comfyui deployment
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: comfyui
-        namespace: "{{ comfyui_namespace }}"
-        labels:
-          app: comfyui
-      spec:
-        replicas: "{{ 1 if comfyui_enabled else 0 }}"
-        strategy:
-          type: Recreate
-        selector:
-          matchLabels:
-            app: comfyui
-        template:
+    # HF token Secret — ComfyUI doesn't need it for FLUX.1-schnell (Apache-2.0,
+    # ungated) but any future gated model download will. Mounted as envFrom so the
+    # launch script can call huggingface-cli transparently.
+    - name: Create comfyui huggingface token secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
           metadata:
+            name: comfyui-hf-token
+            namespace: "{{ comfyui_namespace }}"
+          type: Opaque
+          stringData:
+            HF_TOKEN: "{{ hf_token | default('') }}"
+            HUGGING_FACE_HUB_TOKEN: "{{ hf_token | default('') }}"
+
+
+    # Launch script lebt in einer ConfigMap, damit Änderungen keinen Image-Rebuild
+    # erfordern. Das Script selbst liegt in templates/comfyui_launch.sh.j2 —
+    # `lookup('template', ...)` rendert es und füttert's hier rein. Dieselbe
+    # Template-Datei wird unten im Deployment als checksum-Quelle herangezogen,
+    # damit jede Änderung am Script automatisch einen Rollout triggert.
+    - name: Create comfyui launch script configmap
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: comfyui-launch-script
+            namespace: "{{ comfyui_namespace }}"
+          data:
+            launch.sh: "{{ lookup('template', 'comfyui_launch.sh.j2') }}"
+
+
+    - name: Create comfyui service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          kind: Service
+          apiVersion: v1
+          metadata:
+            name: comfyui
+            namespace: "{{ comfyui_namespace }}"
             labels:
               app: comfyui
-            annotations:
-              # Launch-Script-Hash: ändert sich der Inhalt von
-              # templates/comfyui_launch.sh.j2 (Modelle, Custom-Nodes, Launch-
-              # Args, …) → Annotation ändert sich → Pod-Template-Hash ändert
-              # sich → Deployment rollt den Pod neu aus. Ohne diese Annotation
-              # würde eine reine ConfigMap-Änderung vom k8s-Controller nicht
-              # als "Pod-Spec geändert" erkannt.
-              checksum/launch-script: "{{ lookup('template', 'comfyui_launch.sh.j2') | hash('sha256') }}"
-              # Config-Hash: deckt die Variablen ab, die NICHT im Launch-Script
-              # landen (Image-Tag, Port), aber trotzdem einen Rollout brauchen.
-              checksum/config: "{{ (comfyui_image ~ (comfyui_port | string)) | hash('sha256') }}"
           spec:
-            restartPolicy: Always
-            nodeSelector:
-              spark-id: "{{ comfyui_spark_id }}"
-            dnsConfig:
-              options:
-                - name: ndots
-                  value: "1"
-            containers:
-              - name: comfyui
-                image: "{{ comfyui_image }}"
-                imagePullPolicy: IfNotPresent
-                # tini als PID 1: reapt Zombies und leitet SIGTERM/SIGINT an
-                # die ganze Prozessgruppe weiter (-g). Ohne tini wäre PID 1
-                # entweder bash (das Signale nicht an exec'tes Python leitet,
-                # solange es im Vordergrund wartet) oder direkt Python (das
-                # als PID 1 standardmäßig keinen SIGTERM-Handler hat) — beides
-                # führt dazu, dass der Pod beim Rollout/Delete bis zum Ablauf
-                # der terminationGracePeriodSeconds hängt und dann per SIGKILL
-                # weggeschossen wird.
-                command: ["/usr/bin/tini", "-g", "--", "/bin/bash", "/scripts/launch.sh"]
-                workingDir: /workspace
-                envFrom:
-                  - secretRef:
-                      name: comfyui-hf-token
-                ports:
-                  - containerPort: "{{ comfyui_port }}"
-                    name: http
-                resources:
-                  limits:
-                    nvidia.com/gpu: "1"
-                securityContext:
-                  privileged: true
-                volumeMounts:
+            selector:
+              app: comfyui
+            ports:
+              - port: "{{ comfyui_port }}"
+                name: http
+                targetPort: "{{ comfyui_port }}"
+                protocol: TCP
+
+
+    - name: Create comfyui deployment
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: comfyui
+            namespace: "{{ comfyui_namespace }}"
+            labels:
+              app: comfyui
+          spec:
+            replicas: 1
+            strategy:
+              type: Recreate
+            selector:
+              matchLabels:
+                app: comfyui
+            template:
+              metadata:
+                labels:
+                  app: comfyui
+                annotations:
+                  # Launch-Script-Hash: ändert sich der Inhalt von
+                  # templates/comfyui_launch.sh.j2 (Modelle, Custom-Nodes, Launch-
+                  # Args, …) → Annotation ändert sich → Pod-Template-Hash ändert
+                  # sich → Deployment rollt den Pod neu aus. Ohne diese Annotation
+                  # würde eine reine ConfigMap-Änderung vom k8s-Controller nicht
+                  # als "Pod-Spec geändert" erkannt.
+                  checksum/launch-script: "{{ lookup('template', 'comfyui_launch.sh.j2') | hash('sha256') }}"
+                  # Config-Hash: deckt die Variablen ab, die NICHT im Launch-Script
+                  # landen (Image-Tag, Port), aber trotzdem einen Rollout brauchen.
+                  checksum/config: "{{ (comfyui_image ~ (comfyui_port | string)) | hash('sha256') }}"
+              spec:
+                restartPolicy: Always
+                nodeSelector:
+                  spark-id: "{{ comfyui_spark_id }}"
+                dnsConfig:
+                  options:
+                    - name: ndots
+                      value: "1"
+                containers:
+                  - name: comfyui
+                    image: "{{ comfyui_image }}"
+                    imagePullPolicy: IfNotPresent
+                    # tini als PID 1: reapt Zombies und leitet SIGTERM/SIGINT an
+                    # die ganze Prozessgruppe weiter (-g). Ohne tini wäre PID 1
+                    # entweder bash (das Signale nicht an exec'tes Python leitet,
+                    # solange es im Vordergrund wartet) oder direkt Python (das
+                    # als PID 1 standardmäßig keinen SIGTERM-Handler hat) — beides
+                    # führt dazu, dass der Pod beim Rollout/Delete bis zum Ablauf
+                    # der terminationGracePeriodSeconds hängt und dann per SIGKILL
+                    # weggeschossen wird.
+                    command: ["/usr/bin/tini", "-g", "--", "/bin/bash", "/scripts/launch.sh"]
+                    workingDir: /workspace
+                    envFrom:
+                      - secretRef:
+                          name: comfyui-hf-token
+                    ports:
+                      - containerPort: "{{ comfyui_port }}"
+                        name: http
+                    resources:
+                      limits:
+                        nvidia.com/gpu: "1"
+                    securityContext:
+                      privileged: true
+                    volumeMounts:
+                      - name: comfyui-data
+                        mountPath: /workspace
+                      - name: launch-script
+                        mountPath: /scripts
+                        readOnly: true
+                volumes:
                   - name: comfyui-data
-                    mountPath: /workspace
+                    hostPath:
+                      path: "{{ comfyui_hostpath_base }}"
+                      type: DirectoryOrCreate
                   - name: launch-script
-                    mountPath: /scripts
-                    readOnly: true
-            volumes:
-              - name: comfyui-data
-                hostPath:
-                  path: "{{ comfyui_hostpath_base }}"
-                  type: DirectoryOrCreate
-              - name: launch-script
-                configMap:
-                  name: comfyui-launch-script
-                  defaultMode: 0755
+                    configMap:
+                      name: comfyui-launch-script
+                      defaultMode: 0755
 
 
-- name: Create comfyui ip allowlist middleware
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: traefik.io/v1alpha1
-      kind: Middleware
-      metadata:
-        name: comfyui-ip-allowlist
-        namespace: "{{ comfyui_namespace }}"
-      spec:
-        ipAllowList:
-          sourceRange: "{{ traefik_internal_allowlist }}"
+    - name: Create comfyui ip allowlist middleware
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: comfyui-ip-allowlist
+            namespace: "{{ comfyui_namespace }}"
+          spec:
+            ipAllowList:
+              sourceRange: "{{ traefik_internal_allowlist }}"
 
 
-- name: Create http to https redirect middleware for comfyui
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: traefik.io/v1alpha1
-      kind: Middleware
-      metadata:
-        name: redirect-myhttps
-        namespace: "{{ comfyui_namespace }}"
-      spec:
-        redirectScheme:
-          scheme: https
+    - name: Create http to https redirect middleware for comfyui
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: redirect-myhttps
+            namespace: "{{ comfyui_namespace }}"
+          spec:
+            redirectScheme:
+              scheme: https
 
 
-- name: Create comfyui-tls-certificate
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: cert-manager.io/v1
-      kind: Certificate
-      metadata:
-        name: "comfyui.{{ dns_external_domain_suffix }}"
-        namespace: "{{ comfyui_namespace }}"
-      spec:
-        dnsNames:
-          - "comfyui.{{ dns_external_domain_suffix }}"
-        secretName: "comfyui.{{ dns_external_domain_suffix }}"
-        issuerRef:
-          name: letsencrypt-production
-          kind: ClusterIssuer
+    - name: Create comfyui-tls-certificate
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: cert-manager.io/v1
+          kind: Certificate
+          metadata:
+            name: "comfyui.{{ dns_external_domain_suffix }}"
+            namespace: "{{ comfyui_namespace }}"
+          spec:
+            dnsNames:
+              - "comfyui.{{ dns_external_domain_suffix }}"
+            secretName: "comfyui.{{ dns_external_domain_suffix }}"
+            issuerRef:
+              name: letsencrypt-production
+              kind: ClusterIssuer
 
 
-- name: Create comfyui http ingressroute with redirect CRD for traefik
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: traefik.io/v1alpha1
-      kind: IngressRoute
-      metadata:
-        name: comfyui-ingress
-        namespace: "{{ comfyui_namespace }}"
-      spec:
-        entryPoints:
-          - web
-        routes:
-          - kind: Rule
-            match: "Host(`comfyui.{{ dns_external_domain_suffix }}`)"
-            priority: 10
-            services:
-              - kind: Service
-                name: comfyui
-                namespace: "{{ comfyui_namespace }}"
-                passHostHeader: true
-                port: "{{ comfyui_port }}"
-            middlewares:
-              - name: redirect-myhttps
-              - name: comfyui-ip-allowlist
+    - name: Create comfyui http ingressroute with redirect CRD for traefik
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
+          metadata:
+            name: comfyui-ingress
+            namespace: "{{ comfyui_namespace }}"
+          spec:
+            entryPoints:
+              - web
+            routes:
+              - kind: Rule
+                match: "Host(`comfyui.{{ dns_external_domain_suffix }}`)"
+                priority: 10
+                services:
+                  - kind: Service
+                    name: comfyui
+                    namespace: "{{ comfyui_namespace }}"
+                    passHostHeader: true
+                    port: "{{ comfyui_port }}"
+                middlewares:
+                  - name: redirect-myhttps
+                  - name: comfyui-ip-allowlist
 
 
-- name: Create comfyui https ingressroute
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: traefik.io/v1alpha1
-      kind: IngressRoute
-      metadata:
-        name: comfyuihttpsingress
-        namespace: "{{ comfyui_namespace }}"
-      spec:
-        entryPoints:
-          - websecure
-        routes:
-          - kind: Rule
-            match: "Host(`comfyui.{{ dns_external_domain_suffix }}`)"
-            priority: 10
-            middlewares:
-              - name: comfyui-ip-allowlist
-            services:
-              - kind: Service
-                name: comfyui
-                namespace: "{{ comfyui_namespace }}"
-                passHostHeader: true
-                port: "{{ comfyui_port }}"
-        tls:
-          secretName: "comfyui.{{ dns_external_domain_suffix }}"
+    - name: Create comfyui https ingressroute
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
+          metadata:
+            name: comfyuihttpsingress
+            namespace: "{{ comfyui_namespace }}"
+          spec:
+            entryPoints:
+              - websecure
+            routes:
+              - kind: Rule
+                match: "Host(`comfyui.{{ dns_external_domain_suffix }}`)"
+                priority: 10
+                middlewares:
+                  - name: comfyui-ip-allowlist
+                services:
+                  - kind: Service
+                    name: comfyui
+                    namespace: "{{ comfyui_namespace }}"
+                    passHostHeader: true
+                    port: "{{ comfyui_port }}"
+            tls:
+              secretName: "comfyui.{{ dns_external_domain_suffix }}"
 
 
-- name: Register DNS A record for comfyui
-  community.general.nsupdate:
-    server: "{{ nsupdate_server }}"
-    zone: "{{ nsupdate_zone }}"
-    key_name: "{{ nsupdate_tsig_key_name }}"
-    key_secret: "{{ nsupdate_tsig_key_secret }}"
-    key_algorithm: "{{ nsupdate_tsig_algorithm }}"
-    record: "comfyui.{{ dns_external_domain_suffix }}."
-    type: A
-    ttl: "{{ nsupdate_ttl }}"
-    value: "{{ nsupdate_ingress_ip }}"
-    state: present
+    - name: Register DNS A record for comfyui
+      community.general.nsupdate:
+        server: "{{ nsupdate_server }}"
+        zone: "{{ nsupdate_zone }}"
+        key_name: "{{ nsupdate_tsig_key_name }}"
+        key_secret: "{{ nsupdate_tsig_key_secret }}"
+        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
+        record: "comfyui.{{ dns_external_domain_suffix }}."
+        type: A
+        ttl: "{{ nsupdate_ttl }}"
+        value: "{{ nsupdate_ingress_ip }}"
+        state: present
+
+- name: ComfyUI — teardown (opt-in `-e comfyui_teardown=true`)
+  when: comfyui_teardown | default(false) | bool
+  block:
+    - name: Delete ComfyUI namespace (cascades all comfyui resources)
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Namespace
+        name: "{{ comfyui_namespace }}"
+    - name: Remove ComfyUI DNS A record
+      community.general.nsupdate:
+        server: "{{ nsupdate_server }}"
+        zone: "{{ nsupdate_zone }}"
+        key_name: "{{ nsupdate_tsig_key_name }}"
+        key_secret: "{{ nsupdate_tsig_key_secret }}"
+        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
+        record: "comfyui.{{ dns_external_domain_suffix }}."
+        type: A
+        state: absent
