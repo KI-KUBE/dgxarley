@@ -30,7 +30,16 @@ import uvicorn
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from dgxarley.tools.kceve_kvm import detect_port, parse_ir_port, parse_routing, port_to_channel, send_and_read
+from dgxarley.tools.kceve_kvm import (
+    DEFAULT_NUM_PORTS,
+    NUM_PORTS_ENV,
+    detect_port,
+    parse_ir_port,
+    parse_routing,
+    port_to_channel,
+    resolve_num_ports,
+    send_and_read,
+)
 
 log = logging.getLogger("kceve-kvm")
 
@@ -41,6 +50,7 @@ log = logging.getLogger("kceve-kvm")
 _ser: serial.Serial | None = None
 _lock = threading.Lock()
 _active_port: int | None = None
+_num_ports: int = DEFAULT_NUM_PORTS
 _monitor_stop = threading.Event()
 _monitor_reset = threading.Event()
 
@@ -152,11 +162,11 @@ def api_status() -> JSONResponse:
 
 @app.post("/api/switch/{port}")
 def api_switch(port: int) -> JSONResponse:
-    """Switch the KVM to *port* (1-10) and return the new state."""
+    """Switch the KVM to *port* (1..num_ports) and return the new state."""
     global _active_port
-    if not 1 <= port <= 10:
-        raise HTTPException(422, "Port must be 1-10")
-    channel = port_to_channel(port)
+    if not 1 <= port <= _num_ports:
+        raise HTTPException(422, f"Port must be 1-{_num_ports}")
+    channel = port_to_channel(port, _num_ports)
     cmd = f"X{channel},1$\r".encode("ascii")
     with _lock:
         if _ser is None or not _ser.is_open:
@@ -172,8 +182,8 @@ def api_switch(port: int) -> JSONResponse:
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
-    """Serve the KVM switch web UI."""
-    return _HTML
+    """Serve the KVM switch web UI, rendered for the configured port count."""
+    return _HTML.replace("__NUM_PORTS__", str(_num_ports))
 
 
 # ---------------------------------------------------------------------------
@@ -352,7 +362,7 @@ _HTML = r"""<!DOCTYPE html>
   <div class="top-row">
     <div class="brand">
       <span class="brand-name">KCEVE</span>
-      <span class="brand-sub">10 PORT HD KVM SWITCH</span>
+      <span class="brand-sub">__NUM_PORTS__ PORT HD KVM SWITCH</span>
     </div>
     <div class="leds" id="leds"></div>
     <div class="usb-block">
@@ -374,7 +384,7 @@ _HTML = r"""<!DOCTYPE html>
 </div>
 
 <script>
-const N = 10;
+const N = __NUM_PORTS__;
 let cur = null;
 
 /* build LEDs + buttons */
@@ -444,16 +454,32 @@ setInterval(poll, 5000);
 
 def main() -> None:
     """Parse CLI arguments, open serial, and start the FastAPI server."""
+    global _num_ports
     parser = argparse.ArgumentParser(description="KCEVE KVM Web UI")
     parser.add_argument("-d", "--device", default="/dev/ttyACM0", help="Serial device (default: /dev/ttyACM0)")
     parser.add_argument("-t", "--timeout", type=float, default=5.0, help="Serial read timeout in seconds")
     parser.add_argument("-p", "--port", type=int, default=8800, help="HTTP listen port (default: 8800)")
     parser.add_argument("--host", default="0.0.0.0", help="HTTP listen address (default: 0.0.0.0)")
+    parser.add_argument(
+        "-n",
+        "--ports",
+        type=int,
+        default=None,
+        help=f"Number of KVM ports (default {DEFAULT_NUM_PORTS}, env {NUM_PORTS_ENV})",
+    )
     args = parser.parse_args()
 
+    _num_ports = resolve_num_ports(args.ports)
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
     _open_serial(args.device, args.timeout)
-    log.info("serial=%s timeout=%.1fs  |  http://%s:%d/", args.device, args.timeout, args.host, args.port)
+    log.info(
+        "serial=%s timeout=%.1fs ports=%d  |  http://%s:%d/",
+        args.device,
+        args.timeout,
+        _num_ports,
+        args.host,
+        args.port,
+    )
     port = _detect_initial_port()
     if port is None:
         log.error("KVM not responding — aborting startup")

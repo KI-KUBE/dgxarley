@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
 """MLEEDA / KCEVE KVM1001A RS232 control.
 
-Controls a MLEEDA (KCEVE) KVM1001A 10-port KVM switch over RS232 serial.
+Controls a MLEEDA (KCEVE) KVM1001A KVM switch over RS232 serial. The line
+ships in 4-port and 10-port variants; the port count defaults to 10 and is
+selectable via the ``--ports`` CLI argument or the ``KCEVE_KVM_PORTS`` env
+var (see :func:`resolve_num_ports`).
 The KVM uses an ASCII-based protocol at 115200 baud, 8N1, no flow control.
 
 Command format::
 
     X<channel_hex>,1$
 
-where ``channel_hex`` is ``1``-``9`` for ports 1-9, or ``A`` for port 10.
-No line ending (CR/LF) is appended.
+where ``channel_hex`` is a single hex nibble: ``1``-``9`` for ports 1-9,
+``A`` for port 10, and so on (``F`` for port 15). No line ending (CR/LF) is
+appended.
 
 The KVM responds with debug output including ``cur routing ch = N``
 (previous port) and ``swap routing ch = N`` (new port) on switch commands.
@@ -19,7 +23,7 @@ Inspired by: https://github.com/adamsthws/PiKVM/tree/main/kvm_integration
 
 Usage::
 
-    kceve_kvm.py switch <port>    Switch to port 1-10
+    kceve_kvm.py switch <port>    Switch to a port (1..num_ports)
     kceve_kvm.py query            Query current routing state
     kceve_kvm.py sniff            Listen for incoming bytes (debug)
 
@@ -27,31 +31,73 @@ Options::
 
     -d, --device DEVICE   Serial device [default: /dev/ttyACM0]
     -t, --timeout SECS    Read timeout [default: 2.0]
+    -n, --ports N         Number of KVM ports [default: 10, env: KCEVE_KVM_PORTS]
 """
 
 import argparse
+import os
 import re
 import sys
 import time
 
 import serial
 
+# Default port count and the env var that overrides it. The KCEVE line ships
+# in 4-port and 10-port variants; 10 is the original/default.
+DEFAULT_NUM_PORTS = 10
+NUM_PORTS_ENV = "KCEVE_KVM_PORTS"
 
-def port_to_channel(port: int) -> str:
+
+def resolve_num_ports(cli_value: int | None = None) -> int:
+    """Resolve the KVM's port count from CLI arg, env var, or default.
+
+    Precedence: explicit *cli_value* > ``KCEVE_KVM_PORTS`` env var >
+    :data:`DEFAULT_NUM_PORTS` (10).
+
+    Args:
+        cli_value: Port count from a ``--ports`` CLI argument, or ``None``
+            to fall back to the environment / default.
+
+    Returns:
+        Validated port count. The upper bound is 15 because the RS232
+        channel is encoded as a single hex nibble (``F`` = port 15).
+
+    Raises:
+        SystemExit: If the resolved value is not an integer in 1-15.
+    """
+    raw: int | None = cli_value
+    if raw is None:
+        env = os.environ.get(NUM_PORTS_ENV)
+        if env is not None and env.strip():
+            try:
+                raw = int(env)
+            except ValueError:
+                print(f"Error: {NUM_PORTS_ENV} must be an integer, got {env!r}", file=sys.stderr)
+                sys.exit(1)
+    if raw is None:
+        raw = DEFAULT_NUM_PORTS
+    if not 1 <= raw <= 15:
+        print(f"Error: port count must be 1-15, got {raw}", file=sys.stderr)
+        sys.exit(1)
+    return raw
+
+
+def port_to_channel(port: int, num_ports: int = DEFAULT_NUM_PORTS) -> str:
     """Convert a 1-based port number to the KVM's hex channel character.
 
     Args:
-        port: Port number (1-10).
+        port: Port number (1..*num_ports*).
+        num_ports: Number of ports the KVM has (default 10).
 
     Returns:
         Single uppercase hex character: ``"1"``-``"9"`` for ports 1-9,
-        ``"A"`` for port 10.
+        ``"A"`` for port 10, etc.
 
     Raises:
-        SystemExit: If *port* is outside the 1-10 range.
+        SystemExit: If *port* is outside the ``1..num_ports`` range.
     """
-    if not 1 <= port <= 10:
-        print(f"Error: port must be 1-10, got {port}", file=sys.stderr)
+    if not 1 <= port <= num_ports:
+        print(f"Error: port must be 1-{num_ports}, got {port}", file=sys.stderr)
         sys.exit(1)
     return f"{port:X}"
 
@@ -114,7 +160,7 @@ def parse_routing(text: str) -> tuple[int | None, int | None]:
     return (int(cur.group(1)) if cur else None, int(swap.group(1)) if swap else None)
 
 
-def cmd_switch(ser: serial.Serial, port: int) -> None:
+def cmd_switch(ser: serial.Serial, port: int, num_ports: int = DEFAULT_NUM_PORTS) -> None:
     """Switch the KVM to the specified input port.
 
     Sends ``X<channel>,1$`` and parses the response to display the
@@ -122,9 +168,10 @@ def cmd_switch(ser: serial.Serial, port: int) -> None:
 
     Args:
         ser: Open serial port connected to the KVM.
-        port: Target port number (1-10).
+        port: Target port number (1..*num_ports*).
+        num_ports: Number of ports the KVM has (default 10).
     """
-    channel = port_to_channel(port)
+    channel = port_to_channel(port, num_ports)
     cmd = f"X{channel},1$\r".encode("ascii")
     resp = send_and_read(ser, cmd, stop_pattern="routing ch =")
     prev, new = parse_routing(resp) if resp else (None, None)
@@ -315,15 +362,23 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="MLEEDA / KCEVE KVM1001A RS232 control")
     parser.add_argument("-d", "--device", default="/dev/ttyACM0", help="Serial device")
     parser.add_argument("-t", "--timeout", type=float, default=2.0, help="Read timeout in seconds")
+    parser.add_argument(
+        "-n",
+        "--ports",
+        type=int,
+        default=None,
+        help=f"Number of KVM ports (default {DEFAULT_NUM_PORTS}, env {NUM_PORTS_ENV})",
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_switch = sub.add_parser("switch", help="Switch to port 1-10")
+    p_switch = sub.add_parser("switch", help="Switch to a port (1..num_ports)")
     p_switch.add_argument("port", type=int)
 
     sub.add_parser("query", help="Query current routing state")
     sub.add_parser("sniff", help="Listen for incoming bytes (debug)")
 
     args = parser.parse_args()
+    num_ports = resolve_num_ports(args.ports)
 
     ser = serial.Serial(
         port=args.device,
@@ -340,7 +395,7 @@ def main() -> None:
     try:
         match args.command:
             case "switch":
-                cmd_switch(ser, args.port)
+                cmd_switch(ser, args.port, num_ports)
             case "query":
                 cmd_query(ser)
             case "sniff":

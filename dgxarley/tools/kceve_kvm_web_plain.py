@@ -29,13 +29,23 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 import serial
 
-from dgxarley.tools.kceve_kvm import detect_port, parse_ir_port, parse_routing, port_to_channel, send_and_read
+from dgxarley.tools.kceve_kvm import (
+    DEFAULT_NUM_PORTS,
+    NUM_PORTS_ENV,
+    detect_port,
+    parse_ir_port,
+    parse_routing,
+    port_to_channel,
+    resolve_num_ports,
+    send_and_read,
+)
 
 log = logging.getLogger("kceve-kvm-plain")
 
 _ser: serial.Serial | None = None
 _lock = threading.Lock()
 _active_port: int | None = None
+_num_ports: int = DEFAULT_NUM_PORTS
 _monitor_stop = threading.Event()
 _monitor_reset = threading.Event()
 
@@ -162,7 +172,9 @@ class KVMHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         """Handle GET requests: UI, query, health."""
         if self.path == "/":
-            buttons = "\n".join(f'  <button data-port="{i}" onclick="sw({i})">{i}</button>' for i in range(1, 11))
+            buttons = "\n".join(
+                f'  <button data-port="{i}" onclick="sw({i})">{i}</button>' for i in range(1, _num_ports + 1)
+            )
             _html_response(self, HTML_TEMPLATE.format(buttons=buttons))
         elif self.path == "/api/query":
             _json_response(self, {"active_port": _active_port})
@@ -179,11 +191,11 @@ class KVMHandler(BaseHTTPRequestHandler):
             _json_response(self, {"error": "not found"}, 404)
             return
         port = int(m.group(1))
-        if not 1 <= port <= 10:
-            _json_response(self, {"error": f"port must be 1-10, got {port}"}, 400)
+        if not 1 <= port <= _num_ports:
+            _json_response(self, {"error": f"port must be 1-{_num_ports}, got {port}"}, 400)
             return
         assert _ser is not None
-        channel = port_to_channel(port)
+        channel = port_to_channel(port, _num_ports)
         cmd = f"X{channel},1$\r".encode("ascii")
         with _lock:
             resp = send_and_read(_ser, cmd, stop_pattern="routing ch =")
@@ -197,15 +209,23 @@ class KVMHandler(BaseHTTPRequestHandler):
 
 def main() -> None:
     """Parse CLI arguments, open the serial port, and start the HTTP server."""
-    global _ser
+    global _ser, _num_ports
 
     parser = argparse.ArgumentParser(description="KCEVE KVM1001A web control")
     parser.add_argument("-d", "--device", default="/dev/ttyACM0", help="Serial device")
     parser.add_argument("-p", "--port", type=int, default=8080, help="HTTP listen port")
     parser.add_argument("-b", "--bind", default="0.0.0.0", help="HTTP bind address")
     parser.add_argument("-t", "--timeout", type=float, default=5.0, help="Serial read timeout in seconds")
+    parser.add_argument(
+        "-n",
+        "--ports",
+        type=int,
+        default=None,
+        help=f"Number of KVM ports (default {DEFAULT_NUM_PORTS}, env {NUM_PORTS_ENV})",
+    )
     args = parser.parse_args()
 
+    _num_ports = resolve_num_ports(args.ports)
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
 
     _ser = serial.Serial(
