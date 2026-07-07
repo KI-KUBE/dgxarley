@@ -4,16 +4,15 @@
 #
 # Two independent Deployments per active user:
 #   hermes-agent-<user> → official `hermes dashboard` UI (port 9119)
-#                          published as <username>.hermes-dashboard.<dns>
-#   hermes-webui-<user> → ghcr.io/nesquena/hermes-webui (port 8787)
 #                          published as <username>.hermes.<dns>
+#   hermes-webui-<user> → ghcr.io/nesquena/hermes-webui (port 8787)
+#                          published as <username>.hermes-webui.<dns>
 # Both pods mount the same NFS subdir as /opt/data so sessions/skills/configs
 # are shared. They are still independent processes — each spawns its own
 # `hermes` subprocesses for chat/tools (upstream-documented limitation #681).
 #
 # Per-user gates (in hermes_users entry):
 #   dashboard_enabled (default true)  → deploy hermes-agent pod + ingress
-#   dashboard_tui     (default true)  → adds the embedded chat tab
 #   webui_enabled     (default false) → deploy hermes-webui pod + ingress
 
 - name: Filter enabled hermes users
@@ -484,7 +483,7 @@
         namespace: "{{ hermes.namespace }}"
       spec:
         dnsNames:
-          - "{{ item.username }}.hermes-dashboard.{{ dns_external_domain_suffix }}"
+          - "{{ item.username }}.hermes.{{ dns_external_domain_suffix }}"
         secretName: "hermes-agent-{{ item.username }}-tls"
         issuerRef:
           name: letsencrypt-production
@@ -526,7 +525,7 @@
           - websecure
         routes:
           - kind: Rule
-            match: "Host(`{{ item.username }}.hermes-dashboard.{{ dns_external_domain_suffix }}`)"
+            match: "Host(`{{ item.username }}.hermes.{{ dns_external_domain_suffix }}`)"
             priority: 10
             services:
               - kind: Service
@@ -559,7 +558,7 @@
     key_name: "{{ nsupdate_tsig_key_name }}"
     key_secret: "{{ nsupdate_tsig_key_secret }}"
     key_algorithm: "{{ nsupdate_tsig_algorithm }}"
-    record: "{{ item.username }}.hermes-dashboard.{{ dns_external_domain_suffix }}."
+    record: "{{ item.username }}.hermes.{{ dns_external_domain_suffix }}."
     type: A
     ttl: "{{ nsupdate_ttl }}"
     value: "{{ nsupdate_ingress_ip }}"
@@ -644,7 +643,7 @@
         namespace: "{{ hermes.namespace }}"
       spec:
         dnsNames:
-          - "{{ item.username }}.hermes.{{ dns_external_domain_suffix }}"
+          - "{{ item.username }}.hermes-webui.{{ dns_external_domain_suffix }}"
         secretName: "hermes-webui-{{ item.username }}-tls"
         issuerRef:
           name: letsencrypt-production
@@ -686,7 +685,7 @@
           - websecure
         routes:
           - kind: Rule
-            match: "Host(`{{ item.username }}.hermes.{{ dns_external_domain_suffix }}`)"
+            match: "Host(`{{ item.username }}.hermes-webui.{{ dns_external_domain_suffix }}`)"
             priority: 10
             services:
               - kind: Service
@@ -719,7 +718,7 @@
     key_name: "{{ nsupdate_tsig_key_name }}"
     key_secret: "{{ nsupdate_tsig_key_secret }}"
     key_algorithm: "{{ nsupdate_tsig_algorithm }}"
-    record: "{{ item.username }}.hermes.{{ dns_external_domain_suffix }}."
+    record: "{{ item.username }}.hermes-webui.{{ dns_external_domain_suffix }}."
     type: A
     ttl: "{{ nsupdate_ttl }}"
     value: "{{ nsupdate_ingress_ip }}"

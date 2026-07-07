@@ -3,7 +3,6 @@
    Both pods are pinned to k3smaster and share the same NFS subdir hostPath
    so /opt/data (sessions/skills/configs) is identical across them.
 #}
-{%- set _dashboard_tui = item.dashboard_tui | default(hermes.agent.dashboard_tui_default) -%}
 {#- /workspace gate: when enabled, /workspace is a seadrive FUSE mount of the
     user's Seafile `hermes-workspace` library (shared with the webui pod via
     the Seafile server, with a sync lag of a few seconds). When disabled,
@@ -282,16 +281,13 @@ spec:
             - "--host=127.0.0.1"
             - "--port=9119"
             - "--no-open"
-{% if _dashboard_tui %}
-            # NOTE: `--tui` was REMOVED upstream in v0.16.0 / hermes.image_tag
-            # v2026.6.5 (PR #38591, merged 2026-06-04). Passing it now aborts
-            # the dashboard with "unrecognized arguments: --tui" → pod
-            # crash-loop. We therefore do NOT emit the flag any more; the
-            # `dashboard_tui` gate is a documented no-op on v2026.6.5+ until an
-            # upstream replacement flag is identified. Re-add a real flag here
-            # if/when one lands. See UPSTREAM_HERMES_AGENT_TUI_BUG.md.
-            # - "--tui"
-{% endif %}
+            # NOTE: the `--tui` flag was REMOVED upstream in v0.16.0 /
+            # hermes.image_tag v2026.6.5 (PR #38591, merged 2026-06-04) — the
+            # dashboard chat is on by default now. Passing it aborts with
+            # "unrecognized arguments: --tui" → crash-loop, so nothing is
+            # emitted here. The former per-user `dashboard_tui` gate (a no-op on
+            # v0.16.0+) was dropped 2026-07. Re-add a real flag here if/when
+            # upstream lands a replacement. See UPSTREAM_HERMES_AGENT_TUI_BUG.md.
           # Container-level securityContext overrides pod-level. /init MUST
           # start as root to do the usermod + s6-setuidgid drop. After the
           # drop, the python process runs as <uid> matching pod-level intent.
