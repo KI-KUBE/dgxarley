@@ -49,13 +49,25 @@ web:
 logging:
   level: "{{ 'DEBUG' if (item.hermes_debug | default(hermes.debug_default)) else 'INFO' }}"
 {% set email = item.email | default({}) %}
-{% if email.get('enabled', hermes.email.enabled_default) %}
+{% set matrix = item.matrix | default({}) %}
+{% set _email_on = email.get('enabled', hermes.email.enabled_default) %}
+{% set _gateway_on = _email_on or matrix.get('enabled', hermes.matrix.enabled_default) %}
+{% if _gateway_on %}
 
-# Email gateway (IMAP/SMTP) — credentials live in /opt/data/.env as EMAIL_*.
-# The hermes-email sidecar in the webui pod runs `hermes gateway run` to poll
-# the inbox; outbound mail goes through tool-calls in webui-spawned hermes
-# subprocesses, which inherit the same .env.
+# Messaging-gateway platform config, read by `hermes gateway run` (the sidecar
+# in the dashboard pod, or the webui pod when the dashboard is off).
 platforms:
+  # api_server: the gateway's aiohttp server on 127.0.0.1:<API_SERVER_PORT>.
+  # Its UNAUTHENTICATED GET /health is what the dashboard probes
+  # (GATEWAY_HEALTH_URL) for the cross-container "Gateway" badge. The key + port
+  # come from the sidecar env (API_SERVER_KEY / API_SERVER_PORT); connect()
+  # refuses to start the server without a >=16-char key.
+  api_server:
+    enabled: true
+{% if _email_on %}
+  # Email gateway (IMAP/SMTP) — credentials live in /opt/data/.env as EMAIL_*.
+  # Outbound mail also goes through tool-calls in UI-spawned hermes
+  # subprocesses, which inherit the same .env.
   email:
     # Behavioral toggles MUST live under `extra:` — the gateway config loader
     # only folds `platforms.<name>.extra` into PlatformConfig.extra (which the
