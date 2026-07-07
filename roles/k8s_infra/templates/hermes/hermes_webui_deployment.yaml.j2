@@ -18,9 +18,14 @@
     the /opt/data NFS subdir so device keys persist across restarts. -#}
 {%- set _matrix = item.matrix | default({}) -%}
 {%- set _matrix_enabled = _matrix.get('enabled', hermes.matrix.enabled_default) -%}
-{#- The gateway sidecar (+ state refresher) runs whenever ANY platform is on.
-    Extend this OR-chain when adding further platforms (telegram, slack, …). -#}
-{%- set _gateway_enabled = (_email_enabled or _matrix_enabled) -%}
+{#- The gateway sidecar (+ state refresher) runs here ONLY when the dashboard
+    is disabled. When the dashboard is on, its pod hosts the single gateway (so
+    the dashboard can probe gateway liveness in-pod) and this webui pod must NOT
+    start a second one — two `hermes gateway run` processes would contend on the
+    /opt/data/gateway.lock flock. Extend the platform OR-chain when adding
+    further platforms (telegram, slack, …). -#}
+{%- set _dashboard_enabled = item.dashboard_enabled | default(hermes.agent.dashboard_enabled_default) -%}
+{%- set _gateway_enabled = (_email_enabled or _matrix_enabled) and not _dashboard_enabled -%}
 {#- /workspace gate: seadrive-mounted Seafile library vs NFS subdir hostPath.
     When enabled, the `files` volume becomes an emptyDir + a privileged
     seadrive FUSE sidecar bind-mounts the user's `hermes-workspace` lib onto
@@ -77,21 +82,21 @@ spec:
         # the bcrypt output: bcrypt re-salts on every render, which would
         # cause a spurious rollover on every playbook run.
         checksum/auth:        "{{ (item.basicauth_password | default(item.litellm_token)) | hash('sha256') }}"
-{% if _email_enabled %}
-        # Auto-roll when the plugins/platforms/email/adapter.py patch changes —
-        # subPath ConfigMap mounts don't surface updates without a pod restart.
-        checksum/email-patch: "{{ lookup('file', 'hermes_email_gateway_patched.py') | hash('sha256') }}"
-{% endif %}
-{% if _gateway_enabled %}
-        # Auto-roll when the gateway-state refresher script changes.
-        checksum/gw-refresh:  "{{ lookup('file', 'hermes_gateway_state_refresher.py') | hash('sha256') }}"
-{% endif %}
-{% if _seafile_workspace %}
-        # Auto-roll when the user's Seafile credentials change so the seadrive
-        # sidecar picks them up; the hermes-seafile-<user> Secret is loaded
-        # via envFrom and only re-read on container start.
-        checksum/seafile:     "{{ (hermes.seafile.server_url ~ '|' ~ (item.email.address | default('?')) ~ '|' ~ (item.seafile.web_password | default('none'))) | hash('sha256') }}"
-{% endif %}
+        # ALWAYS emit gated checksums with the gate flag folded into the value —
+        # never wrap them in a Jinja if/endif block. A disable (enabled->disabled) must still
+        # CHANGE the annotation so the pod rolls; dropping the key relies on the
+        # apply pruning a nested-map key, which it does NOT do reliably (same class
+        # as the stale nodeSelector keys documented in CLAUDE.md). The referenced
+        # files are always on disk, so hashing them while disabled is harmless.
+        #
+        # email-patch: subPath ConfigMap mounts don't surface updates without a restart.
+        checksum/email-patch: "{{ _email_enabled | bool }}:{{ lookup('file', 'hermes_email_gateway_patched.py') | hash('sha256') }}"
+        # gw-refresh: rolls the pod to add/drop the gateway sidecar and pick up a
+        # changed refresher script.
+        checksum/gw-refresh:  "{{ _gateway_enabled | bool }}:{{ lookup('file', 'hermes_gateway_state_refresher.py') | hash('sha256') }}"
+        # seafile: rolls the pod to add/drop the seadrive sidecar and to pick up
+        # rotated creds (hermes-seafile-<user> Secret is envFrom, read at start).
+        checksum/seafile:     "{{ _seafile_workspace }}:{{ (hermes.seafile.server_url ~ '|' ~ (item.email.address | default('?')) ~ '|' ~ (item.seafile.web_password | default('none'))) | hash('sha256') }}"
     spec:
       restartPolicy: Always
       # MUST stay false: the hermes-gateway sidecar runs the agent image's
@@ -434,6 +439,17 @@ spec:
             # never appear in the WebUI session list (see #1879).
             - name: HERMES_HOME
               value: "/opt/data"
+            # config.yaml enables the api_server platform whenever a gateway
+            # runs; connect() refuses to start it without a >=16-char key. Set
+            # it here too so this sidecar (used only when the dashboard is off)
+            # starts api_server cleanly. localhost-only in-pod.
+            - name: API_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: "hermes-env-{{ item.username }}"
+                  key: GATEWAY_API_SERVER_KEY
+            - name: API_SERVER_PORT
+              value: "{{ hermes.agent.gateway_api_port }}"
           resources:
             requests:
               cpu: "20m"

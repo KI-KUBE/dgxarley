@@ -319,51 +319,102 @@
       stringData:
         ".env": "{{ lookup('template', 'hermes/hermes_env.j2') }}"
         WEBUI_PASSWORD: "{{ item.webui_password | default(item.basicauth_password | default(item.litellm_token)) }}"
+        # hermes' built-in BasicAuthProvider (the dashboard's own auth) —
+        # password = per-user basicauth_password, falling back to litellm_token
+        # (same value the retired Caddy users.json used). Consumed by the
+        # dashboard container as HERMES_DASHBOARD_BASIC_AUTH_PASSWORD.
+        DASHBOARD_BASIC_AUTH_PASSWORD: "{{ item.basicauth_password | default(item.litellm_token) }}"
+        # Token-signing secret for the stateless HMAC session tokens. Derived
+        # deterministically from username+password so it stays stable across
+        # playbook runs AND pod restarts (sessions survive restart — the whole
+        # point of setting `secret` explicitly per the provider docs), yet
+        # rotates when the password changes. No separate vault entry needed.
+        DASHBOARD_BASIC_AUTH_SECRET: "{{ (item.username ~ '|hermes-dashboard-basic-auth|' ~ (item.basicauth_password | default(item.litellm_token))) | hash('sha512') }}"
+        # API key for the gateway's api_server (b): connect() refuses to start
+        # it without a >=16-char key. localhost-only in-pod; the dashboard's
+        # /health probe is unauthenticated so it never needs this. Guards the
+        # /v1 OpenAI endpoints the same server exposes on 127.0.0.1:<port>.
+        GATEWAY_API_SERVER_KEY: "{{ (item.username ~ '|hermes-gateway-api|' ~ (item.basicauth_password | default(item.litellm_token))) | hash('sha256') }}"
   loop: "{{ _hermes_active_users }}"
   loop_control:
     label: "{{ item.username }}"
 
-- name: Create per-user Caddy ConfigMap (Caddyfile)
-  # Caddyfile + caddy-security config — see template for full rationale.
+# ---------------------------------------------------------------------------
+# RETIRED: the Caddy auth sidecar is replaced by hermes' built-in
+# BasicAuthProvider (binding the dashboard to 0.0.0.0 engages hermes' own auth
+# gate natively; see hermes_agent_deployment.yaml.j2). These two tasks rendered
+# the Caddyfile ConfigMap + users.json/signing_key Secret the sidecar consumed.
+# Commented out (not deleted) so the whole Caddy path can be restored by
+# uncommenting these + the sidecar/volumes in the deployment template. The
+# templates hermes_caddyfile.j2 / hermes_caddy_users.json.j2 are kept on disk.
+# ---------------------------------------------------------------------------
+# - name: Create per-user Caddy ConfigMap (Caddyfile)
+#   # Caddyfile + caddy-security config — see template for full rationale.
+#   kubernetes.core.k8s:
+#     state: present
+#     apply: true  # kubectl-apply three-way merge → prune renamed/removed data keys
+#     definition:
+#       apiVersion: v1
+#       kind: ConfigMap
+#       metadata:
+#         name: "hermes-caddy-{{ item.username }}"
+#         namespace: "{{ hermes.namespace }}"
+#         labels:
+#           app: hermes
+#           hermes-user: "{{ item.username }}"
+#       data:
+#         Caddyfile: "{{ lookup('template', 'hermes/hermes_caddyfile.j2') }}"
+#   loop: "{{ _hermes_active_users }}"
+#   loop_control:
+#     label: "{{ item.username }}"
+#
+# - name: Create per-user Caddy Secret (users.json + JWT signing_key)
+#   # users.json holds the bcrypt password for caddy-security's local identity
+#   # store; signing_key is the symmetric key for JWT cookies. signing_key is
+#   # deterministically derived from username + password so it stays stable
+#   # across Ansible runs (no separate vault entry needed) and so changing the
+#   # password also rotates the cookie keys.
+#   kubernetes.core.k8s:
+#     state: present
+#     definition:
+#       apiVersion: v1
+#       kind: Secret
+#       metadata:
+#         name: "hermes-caddy-{{ item.username }}"
+#         namespace: "{{ hermes.namespace }}"
+#         labels:
+#           app: hermes
+#           hermes-user: "{{ item.username }}"
+#       type: Opaque
+#       stringData:
+#         users.json: "{{ lookup('template', 'hermes/hermes_caddy_users.json.j2') }}"
+#         signing_key: "{{ (item.username ~ '|hermes-caddy-jwt|' ~ (item.basicauth_password | default(item.litellm_token))) | hash('sha512') }}"
+#   loop: "{{ _hermes_active_users }}"
+#   loop_control:
+#     label: "{{ item.username }}"
+
+# Retired Caddy auth-sidecar resources. The render tasks above are commented
+# out, so `apply` never touches these standalone objects — they'd be orphaned
+# without an explicit absent-assert. (The in-Deployment caddy container/volumes
+# are pruned by deleting+recreating the Deployment once; see the deploy runbook.)
+- name: Remove retired Caddy ConfigMap (replaced by hermes BasicAuthProvider)
   kubernetes.core.k8s:
-    state: present
-    apply: true  # kubectl-apply three-way merge → prune renamed/removed data keys
-    definition:
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        name: "hermes-caddy-{{ item.username }}"
-        namespace: "{{ hermes.namespace }}"
-        labels:
-          app: hermes
-          hermes-user: "{{ item.username }}"
-      data:
-        Caddyfile: "{{ lookup('template', 'hermes/hermes_caddyfile.j2') }}"
+    state: absent
+    api_version: v1
+    kind: ConfigMap
+    namespace: "{{ hermes.namespace }}"
+    name: "hermes-caddy-{{ item.username }}"
   loop: "{{ _hermes_active_users }}"
   loop_control:
     label: "{{ item.username }}"
 
-- name: Create per-user Caddy Secret (users.json + JWT signing_key)
-  # users.json holds the bcrypt password for caddy-security's local identity
-  # store; signing_key is the symmetric key for JWT cookies. signing_key is
-  # deterministically derived from username + password so it stays stable
-  # across Ansible runs (no separate vault entry needed) and so changing the
-  # password also rotates the cookie keys.
+- name: Remove retired Caddy Secret (replaced by hermes BasicAuthProvider)
   kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: Secret
-      metadata:
-        name: "hermes-caddy-{{ item.username }}"
-        namespace: "{{ hermes.namespace }}"
-        labels:
-          app: hermes
-          hermes-user: "{{ item.username }}"
-      type: Opaque
-      stringData:
-        users.json: "{{ lookup('template', 'hermes/hermes_caddy_users.json.j2') }}"
-        signing_key: "{{ (item.username ~ '|hermes-caddy-jwt|' ~ (item.basicauth_password | default(item.litellm_token))) | hash('sha512') }}"
+    state: absent
+    api_version: v1
+    kind: Secret
+    namespace: "{{ hermes.namespace }}"
+    name: "hermes-caddy-{{ item.username }}"
   loop: "{{ _hermes_active_users }}"
   loop_control:
     label: "{{ item.username }}"
@@ -429,9 +480,9 @@
   when: not (item.dashboard_enabled | default(hermes.agent.dashboard_enabled_default))
 
 - name: Apply per-user hermes-agent Service
-  # Single port: `auth` → oauth2-proxy sidecar (which forwards in-pod to
-  # localhost:9119). The bare hermes port is intentionally NOT exposed via
-  # the Service — every external request must terminate auth at oauth2-proxy.
+  # The Service targets the dashboard port directly (hermes binds
+  # 0.0.0.0:<dashboard_port> and does its OWN BasicAuth). There is no in-pod
+  # auth hop — the former Caddy `proxy_port` sidecar is retired.
   kubernetes.core.k8s:
     state: present
     apply: true
@@ -451,9 +502,9 @@
           hermes-component: agent
           hermes-user: "{{ item.username }}"
         ports:
-          - name: auth
-            port: "{{ hermes.agent.proxy_port }}"
-            targetPort: "{{ hermes.agent.proxy_port }}"
+          - name: dashboard
+            port: "{{ hermes.agent.dashboard_port }}"
+            targetPort: "{{ hermes.agent.dashboard_port }}"
   loop: "{{ _hermes_active_users }}"
   loop_control:
     label: "{{ item.username }}"
@@ -505,12 +556,14 @@
     label: "{{ item.username }}"
   when: not (item.dashboard_enabled | default(hermes.agent.dashboard_enabled_default))
 
-- name: Apply per-user hermes-agent IngressRoute (auth via oauth2-proxy sidecar)
-  # All paths route through the oauth2-proxy sidecar (cookie session). Bypassing
-  # oauth2-proxy for /api/(ws|events|pty) was considered but rejected: those
-  # endpoints carry the live PTY/chat stream, which means leaking the
-  # ?token=... URL via Traefik access logs / browser history would expose all
-  # chat content. Auth must terminate at oauth2-proxy for every request.
+- name: Apply per-user hermes-agent IngressRoute (auth via hermes BasicAuthProvider)
+  # Traefik terminates TLS and forwards straight to the dashboard port.
+  # Authentication is hermes' OWN built-in BasicAuthProvider (engaged by the
+  # 0.0.0.0 bind); WS/PTY/events are authorised in-app via hermes' single-use
+  # ?ticket= mechanism (dashboard_auth/ws_tickets.py), so no auth proxy is
+  # needed in front. NOTE: this route has no ip-allowlist/redirect
+  # middleware — the hermes login IS the access gate now (same as when Caddy was
+  # the gate). Add an ip-allowlist middleware here if defence-in-depth is wanted.
   kubernetes.core.k8s:
     state: present
     apply: true
@@ -531,7 +584,7 @@
               - kind: Service
                 name: "hermes-agent-{{ item.username }}"
                 passHostHeader: true
-                port: "{{ hermes.agent.proxy_port }}"
+                port: "{{ hermes.agent.dashboard_port }}"
         tls:
           secretName: "hermes-agent-{{ item.username }}-tls"
   loop: "{{ _hermes_active_users }}"

@@ -9,6 +9,17 @@
     /workspace is the legacy NFS subdir hostPath. -#}
 {%- set _seafile = item.seafile | default({}) -%}
 {%- set _seafile_workspace = (_seafile.get('workspace_enabled', hermes.seafile.workspace_enabled_default)) | bool -%}
+{#- Messaging-gateway gate: the `hermes gateway run` sidecar lives in THIS
+    (agent) pod whenever the dashboard is enabled, so the dashboard can show
+    gateway liveness via the in-pod HTTP health probe. The webui pod only hosts
+    the gateway when the dashboard is OFF (see hermes_webui_deployment.yaml.j2)
+    — exactly one gateway runs, so the two never contend on the
+    /opt/data/gateway.lock flock. -#}
+{%- set _email = item.email | default({}) -%}
+{%- set _email_enabled = _email.get('enabled', hermes.email.enabled_default) -%}
+{%- set _matrix = item.matrix | default({}) -%}
+{%- set _matrix_enabled = _matrix.get('enabled', hermes.matrix.enabled_default) -%}
+{%- set _gateway_enabled = (_email_enabled or _matrix_enabled) -%}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -59,14 +70,33 @@ spec:
         # on its own) forces a fresh pod. Hash the cleartext, not bcrypt:
         # bcrypt re-salts each render and would roll the pod every run.
         checksum/auth:   "{{ (item.basicauth_password | default(item.litellm_token)) | hash('sha256') }}"
-{% if _seafile_workspace %}
-        # Auto-roll when the user's Seafile credentials change so the seadrive
-        # sidecar picks them up; the hermes-seafile-<user> Secret is loaded
-        # via envFrom and only re-read on container start.
-        checksum/seafile: "{{ (hermes.seafile.server_url ~ '|' ~ (item.email.address | default('?')) ~ '|' ~ (item.seafile.web_password | default('none'))) | hash('sha256') }}"
-{% endif %}
+        # ALWAYS emit gated checksums with the gate flag folded into the value —
+        # never wrap them in a Jinja if/endif block. A disable (enabled->disabled) must still
+        # CHANGE the annotation so the pod rolls; dropping the key relies on the
+        # apply pruning a nested-map key, which it does NOT do reliably (same class
+        # as the stale nodeSelector keys documented in CLAUDE.md). The referenced
+        # files are always on disk, so hashing them while disabled is harmless.
+        #
+        # email-patch: subPath ConfigMap mounts don't surface updates without a
+        # restart. Consumed by the hermes-gateway sidecar (below), same as webui.
+        checksum/email-patch: "{{ _email_enabled | bool }}:{{ lookup('file', 'hermes_email_gateway_patched.py') | hash('sha256') }}"
+        # seafile: rolls the pod to add/drop the seadrive sidecar and to pick up
+        # rotated creds (hermes-seafile-<user> Secret is envFrom, read at start).
+        checksum/seafile: "{{ _seafile_workspace }}:{{ (hermes.seafile.server_url ~ '|' ~ (item.email.address | default('?')) ~ '|' ~ (item.seafile.web_password | default('none'))) | hash('sha256') }}"
     spec:
       restartPolicy: Always
+{% if _gateway_enabled %}
+      # MUST stay false: the hermes-gateway sidecar runs the agent image's
+      # s6-overlay /init, and s6-overlay-suexec refuses to start unless it is
+      # PID 1. shareProcessNamespace would make the pause container PID 1 and
+      # crashloop the sidecar. Consequence: the dashboard can't use the
+      # same-PID-namespace os.kill() liveness on the gateway PID, so it detects
+      # the gateway via the in-pod HTTP health probe (GATEWAY_HEALTH_URL) plus
+      # the shared /opt/data/gateway_state.json — no shared PID ns needed.
+      # Explicit false (not omitted) so kubernetes.core.k8s strategic-merge
+      # can't leave a stale `true` behind.
+      shareProcessNamespace: false
+{% endif %}
       nodeSelector:
         node-role: k3smaster
       securityContext:
@@ -166,29 +196,28 @@ spec:
         #   volumeMounts:
         #     - name: ui-tui
         #       mountPath: /target
-        # Seed Caddy's writable user-DB from the read-only Secret. Always
-        # overwrite on start so password rotations in vault propagate. Caddy
-        # itself may write to this file (admin bootstrap, password resets) but
-        # we are deliberately ephemeral about that — Ansible is the source of
-        # truth, in-pod edits survive only until the next restart.
-        - name: init-caddy-data
-          image: busybox:latest
-          env:
-            - name: TZ
-              value: "{{ hermes.timezone }}"
-          command:
-            - sh
-            - -c
-            - "cp /seed/users.json /caddy-data/users.json && chown {{ item.uid }}:{{ item.gid }} /caddy-data/users.json && chmod 0600 /caddy-data/users.json"
-          securityContext:
-            runAsUser: 0
-            runAsNonRoot: false
-          volumeMounts:
-            - name: caddy-secret
-              mountPath: /seed
-              readOnly: true
-            - name: caddy-data
-              mountPath: /caddy-data
+        # RETIRED: seeded Caddy's writable user-DB. The Caddy auth sidecar is
+        # replaced by hermes' built-in BasicAuthProvider, so there is no
+        # users.json to seed. Commented out (not deleted) for easy rollback
+        # together with the caddy sidecar + volumes below.
+        # - name: init-caddy-data
+        #   image: busybox:latest
+        #   env:
+        #     - name: TZ
+        #       value: "{{ hermes.timezone }}"
+        #   command:
+        #     - sh
+        #     - -c
+        #     - "cp /seed/users.json /caddy-data/users.json && chown {{ item.uid }}:{{ item.gid }} /caddy-data/users.json && chmod 0600 /caddy-data/users.json"
+        #   securityContext:
+        #     runAsUser: 0
+        #     runAsNonRoot: false
+        #   volumeMounts:
+        #     - name: caddy-secret
+        #       mountPath: /seed
+        #       readOnly: true
+        #     - name: caddy-data
+        #       mountPath: /caddy-data
       containers:
 {% if _seafile_workspace %}
         # ===== seadrive FUSE sidecar =========================================
@@ -278,8 +307,17 @@ spec:
           # loopback binds).
           args:
             - "dashboard"
-            - "--host=127.0.0.1"
-            - "--port=9119"
+            # Bind 0.0.0.0 (was 127.0.0.1 behind the retired Caddy sidecar).
+            # Non-loopback bind → `should_require_auth` engages hermes' built-in
+            # BasicAuthProvider (configured via HERMES_DASHBOARD_BASIC_AUTH_* env
+            # below), AND `_is_accepted_host` returns True for 0.0.0.0 so the WS
+            # Host/Origin guard accepts the public Origin (no Caddy Origin
+            # rewrite needed). `--insecure` only PERMITS the non-loopback bind;
+            # since the hermes-0day fix it no longer disables auth.
+            # - "--host=127.0.0.1"   # retired with the Caddy auth sidecar
+            - "--host={{ hermes.agent.bind_host }}"
+            - "--insecure"
+            - "--port={{ hermes.agent.dashboard_port }}"
             - "--no-open"
             # NOTE: the `--tui` flag was REMOVED upstream in v0.16.0 /
             # hermes.image_tag v2026.6.5 (PR #38591, merged 2026-06-04) — the
@@ -307,8 +345,40 @@ spec:
               value: "{{ item.uid }}"
             - name: HERMES_GID
               value: "{{ item.gid }}"
+            # --- dashboard built-in auth (BasicAuthProvider) ---
+            # The 0.0.0.0 bind requires an auth provider; these env vars make
+            # hermes auto-register the username/password provider at startup
+            # (it registers iff username AND password are set). Env wins over
+            # config.yaml, so no dashboard.basic_auth block is needed there.
+            # Username is non-secret; password + signing secret come from the
+            # per-user Secret (see the Render hermes Secret task).
+            - name: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
+              value: "{{ item.username }}"
+            - name: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: "hermes-env-{{ item.username }}"
+                  key: DASHBOARD_BASIC_AUTH_PASSWORD
+            # Stable token-signing key → sessions survive pod restarts.
+            - name: HERMES_DASHBOARD_BASIC_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: "hermes-env-{{ item.username }}"
+                  key: DASHBOARD_BASIC_AUTH_SECRET
+{% if _gateway_enabled %}
+            # Cross-container gateway liveness for the dashboard's "Gateway"
+            # badge: probe the in-pod gateway api_server /health (same pod,
+            # localhost). DEPRECATED env-var surface upstream (to be folded into
+            # a dashboard config key) but the ONLY cross-container mechanism
+            # today — the PID-based check needs a shared PID ns, which the s6
+            # gateway sidecar forbids. Re-check on image bumps.
+            - name: GATEWAY_HEALTH_URL
+              value: "http://127.0.0.1:{{ hermes.agent.gateway_api_port }}"
+            - name: GATEWAY_HEALTH_TIMEOUT
+              value: "3"
+{% endif %}
           ports:
-            - containerPort: 9119
+            - containerPort: {{ hermes.agent.dashboard_port }}
               name: dashboard
           resources:
             requests:
@@ -333,17 +403,16 @@ spec:
             # v2026.6.5 image tree is expected to work as baked.
             # - name: ui-tui
             #   mountPath: /opt/hermes/ui-tui
-          # Hermes binds to 127.0.0.1 only (we route external traffic via the
-          # in-pod Caddy sidecar). kubelet tcpSocket probes hit the pod IP,
-          # which Hermes does NOT listen on, so probes have to run inside the
-          # container against loopback. Python is the only thing we can rely
-          # on in the agent image (no curl/wget).
+          # Probe against loopback via python (the agent image has no
+          # curl/wget). Hermes now binds 0.0.0.0 so a kubelet tcpSocket probe
+          # on the pod IP would also work, but the in-container loopback exec
+          # is kept — it's port-accurate and independent of pod networking.
           livenessProbe:
             exec:
               command:
                 - "/opt/hermes/.venv/bin/python3"
                 - "-c"
-                - "import socket;socket.create_connection(('127.0.0.1',9119),1).close()"
+                - "import socket;socket.create_connection(('127.0.0.1',{{ hermes.agent.dashboard_port }}),1).close()"
             initialDelaySeconds: 60
             periodSeconds: 30
             failureThreshold: 5
@@ -352,64 +421,126 @@ spec:
               command:
                 - "/opt/hermes/.venv/bin/python3"
                 - "-c"
-                - "import socket;socket.create_connection(('127.0.0.1',9119),1).close()"
+                - "import socket;socket.create_connection(('127.0.0.1',{{ hermes.agent.dashboard_port }}),1).close()"
             initialDelaySeconds: 15
             periodSeconds: 10
-        # Caddy + caddy-security sidecar — terminates auth as an HMAC-JWT
-        # cookie session, then reverse-proxies to localhost:9119 (the bare
-        # hermes dashboard). caddy-security validates the cookie ONLY on the
-        # initial HTTP handshake — WebSocket upgrades and EventSource then
-        # pass through transparently. This is the reason we switched from
-        # oauth2-proxy v7 which would 403 every WS upgrade even with
-        # --skip-auth-route + --cookie-csrf-per-request=false.
-        # Image is greenpau/caddy-security packaged as `authcrunch/authcrunch`
-        # (multi-arch). Listens cleartext on {{ hermes.agent.proxy_port }};
-        # Traefik in front terminates TLS.
-        - name: caddy
-          image: "{{ hermes.caddy.image }}:{{ item.caddy_image_tag | default(hermes.caddy.image_tag) }}"
-          imagePullPolicy: IfNotPresent
-          command: ["caddy"]
-          args: ["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+        # RETIRED: Caddy + caddy-security auth sidecar. Replaced by hermes'
+        # built-in BasicAuthProvider (dashboard bound to 0.0.0.0, see the args +
+        # HERMES_DASHBOARD_BASIC_AUTH_* env on the hermes container). Kept
+        # commented out (with the init-caddy-data init + caddy-* volumes) for
+        # rollback. It terminated auth as an HMAC-JWT cookie and reverse-proxied
+        # to localhost:9119; caddy-security validated the cookie only on the
+        # initial handshake so WS/EventSource passed through (the reason we left
+        # oauth2-proxy, which 403'd every WS upgrade).
+        # - name: caddy
+        #   image: "{{ hermes.caddy.image }}:{{ item.caddy_image_tag | default(hermes.caddy.image_tag) }}"
+        #   imagePullPolicy: IfNotPresent
+        #   command: ["caddy"]
+        #   args: ["run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+        #   env:
+        #     - name: TZ
+        #       value: "{{ hermes.timezone }}"
+        #     - name: JWT_SIGNING_KEY
+        #       valueFrom:
+        #         secretKeyRef:
+        #           name: "hermes-caddy-{{ item.username }}"
+        #           key: signing_key
+        #   ports:
+        #     - containerPort: {{ hermes.agent.proxy_port }}
+        #       name: auth
+        #   resources:
+        #     requests:
+        #       cpu: "20m"
+        #       memory: "32Mi"
+        #     limits:
+        #       cpu: "200m"
+        #       memory: "128Mi"
+        #   volumeMounts:
+        #     - name: caddy-config
+        #       mountPath: /etc/caddy
+        #       readOnly: true
+        #     - name: caddy-data
+        #       mountPath: /secrets
+        #   livenessProbe:
+        #     tcpSocket:
+        #       port: {{ hermes.agent.proxy_port }}
+        #     initialDelaySeconds: 10
+        #     periodSeconds: 30
+        #   readinessProbe:
+        #     tcpSocket:
+        #       port: {{ hermes.agent.proxy_port }}
+        #     initialDelaySeconds: 5
+        #     periodSeconds: 10
+{% if _gateway_enabled %}
+        # Messaging-gateway sidecar — `hermes gateway run` auto-starts every
+        # platform whose creds are in /opt/data/.env (Email EMAIL_*, Matrix
+        # MATRIX_*, …) AND the api_server platform (enabled in config.yaml),
+        # whose 127.0.0.1:{{ hermes.agent.gateway_api_port }}/health the
+        # dashboard container probes (GATEWAY_HEALTH_URL) for the "Gateway"
+        # badge. Shares /opt/data with the dashboard (same sessions/skills/.env
+        # + gateway_state.json). Uses the agent image (the `hermes` CLI); its s6
+        # /init drops root→uid. No HTTP port exposed on the pod — health is
+        # localhost-only. shareProcessNamespace stays false (s6 needs PID 1), so
+        # the dashboard uses the HTTP probe, not a same-ns PID check.
+        - name: hermes-gateway
+          image: "nousresearch/hermes-agent:{{ item.image_tag | default(hermes.image_tag) }}"
+          imagePullPolicy: Always
+          args:
+            - "gateway"
+            - "run"
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
           env:
             - name: TZ
               value: "{{ hermes.timezone }}"
-            # JWT signing key used to sign the session cookie. Mounted from
-            # the per-user Secret as a file; Caddyfile reads it via `{env.}`.
-            - name: JWT_SIGNING_KEY
+            - name: HERMES_UID
+              value: "{{ item.uid }}"
+            - name: HERMES_GID
+              value: "{{ item.gid }}"
+            # Shared /opt/data so gateway.pid / gateway.lock / gateway_state.json
+            # land where the dashboard container reads them.
+            - name: HERMES_HOME
+              value: "/opt/data"
+            # api_server needs a >=16-char key to start (connect() refuses
+            # otherwise). localhost-only in-pod; the /health probe is
+            # unauthenticated so the dashboard never sends it.
+            - name: API_SERVER_KEY
               valueFrom:
                 secretKeyRef:
-                  name: "hermes-caddy-{{ item.username }}"
-                  key: signing_key
-          ports:
-            - containerPort: {{ hermes.agent.proxy_port }}
-              name: auth
+                  name: "hermes-env-{{ item.username }}"
+                  key: GATEWAY_API_SERVER_KEY
+            - name: API_SERVER_PORT
+              value: "{{ hermes.agent.gateway_api_port }}"
           resources:
             requests:
               cpu: "20m"
-              memory: "32Mi"
-            limits:
-              cpu: "200m"
               memory: "128Mi"
+            limits:
+              cpu: "{{ (item.gateway | default({})).get('cpu_limit', _email.get('cpu_limit', '500m')) }}"
+              memory: "{{ (item.gateway | default({})).get('memory_limit', _email.get('memory_limit', '512Mi')) }}"
           volumeMounts:
-            - name: caddy-config
-              mountPath: /etc/caddy
+            - name: data
+              mountPath: /opt/data
+{% if _seafile_workspace %}
+            - name: workspace-fuse
+              mountPath: /workspace
+              mountPropagation: HostToContainer
+{% else %}
+            - name: files
+              mountPath: /workspace
+{% endif %}
+{% if _email_enabled %}
+            # dgxarley local patch over plugins/platforms/email/adapter.py
+            # (Working/Done lifecycle, IMAP APPEND, PROCESS_EXISTING) — same
+            # subPath mount as the webui pod's gateway. Re-sync on image bump.
+            - name: hermes-email-patch
+              mountPath: /opt/hermes/plugins/platforms/email/adapter.py
+              subPath: adapter.py
               readOnly: true
-            # caddy-security writes to users.json (admin-bootstrap, password
-            # rotation, MFA enrollment) — Secret-mounted /secrets would be
-            # read-only and crash caddy on first start. Use a writable
-            # emptyDir, seeded by the init-caddy-data initContainer below.
-            - name: caddy-data
-              mountPath: /secrets
-          livenessProbe:
-            tcpSocket:
-              port: {{ hermes.agent.proxy_port }}
-            initialDelaySeconds: 10
-            periodSeconds: 30
-          readinessProbe:
-            tcpSocket:
-              port: {{ hermes.agent.proxy_port }}
-            initialDelaySeconds: 5
-            periodSeconds: 10
+{% endif %}
+{% endif %}
         # Tail agent.log onto stdout so `kubectl logs -c log-tail <pod>` works
         # without execing into the pod. Inherits the pod-level securityContext
         # (runs as <uid>:<gid>) and reads /opt/data RO. Logs don't exist until
@@ -466,20 +597,32 @@ spec:
         - name: seed-secret
           secret:
             secretName: "hermes-env-{{ item.username }}"
-        - name: caddy-config
+{% if _email_enabled %}
+        # Single-file patch mount for the gateway sidecar's email adapter —
+        # same ConfigMap the webui pod uses. Rendered by hermes.yml.
+        - name: hermes-email-patch
           configMap:
-            name: "hermes-caddy-{{ item.username }}"
+            name: hermes-email-patch
             items:
-              - key: Caddyfile
-                path: Caddyfile
-        - name: caddy-secret
-          secret:
-            secretName: "hermes-caddy-{{ item.username }}"
-            items:
-              - key: users.json
-                path: users.json
-        - name: caddy-data
-          emptyDir: {}
+              - key: adapter.py
+                path: adapter.py
+{% endif %}
+        # RETIRED with the Caddy auth sidecar (commented out above). Kept for
+        # rollback alongside the caddy container + init-caddy-data init.
+        # - name: caddy-config
+        #   configMap:
+        #     name: "hermes-caddy-{{ item.username }}"
+        #     items:
+        #       - key: Caddyfile
+        #         path: Caddyfile
+        # - name: caddy-secret
+        #   secret:
+        #     secretName: "hermes-caddy-{{ item.username }}"
+        #     items:
+        #       - key: users.json
+        #         path: users.json
+        # - name: caddy-data
+        #   emptyDir: {}
         # 2026-06-11: disabled with the copy-ui-tui initContainer (see above).
         # - name: ui-tui
         #   emptyDir: {}
