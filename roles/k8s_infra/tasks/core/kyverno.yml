@@ -9,8 +9,8 @@
 # --- INSTALL (runs on a normal play when kyverno_enabled and NOT kyverno_teardown) ---
 - name: Kyverno policy engine — install
   when:
-    - kyverno_enabled | default(true)
-    - not (kyverno_teardown | default(false))
+    - kyverno_enabled | default(true) | bool
+    - not (kyverno_teardown | default(false) | bool)
   block:
     - name: Install Kyverno via Kustomize
       vars:
@@ -221,7 +221,7 @@
 # `eso-namespace-secret-isolation` ClusterPolicy (kyverno_policy.yml) — after this,
 # ExternalSecrets are no longer namespace-isolation-enforced.
 - name: Kyverno policy engine — teardown
-  when: kyverno_teardown | default(false)
+  when: kyverno_teardown | default(false) | bool
   block:
     - name: Delete Kyverno namespace
       kubernetes.core.k8s:
@@ -230,14 +230,36 @@
         kind: Namespace
         name: kyverno
 
-    - name: Delete Kyverno CRDs, webhooks and cluster RBAC (label-selected)
+    # Cluster-scoped bulk deletes. Selectors verified against a live v1.x install;
+    # the old `part-of=kyverno` selector left EVERYTHING behind:
+    #   - CRDs span kyverno.io + policies.kyverno.io + reports.kyverno.io +
+    #     wgpolicyk8s.io + openreports.io (installed via this file's kustomization).
+    #     Only some carry `part-of=kyverno-crds`; the policies.kyverno.io and
+    #     openreports.io CRDs have NO label → match by API-group suffix instead.
+    #   - webhooks are runtime-managed, labelled `webhook.kyverno.io/managed-by=kyverno`.
+    #   - cluster RBAC is named `kyverno:*` / `kyverno-*` → match by the /kyverno prefix
+    #     (won't catch policy-reporter's *-kyverno-plugin roles — those are its own teardown).
+    # grep exit 1 on no-match is harmless mid-pipe; xargs -r skips an empty delete.
+    - name: Delete Kyverno CRDs (by API group suffix)
+      ansible.builtin.shell:
+        cmd: >-
+          kubectl get crd -o name
+          | grep -E '\.kyverno\.io$|\.wgpolicyk8s\.io$|\.openreports\.io$'
+          | xargs -r kubectl delete --ignore-not-found
+      changed_when: true
+
+    - name: Delete Kyverno admission webhooks (label webhook.kyverno.io/managed-by=kyverno)
       ansible.builtin.command:
         cmd: >-
-          kubectl delete {{ item }}
-          -l app.kubernetes.io/part-of=kyverno --ignore-not-found
-      loop:
-        - crd
-        - validatingwebhookconfiguration,mutatingwebhookconfiguration
-        - clusterrole,clusterrolebinding
+          kubectl delete validatingwebhookconfiguration,mutatingwebhookconfiguration
+          -l webhook.kyverno.io/managed-by=kyverno --ignore-not-found
+      changed_when: true
+
+    - name: Delete Kyverno cluster RBAC (name prefix kyverno)
+      ansible.builtin.shell:
+        cmd: >-
+          kubectl get clusterrole,clusterrolebinding -o name
+          | grep -E '/kyverno[:-]'
+          | xargs -r kubectl delete --ignore-not-found
       changed_when: true
 

@@ -9,8 +9,8 @@
 # --- INSTALL (runs on a normal play when kyverno_policy_enabled and NOT kyverno_policy_teardown) ---
 - name: Kyverno ESO isolation ClusterPolicy — install
   when:
-    - kyverno_policy_enabled | default(true)
-    - not (kyverno_policy_teardown | default(false))
+    - kyverno_policy_enabled | default(true) | bool
+    - not (kyverno_policy_teardown | default(false) | bool)
   block:
     - name: Create Kyverno policy for namespace-based secret isolation
       kubernetes.core.k8s:
@@ -62,7 +62,7 @@
 # engine running). After this, ExternalSecrets are accepted without the
 # namespace-prefix restriction.
 - name: Kyverno ESO isolation ClusterPolicy — teardown
-  when: kyverno_policy_teardown | default(false)
+  when: kyverno_policy_teardown | default(false) | bool
   block:
     - name: Delete Kyverno ESO isolation ClusterPolicy
       kubernetes.core.k8s:

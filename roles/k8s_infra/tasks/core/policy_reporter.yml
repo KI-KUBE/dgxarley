@@ -11,8 +11,8 @@
 # --- INSTALL (runs on a normal play when policy_reporter_enabled and NOT policy_reporter_teardown) ---
 - name: Kyverno Policy Reporter dashboard — install
   when:
-    - policy_reporter_enabled | default(true)
-    - not (policy_reporter_teardown | default(false))
+    - policy_reporter_enabled | default(true) | bool
+    - not (policy_reporter_teardown | default(false) | bool)
   block:
     - name: Set Policy Reporter FQDN
       ansible.builtin.set_fact:
@@ -328,7 +328,7 @@
 # namespace (incl. its IngressRoutes + cert), its cluster RBAC and the DNS record.
 # Does NOT touch Kyverno or the policy itself.
 - name: Kyverno Policy Reporter dashboard — teardown
-  when: policy_reporter_teardown | default(false)
+  when: policy_reporter_teardown | default(false) | bool
   block:
     - name: Set Policy Reporter FQDN
       ansible.builtin.set_fact:
