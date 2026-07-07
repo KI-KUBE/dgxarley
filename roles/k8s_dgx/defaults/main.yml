@@ -952,7 +952,11 @@ _sglang_extra_body_defaults: >-
 # Nothing is precompiled into the image; the container clones ComfyUI on first
 # start into hostPath and downloads the FLUX.1-schnell fp8 single-file checkpoint
 # (~17 GB, Apache-2.0, no HF gating) into models/checkpoints.
-comfyui_enabled: true
+# Enable-gate (import-level in tasks/main.yml). false = NOT deployed (no
+# namespace, no DNS). Teardown opt-in: `-e comfyui_teardown=true` deletes the
+# comfyui namespace and removes its DNS A record.
+comfyui_enabled: false
+comfyui_teardown: false
 comfyui_namespace: "comfyui"
 # Custom image built by scripts/build_comfyui_image.sh on top of NGC PyTorch
 # (nvcr.io/nvidia/pytorch:26.03-py3 default since 2026-04-26). NGC base is

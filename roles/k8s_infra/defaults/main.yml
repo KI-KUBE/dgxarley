@@ -25,6 +25,11 @@ alertmanager_gotify_url: "https://gotify.example.com"
 traefik_internal_allowlist:
   - "192.168.123.0/24"
   - "192.168.124.0/24"
+# Enable-gate (import-level). ON by default. Teardown opt-in:
+# `-e nut_exporter_teardown=true` removes the exporter Deployment/Service/Secret
+# from the shared `monitoring` namespace (the namespace itself is NOT deleted).
+nut_exporter_enabled: true
+nut_exporter_teardown: false
 nut_exporter_server: "192.168.124.100"
 nut_exporter_username: "monuser"
 nut_exporter_password: "changeme"
@@ -276,6 +281,24 @@ hermes:
   # isolation pattern as hermes.data_base. Pre-req: NFS export mounted on
   # k3smaster at this path before the pod starts.
   files_base: "/mnt/nfs/hermes-files"
+  # Working directory for the dashboard/TUI `!`-shell + agent file-tools
+  # (rendered into config.yaml `terminal.cwd`). Default /workspace = the
+  # files_base mount above. Per-user override via item.terminal_cwd.
+  terminal_cwd: "/workspace"
+  # Web-dashboard visual defaults (config.yaml `dashboard.theme` / `.font`),
+  # per-user override via item.dashboard_theme / item.dashboard_font. Merged as
+  # leaf keys (deep_override) so a user's other dashboard.* prefs survive.
+  # theme: a built-in name from _BUILTIN_DASHBOARD_THEMES (default/default-large/
+  #   nous-blue/midnight/ember/mono/cyberpunk/rose). "default-large" = Hermes
+  #   Teal with bigger fonts + roomier spacing.
+  # font: an id from _FONT_CHOICES (system-sans/-serif/-mono, inter, dm-sans, …);
+  #   "theme" = use the theme's own font.
+  # cyberpunk-lg = the shipped user-theme (files/hermes_dashboard_theme_cyberpunk_lg.yaml),
+  # installed into every dashboard pod's $HERMES_HOME/dashboard-themes/ by the
+  # init-dashboard-themes initContainer. font "theme" = use the theme's own font
+  # (Share Tech Mono) rather than an override — the neon-mono cyberpunk look.
+  dashboard_theme: "cyberpunk-lg"
+  dashboard_font: "theme"
   default_model: "{{ litellm_hermes_alias_model }}"  # stable alias → current SGLang model
   # Auxiliary VISION model for image tasks (vision_analyze). The main model
   # behind hermes-default is text-only, so Hermes falls back to this aux model to
@@ -454,7 +477,13 @@ hermes_users: []
 # Config: non-sensitive model routing lives in a mounted config.toml (ConfigMap);
 # only DB_CONNECTION_URI / LLM_OPENAI_API_KEY / AUTH_JWT_SECRET are env (Secret).
 # env overrides config.toml in Honcho's settings precedence.
-honcho_enabled: true
+# Enable-gate (import-level in tasks/main.yml). false = NOT deployed at all
+# (no namespace, no DB, no ingress). Disabling does NOT remove an existing
+# install — that's the opt-in teardown: `-e honcho_teardown=true` (deletes the
+# honcho namespace; the honcho Postgres DB is deliberately PRESERVED — drop it
+# by hand only to abandon the stored memories).
+honcho_enabled: false
+honcho_teardown: false
 honcho_namespace: "honcho"
 # PINNED — Honcho moves fast and auto-migrates the DB schema on api start, so a
 # pinned tag avoids surprise schema changes on pull. Bump deliberately; re-check
@@ -549,7 +578,11 @@ honcho_embedding_dimensions: 2560
 # Reranker defaults to `rrf` (reciprocal rank fusion) so NO local cross-encoder
 # model is downloaded — keeps the pods stateless and airgap-friendly, matching
 # the no-PVC honcho design. Flip hindsight_reranker_provider to enable reranking.
-hindsight_enabled: true
+# Enable-gate (import-level). false = NOT deployed. Teardown is opt-in:
+# `-e hindsight_teardown=true` deletes the hindsight namespace; the hindsight
+# Postgres DB is PRESERVED (drop by hand to abandon stored memories).
+hindsight_enabled: false
+hindsight_teardown: false
 hindsight_namespace: "hindsight"
 # PINNED to the helm chart appVersion. Both images share this tag. Bump
 # deliberately — re-check helm/hindsight/values.yaml for new/renamed env keys

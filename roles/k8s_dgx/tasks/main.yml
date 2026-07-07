@@ -71,7 +71,9 @@
   ansible.builtin.import_tasks: litellm.yml
   tags: litellm
 
-- name: Deploy ComfyUI image generation playground
+# Install + teardown both live in comfyui.yml (gated inside on comfyui_enabled /
+# comfyui_teardown), so the import itself carries no gate.
+- name: Deploy/teardown ComfyUI image generation playground
   ansible.builtin.import_tasks: comfyui.yml
   tags: comfyui
 

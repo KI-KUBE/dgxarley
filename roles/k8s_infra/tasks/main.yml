@@ -231,7 +231,10 @@
     - isk3smaster is defined
     - isk3smaster
 
-- name: Deploy NUT exporter for UPS monitoring
+# Install + teardown both live in the component file (gated inside on
+# <x>_enabled / <x>_teardown), so the import is gated only on isk3smaster —
+# same pattern as the eso/kyverno components.
+- name: Deploy/teardown NUT exporter for UPS monitoring
   import_tasks: monitoring/nut_exporter.yml
   tags: [nut_exporter, promstack]
   when:
@@ -263,14 +266,14 @@
     - isk3smaster is defined
     - isk3smaster
 
-- name: Deploy Honcho AI memory backend
+- name: Deploy/teardown Honcho AI memory backend
   import_tasks: apps/honcho.yml
   tags: honcho
   when:
     - isk3smaster is defined
     - isk3smaster
 
-- name: Deploy Hindsight agent memory backend
+- name: Deploy/teardown Hindsight agent memory backend
   import_tasks: apps/hindsight.yml
   tags: hindsight
   when:
