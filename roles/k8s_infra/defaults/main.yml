@@ -83,6 +83,9 @@ kyverno_version: "v1.18.1"
 
 # KCEVE KVM RS232 serial device on k3smaster (USB-to-RS232 adapter)
 kceve_kvm_serial_device: "/dev/ttyACM0"
+# Number of ports on the KCEVE KVM switch (4-port and 10-port variants exist).
+# Injected into the web pod as KCEVE_KVM_PORTS env var.
+kceve_kvm_num_ports: 10
 
 # === Seafile (CE) ===
 # Public hostname rendered into Ingress + SEAFILE_SERVER_HOSTNAME.
@@ -300,12 +303,14 @@ hermes:
     image: "ghcr.io/nesquena/hermes-webui"
     image_tag: "latest"
     port: 8787
-    enabled_default: true            # deploy the webui pod by default
+    enabled_default: false            # deploy the webui pod by default
   # Native dashboard (`hermes dashboard`) + its Caddy auth sidecar.
   agent:
     proxy_port: 9118
-    dashboard_enabled_default: false
-    dashboard_tui_default: false     # chat tab inside the dashboard (needs dashboard_enabled_default)
+    dashboard_enabled_default: true
+    # NOTE: the former `dashboard_tui_default` gate was removed 2026-07. Upstream
+    # dropped the `--tui` flag in v0.16.0 (PR #38591); the dashboard chat is on
+    # by default now, so the gate was a no-op. See UPSTREAM_HERMES_AGENT_TUI_BUG.md.
   # Caddy sidecar in front of the agent dashboard. Cookie-session auth (via the
   # caddy-security plugin) so WebSocket (TUI/PTY) and EventSource (events feed)
   # work — BasicAuth credentials are NOT auto-included by browsers on those
@@ -367,7 +372,6 @@ hermes:
 # Schema: { username, uid, gid, litellm_token,
 #           litellm_model?, basicauth_password?, webui_password?,
 #           dashboard_enabled? (default true),
-#           dashboard_tui?     (default true),
 #           webui_enabled?     (default false),
 #           hermes_debug?      (default false),
 #           email?: {           (default disabled — omit block to skip)

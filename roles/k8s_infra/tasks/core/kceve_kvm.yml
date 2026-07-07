@@ -3,7 +3,8 @@
 # KCEVE KVM1001A — Web UI for RS232 KVM switch control
 #
 # Deploys a lightweight Python web server that controls the KCEVE KVM1001A
-# 10-port KVM switch via RS232 serial (USB adapter on k3smaster).
+# KVM switch via RS232 serial (USB adapter on k3smaster). Port count
+# (4-port / 10-port variants) via kceve_kvm_num_ports → KCEVE_KVM_PORTS env.
 # The host device /dev/ttyACM0 is passed into the pod.
 #
 # Requires: USB-to-RS232 adapter (UT-E102 or similar) connected to k3smaster.
@@ -77,8 +78,11 @@
                   - -c
                   - |
                     apt update && apt -y install tini && \
-                    pip install --quiet --no-cache-dir 'dgxarley[web]>=0.0.36' && \
+                    pip install --quiet --no-cache-dir 'dgxarley[web]>=0.0.46' && \
                     exec tini -s -- kceve-kvm-web -d "{{ kceve_kvm_serial_device }}" -p 8080 -t 6
+                env:
+                  - name: KCEVE_KVM_PORTS
+                    value: "{{ kceve_kvm_num_ports }}"
                 resources:
                   requests:
                     cpu: 50m
