@@ -1,7 +1,7 @@
 ---
 # External Secrets Operator (ESO) — INSTALL.
 # Split out of the former eso_keyverno.yml (2026-07). Gated by `eso_enabled`
-# (see roles/k8s_infra/defaults/main.yml) at the import in main.yml; teardown
+# (see roles/k8s_infra/defaults/main/secret_management.yml) at the import in main.yml; teardown
 # is the second block in THIS file (`-e eso_teardown=true`). Kyverno, its ESO-isolation
 # policy and Policy-Reporter are now separate components (kyverno.yml,
 # kyverno_policy.yml, policy_reporter.yml) — Kyverno exists ONLY to enforce the
@@ -29,7 +29,7 @@
 
     - name: Install External Secrets Operator via Kustomize
       vars:
-        # eso_version now lives in roles/k8s_infra/defaults/main.yml (next to
+        # eso_version now lives in roles/k8s_infra/defaults/main/secret_management.yml (next to
         # sealed_secrets_version), single source of truth for the manifest URL.
         eso_temp_dir: "/tmp/eso-install"
       block:

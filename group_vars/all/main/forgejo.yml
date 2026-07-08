@@ -1,0 +1,32 @@
+---
+# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+# Forgejo (Gitea fork) — dummy values; real secrets in group_vars/all/vault/.
+# hash_behaviour=replace: vault.yml's `forgejo:` overrides this entirely, so the
+# operational keys are duplicated. Keep in sync with vault.yml and
+# roles/k8s_infra/defaults/main/forgejo.yml. DB password = postgresql_forgejo_password.
+# secret_key/internal_token/*_jwt_secret are Forgejo's symmetric keys (generate
+# with `forgejo generate secret <NAME>` or `openssl rand -hex 32`); rotating them
+# loses all encrypted data (2FA/OAuth/sessions). admin is bootstrapped once.
+forgejo:
+  data_base: "/mnt/nfs/forgejo-data"
+  namespace: "forgejo"
+  hostname: "forgejo.{{ dns_external_domain_suffix }}"
+  time_zone: "Europe/Berlin"
+  app_name: "Forgejo"
+  uid: 1000
+  gid: 1000
+  disable_ssh: true
+  disable_registration: true
+  trusted_proxies: "10.68.0.0/16,10.69.0.0/16"
+  secret_key: "CHANGEME_SECRET_KEY"
+  internal_token: "CHANGEME_INTERNAL_TOKEN"
+  oauth2_jwt_secret: "CHANGEME_OAUTH2_JWT"
+  lfs_jwt_secret: "CHANGEME_LFS_JWT"
+  admin:
+    username: "admin"
+    email: "admin@example.com"
+    password: "changeme"
+  images:
+    server: {repo: "codeberg.org/forgejo/forgejo", tag: "15.0.3"}
+  resources:
+    server: {memory_request: "256Mi", memory_limit: "1Gi"}

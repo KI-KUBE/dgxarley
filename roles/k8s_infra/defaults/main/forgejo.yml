@@ -1,0 +1,35 @@
+---
+# === Forgejo (Gitea fork) ===
+# Self-hosted git forge. DB lives on the shared PostgreSQL (postgresql_forgejo_password
+# above); all other secrets are in this dict. With hash_behaviour=replace, vault.yml's
+# `forgejo:` REPLACES this whole block — keep all keys in sync across this file,
+# group_vars/all/main/ and group_vars/all/vault/ (same rule as seafile).
+#   data_base      — /data (git repos + app.ini), hostPath on the NFS pool
+#   disable_ssh    — true = HTTPS-only (Traefik can't proxy raw TCP SSH)
+#   secret_key / internal_token / *_jwt_secret — symmetric keys; MUST be stable
+#                    across restarts or encrypted data (2FA/OAuth/sessions) is lost.
+#   admin.*        — first admin, bootstrapped once via `forgejo admin user create`.
+forgejo:
+  data_base: "/mnt/nfs/forgejo-data"
+  namespace: "forgejo"
+  hostname: "forgejo.{{ dns_external_domain_suffix }}"
+  time_zone: "Europe/Berlin"
+  app_name: "Forgejo"
+  uid: 1000
+  gid: 1000
+  disable_ssh: true
+  disable_registration: true
+  # Traefik pods source X-Forwarded-For from the K3s pod CIDR.
+  trusted_proxies: "10.68.0.0/16,10.69.0.0/16"
+  secret_key: "CHANGEME_SECRET_KEY"
+  internal_token: "CHANGEME_INTERNAL_TOKEN"
+  oauth2_jwt_secret: "CHANGEME_OAUTH2_JWT"
+  lfs_jwt_secret: "CHANGEME_LFS_JWT"
+  admin:
+    username: "admin"
+    email: "admin@example.com"
+    password: "changeme"
+  images:
+    server: { repo: "codeberg.org/forgejo/forgejo", tag: "15.0.3" }
+  resources:
+    server: { memory_request: "256Mi", memory_limit: "1Gi" }
