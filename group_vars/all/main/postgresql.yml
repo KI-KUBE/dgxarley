@@ -1,0 +1,9 @@
+---
+# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+# PostgreSQL
+postgresql_postgres_password: "changeme"
+postgresql_openwebui_password: "changeme"
+postgresql_litellm_password: "changeme"
+postgresql_honcho_password: "changeme"
+postgresql_hindsight_password: "changeme"
+postgresql_forgejo_password: "changeme"
