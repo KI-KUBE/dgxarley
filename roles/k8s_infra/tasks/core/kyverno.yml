@@ -14,7 +14,7 @@
   block:
     - name: Install Kyverno via Kustomize
       vars:
-        # kyverno_version now lives in roles/k8s_infra/defaults/main.yml (next to
+        # kyverno_version now lives in roles/k8s_infra/defaults/main/secret_management.yml (next to
         # eso_version/sealed_secrets_version), single source of truth for the manifest URL.
         kyverno_temp_dir: "/tmp/kyverno-install"
       block:
