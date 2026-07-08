@@ -89,13 +89,13 @@ frees the old `hub` copy, only ~200 GiB is free. Set it conservatively **now**,
 raise it in Phase 6:
 
 ```yaml
-# roles/juicefs_storage/defaults/main.yml (or host_vars/<host>/main.yml per node)
+# roles/juicefs_storage/defaults/main.yml (or host_vars/<host>/main/juicefs.yml per node)
 juicefs_cache_size_mib: 150_000   # ~146 GiB — safe under the ~200 GiB free today
 ```
 
 Underscores are fine (`150_000` parses as int `150000`; the `--cache-size` flag
 renders without the underscore). Per-node override works via
-`host_vars/<host>/main.yml` (normal precedence: role defaults < host_vars).
+`host_vars/<host>/main/juicefs.yml` (new topic file; normal precedence: role defaults < host_vars).
 
 ---
 
