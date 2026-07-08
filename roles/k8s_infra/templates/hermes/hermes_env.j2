@@ -1,4 +1,16 @@
 OPENAI_API_KEY={{ item.litellm_token }}
+{# Per-user custom providers (extra selectable OpenAI-compatible backends). Each
+   entry's key rides the Secret-backed .env only as TRANSPORT under a name-derived
+   var CUSTOM_PROVIDER_<NAME>_API_KEY — Hermes never reads it as env-based provider
+   auth; merge-config injects it as custom_providers[].api_key (config-var) at
+   startup, keeping it out of the non-secret ConfigMap. Entries that set their own
+   `key_env` opt out (Hermes reads their env var directly). The <NAME> sanitizer
+   (upper + non-alnum→_) MUST match hermes_merge_config.py. See hermes_config.yaml.j2. #}
+{% for cp in item.custom_providers | default([]) %}
+{% if cp.get('api_key') and cp.key_env is not defined %}
+CUSTOM_PROVIDER_{{ cp.name | upper | regex_replace('[^A-Z0-9]', '_') }}_API_KEY={{ cp.api_key }}
+{% endif %}
+{% endfor %}
 SEARXNG_URL={{ hermes_searxng_url | default('http://searxng.searxng.svc.cluster.local:' ~ searxng_port) }}
 {% set email = item.email | default({}) %}
 {% if email.get('enabled', hermes.email.enabled_default) %}

@@ -12,6 +12,15 @@ model:
   provider: "custom"
   default: "{{ (item.litellm_model | default('')) or hermes.default_model }}"
   base_url: "{{ hermes.litellm_url }}/v1"
+{% set _context_length = (item.context_length | default('')) or (hermes.context_length | default('')) %}
+{% if _context_length %}
+  # Pinned context window. hermes-default is a LiteLLM alias with no probe-able
+  # context metadata, so without this Hermes defaults to 256,000 ("probe-down"
+  # INFO in agent.log). MUST match the SGLang model currently behind the alias
+  # (sglang_served_model_name) — update hermes.context_length on a model swap, or
+  # set it "" to restore the 256k auto-default. Per-user override: item.context_length.
+  context_length: {{ _context_length }}
+{% endif %}
 {% set vision_model = (item.vision_model | default('')) or hermes.vision_model %}
 {% if vision_model %}
 
@@ -30,6 +39,34 @@ auxiliary:
   vision:
     model: "{{ vision_model }}"
     base_url: "{{ hermes.litellm_url }}/v1"
+{% endif %}
+{% set _custom_providers = item.custom_providers | default([]) %}
+{% if _custom_providers %}
+
+# ADDITIONAL, user-selectable backends (Hermes' native top-level custom_providers).
+# Each appears in the `hermes model` picker; switch mid-session with the triple
+# syntax provider:model. These do NOT change model.default (the LiteLLM-backed
+# hermes-default main model). api_key is deliberately NOT set here (this file is the
+# non-secret ConfigMap): the merge-config initContainer injects each entry's
+# api_key at startup from CUSTOM_PROVIDER_<NAME>_API_KEY in the Secret .env
+# (name-derived), keeping keys out of the ConfigMap. Inline api_key (not key_env)
+# per the deployment design; Hermes resolves key_env first, else inline api_key
+# (hermes_cli/runtime_provider.py). Set `key_env` on an entry to opt out of the
+# injection and have Hermes read that env var directly.
+custom_providers:
+{% for cp in _custom_providers %}
+  - name: "{{ cp.name }}"
+    base_url: "{{ cp.base_url }}"
+{% if cp.api_mode is defined %}
+    api_mode: "{{ cp.api_mode }}"
+{% endif %}
+{% if cp.model is defined %}
+    model: "{{ cp.model }}"
+{% endif %}
+{% if cp.key_env is defined %}
+    key_env: "{{ cp.key_env }}"
+{% endif %}
+{% endfor %}
 {% endif %}
 
 terminal:

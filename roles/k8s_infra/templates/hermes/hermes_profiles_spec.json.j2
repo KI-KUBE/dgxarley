@@ -1,0 +1,29 @@
+{# Non-secret per-profile spec, consumed by hermes_merge_config.py. One JSON object
+   per entry in the user's `profiles:` list. NO api_key values here — those live in
+   the Secret (hermes_profiles_secrets.json.j2), are folded into the profile .env and
+   injected at startup. Each profile becomes /opt/data/profiles/<name>/ whose
+   config.yaml is the DEFAULT profile's config deep-merged with these overrides
+   (list_profiles() discovers profiles by scanning that dir — no registry needed).
+     model_kind=custom   → main model points DIRECT at the profile's `provider:`
+                           endpoint (own key); vision aux stays on LiteLLM (separate
+                           api_key field, no conflict).
+     model_kind=litellm  → inherits the default LiteLLM backend; only model.default
+                           changes (empty → keep the inherited hermes-default).
+     model_api_key_env   → the .env var that supplies model.api_key for this profile. #}
+[
+{% for p in item.profiles | default([]) %}
+{% set prov = p.provider | default({}) %}
+{% set _san = p.name | upper | regex_replace('[^A-Z0-9]', '_') %}
+{% set _mdefault = (prov.model | default('')) if prov.get('api_key') else (p.model | default('')) %}
+{% set _baseurl = (prov.base_url | default('')) if prov.get('api_key') else none %}
+  {
+    "name": {{ p.name | to_json }},
+    "soul": {{ (p.soul | default('')) | to_json }},
+    "terminal_cwd": {{ (p.terminal_cwd | default('')) | to_json }},
+    "model_kind": {{ ('custom' if prov.get('api_key') else 'litellm') | to_json }},
+    "model_default": {{ _mdefault | to_json }},
+    "base_url": {{ _baseurl | to_json }},
+    "model_api_key_env": {{ (('PROFILE_' ~ _san ~ '_MODEL_API_KEY') if prov.get('api_key') else 'OPENAI_API_KEY') | to_json }}
+  }{{ "," if not loop.last else "" }}
+{% endfor %}
+]

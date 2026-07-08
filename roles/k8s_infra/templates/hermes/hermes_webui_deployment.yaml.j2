@@ -75,6 +75,9 @@ spec:
         checksum/env:         "{{ lookup('template', 'hermes/hermes_env.j2')         | hash('sha256') }}"
         # Roll the pod when the shared merge-config script changes.
         checksum/merge:       "{{ lookup('file', 'hermes_merge_config.py') | hash('sha256') }}"
+        # Roll on per-profile seed changes (webui-only users have no agent pod, so
+        # this pod's merge-config is what seeds /opt/data/profiles/<name>/).
+        checksum/profiles:    "{{ (lookup('template', 'hermes/hermes_profiles_spec.json.j2') ~ lookup('template', 'hermes/hermes_profiles_secrets.json.j2')) | hash('sha256') }}"
         # Hash the raw login secret so rotating basicauth_password (which is
         # only referenced by the Caddy users.json ConfigMap and the
         # WEBUI_PASSWORD Secret key — neither of which triggers a pod
