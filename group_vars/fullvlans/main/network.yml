@@ -1,4 +1,5 @@
 ---
+# Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
 # DNS server and gateway for VLAN 123 + 124 (overridden by vault.yml)
 fullvlans_dns_server: "192.168.123.1"
 fullvlans_gateway: "192.168.123.1"

@@ -1,0 +1,33 @@
+---
+# Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
+# WiFi Interface deaktivieren (kein DHCP, kein Link-Local)
+disable_wifi_iface: "wlP9s9"
+
+# OVS Bridge auf den Sparks (VLAN 191 als einziges/untagged VLAN)
+wantsopenvswitch: true
+ovs_bridge_name: "br0"
+
+# Network (overridden by vault.yml)
+dgxsparks_dns_server: "192.168.123.1"
+dgxsparks_gateway: "192.168.124.1"
+
+ovs_vlans:
+  - id: 124
+    primary: true
+    untagged: true
+    dhcp4: false
+    dhcp6: false
+    link_local: "[ ]"
+    addresses:
+      - "192.168.124.{{ host_octet }}/24"
+    nameservers:
+      addresses:
+        - "{{ dgxsparks_dns_server }}"
+    routes:
+      - to: default
+        via: "{{ dgxsparks_gateway }}"
+        metric: 100
+
+# DCBX/PFC: switch LLDP-DCBX doesn't auto-configure the ConnectX-7,
+# so we set trust=dscp + PFC on tc3 manually to match the CRS812 RoCE config.
+set_dcbx_manually: true
