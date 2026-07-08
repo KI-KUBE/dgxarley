@@ -1,0 +1,56 @@
+---
+# ============================================================================
+# vLLM — drop-in alternative to SGLang for distributed LLM inference.
+# Uses the same model profiles, QSFP network, and HF cache.
+# Key differences from SGLang:
+#   - Multi-node via --distributed-executor-backend mp (no Ray needed)
+#   - No HAProxy sidecar (no EADDRINUSE bug)
+#   - EP is a boolean flag (--enable-expert-parallel), not numeric
+#   - --enforce-eager instead of --disable-cuda-graph
+#   - No generation_config.json patching (sampling defaults via API)
+# Both deployments can coexist but NOT run simultaneously (GPU contention).
+# ============================================================================
+vllm_namespace: "vllm"
+vllm_image: "scitrera/dgx-spark-vllm:0.17.0-t5"
+
+# vLLM reuses sglang_model_profiles — same model, same quantization, same params.
+# Select the active model independently from SGLang.
+vllm_model: "{{ sglang_model }}"
+
+# Derived from the shared model profile (same as sglang_* equivalents)
+vllm_context_length: "{{ sglang_model_profiles[vllm_model].context_length }}"
+vllm_kv_cache_dtype: "{{ sglang_model_profiles[vllm_model].kv_cache_dtype }}"
+vllm_mem_fraction: "{{ sglang_model_profiles[vllm_model].mem_fraction_static }}"
+vllm_reasoning_parser: "{{ sglang_model_profiles[vllm_model].reasoning_parser | default('') }}"
+vllm_tool_call_parser: "{{ sglang_model_profiles[vllm_model].tool_call_parser | default('') }}"
+vllm_quantization: "{{ sglang_model_profiles[vllm_model].quantization | default('') }}"
+vllm_load_format: "{{ sglang_model_profiles[vllm_model].load_format | default('auto') }}"
+# Mistral-native checkpoints (params.json + consolidated safetensors + tekken,
+# NO config.json — e.g. mistralai/Mistral-Large-3-*-NVFP4). When true, vllm_launch.sh
+# adds --config-format mistral --load-format mistral --tokenizer-mode mistral so vLLM
+# loads the consolidated format directly. Inert (false) for all HF-format models.
+# NOTE: this is the vLLM path ONLY. SGLang 0.5.12 ALSO loads the same Mistral-native
+# checkpoints, automatically (name-triggered via is_mistral_model, no flag) — see the
+# FORMAT section in mistralai-mistral-large-3-*-nvfp4.yml. This key is the :8001 lane.
+vllm_mistral_format: "{{ sglang_model_profiles[vllm_model].mistral_format | default(false) }}"
+vllm_served_model_name: "{{ vllm_model }}"
+vllm_chat_template_kwargs: "{{ sglang_model_profiles[vllm_model].chat_template_kwargs | default({}) }}"
+
+# Expert parallelism: boolean flag in vLLM (--enable-expert-parallel).
+# EP size is implicit: EP = TP × DP. With TP=2, DP=1, EP=2.
+vllm_enable_ep: "{{ (sglang_model_profiles[vllm_model].ep_size | default(1) | int) > 1 }}"
+
+# CUDA graph: vLLM uses --enforce-eager to disable (no granular batch-size control).
+# Enable eager mode for MoE models on SM121 where CUDA graph capture is slow/fragile.
+vllm_enforce_eager: "{{ sglang_model_profiles[vllm_model].disable_deep_gemm | default(false) }}"
+
+vllm_nnodes: 2
+# Tensor parallelism: auto-derived from nnodes (1 GPU per DGX Spark).
+vllm_tp: "{{ vllm_nnodes }}"
+# Port 8001 to avoid clash with SGLang (8000) — both can have Services simultaneously.
+vllm_port: 8001
+vllm_dist_timeout: 1800
+vllm_wait_timeout: 1200
+
+# Max concurrent sequences (equivalent to sglang_max_running_requests)
+vllm_max_num_seqs: 16

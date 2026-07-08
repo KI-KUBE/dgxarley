@@ -1,0 +1,6 @@
+---
+# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+# Traefik IP-Allowlist for internal services (k8s_infra + k8s_dgx)
+traefik_internal_allowlist:
+  - "192.168.123.0/24"
+  - "192.168.124.0/24"

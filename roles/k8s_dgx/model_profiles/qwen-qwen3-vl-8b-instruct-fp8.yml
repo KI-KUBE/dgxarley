@@ -62,7 +62,7 @@ _model_profile:
     # HIGH mem_fraction_static so the memory-derived ceiling is NOT the binding
     # cap — the instance's absolute max_total_tokens binds instead, making the
     # footprint deterministic (same pattern as the co-located-instance note in
-    # defaults/main.yml). Real allocation is bounded by max_total_tokens, not by
+    # defaults/main/sglang_instances.yml). Real allocation is bounded by max_total_tokens, not by
     # 0.85·127.5 GB, so this does NOT try to grab 108 GB.
     mem_fraction_static: "0.85"
     max_running_requests: 4   # low-QPS companion; small pool can't sustain high concurrency × context anyway
