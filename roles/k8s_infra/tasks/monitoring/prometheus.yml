@@ -346,6 +346,41 @@
                     ups: '{{ nut_ups_secondary_name }}'
             {% endif %}
 
+            {% if juicefs_enabled | default(false) | bool and juicefs_metrics_enabled | default(false) | bool %}
+            # JuiceFS client metrics — bare-metal systemd FUSE mounts (storage.yml),
+            # NOT k8s pods: static targets on the nodes' k3s-VLAN IPs (host_vars
+            # vault). instance is rewritten IP:port → hostname for dashboard
+            # readability (dashboard 20794 groups by instance). Hosts with
+            # juicefs_mount_enabled=false (e.g. spark5 until its QSFP is cabled)
+            # are skipped — no permanently-dead targets. The target list is built
+            # output-free ({% raw %}{% set %}{% endraw %} loops) and emitted flow-style via to_json:
+            # a block-style loop body would inherit the tag lines' indentation as
+            # residue (Ansible templates run trim_blocks WITHOUT lstrip_blocks)
+            # and break the YAML. The comment right below the tags absorbs the
+            # residual whitespace.
+            {% set _jfs_targets = [] %}
+            {% for h in groups[juicefs_mount_group] | default([]) if hostvars[h].juicefs_mount_enabled | default(true) | bool %}{% set _ = _jfs_targets.append({'targets': [hostvars[h].k3s_node_ip ~ ':' ~ juicefs_metrics_port], 'labels': {'node': h}}) %}{% endfor %}
+            {% if juicefs_mount_master | default(false) | bool %}{% for h in groups['k3sserver'] | default([]) if hostvars[h].isk3smaster | default(false) %}{% set _ = _jfs_targets.append({'targets': [hostvars[h].k3s_node_ip ~ ':' ~ juicefs_metrics_port], 'labels': {'node': h}}) %}{% endfor %}{% endif %}
+            # (targets: every enabled mount node, plus the master when
+            #  juicefs_mount_master is on)
+            - job_name: 'juicefs'
+              static_configs: {{ _jfs_targets | to_json }}
+              relabel_configs:
+                - source_labels: [node]
+                  target_label: instance
+
+            # Valkey (JuiceFS metadata engine) via prometheus-redis-exporter on
+            # the storage node — bare-metal apt install, like the backend itself.
+            - job_name: 'juicefs-valkey'
+              static_configs:
+                - targets: ['{{ hostvars[juicefs_storage_node].k3s_node_ip }}:{{ juicefs_valkey_exporter_port }}']
+                  labels:
+                    node: '{{ juicefs_storage_node }}'
+              relabel_configs:
+                - source_labels: [node]
+                  target_label: instance
+            {% endif %}
+
         alert_rules.yml: |
           groups:
           - name: cronjob-alerts
@@ -418,6 +453,42 @@
               annotations:
                 summary: "DCGM exporter is unreachable on {{ '{{' }} $labels.instance {{ '}}' }}"
                 description: "Cannot scrape GPU metrics — driver may have wedged; a PSU power-cycle may be required."
+          {% if juicefs_enabled | default(false) | bool and juicefs_metrics_enabled | default(false) | bool %}
+
+          - name: juicefs-alerts
+            rules:
+            - alert: JuiceFSMountDown
+              expr: up{job="juicefs"} == 0
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: "JuiceFS mount on {{ '{{' }} $labels.instance {{ '}}' }} is not scrapeable"
+                description: "The juicefs FUSE mount process on {{ '{{' }} $labels.instance {{ '}}' }} is down or unreachable — {{ juicefs_mount_path }} is likely broken on that node."
+
+            # redis_up==0: exporter reaches the node but Valkey refuses/auth-fails.
+            # up==0: the exporter itself is unreachable. Either way the metadata
+            # engine is unmonitored/down → the ENTIRE filesystem is at risk.
+            - alert: JuiceFSMetaEngineDown
+              expr: redis_up{job="juicefs-valkey"} == 0 or up{job="juicefs-valkey"} == 0
+              for: 2m
+              labels:
+                severity: critical
+              annotations:
+                summary: "JuiceFS metadata engine (Valkey) is down or unmonitored"
+                description: "redis_exporter on {{ '{{' }} $labels.instance {{ '}}' }} reports Valkey unreachable (or is itself down) — without metadata, every JuiceFS mount stalls."
+
+            # RustFS has NO native /metrics (OTel push only, rustfs#3154), so this
+            # client-side error counter IS the RustFS health probe.
+            - alert: JuiceFSObjectErrors
+              expr: sum by (instance) (rate(juicefs_object_request_errors[5m])) > 0
+              for: 5m
+              labels:
+                severity: warning
+              annotations:
+                summary: "JuiceFS object-storage errors on {{ '{{' }} $labels.instance {{ '}}' }}"
+                description: "Clients see RustFS request errors ({{ '{{' }} $value {{ '}}' }}/s) — check rustfs.service and the USB-SSD on the storage node."
+          {% endif %}
   register: prometheus_config
 
 - name: Create prometheus Deployment

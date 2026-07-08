@@ -128,6 +128,12 @@
               env:
                 - name: GRAFANA_DASHBOARD_CACHE_TTL_DAYS
                   value: "{{ grafana_dashboard_cache_ttl_days | default(7) | string }}"
+                # Gates the JuiceFS + Valkey dashboard blocks in the (static,
+                # non-templated) download script — see download-dashboards.sh.
+                # Coupled to the master switch so no dashboards appear for a
+                # not-yet-deployed filesystem.
+                - name: JUICEFS_DASHBOARDS_ENABLED
+                  value: "{{ (juicefs_enabled | default(false) | bool and juicefs_metrics_enabled | default(false) | bool) | string | lower }}"
               volumeMounts:
               - name: download-script
                 mountPath: /scripts

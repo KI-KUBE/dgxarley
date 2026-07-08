@@ -44,6 +44,39 @@
     enabled: true
     state: started
 
+# --- Valkey metrics exporter (gated by juicefs_metrics_enabled) --------------
+# oliver006/redis_exporter via the noble apt package (1.54 — old vs upstream
+# 1.86, but plenty for dashboard 763 + the redis_up alert; Valkey is supported
+# upstream). Scraped by the in-cluster Prometheus (job `juicefs-valkey` in
+# roles/k8s_infra/tasks/monitoring/prometheus.yml); iptables opens the port
+# from k3snodes (common role). Like the other <x>_enabled gates in this repo,
+# flipping the flag OFF only skips install — it deletes/stops nothing.
+- name: Install prometheus-redis-exporter (Valkey metrics)
+  ansible.builtin.apt:
+    name: prometheus-redis-exporter
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: juicefs_metrics_enabled | default(false) | bool
+
+- name: Configure prometheus-redis-exporter (Valkey auth + listen port)
+  ansible.builtin.template:
+    src: etc_default_prometheus-redis-exporter.j2
+    dest: /etc/default/prometheus-redis-exporter
+    owner: root
+    group: root
+    mode: "0600"
+  notify: restart redis exporter
+  no_log: true  # contains the Valkey requirepass
+  when: juicefs_metrics_enabled | default(false) | bool
+
+- name: Enable and start prometheus-redis-exporter
+  ansible.builtin.systemd:
+    name: prometheus-redis-exporter
+    enabled: true
+    state: started
+  when: juicefs_metrics_enabled | default(false) | bool
+
 # --- RustFS (S3 object store) ----------------------------------------------
 - name: Create rustfs system group
   ansible.builtin.group:

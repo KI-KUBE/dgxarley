@@ -1,0 +1,9 @@
+# Managed by Ansible (juicefs_storage) — do not edit.
+# Sourced by the Debian unit as an EnvironmentFile: plain KEY=VALUE lines become
+# process env, ARGS is expanded into the ExecStart line. redis_exporter speaks
+# Valkey natively (upstream README: "Prometheus Valkey & Redis Metrics Exporter").
+REDIS_ADDR=redis://127.0.0.1:6379
+REDIS_PASSWORD={{ juicefs_valkey_password }}
+# Bind 0.0.0.0 deliberately: iptables gates the port to k3snodes anyway, and an
+# explicit-IP bind would add a boot-order failure mode for no security gain.
+ARGS=-web.listen-address=:{{ juicefs_valkey_exporter_port }}

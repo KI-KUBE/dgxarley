@@ -584,4 +584,64 @@ raw litellm-24965.json "https://grafana.com/api/dashboards/24965/revisions/lates
       }]
   ' | commit litellm-24965.json
 
+# --- JuiceFS + Valkey (gated: JUICEFS_DASHBOARDS_ENABLED from grafana.yml ---
+# --- <- juicefs_metrics_enabled) ---------------------------------------------
+# The metrics only exist once the JuiceFS stack runs with metrics on (scrape
+# jobs `juicefs` / `juicefs-valkey` in prometheus.yml); while disabled the
+# dashboards are REMOVED from provisioned/ so the picker shows no dead entries.
+if [ "${JUICEFS_DASHBOARDS_ENABLED:-false}" = "true" ]; then
+
+  # JuiceFS Dashboard (official, grafana.com 20794, by Juicedata).
+  # Covers the client-mount metric family (`juicefs_*` on :9567): IOPS,
+  # throughput, latency, block cache, metadata transactions, object requests
+  # (= RustFS seen from the client — RustFS has no native /metrics itself).
+  # Patches:
+  # - Datasource: the JSON is inconsistent — the `name` var uses ${datasource},
+  #   most panels the brace-less "$datasource", and the Uptime panel a stray
+  #   hardcoded uid "P3DC81DD2E812B130" → rewrite ALL THREE to our uid
+  #   "prometheus", then drop the now-unused datasource var (no empty picker;
+  #   litellm precedent).
+  # - id:null + stable uid so file-provisioning owns it.
+  # - No query patches needed: `name` (volume) pivots off
+  #   label_values(juicefs_uptime, vol_name); our scrape relabels instance to
+  #   the hostname, which the per-(instance,mp) group-bys pick up as-is.
+  raw juicefs-20794.json "https://grafana.com/api/dashboards/20794/revisions/latest/download" \
+    | sed 's/${datasource}/prometheus/g; s/"$datasource"/"prometheus"/g; s/P3DC81DD2E812B130/prometheus/g' \
+    | jq '
+      del(.__inputs, .__requires)
+      | .id = null
+      | .uid = "juicefs-20794"
+      | .templating.list |= map(select(.name != "datasource"))
+    ' | commit juicefs-20794.json
+
+  # Valkey — JuiceFS metadata engine (oliver006 redis_exporter dashboard,
+  # grafana.com 763; redis_exporter supports Valkey upstream). Server-side view
+  # (memory, keyspace, command latency) complementing the client-side
+  # transaction panels in 20794. Patches:
+  # - Datasource input ${DS_PROM} → uid "prometheus"; drop __inputs/__requires.
+  # - id:null + stable uid; retitle so the picker says what it monitors.
+  # - Drop the `namespace` template var (a k8s-helm-ism): our bare-metal
+  #   exporter has no namespace label, so label_values(redis_up, namespace)
+  #   is empty and the dependent instance-var query would match nothing.
+  #   The panel exprs themselves never use $namespace.
+  raw valkey-redis-763.json "https://grafana.com/api/dashboards/763/revisions/latest/download" \
+    | sed 's/${DS_PROM}/prometheus/g' \
+    | jq '
+      del(.__inputs, .__requires)
+      | .id = null
+      | .uid = "juicefs-valkey-763"
+      | .title = "Valkey (JuiceFS Metadata)"
+      | .templating.list |= map(select(.name != "namespace"))
+      | .templating.list |= map(
+          if .name == "instance" then
+            .query = "label_values(redis_up, instance)"
+            | .definition = "label_values(redis_up, instance)"
+          else . end
+        )
+    ' | commit valkey-redis-763.json
+
+else
+  rm -f "$DASH_DIR/juicefs-20794.json" "$DASH_DIR/valkey-redis-763.json"
+fi
+
 echo "Dashboards downloaded successfully."
