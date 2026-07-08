@@ -1,0 +1,7 @@
+---
+# Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
+ansible_host: "192.168.124.105"
+host_octet: 105
+mailname: "spark5.example.com"
+
+wantspodman: true
