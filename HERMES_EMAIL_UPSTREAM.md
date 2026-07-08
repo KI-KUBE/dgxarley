@@ -49,8 +49,8 @@ It is delivered to the running container without a fork+rebuild:
 
 ### Environment variables added
 
-All four ship per-user overrideable in `group_vars/all/main/` /
-`group_vars/all/vault/` under the `email:` block; defaults are populated
+All four ship per-user overrideable in `group_vars/all/main/hermes.yml` /
+`group_vars/all/vault/hermes.yml` under the `email:` block; defaults are populated
 by `roles/k8s_dgx/templates/hermes/hermes_env.j2`. Empty string opts out
 of the respective stage.
 
@@ -138,7 +138,7 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 
 ### When upstream merges one of our PRs
 
-1. Bump `hermes.image_tag` in `roles/k8s_dgx/defaults/main/` to a
+1. Bump `hermes.image_tag` in `roles/k8s_infra/defaults/main/hermes.yml` to a
    release tag that contains the merge.
 2. Remove the corresponding `[PATCH-N]` section(s) from
    `roles/k8s_dgx/files/hermes_email_gateway_patched.py`. The
@@ -356,6 +356,6 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
   mail stuck in `Hermes_Working` only happens if the gateway itself
   terminated before the `finally` executed.
 - Per-user overrides live in `hermes_users[*].email.*` in
-  `group_vars/all/vault/`. Setting any of `working_folder`,
+  `group_vars/all/vault/hermes.yml`. Setting any of `working_folder`,
   `done_folder`, or `sent_folder` to `""` opts out of the corresponding
   stage for that user without affecting cluster defaults.

@@ -9,7 +9,8 @@
 # Launched by the minimal files/sglang_embed_launch.sh (selected via
 # is_embedding below), NOT the generation launcher. Consumers: LiteLLM embed
 # entry, honcho, hindsight, and OpenWebUI (via LiteLLM). See defaults/main/
-# _sglang_embed_instance + enable_embedding_model gate.
+# sglang_instances.yml (_sglang_embed_instance) + the enable_embedding_model
+# gate (group_vars/all/main/sglang.yml).
 #
 # WHY Qwen3-Embedding and NOT bge-m3: bge-m3 is XLM-RoBERTa and hits sglang#7590
 # on GB10/SM121 (position-tensor assert in roberta.py, crash on the 2nd request).

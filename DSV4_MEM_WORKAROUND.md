@@ -202,7 +202,7 @@ Prerequisite: `fastsafetensors` must be in the image (it is — v0.3.2).
 | `roles/k8s_dgx/files/sglang_launch.sh` | launch-time source patch of `fastsafetensors_weights_iterator` (SingleGroup + local device-with-index + `nogds=True`); also writes/activates the memprobe `.pth` + `pip install memray` when `SGLANG_MEMPROBE=1` |
 | `roles/k8s_dgx/files/dsv4_memprobe.py` | the reusable probe (CUDA history + memray + smaps + stack sampler + meminfo categories), env-gated                                                                                                               |
 | `roles/k8s_dgx/tasks/sglang.yml`       | `SGLANG_MEMPROBE` / `SGLANG_MODEL_LOADER_EXTRA_CONFIG` env, probe file in the launch ConfigMap, checksum wiring                                                                                                  |
-| `roles/k8s_dgx/defaults/main/`      | `sglang_memprobe` default                                                                                                                                                                                        |
+| `roles/k8s_dgx/defaults/main/sglang.yml` | `sglang_memprobe` default                                                                                                                                                                                        |
 
 Reusable diagnostics worth keeping: the memprobe (both-layer + stack sampler +
 smaps), and querying Loki for historical/crashed-container logs.
