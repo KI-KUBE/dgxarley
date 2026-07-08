@@ -1,0 +1,14 @@
+---
+# Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
+# QSFP Point-to-Point Netzwerk zwischen den Sparks
+qsfp_network: "10.10.10.0/24"
+qsfp_vf_network: "10.10.100.0/24"
+qsfp_mtu: 9000
+
+# QSFP Interfaces (ConnectX-7 Dual-PCIe Multi-Host)
+# 4 logische Interfaces pro Spark — alle mit MTU 9000 konfiguriert
+qsfp_interfaces:
+  - "enp1s0f0np0"
+  - "enp1s0f1np1"
+  - "enP2p1s0f0np0"
+  - "enP2p1s0f1np1"

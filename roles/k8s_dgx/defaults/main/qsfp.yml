@@ -1,0 +1,101 @@
+---
+# QSFP IPs for NCCL bootstrap (PF mode — pod takes over host PF, so pod IP = host IP)
+qsfp_ip_spark1: "10.10.10.101"
+qsfp_ip_spark2: "10.10.10.102"
+qsfp_ip_spark3: "10.10.10.103"
+qsfp_ip_spark4: "10.10.10.104"
+
+# Host-PF QSFP IPs (the IPs configured on the physical PF interface via netplan).
+# These are reachable from hostNetwork pods and from the host itself. Different
+# from the qsfp_ip_sparkN / SR-IOV VF IPs which are only reachable inside Multus
+# pod namespaces. Used by the host-network NCCL test variant.
+# Real values in group_vars/all/vault/qsfp.yml.
+qsfp_pf_ip_spark1: "10.10.10.1"
+qsfp_pf_ip_spark2: "10.10.10.2"
+qsfp_pf_ip_spark3: "10.10.10.3"
+qsfp_pf_ip_spark4: "10.10.10.4"
+
+# SR-IOV VF assignments per deployment.
+# Each deployment gets its own VF index + dedicated IPs per spark node.
+# This allows multiple engines to run on different VFs simultaneously.
+# vf: which VF index (maps to NAD qsfp-vfN and interface <prefix>vN)
+# head_ip: QSFP IP for the head pod (rank 0, spark1)
+# worker_ip1..N: QSFP IPs for worker pods (rank 1..N, spark2..N+1)
+qsfp_sriov_assignments:
+  sglang:
+    vf: 0
+    head_ip: "10.10.10.201"
+    worker_ip1: "10.10.10.202"
+    worker_ip2: "10.10.10.203"
+    worker_ip3: "10.10.10.204"
+  vllm:
+    vf: 1
+    head_ip: "10.10.10.205"
+    worker_ip1: "10.10.10.206"
+    worker_ip2: "10.10.10.207"
+    worker_ip3: "10.10.10.208"
+  sglang_shard:
+    vf: 2
+    head_ip: "10.10.10.209"
+    worker_ip1: "10.10.10.210"
+    worker_ip2: "10.10.10.211"
+    worker_ip3: "10.10.10.212"
+  vllm_shard:
+    vf: 3
+    head_ip: "10.10.10.213"
+    worker_ip1: "10.10.10.214"
+    worker_ip2: "10.10.10.215"
+    worker_ip3: "10.10.10.216"
+  iperf_test:
+    vf: 7
+    server_ip: "10.10.10.241"
+    client_ip: "10.10.10.242"
+    # Extended for 4-node NCCL test (reuses VF 7, same subnet).
+    # server_ip = rank 0 (spark1), client_ip = rank 1 (spark2).
+    head_ip: "10.10.10.241"
+    worker_ip1: "10.10.10.242"
+    worker_ip2: "10.10.10.243"
+    worker_ip3: "10.10.10.244"
+
+nccl_bootstrap_port: 50000
+nccl_socket_ifname: "net1"
+
+# Ordered QSFP IP lists per engine (index 0 = head/rank 0, index N = worker rank N).
+# PF mode: uses qsfp_ip_sparkN host variables.
+# SR-IOV mode: uses per-engine VF IPs from qsfp_sriov_assignments.
+# Sliced to nnodes so unused spark IPs are excluded.
+_qsfp_ips_pf_all:
+  - "{{ qsfp_ip_spark1 }}"
+  - "{{ qsfp_ip_spark2 }}"
+  - "{{ qsfp_ip_spark3 }}"
+  - "{{ qsfp_ip_spark4 }}"
+
+# Keyed on _sglang_active_sriov_key so each instance pulls its own VF IP block
+# (default "sglang"). Sliced to the active instance's node count.
+_sglang_qsfp_ips_sriov:
+  - "{{ qsfp_sriov_assignments[_sglang_active_sriov_key].head_ip }}"
+  - "{{ qsfp_sriov_assignments[_sglang_active_sriov_key].worker_ip1 }}"
+  - "{{ qsfp_sriov_assignments[_sglang_active_sriov_key].worker_ip2 }}"
+  - "{{ qsfp_sriov_assignments[_sglang_active_sriov_key].worker_ip3 }}"
+_sglang_qsfp_ips: "{{ (_sglang_qsfp_ips_sriov if qsfp_sriov_enabled | default(false) else _qsfp_ips_pf_all)[:_sglang_active_nnodes | int] }}"
+
+_vllm_qsfp_ips_sriov:
+  - "{{ qsfp_sriov_assignments.vllm.head_ip }}"
+  - "{{ qsfp_sriov_assignments.vllm.worker_ip1 }}"
+  - "{{ qsfp_sriov_assignments.vllm.worker_ip2 }}"
+  - "{{ qsfp_sriov_assignments.vllm.worker_ip3 }}"
+_vllm_qsfp_ips: "{{ (_vllm_qsfp_ips_sriov if qsfp_sriov_enabled | default(false) else _qsfp_ips_pf_all)[:vllm_nnodes | int] }}"
+
+_sglang_shard_qsfp_ips_sriov:
+  - "{{ qsfp_sriov_assignments.sglang_shard.head_ip }}"
+  - "{{ qsfp_sriov_assignments.sglang_shard.worker_ip1 }}"
+  - "{{ qsfp_sriov_assignments.sglang_shard.worker_ip2 }}"
+  - "{{ qsfp_sriov_assignments.sglang_shard.worker_ip3 }}"
+_sglang_shard_qsfp_ips: "{{ (_sglang_shard_qsfp_ips_sriov if qsfp_sriov_enabled | default(false) else _qsfp_ips_pf_all)[:sglang_nnodes | int] }}"
+
+_vllm_shard_qsfp_ips_sriov:
+  - "{{ qsfp_sriov_assignments.vllm_shard.head_ip }}"
+  - "{{ qsfp_sriov_assignments.vllm_shard.worker_ip1 }}"
+  - "{{ qsfp_sriov_assignments.vllm_shard.worker_ip2 }}"
+  - "{{ qsfp_sriov_assignments.vllm_shard.worker_ip3 }}"
+_vllm_shard_qsfp_ips: "{{ (_vllm_shard_qsfp_ips_sriov if qsfp_sriov_enabled | default(false) else _qsfp_ips_pf_all)[:vllm_nnodes | int] }}"
