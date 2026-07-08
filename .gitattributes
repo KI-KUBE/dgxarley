@@ -1,6 +1,9 @@
 # git-crypt: encrypt vault files containing sensitive data
 group_vars/**/vault.yml filter=git-crypt diff=git-crypt
 host_vars/**/vault.yml filter=git-crypt diff=git-crypt
+# split vault directories (e.g. group_vars/all/vault/*.yml)
+group_vars/**/vault/** filter=git-crypt diff=git-crypt
+host_vars/**/vault/** filter=git-crypt diff=git-crypt
 
 # Encrypt test script with live TSIG key + server
 nsupdate_test.sh filter=git-crypt diff=git-crypt
