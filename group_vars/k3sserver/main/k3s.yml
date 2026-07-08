@@ -1,0 +1,24 @@
+---
+# Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
+deinstall_apparmor: true
+
+# K3s Master
+k3smasterip: "192.168.124.100"
+k3s_master_node_hostname: "k3smaster"
+# API server URL for local kubeconfig (K3s API binds to VLAN 191)
+kubeconfig_api_server: "https://192.168.124.100:6443"
+# Cluster CIDRs
+cluster_cidr: "10.68.0.0/16"
+service_cidr: "10.69.0.0/16"
+
+# K3s Version -> check role defaults
+# k3s_version: "v1.36.1+k3s1"
+# Pod/Service CIDRs fuer iptables ipsets
+localnets_k3sserver:
+  - { cidr: "10.68.0.0/16", comment: "k3s-pods" }
+  - { cidr: "10.69.0.0/16", comment: "k3s-services" }
+# Keine spezielle Edge-Infrastruktur
+providespxeboot: false
+providesmqttexternal: false
+providescoturn: false
+iswireguardhost: false
