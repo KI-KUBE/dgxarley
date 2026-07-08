@@ -581,7 +581,7 @@ HAProxy sidecar (`haproxy:lts-alpine`, `0.0.0.0:{{ sglang_port }}` ->
 
 ## Upgrade Action Items
 
-1. **Update `sglang_image`** in `roles/k8s_dgx/defaults/main.yml` -- new image
+1. **Update `default_sglang_image`** in `roles/k8s_dgx/defaults/main/sglang.yml` -- new image
    tag TBD (waiting for `scitrera` build)
 2. **Update `SGLANG_EXPECTED_IMAGE`** in `sglang_launch.sh` and
    `sglang_shard_launch.sh` when image is available

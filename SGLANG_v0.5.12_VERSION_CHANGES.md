@@ -4,7 +4,7 @@ Quelle: [Release Notes v0.5.12](https://github.com/sgl-project/sglang/releases/t
 
 Dieses Dokument hebt die Änderungen hervor, die für unseren DGX-Spark-Cluster (5 Nodes, GB10 / SM121, NVFP4-MoE, Multi-Node über RoCE/QSFP) relevant sind. Reine ROCm/Ascend/CPU/Diffusion-Themen werden nur kurz erwähnt.
 
-Das `scitrera/dgx-spark-sglang:0.5.12`-Image ist bereits in `roles/k8s_dgx/defaults/main.yml` (Zeile 28) als `default_sglang_image` gesetzt — aber **noch nicht durch Matrix-Tests gegen unsere Profile validiert**.
+Das `scitrera/dgx-spark-sglang:0.5.12`-Image ist bereits in `roles/k8s_dgx/defaults/main/sglang.yml:10` als `default_sglang_image` gesetzt — aber **noch nicht durch Matrix-Tests gegen unsere Profile validiert**.
 
 ---
 
@@ -31,7 +31,7 @@ Großes Release-Highlight, aber für unseren Cluster nur Hintergrund:
 
 **Relevanz:** Das **volle** DeepSeek-V4 ist ein 671B-Klasse-Modell — auf 4×GB10 mit insg. 4×128 GiB Unified Memory passt das selbst in W4A4-Quant grenzwertig (~340 GiB Weights + KV) und setzen wir nicht ein. Die kollateralen Kernel-Verbesserungen (MHC-Pipeline, Fused SiLU+Clamp+FP8) fließen ohnehin in alle MoE-Modelle ein.
 
-> **Update 2026-05-31 — DeepSeek-V4-*Flash* ist eine separate, kleine Variante und jetzt unser Default-Versuch.** `sgl-project/DeepSeek-V4-Flash-FP8` (256 routed Experts / 6 aktiv, hidden 4096, 43 Layer, block-wise FP8 `ue8m0`) passt auf 4×GB10 und ist als `sglang_model` in `roles/k8s_dgx/defaults/main.yml` gesetzt (Image: `0.5.12.post1-sm121`). ⚠️ **UNTESTED / first-contact** — Profil-Kommentar und Boot/Coherence noch nicht validiert. Zwei vendored Workarounds nötig: (1) `kv_lora_rank: null`-Patch in `sglang_launch.sh` (V4-Flash nutzt q-LoRA + o-LoRA + GQA statt MLA-KV-Compression; transformers-5.x `_DeepseekV4ConfigAlias` lehnt `None` sonst per Strict-Dataclass ab), (2) FP8-Checkpoint statt NVFP4, weil RedHatAIs compressed-tensors-NVFP4-Repackage am `wqkv_a`-Matcher-Gap scheitert. Details: Modellprofil `sgl-project-deepseek-v4-flash-fp8.yml` + `SGLANG_v0.5.12.post1_VERSION_CHANGES.md` (dessen DSv4-Cherry-Picks dadurch relevant werden).
+> **Update 2026-05-31 — DeepSeek-V4-*Flash* ist eine separate, kleine Variante und jetzt unser Default-Versuch.** `sgl-project/DeepSeek-V4-Flash-FP8` (256 routed Experts / 6 aktiv, hidden 4096, 43 Layer, block-wise FP8 `ue8m0`) passt auf 4×GB10 und ist als `sglang_model` gesetzt (Selector heute: `group_vars/all/main/sglang.yml`) (Image: `0.5.12.post1-sm121`). ⚠️ **UNTESTED / first-contact** — Profil-Kommentar und Boot/Coherence noch nicht validiert. Zwei vendored Workarounds nötig: (1) `kv_lora_rank: null`-Patch in `sglang_launch.sh` (V4-Flash nutzt q-LoRA + o-LoRA + GQA statt MLA-KV-Compression; transformers-5.x `_DeepseekV4ConfigAlias` lehnt `None` sonst per Strict-Dataclass ab), (2) FP8-Checkpoint statt NVFP4, weil RedHatAIs compressed-tensors-NVFP4-Repackage am `wqkv_a`-Matcher-Gap scheitert. Details: Modellprofil `sgl-project-deepseek-v4-flash-fp8.yml` + `SGLANG_v0.5.12.post1_VERSION_CHANGES.md` (dessen DSv4-Cherry-Picks dadurch relevant werden).
 
 ## 3. Speculative Decoding V2 — Reifegrad steigt, Gemma 4 MTP nativ
 

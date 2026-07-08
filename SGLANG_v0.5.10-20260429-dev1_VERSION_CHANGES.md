@@ -380,7 +380,7 @@ uvicorn `0.0.0.0:<same-port>` still conflicts. **HAProxy sidecar stays.**
 ## Upgrade Action Items
 
 1. **Image bump done** — `default_sglang_image` at
-   `roles/k8s_dgx/defaults/main.yml:24` is already on dev1. Keep `0.5.10` line
+   `roles/k8s_dgx/defaults/main/sglang.yml:10` (default_sglang_image) is already on dev1. Keep `0.5.10` line
    commented for fast revert.
 2. **Update `SGLANG_EXPECTED_IMAGE`** in `sglang_launch.sh` and
    `sglang_shard_launch.sh` to the new tag if not already.
