@@ -12,7 +12,7 @@ hf_cache_path: "/var/lib/hf-cache"
 hf_hub_cache_on_juicefs: false
 # JuiceFS mount root used as the HF cache home (mapped onto /root/.cache/huggingface,
 # so hub → <root>/hub, keeping the download script's hardcoded cache_dir valid).
-# DERIVED from juicefs_mount_path (promoted to group_vars/all/main/) so it can
+# DERIVED from juicefs_mount_path (promoted to group_vars/all/main/juicefs.yml) so it can
 # never drift from the FUSE mountpoint. Override to a subdir (e.g.
 # "{{ juicefs_mount_path }}/hf-cache") only if JuiceFS holds more than the HF cache.
 hf_cache_juicefs_root: "{{ juicefs_mount_path }}"

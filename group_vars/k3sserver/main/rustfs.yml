@@ -1,0 +1,8 @@
+---
+# Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
+# RustFS rc alias for backup uploads
+rustfs_rc_alias: "backupstore"
+rustfs_rc_endpoint: "https://minio.example.com"
+rustfs_rc_access_key: "CHANGEME"
+rustfs_rc_secret_key: "CHANGEME"
+rustfs_rc_backup_bucket: "dgx-backups"

@@ -1,0 +1,29 @@
+---
+# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+# Seafile (CE) — full operational config. With hash_behaviour=replace (Ansible
+# default), vault.yml's `seafile:` REPLACES this whole block — so vault.yml
+# must carry the operational keys too. Same pattern as
+# qsfp_sriov_assignments / nut_ups_shutdown_map.
+# DB has its own root + per-app user; admin login is auto-bootstrapped on
+# first start of the seafile-server pod via INIT_SEAFILE_ADMIN_* env vars.
+seafile:
+  data_base: "/mnt/nfs/seafile-data"
+  mariadb_data_base: "/var/lib/k8s-data/seafile-mariadb"
+  namespace: "seafile"
+  hostname: "seafile.{{ dns_external_domain_suffix }}"
+  time_zone: "Europe/Berlin"
+  jwt_secret: "CHANGEME_50_CHARS_OF_RANDOM"
+  admin:
+    email: "admin@example.com"
+    password: "changeme"
+  db:
+    root_password: "changeme"
+    password: "changeme"
+  images:
+    server: {repo: "seafileltd/seafile-mc", tag: "13.0-latest"}
+    mariadb: {repo: "mariadb", tag: "11.4"}
+    memcached: {repo: "memcached", tag: "1.6-alpine"}
+  resources:
+    server: {memory_request: "512Mi", memory_limit: "2Gi"}
+    mariadb: {memory_request: "256Mi", memory_limit: "1Gi"}
+    memcached: {memory_limit: "128Mi"}
