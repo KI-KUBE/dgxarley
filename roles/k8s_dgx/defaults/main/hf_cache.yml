@@ -1,0 +1,79 @@
+---
+# HuggingFace cache paths on DGX nodes
+hf_cache_path: "/var/lib/hf-cache"
+# When true, SGLang/vLLM pods consume the HuggingFace HUB model cache (hub/) from
+# the shared JuiceFS mount (hf_cache_juicefs_root, mapped onto /root/.cache/huggingface)
+# instead of per-node local NVMe (hf_cache_path), and the manual rsync fan-out in
+# hf_preload / sglang_tune_moe is disabled (JuiceFS is one shared namespace, so
+# no per-node copy is needed — RSYNC_TARGETS is emptied, scripts no-op). Node-
+# local JIT caches (flashinfer/triton/fa4) stay on hf_cache_path regardless.
+# Reversible: flip back to false + redeploy. Deploy the storage layer first
+# (roles/juicefs_storage). Full procedure: JUICEFS_MIGRATION_HOWTO.md.
+hf_hub_cache_on_juicefs: false
+# JuiceFS mount root used as the HF cache home (mapped onto /root/.cache/huggingface,
+# so hub → <root>/hub, keeping the download script's hardcoded cache_dir valid).
+# DERIVED from juicefs_mount_path (promoted to group_vars/all/main/) so it can
+# never drift from the FUSE mountpoint. Override to a subdir (e.g.
+# "{{ juicefs_mount_path }}/hf-cache") only if JuiceFS holds more than the HF cache.
+hf_cache_juicefs_root: "{{ juicefs_mount_path }}"
+hf_token: "hf_CHANGEME"
+# HuggingFace model pre-download Job
+hf_preload_models:
+  - "cyankiwi/Hermes-4.3-36B-AWQ-4bit"
+  - "TheBloke/Nous-Hermes-2-Mixtral-8x7B-DPO-AWQ"
+  - "nvidia/Qwen3.6-35B-A3B-NVFP4"
+  - "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+  - "saricles/MiniMax-M2.5-REAP-139B-A10B-NVFP4-GB10"
+  - "nvidia/Qwen3-Next-80B-A3B-Thinking-NVFP4"
+  - "nvidia/DeepSeek-V4-Flash-NVFP4"
+  - "RecViking/Mistral-Medium-3.5-128B-NVFP4"
+  - "mistralai/Mistral-Medium-3.5-128B-EAGLE"
+  - "nvidia/Qwen3.5-122B-A10B-NVFP4"
+  - "nvidia/Gemma-4-31B-IT-NVFP4"
+  - "nvidia/Gemma-4-26B-A4B-NVFP4"
+  - "nvidia/diffusiongemma-26B-A4B-it-NVFP4"
+  - "google/diffusiongemma-26B-A4B-it"
+  - "sparkarena/Minimax-M3-v0-NVFP4"
+  - "RedHatAI/Qwen3-Coder-Next-NVFP4"
+  - "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"
+  - "Qwen/Qwen3-VL-8B-Instruct-FP8"
+#  - "nvidia/Qwen3.5-397B-A17B-NVFP4"
+#  - "RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+#  - "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
+#  - "nvidia/MiniMax-M2.7-NVFP4"
+#  - "nvidia/DeepSeek-V4-Flash-NVFP4"
+#  - "Qwen/Qwen3.6-27B-FP8"
+#  - "canada-quant/DeepSeek-V4-Flash-W4A16-FP8-MTP"
+#  - "lmsys/Qwen3-235B-A22B-EAGLE3"
+#  - "sgl-project/DeepSeek-V4-Flash-FP8"
+#  - "nvidia/Qwen3-235B-A22B-Eagle3"
+#  - "nvidia/Qwen3-235B-A22B-NVFP4"
+#  - "nvidia/Gemma-4-31B-IT-NVFP4"
+#  - "bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4"
+#  - "google/gemma-4-31B-it"
+#  - "google/gemma-4-26B-A4B-it"
+#  - "google/gemma-4-31B-it-assistant"
+#  - "google/gemma-4-26B-A4B-it-assistant"
+#  - "nvidia/Qwen3.6-27B-NVFP4"
+#  - "Qwen/Qwen3.6-35B-A3B-FP8"
+#  - "Qwen/Qwen3.6-27B-FP8"
+#  - "togethercomputer/Aurora-Spec-Minimax-M2.5"
+#  - "nvidia/Qwen3-235B-A22B-NVFP4"
+#  - "Qwen/Qwen3-235B-A22B-FP8"
+#  - "nvidia/Qwen3.5-397B-A17B-NVFP4"
+#  - "nvidia/Qwen3-235B-A22B-Instruct-2507-NVFP4"
+#  - "zai-org/GLM-4.7-FP8"
+#  - "nvidia/GLM-4.7-NVFP4"
+#  - "nvidia/MiniMax-M2.5-NVFP4"
+#  - "novita/Eagle3-Spec-Minimax-M2.5-Exp14"  # gone ?!
+#  - "togethercomputer/Aurora-Spec-Minimax-M2.5"  # request-gated
+#  - "nvidia/Qwen3.5-397B-A17B-NVFP4"
+#  - "Qwen/Qwen3.5-122B-A10B-FP8"
+#  - "nvidia/GLM-5-NVFP4"
+#  - "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+#  - "Qwen/Qwen3.5-35B-A3B-FP8"
+#  - "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"
+#  - "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
+#  - "Qwen/Qwen3-Coder-30B-A3B-Instruct"
+
+hf_preload_ttl: 3600
