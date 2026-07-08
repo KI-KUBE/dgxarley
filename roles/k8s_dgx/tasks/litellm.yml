@@ -122,6 +122,14 @@
                 {{ key }}: {{ value | to_json }}
           {% endif %}
           {% endfor %}
+          {% if (entry.model_info | default({})).values() | select('ne', omit) | list %}
+              model_info:
+          {% for key, value in entry.model_info.items() %}
+          {% if value is defined and value is not none and value != omit %}
+                {{ key }}: {{ value | to_json }}
+          {% endif %}
+          {% endfor %}
+          {% endif %}
           {% endfor %}
 
           litellm_settings:
