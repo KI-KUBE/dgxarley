@@ -318,6 +318,11 @@
           hermes-user: "{{ item.username }}"
       data:
         config.yaml: "{{ lookup('template', 'hermes/hermes_config.yaml.j2') }}"
+        # Non-secret per-profile spec (list). merge-config seeds one
+        # /opt/data/profiles/<name>/ per entry; api_keys are NOT here (see the
+        # Secret's profiles-secrets.json). Empty list `[]` when the user has no
+        # profiles: — a harmless no-op in merge-config.
+        profiles.json: "{{ lookup('template', 'hermes/hermes_profiles_spec.json.j2') }}"
   loop: "{{ _hermes_active_users }}"
   loop_control:
     label: "{{ item.username }}"
@@ -337,6 +342,10 @@
       type: Opaque
       stringData:
         ".env": "{{ lookup('template', 'hermes/hermes_env.j2') }}"
+        # Secret per-profile env-var map ({name: {KEY: VALUE}}). merge-config folds
+        # each profile's vars into /opt/data/profiles/<name>/.env and injects the
+        # model.api_key from them. Empty `{}` when no profile brings its own key.
+        "profiles-secrets.json": "{{ lookup('template', 'hermes/hermes_profiles_secrets.json.j2') }}"
         WEBUI_PASSWORD: "{{ item.webui_password | default(item.basicauth_password | default(item.litellm_token)) }}"
         # hermes' built-in BasicAuthProvider (the dashboard's own auth) —
         # password = per-user basicauth_password, falling back to litellm_token
