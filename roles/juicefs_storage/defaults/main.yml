@@ -101,6 +101,15 @@ juicefs_allow_other: true
 juicefs_backup_meta_interval: "24h"
 
 # --- Versions ---------------------------------------------------------------
+# No automatic upgrade check for these pins (deliberate — the rustfs server
+# holds the object data, juicefs must stay consistent across all mounts).
+# Check upstream for newer releases with:
+#   juicefs:  curl -s https://api.github.com/repos/juicedata/juicefs/releases/latest | jq -r .tag_name
+#             (tag has a "v" prefix — strip it for the var below)
+#   rustfs:   curl -s "https://api.github.com/repos/rustfs/rustfs/releases?per_page=1" | jq -r '.[0].tag_name'
+#             (or: gh release list -R rustfs/rustfs -L 1)
+#             NOTE: every rustfs release is flagged Pre-release, so the usual
+#             releases/latest endpoint returns 404 — hence the list query.
 juicefs_version: "1.4.0"                 # juicedata/juicefs release (arm64+amd64, LTS)
 juicefs_rustfs_version: "1.0.0-beta.8"   # rustfs/rustfs release
 juicefs_rustfs_libc: musl                # musl (static) or gnu
