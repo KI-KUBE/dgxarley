@@ -1,0 +1,19 @@
+---
+# Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
+ovs_bridge_name: "br0"
+default_route_iface: "br0.124"
+ovs_vlan_extra:
+  124:
+    extra_routes:
+      - to: default
+        via: 192.168.124.1
+        table: 124
+      - to: 192.168.122.0/24
+        via: 192.168.124.1
+        table: 124
+fwmark_routing:
+  - iface: "br0.124"
+    mark: "0x65"
+    inbound_src: "192.168.122.0/24"
+    inbound_dst: "192.168.124.100"
+    table: 124
