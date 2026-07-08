@@ -16,13 +16,13 @@ directly to Valkey + RustFS, so nothing is routed through a coordinator.
 
 ## Components
 
-| Component | Where | What |
-|-----------|-------|------|
-| **Valkey** | storage node | metadata engine (apt `valkey-server`, AOF + `noeviction` + auth) |
-| **RustFS** | storage node | S3 object store (native binary, data dir on the USB-SSD) |
-| **format** | storage node | one-time idempotent `juicefs format` (guarded by `juicefs status`) |
-| **mount** | `juicefs_mount_group` | native systemd FUSE mount, `Restart=always`, per-node cache |
-| **meta-backup** | backup node | root cron job: `juicefs dump` → external rasnas S3 |
+| Component       | Where                 | What                                                                   |
+|-----------------|-----------------------|------------------------------------------------------------------------|
+| **Valkey**      | storage node          | metadata engine (apt `valkey-server`, AOF + `noeviction` + auth)       |
+| **RustFS**      | storage node          | S3 object store (native binary, data dir on the USB-SSD)               |
+| **format**      | storage node          | one-time idempotent `juicefs format` (guarded by `juicefs status`)     |
+| **mount**       | `juicefs_mount_group` | native systemd FUSE mount, `Restart=always`, per-node cache            |
+| **meta-backup** | backup node           | root cron job: `juicefs dump` → external backup S3 (`rustfs_rc_alias`) |
 
 ## Key variables (see `defaults/main.yml`)
 
@@ -91,4 +91,4 @@ After a model download, warm the per-node cache (runs per node):
 2. A file written on node A under `/mnt/jfs/test` is readable on node B.
 3. New objects appear in the RustFS `juicefs` bucket after writes.
 4. `juicefs warmup` fills the local cache; a re-read produces no backend traffic.
-5. `juicefs dump` runs and the backup lands in the rasnas bucket.
+5. `juicefs dump` runs and the backup lands in the external backup bucket.

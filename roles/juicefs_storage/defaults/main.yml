@@ -91,6 +91,14 @@ juicefs_trash_days: 0            # no trash (reproducible data)
 juicefs_writeback: false
 # allow_other so non-root processes / containers (via hostPath) can read it.
 juicefs_allow_other: true
+# Interval for the client's AUTOMATIC metadata dump into the bucket's meta/
+# prefix (--backup-meta; upstream default 1h). The clients coordinate via a
+# global lock and the SHORTEST configured interval wins, so this template sets
+# it identically on every mount. Retention is hardcoded client-side
+# (pkg/vfs/backup.go rotate(): all ≤2d, 1/day ≤2w, 1/week ≤2m, 1/month ≤2y) —
+# NOT tunable, NOT an S3 lifecycle feature. "0" disables the auto-backup.
+# Independent of the external daily off-box dump (backup.yml).
+juicefs_backup_meta_interval: "24h"
 
 # --- Versions ---------------------------------------------------------------
 juicefs_version: "1.4.0"                 # juicedata/juicefs release (arm64+amd64, LTS)
@@ -116,9 +124,9 @@ juicefs_rustfs_secret_key: "changeme-secret-key-min8"
 # Valkey requirepass == JuiceFS META_PASSWORD.
 juicefs_valkey_password: "changeme-valkey-password"
 
-# --- Metadata backup (systemd timer -> external rasnas S3 via the rc CLI) ----
+# --- Metadata backup (root cron -> external backup S3 via the rc CLI) --------
 # Insurance against the Valkey SPOF: a juicefs dump uploaded off the single disk.
-# Reuses the existing rustfs_rc_* alias (rasnas) from the k3sserver role.
+# Reuses the existing rustfs_rc_* alias from the k3sserver role (group_vars/k3sserver/vault/rustfs.yml).
 juicefs_meta_backup_enabled: true
 juicefs_meta_backup_node: "{{ juicefs_storage_node }}"
 # Schedule (root crontab, cron module — matches the repo convention).

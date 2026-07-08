@@ -237,7 +237,7 @@ juicefs_cache_size_mib: 600_000   # ~586 GiB, once the local hub copy is gone
 5. A fresh SGLang boot does NOT re-download weights (no xet re-fetch in the log).
 6. `flashinfer_cache` / `triton_cache` / `fa4_cute_dsl_cache` still resolve to
    `/var/lib/hf-cache/...` (local), not `/mnt/jfs`.
-7. `juicefs dump` meta-backup lands in the rasnas bucket.
+7. `juicefs dump` meta-backup lands in the external backup bucket (`rustfs_rc_alias`).
 
 ---
 

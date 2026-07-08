@@ -141,7 +141,7 @@ Backs up the full cluster state nightly:
 1. Runs `kubectl cluster-info dump --all-namespaces`
 2. Exports all secrets
 3. Creates tarballs (cluster state + K3s SQLite DB)
-4. Uploads to RustFS (S3) at `rasnas/acerrevo/<date>/`
+4. Uploads to the external backup S3 at `{{ rustfs_rc_alias }}/{{ rustfs_rc_backup_bucket }}/clusterstate/<date>/`
 
 ### `updatemosquittos.sh`
 

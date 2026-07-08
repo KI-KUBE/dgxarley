@@ -1,6 +1,6 @@
 ---
 # Metadata backup via root crontab (cron module — repo convention, not a systemd
-# timer). Dumps JuiceFS metadata and uploads it to the EXTERNAL rasnas S3 (off the
+# timer). Dumps JuiceFS metadata and uploads it to the EXTERNAL backup S3 (off the
 # single USB-SSD) via the rc CLI. Insurance against the Valkey SPOF — data chunks
 # live in RustFS; the dump restores the directory tree (juicefs load).
 #
