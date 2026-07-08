@@ -193,6 +193,90 @@
     kind: Namespace
     state: present
 
+# === venv site-packages discovery (ONCE, image-derived — NOT per-user) =======
+# The health-patch .py + .pth must be subPath-mounted into the agent image's
+# venv site-packages, whose path carries a pythonX.Y segment that bumps with the
+# base image. Rather than hardcode "python3.13", probe the image ONCE with its
+# own venv interpreter and derive the real dir. Runs before the per-user loop so
+# a fact set here is reused by every user's Deployment render (the venv is a
+# property of the IMAGE, identical across users). Falls back to a literal path
+# set in the last task of this block if the probe is skipped or yields nothing.
+- name: Discover hermes venv site-packages path (once)
+  when: _hermes_active_users | length > 0
+  tags:
+    - hermes
+  block:
+    - name: Launch venv-probe pod
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: hermes-venv-probe
+            namespace: "{{ hermes.namespace }}"
+            labels:
+              app: hermes
+          spec:
+            restartPolicy: Never
+            nodeSelector:
+              node-role: k3smaster
+            containers:
+              - name: probe
+                image: "nousresearch/hermes-agent:{{ hermes.image_tag }}"
+                # Use the venv's OWN interpreter so sysconfig reports the venv
+                # site-packages (a system python3 would report the system dir).
+                # /opt/hermes/.venv is the stable venv root; only the pythonX.Y
+                # segment below it is what we must not hardcode.
+                command:
+                  - /opt/hermes/.venv/bin/python
+                  - -c
+                  - "import sysconfig; print(sysconfig.get_paths()['purelib'])"
+
+    - name: Wait for venv-probe pod to complete
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ hermes.namespace }}"
+        name: hermes-venv-probe
+      register: _venv_probe
+      until: >-
+        _venv_probe.resources | length > 0
+        and _venv_probe.resources[0].status.phase in ['Succeeded', 'Failed']
+      retries: 40
+      delay: 5
+
+    - name: Fetch venv-probe logs
+      kubernetes.core.k8s_log:
+        kind: Pod
+        namespace: "{{ hermes.namespace }}"
+        name: hermes-venv-probe
+      register: _venv_probe_log
+
+    - name: Set hermes_venv_site_packages fact from probe (validated)
+      ansible.builtin.set_fact:
+        hermes_venv_site_packages: "{{ _venv_probe_candidate }}"
+      vars:
+        _venv_probe_lines: "{{ (_venv_probe_log.log | default('') | trim).split('\n') | map('trim') | select | list }}"
+        _venv_probe_candidate: "{{ (_venv_probe_lines | last) if (_venv_probe_lines | length > 0) else '' }}"
+      when: _venv_probe_candidate is match('^/.+/site-packages$')
+
+    # Fallback (single source — deliberately NOT in defaults/main.yml): used only
+    # if the probe was skipped or returned nothing valid. Carries the version-
+    # specific pythonX.Y segment; if it drifts from the image the subPath mount
+    # silently no-ops (patch inert, no crash).
+    - name: Fall back to a literal venv site-packages path if the probe set nothing
+      ansible.builtin.set_fact:
+        hermes_venv_site_packages: "/opt/hermes/.venv/lib/python3.13/site-packages"
+      when: hermes_venv_site_packages is not defined
+  always:
+    - name: Remove venv-probe pod
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Pod
+        namespace: "{{ hermes.namespace }}"
+        name: hermes-venv-probe
+
 # === Seafile workspace provisioning (gated) ==================================
 # Creates one Seafile account + library + token per user with
 # seafile.workspace_enabled (or the global default). Writes a K8s Secret

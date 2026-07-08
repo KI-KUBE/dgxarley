@@ -609,11 +609,11 @@ spec:
             # this gateway's /health/detailed public so the dashboard probe stops
             # logging a per-poll 401. subPath so siblings in site-packages survive.
             - name: hermes-health-patch
-              mountPath: "{{ hermes.venv_site_packages }}/hermes_health_patch.py"
+              mountPath: "{{ hermes_venv_site_packages }}/hermes_health_patch.py"
               subPath: hermes_health_patch.py
               readOnly: true
             - name: hermes-health-patch
-              mountPath: "{{ hermes.venv_site_packages }}/zz_hermes_health_patch.pth"
+              mountPath: "{{ hermes_venv_site_packages }}/zz_hermes_health_patch.pth"
               subPath: zz_hermes_health_patch.pth
               readOnly: true
 {% if _email_enabled %}
