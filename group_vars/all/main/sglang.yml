@@ -1,0 +1,168 @@
+---
+# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+# ============================================================================
+# Cluster-wide service coordinates (shared between the k8s_dgx and k8s_infra
+# roles)
+# ----------------------------------------------------------------------------
+# These namespaces / ports / model selectors are referenced by BOTH the
+# inference layer (k8s_dgx: sglang, vllm, ollama, litellm, docling) AND the
+# app/infra layer (k8s_infra: openwebui, pipelines, searxng, honcho, hindsight,
+# hermes). Since k8s_dgx.yml and k8s_infra.yml are SEPARATE playbook runs, role
+# defaults do NOT cross over — so the shared coordinates live here in
+# group_vars/all where both roles resolve them. (traefik_internal_allowlist is
+# defined further up; default_sglang_image / sglang_nnodes stay in
+# roles/k8s_dgx/defaults as they're only used by the inference layer.)
+# ============================================================================
+
+# --- SGLang coordinates ---
+sglang_namespace: "sglang"
+sglang_port: 8000
+
+# Select the active model — parameters are pulled from sglang_model_profiles
+# Sorted by model family; exactly ONE line uncommented = the active model.
+# NOTE: every model in roles/k8s_dgx/model_profiles/*.yml must be listed here
+# under its family (selector parity — keep in sync when adding a profile).
+#
+# --- Apertus (Swiss AI / ETH+EPFL; ApertusForCausalLM, xIELU+qk_norm — arch support is the boot risk) ---
+# sglang_model: "bg-digitalservices/Apertus-70B-Instruct-2509-NVFP4"     # 70B DENSE, modelopt NVFP4 (W4A4), Instruct, 64K ctx (llama3 rope) → ~10.7 GB/GPU TP4. Apertus tool format (no stock parser); no reasoning. UNVALIDATED first-contact
+# sglang_model: "swiss-ai/Apertus-v1.1-1.5B-Instruct-vLLM-NVFP4A16"      # 1.5B DENSE, compressed-tensors NVFP4 W4A16 (weight-only), Instruct, 4K ctx → ~1.6 GB, TP=1 own instance. Cheap Apertus-arch smoke-test. UNVALIDATED first-contact
+#
+# --- DeepSeek-V4 ---
+# sglang_model: "nvidia/DeepSeek-V4-Flash-NVFP4"                 # 284B/13B MoE, NVFP4 experts + FP8 base, 1M ctx — ~42 GB/GPU TP4; needs SGLang #25820 + v0.5.13 sm121 image
+# sglang_model: "nvidia/DeepSeek-V4-Pro-NVFP4"                   # 1.6T/49B MoE, NVFP4 experts + FP8 base — STAGING ONLY, does NOT fit on 4× GB10 (~225 GB/GPU TP4)
+#
+# --- Gemma-4 ---
+# sglang_model: "nvidia/Gemma-4-31B-IT-NVFP4"                        # 30.7B dense NVFP4, multimodal, 256K ctx (FROZEN_KV_MTP debug)
+# sglang_model: "google/gemma-4-31B-it"                          # 30.7B dense BF16, multimodal, 256K ctx
+# sglang_model: "nvidia/Gemma-4-26B-A4B-NVFP4"                   # 26B/3.8B-active MoE NVFP4, multimodal, 256K ctx
+# sglang_model: "google/gemma-4-26B-A4B-it"                      # 26B/3.8B-active MoE BF16, multimodal, 256K ctx
+# sglang_model: "nvidia/diffusiongemma-26B-A4B-it-NVFP4"         # 26B/3.8B MoE NVFP4, DISCRETE-DIFFUSION (dLLM Gemma4Renoise) — pins 0.5.14-gemmadiffusion image
+# sglang_model: "google/diffusiongemma-26B-A4B-it"              # 26B/3.8B MoE BF16, DISCRETE-DIFFUSION (dLLM Gemma4Renoise) — NVFP4 isolation smoke-test, pins 0.5.14-gemmadiffusion image
+#
+# --- GLM ---
+# sglang_model: "zai-org/GLM-4.7-FP8"
+# sglang_model: "nvidia/GLM-4.7-NVFP4"
+# sglang_model: "nvidia/GLM-5-NVFP4"
+# sglang_model: "nvidia/GLM-5.2-NVFP4"                          # 753B/40B MoE (256 exp/8 active +1 shared), GlmMoeDsa (MLA+DSA), NVFP4 (modelopt, official NVIDIA) → PP=4/TP=1 (EP4/TP4 OOMs); 1M ctx; needs transformers>=5.3.0. UNVALIDATED first-contact
+# sglang_model: "0xSero/GLM-5.2-504B"                           # ~504B GLM-5.2 REAP keep-168 (256→168 exp, 34% pruned) + Router-KD, NVFP4 (modelopt) → PP=4/TP=1; MTP/NEXTN on; min_p=0.05+rep_pen anti-loop guardrail. UNVALIDATED first-contact
+#
+# --- Hermes (Nous Research) ---
+# sglang_model: "cyankiwi/Hermes-4.3-36B-AWQ-4bit"              # 36B DENSE (ByteDance Seed-OSS base), compressed-tensors int4 W4A16 (repo NAME says AWQ, format is compressed-tensors), hybrid <think> reasoning OFF by default → ~4.5 GB/GPU TP4 (tiny). UNVALIDATED first-contact
+# sglang_model: "TheBloke/Nous-Hermes-2-Mixtral-8x7B-DPO-AWQ"  # 47B/13B MoE (Mixtral 8x7B), GENUINE AWQ int4 (gemm), ChatML, 32K ctx, no reasoning → ~6.2 GB/GPU TP4 (tiny). UNVALIDATED first-contact
+#
+# --- MiniMax ---
+# sglang_model: "nvidia/MiniMax-M2.5-NVFP4"
+# sglang_model: "nvidia/MiniMax-M2.7-NVFP4"
+# sglang_model: "sparkarena/Minimax-M3-v0-NVFP4"
+# sglang_model: "saricles/MiniMax-M2.5-REAP-139B-A10B-NVFP4-GB10"  # REAP-pruned M2.5 (256→154 experts), 139B/10B MoE, NVFP4 compressed-tensors, GB10-tuned
+#
+# --- Mistral (NVFP4; reasoning OFF by default, per-request reasoning_effort=high) ---
+# sglang_model: "RecViking/Mistral-Medium-3.5-128B-NVFP4"        # 128B DENSE, multimodal, HF-format → ~20 GB/GPU TP4 (easy fit). EAGLE-MTP pre-staged/off
+# sglang_model: "mistralai/Mistral-Large-3-675B-Instruct-2512-NVFP4"  # 675B MLA-MoE, multimodal, mistral-NATIVE (name-loaded) → ~101 GB/GPU TP4 (TIGHT, start ctx 64K)
+#
+# --- Nemotron-3 ---
+# sglang_model: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"  # 31B/3B MoE NVFP4 (modelopt mixed), OMNI-multimodal (text/img/video/audio), NemotronH hybrid; SGLang class NemotronH_Nano_Omni_Reasoning_V3 (in nano_nemotron_vl.py, >=0.5.12); AUDIO needs librosa baked into the 0.5.13-sm121 image (AUDIO_DEPS recipe var). UNVALIDATED first-contact
+sglang_model: "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+# sglang_model: "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4"
+#
+# --- Nex-N2 ---
+# sglang_model: "RazielXYZ/Nex-N2-Pro-NVFP4"                     # Qwen3.5-MoE class (512 exp/10 active), multimodal reasoning, modelopt-NVFP4 ~237 GB → ~59 GB/GPU TP4. UNVALIDATED first-contact; MTP staged-off
+# sglang_model: "r0b0tlab/nex-n2-mini-nvfp4"                     # Qwen3.5-MoE class (256 exp/8 active, 35B/A3B), multimodal reasoning, modelopt-NVFP4 ~24.8 GB → ~6.2 GB/GPU TP4 (tiny). UNVALIDATED first-contact; MTP staged-off
+#
+# --- Qwen2.5 ---
+# sglang_model: "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"           # 32B dense, AWQ 4-bit, coder, 32K ctx — ~9.7 GB/GPU TP2
+#
+# --- Qwen3 ---
+# sglang_model: "nvidia/Qwen3-235B-A22B-NVFP4"                  # 235B/22B MoE NVFP4 (modelopt), YaRN→131K ctx — Test-17 winner (validated)
+# sglang_model: "RedHatAI/Qwen3-235B-A22B-NVFP4"                # 235B/22B MoE NVFP4 (compressed-tensors), YaRN→131K ctx, triton-MoE — UNTESTED first-contact
+# sglang_model: "nvidia/Qwen3-235B-A22B-Instruct-2507-NVFP4"    # 235B/22B MoE NVFP4 (modelopt), NATIVE 262K ctx, non-thinking — backend inherited from original-235B Test-17 winner, not re-measured on 2507
+# sglang_model: "nvidia/Qwen3-235B-A22B-Thinking-2507-NVFP4"    # 235B/22B MoE NVFP4 (modelopt), NATIVE 262K ctx, THINKING — backend inherited from original-235B Test-17 winner, not re-measured on 2507
+# sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct-FP8"
+# sglang_model: "Qwen/Qwen3-Coder-30B-A3B-Instruct"             # 30B/3B MoE BF16, agentic coder, 262K ctx, non-thinking
+# sglang_model: "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
+# sglang_model: "nvidia/Qwen3-Next-80B-A3B-Thinking-NVFP4"      # 80B/3B MoE NVFP4 (modelopt), Qwen3-Next arch (Gated DeltaNet+Attn), THINKING post-train, 262K ctx
+# sglang_model: "RedHatAI/Qwen3-Coder-Next-NVFP4"               # 80B/3B MoE NVFP4 (compressed-tensors), Qwen3-Next arch, agentic coder, no thinking, 256K ctx
+# --- Qwen3.5 ---
+# sglang_model: "Qwen/Qwen3.5-35B-A3B-FP8"
+# sglang_model: "Qwen/Qwen3.5-122B-A10B-FP8"
+# sglang_model: "nvidia/Qwen3.5-122B-A10B-NVFP4"
+# sglang_model: "nvidia/Qwen3.5-397B-A17B-NVFP4"
+# --- Qwen3.6 ---
+# sglang_model: "Qwen/Qwen3.6-27B-FP8"
+# sglang_model: "nvidia/Qwen3.6-27B-NVFP4"                      # 27B dense NVFP4 (modelopt MIXED_PRECISION → needs sglang_launch.sh _sgl_mixed_nvfp4_* patch), Gated DeltaNet+Attention; FP8 sibling above
+# sglang_model: "Qwen/Qwen3.6-35B-A3B-FP8"
+# sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"                # 35B/3B MoE, uniform NVFP4 (compressed-tensors) — patch-free winner
+# sglang_model: "nvidia/Qwen3.6-35B-A3B-NVFP4"                  # 35B/3B MoE NVFP4 (modelopt MIXED_PRECISION → needs sglang_launch.sh _sgl_mixed_nvfp4_* patch)
+#
+# --- Qwen3-VL (multimodal companion) ---
+# sglang_model: "Qwen/Qwen3-VL-8B-Instruct-FP8"                  # 8B dense multimodal (vision), block-128 FP8, 256K ctx → ~9 GB, tp=1. Vision companion for the text-only Nemotron; run as its OWN instance (see sglang_instances). UNVALIDATED first-contact
+#
+# --- Tilde (European multilingual foundation) ---
+# sglang_model: "TildeAI/TildeOpen-30b-64k"                     # 30B DENSE BF16 (Llama arch), BASE/foundation — NOT instruct, no chat template, completion-only; 33+ EU languages, 64K via YaRN → ~15.3 GB/GPU TP4. UNVALIDATED first-contact
+#
+# --- Xiaomi MiMo ---
+# sglang_model: "lukealonso/MiMo-V2.5-NVFP4"                     # 179B MoE (256 exp/8 active, no shared), OMNI-multimodal (text/img/audio/video), hybrid-SWA GQA, NVFP4 (modelopt) → ~25 GB/GPU TP4. UNVALIDATED first-contact; b12x-fork kernels mapped to stock; spec OFF
+# === Vision model — MASTER SWITCH =========================================
+# enable_vision_model toggles the WHOLE Qwen3-VL vision companion in one place:
+#   true  → the sglang-vision SGLang instance is deployed (sglang_instances, see
+#           roles/k8s_dgx/defaults/main/sglang_instances.yml) AND LiteLLM exposes the
+#           `vision-default` alias for it.
+#   false → the instance is dropped from the deploy loop, the LiteLLM alias is
+#           removed, AND a `--tags sglang` run TEARS DOWN the already-running
+#           vision pods/Service (teardown block in roles/k8s_dgx/tasks/sglang.yml).
+#
+# HOWTO disable (or re-enable) the vision model — that's all you do:
+#   1. set  enable_vision_model: false   (here)   [true to re-enable]
+#   2. ansible-playbook k8s_dgx.yml --tags sglang,litellm
+#        --tags sglang  → removes the sglang-vision Deployments + Service (or
+#                         redeploys them when re-enabling)
+#        --tags litellm → re-renders LiteLLM without (or with) the vision alias
+#   The vision series also disappears from the Grafana SGLang panel once
+#   Prometheus's ~5 min staleness window passes.
+enable_vision_model: true
+
+# === Coder model — MASTER SWITCH (default OFF) ============================
+# enable_coder_model is the exact analogue of enable_vision_model for the local
+# Qwen3-Coder-Next companion (sglang-coder instance, see roles/k8s_dgx/defaults/
+# main.yml). DEFAULT false — the instance is UNVALIDATED and memory-tight
+# (co-locates with the Nemotron default on all 4 sparks; needs SR-IOV + timeslice
+# + freeing the default's memory). Read the TUNE notes by _sglang_coder_instance
+# before flipping it true.
+#   true  → sglang-coder is deployed AND LiteLLM exposes the `coder-default` alias.
+#   false → dropped from the deploy loop, alias removed, and a `--tags sglang` run
+#           TEARS DOWN any running sglang-coder resources.
+# HOWTO (same as vision): set the flag, then
+#   ansible-playbook k8s_dgx.yml --tags sglang,litellm
+enable_coder_model: false
+
+# === Embedding model — MASTER SWITCH (default OFF) =======================
+# enable_embedding_model is the analogue of enable_vision_model/enable_coder_model
+# for the EMBEDDING companion (sglang-embed instance, ALWAYS single-node tp=1 on
+# spark2; see _sglang_embed_instance in roles/k8s_dgx/defaults/main/sglang_instances.yml). It
+# REPLACES the standalone Ollama embedding deployment (tasks/ollama_embed.yml).
+# DEFAULT false until the embed instance is deployed AND verified — flipping it
+# true only stands up sglang-embed; the consumers (LiteLLM/honcho/hindsight) are
+# rewired to it in a SEPARATE step (see the cutover plan), so do NOT rewire them
+# before sglang-embed is Ready or in-cluster embeddings break.
+#   true  → sglang-embed is deployed (chroma-core/Qwen3-Embedding-4B-FP8-Dynamic, --is-embedding).
+#   false → dropped from the deploy loop, and a `--tags sglang` run TEARS DOWN
+#           any running sglang-embed resources.
+# HOWTO: set the flag, then  ansible-playbook k8s_dgx.yml --tags sglang
+enable_embedding_model: false
+
+# === Ollama embedding — legacy deploy switch (default ON) =================
+# enable_ollama_embed gates the STANDALONE Ollama embedding deployment
+# (roles/k8s_dgx/tasks/ollama_embed.yml) that the sglang-embed instance
+# (enable_embedding_model above) is set to REPLACE. Deliberately INDEPENDENT of
+# enable_embedding_model so both run in parallel during the cutover — ollama-embed
+# must stay up while consumers still point at it. Cutover order:
+#   1. enable_embedding_model: true  → deploy + verify sglang-embed
+#   2. rewire the consumers (LiteLLM fragment, honcho/hindsight/OpenWebUI URLs)
+#   3. enable_ollama_embed: false, then
+#        ansible-playbook k8s_dgx.yml --tags ollama_embed
+#      → TEARS DOWN the running ollama-embed resources (Deployment/Service/
+#        ConfigMaps/IngressRoutes/cert/DNS record) via ollama_embed_teardown.yml.
+#        The ollama Namespace, ollama-tls-haproxy-config and the shared
+#        Middlewares stay (also owned by tasks/ollama.yml); the model cache
+#        hostPath /var/lib/ollama-embed-data on spark2 stays too (manual cleanup).
+enable_ollama_embed: true

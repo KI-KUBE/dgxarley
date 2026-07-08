@@ -1,0 +1,419 @@
+---
+# Shared cluster coordinates lifted to group_vars/all/main/ so the k8s_infra
+# role resolves them too: traefik_internal_allowlist, sglang_namespace,
+# sglang_port, sglang_model (+ the model menu), litellm_namespace/port,
+# litellm_hermes_alias_model, ollama_port, ollama_embed_model(_profiles),
+# ollama_embedding_model(_max_ctx), docling_port.
+# openwebui_namespace moved to roles/k8s_infra/defaults (openwebui → k8s_infra).
+# curl -s 'https://hub.docker.com/v2/repositories/scitrera/dgx-spark-sglang/tags/?page_size=20&ordering=last_updated' | jq '.results[] | {name, last_updated}'
+
+default_sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-sm121"
+# default_sglang_image: "scitrera/dgx-spark-sglang:0.5.12"
+# default_sglang_image: "xomoxcc/dgx-spark-sglang:0.5.12.post1-sm121"
+#default_sglang_image: "scitrera/dgx-spark-sglang:0.5.11"
+# default_sglang_image: "xomoxcc/dgx-spark-sglang:0.5.11-sm121"
+
+sglang_nnodes: 4
+
+# sglang_model (the active-model selector) and the full model menu are lifted to
+# group_vars/all/main/sglang.yml — set the active model THERE now (shared with the
+# k8s_infra role / OpenWebUI's default_models registration).
+
+# Model profiles are loaded from individual files in model_profiles/
+# by the merge task at the top of tasks/main.yml. See model_profiles/*.yml.
+# sglang_model_profiles dict is built at runtime via include_vars + combine.
+sglang_model_profiles: {}
+
+# --- Per-instance indirection (see sglang_instances at the end of the SGLang
+# block) -------------------------------------------------------------------
+# Every model-/topology-derived sglang_* var below resolves against these three
+# vars instead of the raw globals. They default to the global single-instance
+# values, so standalone access is unchanged. sglang.yml overrides them per
+# instance via include_tasks vars:, which makes the whole sglang_* default
+# chain re-resolve for that instance's model / node-count / SR-IOV slot — no
+# duplication of the ~50 derived knobs.
+_sglang_active_model: "{{ sglang_model }}"
+_sglang_active_nnodes: "{{ sglang_nnodes }}"
+_sglang_active_sriov_key: "sglang"
+# Per-instance tp/pp/ep override ("" = derive from profile/nnodes). Lets a
+# sub-cluster instance run a model whose profile pins parallelism that doesn't
+# fit its node count. Precedence: inst override > profile > default.
+# The fit (tp*pp == nnodes, ep | tp) is enforced by an assert in
+# sglang_instance.yml, so a bad override/profile fails before deploy.
+_sglang_active_tp: ""
+_sglang_active_pp: ""
+_sglang_active_ep: ""
+# Per-instance max_total_tokens override ("" = unset -> pure mem_fraction_static
+# sizing, as before). Caps the KV-cache pool ABSOLUTELY (in tokens). On the GB10
+# unified memory, mem_fraction_static is computed against runtime-measured FREE
+# memory, so a co-located instance's KV pool otherwise depends on whether the
+# other instance is already up + launch order. A fixed max_total_tokens makes
+# the footprint deterministic. Precedence: inst override > profile > unset.
+_sglang_active_max_total_tokens: ""
+# Per-instance context_length override ("" = use the profile's value). Lets a
+# co-located instance run a SHORTER per-request window than its profile default
+# (e.g. trim a vision companion to 64K to cap KV) without forking the profile.
+# Precedence: inst override > profile.
+_sglang_active_context_length: ""
+
+sglang_speculative_enabled: "{{ sglang_model_profiles[_sglang_active_model].speculative_enabled | default(false) }}"
+sglang_speculative_algo: "{{ sglang_model_profiles[_sglang_active_model].speculative_algo | default('NEXTN') }}"
+sglang_speculative_num_steps: "{{ sglang_model_profiles[_sglang_active_model].speculative_num_steps | default(3) }}"
+sglang_speculative_eagle_topk: "{{ sglang_model_profiles[_sglang_active_model].speculative_eagle_topk | default(1) }}"
+sglang_speculative_num_draft_tokens: "{{ sglang_model_profiles[_sglang_active_model].speculative_num_draft_tokens | default(4) }}"
+# Draft/nextn MoE runner backend (e.g. DSV4 on SM121 needs "marlin" — its default
+# nextn path hardcodes an sm100 trtllm kernel). Empty → not passed (inherits target).
+sglang_speculative_moe_runner_backend: "{{ sglang_model_profiles[_sglang_active_model].speculative_moe_runner_backend | default('') }}"
+# Draft model path for EAGLE/EAGLE3. Empty = use model's own MTP heads (NEXTN).
+# For external draft models: set to the HF model ID (e.g. "togethercomputer/Aurora-Spec-Minimax-M2.5").
+sglang_speculative_draft_model_path: "{{ sglang_model_profiles[_sglang_active_model].speculative_draft_model_path | default('') }}"
+# Quantization method for the draft model. By default SGLang inherits the
+# target model's quantization — which breaks when the target is modelopt-
+# quantized (e.g. NVFP4) but the draft ships as plain BF16 (the usual case
+# for external EAGLE3 drafts like lmsys/Qwen3-235B-A22B-EAGLE3). The draft
+# worker then routes through _load_modelopt_base_model and tries to
+# reinstantiate a full Qwen3MoE from a single-layer EAGLE3 checkpoint,
+# producing a state-dict shape mismatch on lm_head (32000 vs 151936) and
+# missing layer weights.
+# Set to "unquant" to force SGLang to load the draft without quantization.
+# Empty string (default) = inherit target quantization (SGLang's default).
+sglang_speculative_draft_model_quantization: "{{ sglang_model_profiles[_sglang_active_model].speculative_draft_model_quantization | default('') }}"
+
+# Adaptive Spec V2 (SGLang ≥0.5.12, PR #23336). Dynamically retunes draft
+# parameters (num_steps, num_draft_tokens) at runtime based on observed
+# acceptance rate and batch pressure. Strictly requires speculative_algo in
+# {EAGLE, EAGLE3} AND speculative_eagle_topk=1 — SGLang silently disables
+# adaptive mode for NEXTN or topk>1 (adaptive_unsupported_reason() in
+# srt/speculative/adaptive_spec_params.py). Empty string => flag omitted.
+sglang_speculative_adaptive: "{{ sglang_model_profiles[_sglang_active_model].speculative_adaptive | default(false) }}"
+# Optional inline dict of adaptive-mode tuning knobs (min/max steps, accept
+# thresholds, …). Rendered to /tmp/speculative_adaptive_config.json at pod
+# startup and passed via --speculative-adaptive-config <path>. Empty dict
+# (default) => flag omitted, SGLang defaults apply.
+sglang_speculative_adaptive_config: "{{ sglang_model_profiles[_sglang_active_model].speculative_adaptive_config | default({}) }}"
+
+# Mamba scheduler strategy — required for hybrid-attention models (Qwen3.5 MoE)
+# when speculative decoding is enabled. "extra_buffer" enables radix cache
+# compatibility with MTP. Empty string = SGLang default (no_buffer).
+sglang_mamba_scheduler_strategy: "{{ sglang_model_profiles[_sglang_active_model].mamba_scheduler_strategy | default('') }}"
+
+# Mamba state-cache pool sizing (hybrid SSM models, e.g. NemotronH). On hybrid
+# models the mamba pool — not KV or cuda_graph — is usually the parallelism
+# ceiling: SGLang clamps max_running_requests to max_mamba_cache_size // mamba_ratio
+# (~3 reserved slots/req). See model_runner_kv_cache_mixin._resolve_max_num_reqs.
+#   * mamba_full_memory_ratio (SGLang default 0.9): mamba pool gets ratio/(1+ratio)
+#     of rest_memory (0.9 → 47%), KV gets the rest. Raise toward mamba when KV is
+#     over-provisioned (low full-token-usage) to buy concurrency near-free.
+#   * max_mamba_cache_size: explicit slot count, overrides the ratio-based auto-fit.
+#     NOT memory-checked — too high steals from KV / OOMs. 0/empty = auto-fit.
+# Empty = SGLang default (auto-fit) — no behavior change for models that omit them.
+sglang_mamba_full_memory_ratio: "{{ sglang_model_profiles[_sglang_active_model].mamba_full_memory_ratio | default('') }}"
+sglang_max_mamba_cache_size: "{{ sglang_model_profiles[_sglang_active_model].max_mamba_cache_size | default('') }}"
+
+# Enable MTP spec_v2 — required alongside mamba_scheduler_strategy=extra_buffer
+# for speculative decoding on hybrid-attention models. Sets SGLANG_ENABLE_SPEC_V2=1.
+sglang_enable_spec_v2: "{{ sglang_model_profiles[_sglang_active_model].enable_spec_v2 | default(false) }}"
+
+# NOTE: you should never change the image directly here!
+sglang_image: "{{ sglang_model_profiles[_sglang_active_model].sglang_image | default(default_sglang_image) }}"
+
+sglang_context_length: "{{ _sglang_active_context_length if (_sglang_active_context_length | string | length > 0) else (sglang_model_profiles[_sglang_active_model].context_length) }}"
+sglang_kv_cache_dtype: "{{ sglang_model_profiles[_sglang_active_model].kv_cache_dtype }}"
+# Model compute/activation dtype → --dtype. Default 'auto' (SGLang reads the model
+# config's torch_dtype). Override per-profile (field `dtype`) when a model needs an
+# explicit dtype — e.g. EAGLE MTP with a Mistral-native draft (no dtype in its
+# params.json → auto falls back to fp32→fp16, colliding with the bf16 target).
+sglang_model_dtype: "{{ sglang_model_profiles[_sglang_active_model].dtype | default('auto') }}"
+sglang_mem_fraction_static: "{{ sglang_model_profiles[_sglang_active_model].mem_fraction_static }}"
+sglang_reasoning_parser: "{{ sglang_model_profiles[_sglang_active_model].reasoning_parser | default('') }}"
+sglang_tool_call_parser: "{{ sglang_model_profiles[_sglang_active_model].tool_call_parser | default('') }}"
+sglang_quantization: "{{ sglang_model_profiles[_sglang_active_model].quantization | default('') }}"
+sglang_trust_remote_code: "{{ sglang_model_profiles[_sglang_active_model].trust_remote_code | default(false) }}"
+# Raw JSON string passed to SGLang via --json-model-override-args. Used to
+# inject rope_scaling (YaRN) or other HF config overrides for models whose
+# shipped config.json lacks them. Empty string = flag omitted.
+sglang_json_model_override_args: "{{ sglang_model_profiles[_sglang_active_model].json_model_override_args | default('') }}"
+sglang_moe_runner_backend: "{{ sglang_model_profiles[_sglang_active_model].moe_runner_backend | default('') }}"
+# Load format: "auto" (default) or "sharded_state" (for pre-sharded models).
+# Use "sharded_state" after running sglang_shard Job to reduce peak GPU memory.
+sglang_load_format: "{{ sglang_model_profiles[_sglang_active_model].load_format | default('auto') }}"
+# Memory request for the sglang_shard Job containers. Makes the pod Burstable so
+# it qualifies for swap under kubelet swapBehavior=LimitedSwap (BestEffort gets
+# none). Under LimitedSwap the container's swap ceiling is
+# (this request / node memory capacity) × total node swap — so a high request on
+# a ~121Gi node with a ~100Gi swapfile grants ~80Gi swap to absorb the
+# process_weights_after_loading peak. NO memory *limit* is set (the container may
+# exceed the request into RAM+swap). Only consumed by the shard Job, not serving.
+sglang_shard_memory_request: "100Gi"
+# Memory request for the SERVING head/worker pods. Empty "" = BestEffort (default;
+# memory.swap.max=0 → the inference pod NEVER swaps). Set non-empty (e.g. "100Gi")
+# → Burstable → eligible for swap under kubelet swapBehavior=LimitedSwap, ceiling
+# (request / node capacity) × total swap. Use ONLY to let a DIRECT serve load
+# (load_format=auto) survive the process_weights_after_loading fusion peak via
+# swap; at steady-state (weights < node RAM) it won't swap. No memory *limit* set.
+# Testweise: -e sglang_memory_request=100Gi. Reverting to "" may leave an orphan
+# requests.memory (strategic-merge) → kubectl delete deploy + redeploy to clear.
+sglang_memory_request: "{{ sglang_model_profiles[_sglang_active_model].memory_request | default('') }}"
+# Disable DeepGemm JIT (sets SGLANG_ENABLE_JIT_DEEPGEMM=false) — needed for
+# FP8 models on GB10/SM121 where DeepGemm lacks recipes for certain kernel
+# configs (crashes with "Unknown recipe" during CUDA graph capture).
+sglang_disable_deep_gemm: "{{ sglang_model_profiles[_sglang_active_model].disable_deep_gemm | default(false) }}"
+# FP8 GEMM runner backend: "auto" (default), "cutlass", "deep_gemm", "flashinfer".
+# On GB10/SM121, "auto" selects flashinfer which uses trtllm backend — unsupported
+# on SM121. FP8 models must use "cutlass" explicitly.
+sglang_fp8_gemm_runner_backend: "{{ sglang_model_profiles[_sglang_active_model].fp8_gemm_runner_backend | default('auto') }}"
+# SGLANG_OPT_FP8_WO_A_GEMM (#25181) — default-on upstream since 0.5.12. Keeps the
+# DeepSeek o-LoRA `wo_a` projection in fp8 and runs an fp8 GEMM on it. On
+# DeepSeek-V4-Flash-FP8 the checkpoint delivers wo_a as bf16, so with the opt ON
+# the param stays fp8 and weight load dies with
+# "Downcasting not allowed: target fp8, loaded bf16" (deepseek_v4.py load_weights
+# → copy_with_check). Setting false dequants wo_a → bf16 params, matching the
+# checkpoint. Per-profile (V4-Flash sets false); leave true elsewhere so
+# Qwen3.6-A3B-FP8 etc. keep the optimization. Maps to env "1"/"0".
+sglang_opt_fp8_wo_a_gemm: "{{ sglang_model_profiles[_sglang_active_model].opt_fp8_wo_a_gemm | default(true) }}"
+# DeepGEMM SM120/121 kernel gaps for DeepSeek-V4 (DeepGEMM #317, SGLang #23657):
+# two kernel families have NO sm_121 variant and assert "Unsupported architecture".
+#  - opt_deepgemm_hc_prenorm=false → SGLANG_OPT_DEEPGEMM_HC_PRENORM=0: routes the
+#    Manifold-Constrained Hyper-Connection (MHC) prenorm GEMM to the TileLang
+#    fallback (mhc.py) instead of deep_gemm.tf32_hc_prenorm_gemm. Hits at
+#    kernel_warmup. NOTE: independent of disable_deep_gemm (= SGLANG_ENABLE_JIT_DEEPGEMM).
+#  - fp8_paged_mqa_logits_torch=true → SGLANG_FP8_PAGED_MQA_LOGITS_TORCH=1: torch
+#    fallback for the DSA Lightning-Indexer paged_mqa_logits kernel (the next
+#    wall, at decode). Slower than the kernel but correct on SM121.
+#  - topk_transform_512_torch=true → SGLANG_TOPK_TRANSFORM_512_TORCH=1: torch
+#    fallback (topk_transform_512_pytorch_vectorized) for the C4-indexer top-k
+#    transform. The TVM jit kernel topk_transform_512_v2 (SGLANG_OPT_USE_TOPK_V2,
+#    default-on) dies on sm_121 with `topk_v2.cuh:472 CUDA error: invalid
+#    argument` at decode. The torch branch is checked BEFORE the v2 branch.
+# Defaults match upstream (hc_prenorm on, the torch fallbacks off); V4-Flash flips them.
+sglang_opt_deepgemm_hc_prenorm: "{{ sglang_model_profiles[_sglang_active_model].opt_deepgemm_hc_prenorm | default(true) }}"
+sglang_fp8_paged_mqa_logits_torch: "{{ sglang_model_profiles[_sglang_active_model].fp8_paged_mqa_logits_torch | default(false) }}"
+sglang_topk_transform_512_torch: "{{ sglang_model_profiles[_sglang_active_model].topk_transform_512_torch | default(false) }}"
+# DSV4 DSA Lightning-Indexer via the TileLang kernel instead of the per-step torch
+# fallback. SM121-compatible after the tilelang-0.1.8 indexer compat patch is baked
+# into the image; 8-16x faster + CUDA-graph-capturable. Dispatch (indexer.py) checks
+# this BEFORE the torch flag, so keep fp8_paged_mqa_logits_torch true as a safe rollback.
+sglang_opt_use_tilelang_indexer: "{{ sglang_model_profiles[_sglang_active_model].opt_use_tilelang_indexer | default(false) }}"
+# FP4 GEMM backend: "auto" (default), "flashinfer_cudnn", "cutlass".
+# Controls the GEMM kernel for W4A4 (FP4) quantized models. Not relevant for
+# AWQ (W4A16) or FP8 models — those use FP16/FP8 GEMM paths respectively.
+# On SM120 (Blackwell), "auto" selects flashinfer_cudnn (cuDNN-optimized kernels).
+sglang_fp4_gemm_backend: "{{ sglang_model_profiles[_sglang_active_model].fp4_gemm_backend | default('auto') }}"
+# Maximum batch size for CUDA graph capture. Lower values reduce startup time.
+# Set to 0 to also disable (prefer disable_cuda_graph: true in model profile).
+# Default: 128 (SGLang default is 256, reduced for faster startup)
+sglang_cuda_graph_max_bs: "{{ sglang_model_profiles[_sglang_active_model].cuda_graph_max_bs | default(128) }}"
+# Disable CUDA graph capture entirely (--disable-cuda-graph).
+# Emergency kill switch — overrides cuda_graph_max_bs when true.
+sglang_disable_cuda_graph: "{{ sglang_model_profiles[_sglang_active_model].disable_cuda_graph | default(false) }}"
+# Weight-loader memory levers (--weight-loader-disable-mmap /
+# --weight-loader-drop-cache-after-load). Cut the host page-cache portion of the
+# load-time peak on unified-memory nodes (large checkpoints near node RAM).
+sglang_weight_loader_disable_mmap: "{{ sglang_model_profiles[_sglang_active_model].weight_loader_disable_mmap | default(false) }}"
+sglang_weight_loader_drop_cache_after_load: "{{ sglang_model_profiles[_sglang_active_model].weight_loader_drop_cache_after_load | default(false) }}"
+# Disable piecewise CUDA graph capture (--disable-piecewise-cuda-graph).
+# Needed for NVFP4+EP models where capture OOMs on the all-reduce buffers.
+sglang_disable_piecewise_cuda_graph: "{{ sglang_model_profiles[_sglang_active_model].disable_piecewise_cuda_graph | default(false) }}"
+# Disable the flashinfer_cutlass MoE FP4 allgather path
+# (--disable-flashinfer-cutlass-moe-fp4-allgather). Diagnostic switch for the
+# cudaErrorIllegalInstruction crashes seen on SM121 with moe_runner_backend=
+# flashinfer_cutlass at EP>1 (see Tests 13–15 in the EP=4 NVFP4 test log).
+sglang_disable_flashinfer_cutlass_moe_fp4_allgather: "{{ sglang_model_profiles[_sglang_active_model].disable_flashinfer_cutlass_moe_fp4_allgather | default(false) }}"
+# Diagnostic: SGLANG_MEMPROBE=1 arms dsv4_memprobe.py (CUDA-allocator/RSS/swap
+# deltas around the post-weight-load lifecycle, to find the unified-memory
+# doubling action). Off by default; enable per-run via -e sglang_memprobe=1.
+sglang_memprobe: "0"
+# Disable Spec V2 Overlap-Scheduling (--disable-overlap-schedule).
+# In SGLang 0.5.11, Overlap-Scheduling became default (PR #21062). Diagnostic
+# switch for cases where the new scheduling causes correctness regressions
+# (e.g. Qwen3.6-35B-A3B-FP8 word-salad output observed on 0.5.11 — seen even
+# with speculative_algorithm=None, suggesting the scheduler races independently).
+sglang_disable_overlap_schedule: "{{ sglang_model_profiles[_sglang_active_model].disable_overlap_schedule | default(false) }}"
+
+# JIT Custom All-Reduce — explicit OFF on both 0.5.11 and 0.5.12.
+#
+# SGLang 0.5.11 ships JIT Custom All-Reduce as opt-in (env var
+# SGLANG_USE_JIT_ALL_REDUCE). SGLang 0.5.12 makes it the default and renames
+# the env var (PR #24297, #24363) to SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2 —
+# so on a vanilla 0.5.12 image the collective path silently differs from
+# 0.5.11, breaking apples-to-apples A/B comparisons against our existing
+# 0.5.11 TESTLOG baselines.
+#
+# We set BOTH env vars in the head + worker pods. Each SGLang version reads
+# the one it knows and ignores the other:
+#   true  → JIT V2 on both versions (force V2 on 0.5.11 — opt-in path)
+#   false → legacy all-reduce on both versions (opt-out V2 on 0.5.12)
+#
+# Default: false. Reasons (see TODO_0.5.12.local.md):
+#   1. Matches the implicit 0.5.11 default our existing baselines were measured on.
+#   2. JIT V2 on SM121 is untested for us — defensive.
+# Flip to true once 0.5.12 is otherwise validated and we want to quantify
+# the V2 collective speedup in isolation.
+sglang_jit_allreduce: "{{ sglang_model_profiles[_sglang_active_model].jit_allreduce | default(false) }}"
+
+# Served model name for the OpenAI-compatible API. When load_format is
+# sharded_state, the model path becomes the shard directory — this overrides
+# that so clients (OpenWebUI etc.) see the original model name.
+sglang_served_model_name: "{{ _sglang_active_model }}"
+
+# sglang default: os.cpu_count()
+sglang_jit_max_jobs: "{{ sglang_model_profiles[_sglang_active_model].jit_max_jobs | default(4) }}"
+
+# Tensor parallelism: from model profile or nnodes (default).
+# With PP > 1 (pipeline parallelism), tp * pp = nnodes.
+sglang_tp: "{{ _sglang_active_tp if (_sglang_active_tp | string | length > 0) else (sglang_model_profiles[_sglang_active_model].tp_size | default(_sglang_active_nnodes)) }}"
+# Pipeline parallelism: auto-derived as nnodes / tp_size.
+# PP > 1 distributes model layers across pipeline stages instead of sharding
+# weights via TP. Required when a model's num_key_value_heads isn't divisible
+# by nnodes (e.g. MiniMax M2.5: 8 KV heads, 8 % 3 ≠ 0 → can't use TP=3).
+sglang_pp: "{{ _sglang_active_pp if (_sglang_active_pp | string | length > 0) else ((_sglang_active_nnodes | int) // (sglang_tp | int)) }}"
+# PP async micro-batching depth: overlaps forward passes across pipeline stages.
+# 0 = synchronous (default). Only effective when pp > 1.
+sglang_pp_async_batch_depth: "{{ sglang_model_profiles[_sglang_active_model].pp_async_batch_depth | default(0) }}"
+# Manual pipeline-stage layer boundaries (SGLang's SGLANG_PP_LAYER_PARTITION).
+# Comma-separated per-stage layer COUNTS, e.g. "13,13,13,13,13,13" for PP=6, or
+# "10,16,16,16,10,10" to give the embedding/lm_head+MTP stages fewer layers.
+# Must have exactly pp_size entries summing to the model's num_hidden_layers
+# (SGLang asserts the sum at startup). Empty = SGLang's default even split
+# (remainder layers go to the LAST stages). Only meaningful with pp > 1.
+# Passed via the plain PP_LAYER_PARTITION env; the launch script promotes it to
+# SGLANG_PP_LAYER_PARTITION only when non-empty (empty would crash int("")).
+sglang_pp_layer_partition: "{{ sglang_model_profiles[_sglang_active_model].pp_layer_partition | default('') }}"
+# Expert parallelism: partitions the TP group for MoE layers.
+# EP must divide TP (ep_size <= tp_size). With EP=TP, MoE layers use
+# all-to-all instead of all-reduce — more efficient for MoE over Ethernet.
+# Attention layers remain tensor-parallel regardless of EP.
+# Set per model profile; defaults to 1 (no expert parallelism).
+sglang_ep: "{{ _sglang_active_ep if (_sglang_active_ep | string | length > 0) else (sglang_model_profiles[_sglang_active_model].ep_size | default(1)) }}"
+# EP load balancer: dynamically rebalances expert assignment across ranks.
+# Only effective when ep_size > 1.
+sglang_enable_eplb: "{{ sglang_model_profiles[_sglang_active_model].enable_eplb | default(false) }}"
+# Expert distribution metrics: logs per-expert load statistics via Prometheus.
+# Useful for monitoring EP balance. Only effective when ep_size > 1.
+sglang_enable_expert_distribution_metrics: "{{ sglang_model_profiles[_sglang_active_model].enable_expert_distribution_metrics | default(false) }}"
+# NCCL transport: "roce" (RDMA/RoCE via IBext, GPU Direct) or "socket" (TCP/IP).
+# RoCE requires SR-IOV VFs with correct RoCE devices, GID table, and DCBX/PFC.
+# Socket is the safe fallback — works always, ~30% more latency per transfer.
+# Default: socket (safe, proven). roce only if explicitly requested in profile AND SR-IOV is enabled.
+# RoCE via IBext is currently 2× slower than socket (see TESTLOG) — do not auto-enable.
+_sglang_nccl_transport_requested: "{{ sglang_model_profiles[_sglang_active_model].nccl_transport | default('socket') }}"
+sglang_nccl_transport: "{{ _sglang_nccl_transport_requested if (_sglang_nccl_transport_requested == 'socket' or (qsfp_sriov_enabled | default(false))) else 'socket' }}"
+# NCCL env vars derived from transport mode. Merged into the SGLang ConfigMap.
+# roce: RDMA/RoCE via HPC-X IBext plugin, GPU Direct DMABUF over SR-IOV VFs.
+# socket: TCP/IP over QSFP. Safe fallback, no RoCE/IB dependencies.
+_sglang_nccl_env_roce:
+  NCCL_IB_HCA: "roce{{ qsfp_sriov_vf_prefix | regex_replace('^en', '') }}v{{ qsfp_sriov_assignments[_sglang_active_sriov_key].vf }}"
+  NCCL_IB_GID_INDEX: "3"
+  NCCL_IB_MERGE_NICS: "0"
+_sglang_nccl_env_socket:
+  NCCL_NET: "Socket"
+  NCCL_IB_DISABLE: "1"
+sglang_nccl_env: "{{ _sglang_nccl_env_roce if sglang_nccl_transport == 'roce' else _sglang_nccl_env_socket }}"
+# NCCL NVLS (NVLink SHARP) — force-disabled by default. NVLS is a no-op on the
+# Sparks' C2C/RoCE fabric anyway (no NVLink/NVSwitch), so "0" costs nothing.
+# The reason we pin it: NCCL 2.30.4 has a regression where the NVLS code path
+# silently HANGS during high-expert-count MoE weight loads (≥256 experts) on
+# GB10/sm_121 + ConnectX-7 RoCE — exactly our hardware and our models
+# (DeepSeek V4, Qwen3.5-397B-A17B-NVFP4, Minimax-M2.x). See NVIDIA/nccl#2167.
+# 2.29.7 and 2.30.3 are unaffected; our pytorch base images now build 2.30.4-1.
+# Applies to both sglang and vllm (the upstream repro was vLLM TP=8 weight load).
+# Set to "" to omit the env var entirely (let NCCL auto-decide) once running a
+# NCCL build without the regression.
+nccl_nvls_enable: "0"
+# sglang_port lifted to group_vars/all/main/sglang.yml (shared w/ k8s_infra)
+sglang_internal_port: 30080
+# Raised 4000 -> 8000 to let long reasoning traces (reasoning_effort=high on
+# hard AIME/GPQA items) complete instead of HAProxy resetting the connection
+# mid-generation. Must stay >= the eval client --request-timeout (we run up to
+# 7200s). litellm_settings.request_timeout below is kept >= this value.
+sglang_haproxy_timeout: 8000
+sglang_dist_timeout: 1800
+# Timeout (seconds) for the head's wait-for-worker initContainer.
+# Must be long enough for all workers to become Ready (model download + pod scheduling).
+sglang_wait_timeout: 1200
+# Scheduler watchdog timeout (seconds). The scheduler subprocess is killed if
+# no forward pass completes within this window. Default 300s is too short for
+# the first forward pass on large MoE models — FlashInfer CUTLASS kernel loading
+# and cuDNN autotuning on the first request can take several minutes.
+sglang_watchdog_timeout: 3600
+
+# Max concurrent requests. Limits how many requests SGLang processes in parallel.
+# Set to 0 for unlimited (only bounded by KV-cache pool size).
+# Per-model override via the profile's max_running_requests key (e.g. the
+# diffusiongemma card pins --max-num-seqs 4); falls back to 32 when unset.
+sglang_max_running_requests: "{{ sglang_model_profiles[_sglang_active_model].max_running_requests | default(32) }}"
+
+# Absolute KV-cache pool cap in tokens ("" = unset -> sized purely by
+# mem_fraction_static). SGLang uses min(memory-derived, max_total_tokens). Set a
+# fixed value to make a co-located instance's memory footprint deterministic on
+# the shared GB10 unified memory (pair it with a HIGH mem_fraction_static so the
+# reserve is small and max_total_tokens is the binding cap). Precedence:
+# inst override > profile max_total_tokens > unset.
+sglang_max_total_tokens: "{{ _sglang_active_max_total_tokens if (_sglang_active_max_total_tokens | string | length > 0) else (sglang_model_profiles[_sglang_active_model].max_total_tokens | default('')) }}"
+
+# Schedule policy: "lpm" (longest prefix match) or "fcfs" (first come first served).
+# lpm reuses cached prefixes across requests (better for shared system prompts / RAG).
+# fcfs processes requests strictly in arrival order (fairer under heavy load).
+sglang_schedule_policy: "lpm"
+
+# Attention backend: per-model in sglang_model_profiles, defaults to "flashinfer".
+# Set to "triton" for hybrid GDN models (MoE+Mamba) on Blackwell GPUs.
+sglang_attention_backend: "{{ sglang_model_profiles[_sglang_active_model].attention_backend | default('flashinfer') }}"
+# Multimodal (vision/audio) attention backend. Empty → SGLang default. Choices:
+# sdpa, fa3, fa4, triton_attn, ascend_attn, aiter_attn, flashinfer_cudnn. Only
+# relevant for multimodal models (e.g. MiMoV2 omni). Wired to --mm-attention-backend.
+sglang_mm_attention_backend: "{{ sglang_model_profiles[_sglang_active_model].mm_attention_backend | default('') }}"
+# KV-cache page size (tokens per page). Empty/0 → SGLang default. Some attention
+# backends / hybrid-SWA paths want a larger page (MiMoV2 card uses 64). Wired to --page-size.
+sglang_page_size: "{{ sglang_model_profiles[_sglang_active_model].page_size | default(0) }}"
+# Hybrid-SWA KV budget: ratio of SWA-layer KV tokens to full-layer KV tokens
+# (SGLang default 0.8). Empty → no flag. Only meaningful on hybrid sliding-window
+# models (MiMoV2, Gemma, Llama4). Wired to --swa-full-tokens-ratio.
+sglang_swa_full_tokens_ratio: "{{ sglang_model_profiles[_sglang_active_model].swa_full_tokens_ratio | default('') }}"
+# Diffusion-LLM (dLLM) algorithm. Empty ('') for normal autoregressive models;
+# set to a dLLM algorithm name (e.g. "Gemma4Renoise" for DiffusionGemma) to run
+# the block-diffusion decode path. SGLang's _handle_dllm_inference then auto-
+# forces triton attention + eager (cuda graph disabled) + unchunked prefill, so
+# the autoregressive knobs above are overridden internally. Wired to
+# --dllm-algorithm in sglang_launch.sh. Only the 0.5.14-gemmadiffusion image
+# (PR #28054 baked) ships the runtime for this; other images reject the flag.
+# See DIFFUSIONGEMMA_SGLANG_SCOPE.md.
+sglang_dllm_algorithm: "{{ sglang_model_profiles[_sglang_active_model].dllm_algorithm | default('') }}"
+
+# SGLang server log level. Empty ('') → no --log-level flag is passed, so SGLang
+# uses its built-in default ('info'). Set to 'debug' (globally here, or per-model
+# in sglang_model_profiles) to surface the logger.debug diagnostics SGLang
+# otherwise hides — e.g. the Frozen-KV MTP draft-bind skip message
+# ("Draft model <class> does not implement Frozen-KV MTP context hooks; skipping
+# frozen-kv bind."), which reveals which class a Gemma-4 assistant draft actually
+# loads as. Applies to head AND workers. Wired to --log-level in sglang_launch.sh.
+# Valid values: debug | info | warning | error | critical.
+sglang_log_level: "{{ sglang_model_profiles[_sglang_active_model].log_level | default('') }}"
+
+# Chat template kwargs: passed as --chat-template-kwargs JSON to SGLang CLI.
+# Used for enable_thinking etc. — NOT for sampling params.
+# NOTE: thinking_budget does NOT go here — it uses SGLang's custom logit processor
+# system (Qwen3ThinkingBudgetLogitProcessor), set per request via custom_params.
+# Dual-layer reasoning defaults: chat_template_kwargs from the active model profile
+# flows to BOTH (1) SGLang server via --chat-template-kwargs (server-wide default)
+# and (2) LiteLLM extra_body via _sglang_extra_body_defaults (client-visible default).
+# Per-request extra_body from clients overrides both layers.
+sglang_chat_template_kwargs: "{{ sglang_model_profiles[_sglang_active_model].chat_template_kwargs | default({}) }}"
+
+# Chunked prefill size: maximum number of tokens per prefill chunk.
+# Large values improve throughput for long prompts; lower values reduce
+# per-request latency and memory spikes. 0 = SGLang default (no override).
+sglang_chunked_prefill_size: "{{ sglang_model_profiles[_sglang_active_model].chunked_prefill_size | default(0) }}"
+
+# Embedding mode: when the active model's profile sets is_embedding, this
+# instance serves EMBEDDINGS (--is-embedding) instead of generation. Drives
+# SGLANG_IS_EMBEDDING in the ConfigMap AND the sglang_instance.yml template
+# guards (embed launcher selection, no QSFP annotation). Profile is the source
+# of truth for the RUNTIME flag; the _sglang_embed_instance also sets the
+# matching instance key is_embedding for the (Jinja-evaluated) template guards.
+sglang_is_embedding: "{{ sglang_model_profiles[_sglang_active_model].is_embedding | default(false) }}"
+
+# MoE Triton kernel config directory (host path, under hf_cache_path).
+# Tuned configs are produced by the sglang_tune_moe Job.
+sglang_moe_config_path: "{{ hf_cache_path }}/moe_configs"
+sglang_moe_config_dir: "/root/.cache/huggingface/moe_configs"
