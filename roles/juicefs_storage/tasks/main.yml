@@ -29,9 +29,12 @@
   # opted in via juicefs_mount_master (it has no QSFP → mounts over the mgmt
   # VLAN, which requires the Valkey dual-bind + per-client address resolution
   # in defaults/main.yml). isk3smaster is set inline for the master in hosts.yml.
+  # juicefs_mount_enabled is the per-host opt-out (hosts.yml inline) for group
+  # members that can't reach the backend yet (e.g. spark5 until its QSFP is cabled).
   when: >-
-    inventory_hostname in groups[juicefs_mount_group]
-    or (juicefs_mount_master | bool and isk3smaster | default(false) | bool)
+    (inventory_hostname in groups[juicefs_mount_group]
+     or (juicefs_mount_master | bool and isk3smaster | default(false) | bool))
+    and juicefs_mount_enabled | default(true) | bool
   tags: [juicefs_mount]
 
 - name: Configure metadata-backup cron job

@@ -59,6 +59,7 @@ juicefs_require_disk_mount: true
 # --- Disk / paths -----------------------------------------------------------
 # Mountpoint of the USB-SSD on the storage node. You mount the SSD here yourself
 # (fstab / systemd.mount); this role does NOT partition or format the SSD.
+# Real mountpoint is set in group_vars/all/vault.yml (host-specific).
 juicefs_disk_path: /mnt/jfs-usb
 # RustFS object data dir on the USB-SSD.
 juicefs_rustfs_data_dir: "{{ juicefs_disk_path }}/rustfs"
@@ -70,9 +71,10 @@ juicefs_rustfs_data_dir: "{{ juicefs_disk_path }}/rustfs"
 juicefs_cache_dir: /var/lib/jfs-cache
 # Per-node cache size in MiB (JuiceFS unit is MiB). Keep well below free NVMe.
 # NOTE: today /var/lib/hf-cache holds a ~1.2 TiB per-spark full HF copy; free
-# space is only ~200 GiB until that is migrated into JuiceFS and removed. Size
-# this conservatively until the old local cache is gone, then raise it.
-juicefs_cache_size_mib: 600_000  # ~600 GiB
+# space is ~330-400 GiB until that is migrated into JuiceFS and removed. Size
+# this conservatively until the old local cache is gone, then raise it
+# (Phase 6 of JUICEFS_MIGRATION_HOWTO.md: back to 600_000).
+juicefs_cache_size_mib: 150_000  # ~146 GiB — conservative until Phase 6
 
 # --- Filesystem format (set once at format time, immutable afterwards) -------
 juicefs_fs_name: dgxfs
