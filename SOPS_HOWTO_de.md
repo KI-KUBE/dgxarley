@@ -404,6 +404,8 @@ Chiffrat-Müll:
 # .gitattributes
 group_vars/**/vault.yml diff=sops
 host_vars/**/vault.yml  diff=sops
+group_vars/**/vault/** diff=sops
+host_vars/**/vault/**  diff=sops
 secrets/**              diff=sops
 ```
 
