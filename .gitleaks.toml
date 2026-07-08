@@ -2,7 +2,10 @@
   useDefault = true
 
 [allowlist]
+  # vault.yml / vault/<topic>.yml are git-crypt encrypted: committed content is
+  # ciphertext; the plaintext gitleaks sees comes from the diff textconv only.
   paths = [
     '''\.venv''',
-    '''vault\.yml'''
+    '''vault\.yml''',
+    '''vault/[^/]+\.yml'''
   ]
