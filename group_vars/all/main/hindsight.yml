@@ -1,0 +1,18 @@
+---
+# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+# Hindsight (agent memory backend) — dummy values; real ones in
+# group_vars/all/vault/. Auth uses our own KeyMapTenantExtension (no Supabase):
+#   hindsight_tenant_keymap  — the SINGLE source of truth: map of bearer key ->
+#                              tenant name; each tenant gets its own Postgres
+#                              schema. Add real keys (long random strings) here in
+#                              vault. Keys are NOT templated — write literal
+#                              strings. Unmapped keys are rejected (no fallback).
+#   hindsight_cp_tenant      — (optional, non-secret) which tenant the control-
+#                              plane UI browses; must be a tenant NAME from the
+#                              keymap. Empty → UI has no API access (see defaults).
+#   hindsight_llm_api_key    — upstream text-gen key (= LiteLLM master key here).
+#   hindsight_embeddings_api_key — sent to ollama-embed, which ignores it.
+hindsight_tenant_keymap:
+  "changeme-hindsight-key": "admin"
+hindsight_llm_api_key: "sk-changeme"
+hindsight_embeddings_api_key: "sk-changeme"

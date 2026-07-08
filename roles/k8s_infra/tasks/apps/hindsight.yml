@@ -9,7 +9,7 @@
 #   hindsight-control-plane — Next.js web UI on :{{ hindsight_cp_port }}.
 # Config is ENTIRELY env-driven (no config file): non-sensitive HINDSIGHT_* keys
 # live in a ConfigMap, credentials in a Secret, both injected via envFrom. See
-# the hindsight_* block in defaults/main.yml for the knobs and rationale.
+# the hindsight_* block in defaults/main/hindsight.yml for the knobs and rationale.
 
 - name: Hindsight — install
   when:
