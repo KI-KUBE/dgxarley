@@ -46,12 +46,13 @@ risk for no benefit.
 
 ## 2. Prerequisites
 
-- The USB disk is physically attached to `juicefs_primary_node` and mounted at
-  `juicefs_disk_path`. The real values for both live in
-  `group_vars/all/vault/juicefs.yml` (public dummies: `spark1` in
-  `group_vars/all/main/juicefs.yml`, `/mnt/jfs-usb` in the role defaults). The role
-  refuses to run if the path isn't a real mountpoint
-  (`juicefs_require_disk_mount: true`).
+- The USB disk is physically attached to `juicefs_primary_node` and mounted at the
+  `path` in that node's `juicefs_rustfs_members` entry (`disks: [{ path, uuid, fstype }]`
+  — the sole disk source in both single-node and distributed). Real values live in
+  `group_vars/all/vault/juicefs.yml` (public dummies in `group_vars/all/main/juicefs.yml`).
+  The role refuses to run if the path isn't a real mountpoint
+  (`juicefs_require_disk_mount: true`); with `juicefs_manage_fstab: true` it also
+  writes the UUID-keyed fstab entry and mounts the disk for you.
 - Real secrets set in `group_vars/all/vault/juicefs.yml` (they are dummies in the role
   defaults): `juicefs_rustfs_access_key`, `juicefs_rustfs_secret_key`,
   `juicefs_valkey_password`.
@@ -297,12 +298,12 @@ VLAN, not the 200GbE mesh — fine for light use, not for streaming large weight
 Relocating the storage role from the current `juicefs_primary_node` (vault) to
 another spark is **three moves, not one**, because the pieces live in different
 places. Placeholders below: `<old-qsfp-ip>` / `<new-qsfp-ip>` = the QSFP IPs of
-the old/new storage node, `<disk-path>` = `juicefs_disk_path` (vault),
-`sparkN` = the target node.
+the old/new storage node, `<disk-path>` = the disk `path` in the node's
+`juicefs_rustfs_members` entry (vault), `sparkN` = the target node.
 
 | Piece | Lives where | Moves with the disk? |
 |---|---|---|
-| Object data (all chunks) | `{{ juicefs_disk_path }}/rustfs` on the USB disk | ✅ yes |
+| Object data (all chunks) | `<disk-path>/rustfs` on the USB disk | ✅ yes |
 | **Metadata** (inodes, dir tree, chunk map) | Valkey — `/var/lib/valkey` on the storage **node's local disk** | ❌ **no** — must be dumped/loaded |
 | Bucket endpoint URL | **inside the metadata** (baked at format time: `http://<old QSFP IP>:9000/juicefs`) | ❌ must be rewritten (`juicefs config`) |
 | Valkey + RustFS services | systemd units on the storage node | ❌ redeployed by the role |
@@ -330,9 +331,11 @@ only the delta + metadata dance needs the stop window.
 
 1. **Prepare the new disk** on `sparkN`: partition/mkfs yourself (the role never
    touches block devices), add an fstab entry (`UUID=... <mountpoint> ext4
-   defaults,nofail 0 2`), mount it. If the mountpoint differs from the current
-   `juicefs_disk_path`, update that var in `group_vars/all/vault/juicefs.yml` later in
-   step 5.
+   defaults,nofail 0 2`), mount it. If the mountpoint differs from the current one,
+   update the node's disk `path` in `juicefs_rustfs_members`
+   (`group_vars/all/vault/juicefs.yml`) later in step 5. (With `juicefs_manage_fstab:
+   true` the role writes the fstab entry itself from the member's `uuid` — you just
+   need the disk formatted with a known UUID.)
 2. **Live pre-sync** of the object store over QSFP (chunks are write-once, so a
    running first pass is safe; repeat until the delta is small):
    ```bash
@@ -356,8 +359,9 @@ only the delta + metadata dance needs the stop window.
    ```
    (`--keep-secret-key` keeps the S3 secret inside the dump so the FS is
    mountable right after load — delete the dump file once the move is verified.)
-5. **Repo:** set `juicefs_primary_node: sparkN` (and `juicefs_disk_path` if it
-   changed) in `group_vars/all/vault/juicefs.yml`.
+5. **Repo:** set `juicefs_primary_node: sparkN` and update that node's
+   `juicefs_rustfs_members` entry (node name + disk `path`/`uuid`) in
+   `group_vars/all/vault/juicefs.yml`.
 6. **Backend bring-up on sparkN** (binaries + Valkey + RustFS + backup env —
    deliberately WITHOUT the format/mount tags, see the warning above):
    ```bash
@@ -418,7 +422,7 @@ in that order:
    systemctl daemon-reload && mount <disk-path> && ls <disk-path>/rustfs
    ```
 4. **Repo:** set `juicefs_primary_node: sparkN` in `group_vars/all/vault/juicefs.yml`
-   (`juicefs_disk_path` stays unchanged).
+   and update the member entry's `node` to `sparkN` (its disk `path` stays unchanged).
 5. **Backend bring-up on sparkN** — same as Variant A step 6, including the
    `chown -R rustfs:rustfs <disk-path>/rustfs` (different UID on the new node):
    ```bash

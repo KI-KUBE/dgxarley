@@ -27,12 +27,13 @@ juicefs_primary_node: spark1
 # iptables template needs it. Full semantics + the migration caveat live in
 # roles/juicefs_storage/defaults/main.yml. When OFF, nothing distributed engages.
 juicefs_rustfs_distributed: false
-# RustFS cluster members in distributed mode — STRUCTURED, ordered list (one entry
-# per node, each with its own USB mountpoint(s); heterogeneous paths + disk counts
-# allowed). DUMMY/example values here — put the REAL topology in the vault twin
-# (group_vars/all/vault/juicefs.yml), same as juicefs_disk_path. Only consulted
-# when juicefs_rustfs_distributed is ON; juicefs_primary_node MUST be one of the
-# .node values; min 4 total drives (RustFS distributed requirement). Promoted here
+# RustFS disk topology — STRUCTURED, ordered list (one entry per node, each with its
+# own USB disk(s); heterogeneous paths + disk counts allowed). The SOLE source of the
+# disk path(s) in BOTH modes (single-node = a one-entry list for the primary), so the
+# primary MUST always be listed. DUMMY/example values here — put the REAL topology in
+# the vault twin (group_vars/all/vault/juicefs.yml). Distributed adds the erasure
+# semantics + needs >=4 total drives; single-node just uses the primary's entry.
+# juicefs_primary_node MUST be one of the .node values. Promoted here
 # (was a role default) because common's iptables template and this role both
 # iterate over it — role defaults are out of scope in the common play. Full schema
 # + the ORDER-MATTERS note live in roles/juicefs_storage/defaults/main.yml.

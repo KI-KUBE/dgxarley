@@ -77,8 +77,10 @@ the insurance); RAID6 needs ≥4 drives.
   `state: mounted`, opts default `defaults,nofail`) and mounts each disk that
   carries a `uuid` before the mountpoint check. UUID is mandatory — USB `/dev/sdX`
   names reorder across boots and a wrong name would drop a disk into the wrong
-  erasure slot. Get the UUID with `blkid /dev/sdX1`. Single-node mode has no
-  structured disk (only `juicefs_disk_path`), so it stays manual either way.
+  erasure slot. Get the UUID with `blkid /dev/sdX1`. Works single-node too (the
+  primary is itself a `juicefs_rustfs_members` entry); a disk without a `uuid` is
+  skipped. Optional per-disk `dump`/`passno` (default 0) — set `passno` to match a
+  pre-existing hand-written line so the first managed run doesn't rewrite it.
 
 **⚠ Migration — enabling distributed is NOT in-place.** Single-node (SNSD) has no
 erasure coding and its on-disk layout is incompatible with distributed mode.
@@ -89,12 +91,13 @@ the cluster.
 
 ## Key variables (see `defaults/main.yml`)
 
-- `juicefs_primary_node` — **the placement knob**: which node has the USB-SSD and
-  runs Valkey + RustFS (master or any spark).
+- `juicefs_primary_node` — **the placement knob**: which node runs Valkey + the
+  format + is the S3 endpoint clients dial (must be a `juicefs_rustfs_members` entry).
+- `juicefs_rustfs_members` — the disk topology (per node: `disks: [{path, uuid?,
+  fstype?}]`). **Sole source of the disk path(s)** in both modes; the primary must
+  be listed. RustFS refuses to run a node absent from it (or without a real mountpoint).
 - `juicefs_storage_address` — address mounts use; defaults to the storage node's
   QSFP IP (spark → 200GbE) or its k3s VLAN IP (master).
-- `juicefs_disk_path` — USB-SSD mountpoint (you mount it; the role won't format it
-  and refuses to run if it isn't a real mountpoint).
 - `juicefs_cache_dir` / `juicefs_cache_size_mib` — per-node NVMe cache (MiB).
 - Secrets (`juicefs_rustfs_access_key`/`_secret_key`, `juicefs_valkey_password`)
   are **dummies here** — put real values in `group_vars/all/vault/juicefs.yml`.

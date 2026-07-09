@@ -54,8 +54,8 @@ juicefs_valkey_bind_addresses: >-
        + ([hostvars[juicefs_primary_node].k3s_node_ip] if juicefs_mount_master | bool else [])
      ) | select | list | unique | join(' ') }}
 
-# Safety: refuse to deploy RustFS unless juicefs_disk_path is a real mountpoint
-# (so RustFS data never lands on the OS disk by accident). Override only for tests.
+# Safety: refuse to deploy RustFS unless each of this host's disk paths is a real
+# mountpoint (so RustFS data never lands on the OS disk by accident). Test override.
 juicefs_require_disk_mount: true
 
 # --- Distributed RustFS (multi-node erasure coding) -------------------------
@@ -98,10 +98,12 @@ juicefs_rustfs_distributed: false
 # is on (see below) — otherwise you mount the disks yourself and only `path` matters.
 # ORDER MATTERS: erasure-set membership is positional and the RUSTFS_VOLUMES list
 # is rendered identically on every node, so keep the ordering stable across runs.
-# juicefs_primary_node MUST appear as one of the .node values. IGNORED in
-# single-node mode. Promoted to group_vars/all/main/juicefs.yml (common's iptables
-# template + this role both iterate over it); real value in the vault twin. Do NOT
-# redefine here — a role default would be shadowed by the group_vars value.
+# juicefs_primary_node MUST appear as one of the .node values. The erasure/cluster
+# use is distributed-only, BUT a matching entry is ALSO consulted in single-node
+# mode to supply the primary's per-disk uuid/fstype to the fstab step (see
+# juicefs_rustfs_local_disks). Promoted to group_vars/all/main/juicefs.yml (common's
+# iptables template + this role both iterate over it); real value in the vault twin.
+# Do NOT redefine here — a role default would be shadowed by the group_vars value.
 
 # Optionally let the role own /etc/fstab for the RustFS disk(s) via
 # ansible.posix.mount (state: mounted -> UUID-keyed fstab entry + mount NOW).
@@ -112,8 +114,11 @@ juicefs_rustfs_distributed: false
 #       `options` (default `defaults,nofail`) before the mountpoint check. UUID
 #       (not /dev/sdX) is mandatory because USB device names reorder across boots
 #       — a /dev name could drop the wrong disk into the wrong erasure slot.
-# Single-node mode has no structured disk (only juicefs_disk_path, no UUID), so
-# this is a no-op there — keep mounting the single disk by hand as on the primary.
+# Works in BOTH modes (every RustFS node — incl. the single-node primary — has an
+# entry in juicefs_rustfs_members, which is the sole disk source). A disk entry
+# WITHOUT a uuid is skipped (mount it by hand). Optional per-disk `dump`/`passno`
+# (both default 0) — set `passno` to match a pre-existing manual fstab line so the
+# first managed run doesn't rewrite it.
 juicefs_manage_fstab: false
 
 # Effective RustFS node list (hostnames) — resolved from the mode.
@@ -122,19 +127,19 @@ juicefs_rustfs_nodes: >-
      if juicefs_rustfs_distributed | bool
      else [juicefs_primary_node] }}
 
-# THIS host's disk entries (dicts). Distributed: this node's `disks` from the
-# structure ([] on a non-storage host). Single: a synthetic one-disk list from
-# juicefs_disk_path (no uuid -> the fstab step skips it). One list drives both the
-# mount step and the mountpoint/data-dir derivations below.
+# THIS host's disk entries (dicts) — its matching entry in juicefs_rustfs_members
+# (match by node == inventory_hostname; NOT members[0], which would hand every host
+# the first node's disks in distributed mode). The SINGLE source of truth for this
+# host's disk(s) in BOTH modes: `path` (mountpoint + data dir) and, when
+# juicefs_manage_fstab is on, `uuid`/`fstype` for the fstab step. Empty ONLY if this
+# host is absent from members — a misconfig for a RustFS node, caught by the assert
+# in backend.yml. One list drives the mount step + the mount/data-dir derivations.
 juicefs_rustfs_local_disks: >-
-  {{ (juicefs_rustfs_members | selectattr('node', 'equalto', inventory_hostname)
-      | map(attribute='disks') | first | default([]))
-     if juicefs_rustfs_distributed | bool
-     else [{'path': juicefs_disk_path}] }}
+  {{ juicefs_rustfs_members | default([]) | selectattr('node', 'equalto', inventory_hostname)
+     | map(attribute='disks') | first | default([]) }}
 # This host's USB mountpoints that MUST be mounted before RustFS starts.
 juicefs_rustfs_local_mounts: "{{ juicefs_rustfs_local_disks | map(attribute='path') | list }}"
-# RustFS object data dirs on THIS host (each mountpoint + /rustfs). Single mode
-# resolves to [juicefs_rustfs_data_dir] (== juicefs_disk_path/rustfs).
+# RustFS object data dirs on THIS host (each mountpoint + /rustfs), from local_disks.
 juicefs_rustfs_local_data_dirs: >-
   {{ juicefs_rustfs_local_mounts | map('regex_replace', '$', '/rustfs') | list }}
 
@@ -158,12 +163,13 @@ juicefs_rustfs_total_drives: >-
 juicefs_rustfs_set_drive_count: "{{ juicefs_rustfs_total_drives }}"
 
 # --- Disk / paths -----------------------------------------------------------
-# Mountpoint of the USB-SSD on the storage node. You mount the SSD here yourself
-# (fstab / systemd.mount); this role does NOT partition or format the SSD.
-# Real mountpoint is set in group_vars/all/vault/juicefs.yml (host-specific).
-juicefs_disk_path: /mnt/jfs-usb
-# RustFS object data dir on the USB-SSD.
-juicefs_rustfs_data_dir: "{{ juicefs_disk_path }}/rustfs"
+# RustFS object data dir on THIS host's (first) USB-SSD, derived from the host's
+# juicefs_rustfs_members entry — ONE source of the disk path, so the mount checks
+# and what RustFS actually serves can never drift. Single-node uses this as the
+# positional volume; distributed builds RUSTFS_VOLUMES per disk instead (this var
+# is then unreferenced). The disk itself you mount yourself (or via
+# juicefs_manage_fstab); this role never partitions or formats it.
+juicefs_rustfs_data_dir: "{{ juicefs_rustfs_local_data_dirs | first }}"
 
 # Host mountpoint of the shared FS on every mount node.
 # PROMOTED to group_vars/all/main/juicefs.yml (k8s_dgx derives hf_cache_juicefs_root

@@ -28,6 +28,17 @@
     - juicefs_rustfs_distributed | bool
     - inventory_hostname == juicefs_primary_node
 
+# --- This host must have a disk entry in members (sole disk source) ---------
+- name: Assert this RustFS node has a disk entry in juicefs_rustfs_members
+  ansible.builtin.assert:
+    that: juicefs_rustfs_local_disks | length > 0
+    fail_msg: >-
+      {{ inventory_hostname }} runs RustFS but has no matching entry in
+      juicefs_rustfs_members (which is the sole disk source, single-node included).
+      Add one, e.g.:
+        - node: {{ inventory_hostname }}
+          disks: [{ path: <mountpoint>, uuid: "<blkid-UUID>", fstype: ext4 }]
+
 # --- Optional fstab management (juicefs_manage_fstab) -----------------------
 # Own /etc/fstab for the RustFS disk(s): UUID-keyed entry + mount NOW, so the
 # mountpoint assert below passes on a fresh node. Only entries WITH a uuid are
@@ -39,6 +50,10 @@
     path: "{{ item.path }}"
     fstype: "{{ item.fstype | default('ext4') }}"
     opts: "{{ item.options | default('defaults,nofail') }}"
+    # dump/passno per disk (both default 0). Set passno to match a pre-existing
+    # hand-written fstab line (e.g. 2) to keep the entry byte-identical on first run.
+    dump: "{{ item.dump | default('0') }}"
+    passno: "{{ item.passno | default('0') }}"
     state: mounted
   loop: "{{ juicefs_rustfs_local_disks }}"
   loop_control:
