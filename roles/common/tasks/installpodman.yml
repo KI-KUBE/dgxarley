@@ -47,18 +47,31 @@
       # Optional: Verhindert, dass Podman überhaupt nachfragt und einfach den ersten Treffer nimmt
       unqualified-search-registries = ["docker.io"]
 
-- name: Use kernel-native overlay instead of DGX-OS-forced fuse-overlayfs
-  # DGX-OS ships /etc/containers/storage.conf with mount_program = fuse-overlayfs,
-  # which forces the slow userspace FUSE path even for root. Empty mount_program
-  # = kernel-native overlay (near-zero overhead). Drop fsync=0 (fuse-only mountopt,
-  # invalid for kernel overlay). Kernel >= 5.13 required — DGX-OS is well past that.
-  # NOTE: only rewrites the config; pre-existing fuse-built storage may need a
-  # manual `podman system reset` (destructive) if the next build hits a driver mismatch.
+- name: Check for an existing containers storage.conf
+  ansible.builtin.stat:
+    path: /etc/containers/storage.conf
+  register: containers_storage_conf
+
+- name: Force kernel-native overlay when a storage.conf forces fuse-overlayfs
+  # Some hosts (e.g. the DGX-OS custom-podman spark) ship /etc/containers/storage.conf
+  # with mount_program = fuse-overlayfs, which forces the slow userspace FUSE path even
+  # for root. Empty mount_program = kernel-native overlay (near-zero overhead); drop
+  # fsync=0 (a fuse-overlayfs-only mountopt, invalid for kernel overlay).
+  #
+  # ONLY touch an ALREADY-EXISTING file: hosts without one (apt podman on spark1-4) use
+  # the native-overlay compiled defaults already, and containers/storage reads a single
+  # storage.conf whole (no merge) — writing a partial file there would drop the
+  # [storage] base (driver/runroot) and break podman ("runroot must be set"). A
+  # storage.conf.d/ drop-in was tested and is NOT honored by this containers-storage
+  # version, so an in-place edit of the existing file is the only working lever.
+  # NOTE: config-only; pre-existing fuse-built storage may need a manual
+  # `podman system reset` (destructive) if the next build hits a driver mismatch.
   community.general.ini_file:
     path: /etc/containers/storage.conf
     section: storage.options.overlay
     option: "{{ item.opt }}"
     value: "{{ item.val }}"
+    create: false
     mode: "0644"
     backup: true
   loop:
@@ -66,6 +79,7 @@
     - { opt: mountopt, val: '"nodev"' }
   loop_control:
     label: "{{ item.opt }}"
+  when: containers_storage_conf.stat.exists
 
 - name: enable and start podman socket (system-level)
   systemd:
