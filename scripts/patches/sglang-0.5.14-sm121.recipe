@@ -34,16 +34,49 @@
 #      0.5.14-sm121 pod (no GPU needed — pure source inspection) that neither
 #      fix is present natively. Non-spec DSV4 serving is unaffected either way.
 #      See the APPLY_DSV4_MTP_MARLIN_TILELANG block below for details.
-#   7. [2026-07-09] Added CUTLASS_DSL_VERSION=4.5.3 — the 2026-07-06 rebuild of
-#      this image silently picked up DIFFERENT nvidia-cutlass-dsl 4.5.2 wheel
-#      content (same version number!): its tvm_ffi_provider passes data=[] to
-#      an llvm.mlir_global_dtors() binding that lacks the parameter → every
-#      fresh CuTe-DSL JIT compile ICEs ("unexpected keyword argument 'data'"),
-#      killing SGLang at CUDA-graph warmup on ANY model (verified: Nemotron
-#      head + Qwen3-VL vision instance; the 06-29 build of the SAME tag was
-#      fine). flashinfer pins only >=4.5.0, so every rebuild re-resolves this
-#      transitively. 4.5.3 (released 2026-07-08) is consistent — verified by
-#      in-pod install on the broken image. See dockerfile-cutlass-dsl-pin.patch.
+#   7. [2026-07-09] Pin CUTLASS_DSL_VERSION — the 2026-07-06 rebuild of this
+#      image silently picked up DIFFERENT nvidia-cutlass-dsl 4.5.2 wheel content
+#      (same version number!): its tvm_ffi_provider passes data=[] to an
+#      llvm.mlir_global_dtors() binding that lacks the parameter → every fresh
+#      CuTe-DSL JIT compile ICEs ("unexpected keyword argument 'data'"), killing
+#      SGLang at CUDA-graph warmup on ANY model (verified: Nemotron head +
+#      Qwen3-VL vision instance; the 06-29 build of the SAME tag was fine).
+#      flashinfer pins only >=4.5.0, so every rebuild re-resolves this
+#      transitively.
+#      [2026-07-09, revised] 4.5.3 (released 2026-07-08, OUT OF ORDER — it
+#      post-dates 4.6.0 @ 2026-07-02, a late back-port hotfix) is ALSO broken,
+#      but with a DIFFERENT skew: its python codegen (_gpu_ops_gen.py) calls the
+#      modern generic GPUModuleOp(name, regions, …) init while the shipped native
+#      _cutlass_ir only exposes the old __init__(self, operation) → "TypeError:
+#      incompatible function arguments" on the first CuTe-DSL JIT (flashinfer
+#      rmsnorm_cute in warmup). i.e. the 4.5.3 wheel trio (dsl / libs-base /
+#      libs-cu13) is internally mismatched. Verified live: BOTH Nemotron head and
+#      the Qwen3-VL vision head crashloop identically on 4.5.3 in this image.
+#      IMPORTANT — nothing pinnable from PyPI is PROVEN-good. The ONE combination
+#      ever demonstrated working is flashinfer 0.6.13 + cutlass 4.5.2 with the
+#      SPECIFIC bytes from the 2026-06-29 build; those exact bytes are gone from
+#      the index (the 07-06 re-resolve pulled a different-byte 4.5.2 → ICE). So
+#      4.5.1 and 4.6.0 are both UNTESTED HYPOTHESES, not fallbacks — the build's
+#      GPU JIT smoke test below is the only real gate.
+#      Chosen (choice B, 2026-07-09): pin 4.6.0 (2026-07-02, clean in-order
+#      release, matching python codegen + native libs) DELIBERATELY PAIRED with
+#      flashinfer 0.6.14 (also 2026-07-02, see FLASHINFER_VERSION block) — same-day
+#      release-mates, most likely tested against each other, and 0.6.14 adds the
+#      SM120 attention fixes we want. If the smoke test FAILS: the only reproducibly
+#      -good source is the surviving 2026-06-29 image on spark1 (dangling digest
+#      3ed9cc1…, cutlass 4.5.2, 15.3 GB — vs the bad 07-06 f1a951…, also "4.5.2"
+#      but different _llvm_ops_gen.py bytes); extract its cutlass-dsl wheels and
+#      vendor + hash-pin them (do NOT trust the 4.5.2 version string on the index).
+#      A 4.5.1+0.6.13 downgrade is a guess, not a known-good — only try it if the
+#      vendored-bytes path is unavailable, and keep the pair matched.
+#      VERIFY at build time, in the built image, before shipping (GPU required):
+#        python -c "import flashinfer, torch; \
+#          from flashinfer.norm import rmsnorm; \
+#          x=torch.randn(4,512,device='cuda',dtype=torch.bfloat16); \
+#          w=torch.randn(512,device='cuda',dtype=torch.bfloat16); \
+#          print(rmsnorm(x,w).shape)"
+#      (must NOT raise the GPUModuleOp TypeError / mlir_global_dtors ICE).
+#      See dockerfile-cutlass-dsl-pin.patch.
 #
 # ⚠️  v0.5.14 is a tagged release but it is 248 commits past v0.5.13, well past
 #     the 3a1417a commit the gemma-diffusion recipe was pinned to. The SM121
@@ -68,13 +101,17 @@ TARGET=runtime
 BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
 
 # Override über den v0.5.14-Upstream-Pin (flashinfer_python[cu13]==0.6.12) hinaus
-# auf 0.6.13 (stable, released 2026-06-24) — enthält flashinfer PR #3576
+# auf 0.6.14 (stable, released 2026-07-02) — enthält weiterhin PR #3576
 # (head_dim=512 / Gemma-4 SM120/121, Issue #3297) + NVFP4-Quant-Kernel-
-# Verbesserungen. v0.5.14 pinnt im pyproject weiterhin 0.6.12, der Override bleibt
-# also nötig (identisch zur 0.5.13-sm121-Recipe).
-# Roll-back auf den Upstream-Pin: FLASHINFER_VERSION=0.6.12.
+# Verbesserungen (in 0.6.14 in den Release-Notes bestätigt) UND zusätzliche
+# SM120/121-Attention-Fixes (FMHAv2 head_dim 256/512 + sliding-window masks) —
+# direkt relevant für die GB10-Sparks. Bewusst gepaart mit cutlass-dsl 4.6.0
+# unten: beide am 2026-07-02 released, also gegeneinander getestete Release-Mates
+# (delta note 7). v0.5.14 pinnt im pyproject weiterhin 0.6.12, der Override bleibt
+# also nötig. Roll-back-Optionen: 0.6.13 (voriger Pin) oder 0.6.12 (Upstream).
+# FLASHINFER_VERSION=0.6.13
 # FLASHINFER_VERSION=0.6.12
-FLASHINFER_VERSION=0.6.13
+FLASHINFER_VERSION=0.6.14
 
 # transformers 5.8.1 pinning — exakt SGLang v0.5.14s pyproject-Pin (==5.8.1,
 # unverändert ggü. v0.5.13). NICHT isoliert über die SGLang-Ref hinaus bumpen
@@ -99,9 +136,12 @@ KERNELS_VERSION=0.14.1
 # shipped different wheel content under the same 4.5.2 version number; the
 # 2026-07-06 variant is internally inconsistent and ICEs on every fresh
 # CuTe-DSL JIT compile (mlir_global_dtors 'data' kwarg — delta note 7). 4.5.3
-# (2026-07-08) is consistent; verified against the live crash. Wired via
-# dockerfile-cutlass-dsl-pin.patch (build_sm121_image.sh step 2-cutlass).
-CUTLASS_DSL_VERSION=4.5.3
+# (2026-07-08) turned out to ALSO be broken (a different skew — see note 7), so
+# we pin 4.6.0 (2026-07-02): the clean in-order release flashinfer 0.6.13 would
+# naturally resolve to (>=4.5.0), with matching python codegen + native libs.
+# Conservative fallback if 4.6.0 misbehaves: 4.5.1 (last pre-swap release).
+# Wired via dockerfile-cutlass-dsl-pin.patch (build_sm121_image.sh step 2-cutlass).
+CUTLASS_DSL_VERSION=4.6.0
 
 # Audio multimodal deps — installed by dockerfile-audio-deps.patch (gated ARG,
 # empty = no-op). Required for omni models that decode audio at runtime, e.g.
