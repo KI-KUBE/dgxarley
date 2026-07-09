@@ -52,24 +52,24 @@
 #      rmsnorm_cute in warmup). i.e. the 4.5.3 wheel trio (dsl / libs-base /
 #      libs-cu13) is internally mismatched. Verified live: BOTH Nemotron head and
 #      the Qwen3-VL vision head crashloop identically on 4.5.3 in this image.
-#      IMPORTANT — nothing pinnable from PyPI is PROVEN-good. The ONE combination
-#      ever demonstrated working is flashinfer 0.6.13 + cutlass 4.5.2 with the
-#      SPECIFIC bytes from the 2026-06-29 build; those exact bytes are gone from
-#      the index (the 07-06 re-resolve pulled a different-byte 4.5.2 → ICE). So
-#      4.5.1 and 4.6.0 are both UNTESTED HYPOTHESES, not fallbacks — the build's
-#      GPU JIT smoke test below is the only real gate.
-#      Chosen (choice B, 2026-07-09): pin 4.6.0 (2026-07-02, clean in-order
-#      release, matching python codegen + native libs) DELIBERATELY PAIRED with
-#      flashinfer 0.6.14 (also 2026-07-02, see FLASHINFER_VERSION block) — same-day
-#      release-mates, most likely tested against each other, and 0.6.14 adds the
-#      SM120 attention fixes we want. If the smoke test FAILS: the only reproducibly
-#      -good source is the surviving 2026-06-29 image on spark1 (dangling digest
-#      3ed9cc1…, cutlass 4.5.2, 15.3 GB — vs the bad 07-06 f1a951…, also "4.5.2"
+#      Fix (VERIFIED live 2026-07-09): pin cutlass 4.6.0 (2026-07-02, clean
+#      in-order release, matching python codegen + native libs) DELIBERATELY
+#      PAIRED with flashinfer 0.6.14 (also 2026-07-02, see FLASHINFER_VERSION
+#      block) — same-day release-mates, and 0.6.14 adds the SM120 attention fixes
+#      we want. Proof: the freshly-built image's Qwen3-VL vision head reached 2/2
+#      Running with 0 restarts, clearing the exact CUDA-graph warmup that crash-
+#      looped on both 4.5.2-bad-bytes and 4.5.3 (choice B over the conservative
+#      choice A = keep 0.6.13 + drop cutlass to 4.5.1).
+#      CAVEAT on any future re-pin: NOTHING on the index is proven-good by version
+#      string alone (4.5.2 shipped 2 different-byte builds; both 4.5.2-bad + 4.5.3
+#      crash-looped). If a rebuild ever regresses, the ONLY reproducibly-good
+#      source is the surviving 2026-06-29 image on spark1 (dangling digest
+#      3ed9cc1…, cutlass 4.5.2, 15.3 GB — vs the bad 07-06 f1a951…, same "4.5.2"
 #      but different _llvm_ops_gen.py bytes); extract its cutlass-dsl wheels and
-#      vendor + hash-pin them (do NOT trust the 4.5.2 version string on the index).
-#      A 4.5.1+0.6.13 downgrade is a guess, not a known-good — only try it if the
-#      vendored-bytes path is unavailable, and keep the pair matched.
-#      VERIFY at build time, in the built image, before shipping (GPU required):
+#      vendor + hash-pin them. A 4.5.1+0.6.13 downgrade is a guess, not a known-
+#      good — only if the vendored-bytes path is unavailable, and keep the pair
+#      matched (never mix a 4.5.x cutlass with a 4.6.x-era flashinfer).
+#      Re-VERIFY on any bump, in the built image (GPU required):
 #        python -c "import flashinfer, torch; \
 #          from flashinfer.norm import rmsnorm; \
 #          x=torch.randn(4,512,device='cuda',dtype=torch.bfloat16); \

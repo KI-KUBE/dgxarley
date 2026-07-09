@@ -16,8 +16,21 @@ first hit in practice: flashinfer's rmsnorm_cute during SGLang CUDA-graph
 warmup -> scheduler crash-loop on ANY model (verified on both the Nemotron head
 and the Qwen3-VL vision instance). flashinfer only requires
 nvidia-cutlass-dsl>=4.5.0 (open-ended), so every rebuild re-resolves this
-transitively. 4.5.3 (released 2026-07-08) restores consistency — verified by
-in-pod install on the broken image (compile OK).
+transitively.
+
+4.5.3 (2026-07-08) was tried first and is ALSO broken — a DIFFERENT skew: its
+python codegen calls the modern generic GPUModuleOp(name, regions, ...) init
+while its shipped native _cutlass_ir only exposes __init__(self, operation) ->
+"TypeError: incompatible function arguments" on the first CuTe-DSL JIT (same
+warmup crash-loop, verified live on both instances). i.e. the 4.5.3 wheel trio
+is internally mismatched too.
+
+FIX (VERIFIED live 2026-07-09): pin cutlass 4.6.0 (2026-07-02) PAIRED with
+flashinfer 0.6.14 (also 2026-07-02) — same-day release-mates. The Qwen3-VL
+vision head reached 2/2 Running with 0 restarts, clearing the exact CUDA-graph
+warmup that crash-looped on 4.5.2-bad and 4.5.3. cutlass + flashinfer must move
+as a matched pair; see sglang-0.5.14-sm121.recipe delta note 7 + FLASHINFER
+block for the version rationale and the 4.5.1+0.6.13 fallback caveat.
 
 Mirrors the dockerfile-kernels-pin.patch mechanism: ARG + gated force-reinstall
 RUN in the builder stage (BEFORE directory_split2.sh so the pinned files are
