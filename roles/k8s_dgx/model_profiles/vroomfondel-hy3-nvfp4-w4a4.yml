@@ -159,32 +159,50 @@ _model_profile:
     # speculative_draft_model_path/_quantization stay unset). Params verbatim from
     # the card. UNVALIDATED on GB10 — flip speculative_enabled:false if the head
     # NaNs/misbehaves at boot (the usual FP4→BF16 draft-drift failure mode).
-    # ── MTP/NEXTN boot crash 2026-07-09 + FIX (checkpoint-verified) ──────────
-    # First deploy with spec ON crash-looped: hunyuan_v3_nextn.py load_weights →
+    # ── MTP/NEXTN boot crash 2026-07-09 — UNRESOLVED (the "unquant fix" is a NO-OP) ──
+    # Deploy with spec ON crash-loops: hunyuan_v3_nextn.py load_weights →
     # fused_moe _load_w13 → "tensor a (2048) must match b (4096) at dim 1" → SIGQUIT
-    # → exitCode 137 → worker cascade. ROOT CAUSE (verified via safetensors headers):
-    # the MTP layer (layers.80) experts are BF16 (gate/up_proj hidden=4096, NO
-    # weight_scale), while the MAIN layers are NVFP4 (U8, hidden packed 2-per-byte
-    # =2048, + weight_scale). SGLang defaults the draft quant to the target's
-    # (speculative_draft_model_quantization=None → modelopt_fp4), so the NEXTN loader
-    # built an NVFP4 w13 buffer (hidden=2048) and tried to copy the BF16 weight
-    # (hidden=4096) into it → the 2048-vs-4096 mismatch. FIX = force the draft quant
-    # to unquant so the MTP head loads as BF16 (matching the checkpoint) — same knob
-    # as the gemma-4 / qwen3-235b NVFP4 profiles. See TESTLOGS/sglang_nn4_tp4_ep4/
-    # hy3-nvfp4-w4a4/ and [[reference_draft_quant_unquant]].
-    # UNVALIDATED-AT-BOOT with the fix: verified only at the checkpoint level so far;
-    # if it now hits a BF16-draft-on-NVFP4-target out_dtype error, see the Mistral
-    # sglang_model_dtype=bfloat16 workaround. Flip speculative_enabled:false to fall
-    # back to the (working) no-spec base model.
-    # TEMPORARILY false during the garbage-output backend-matrix debug (2026-07-09):
-    # spec is isolated so an MTP boot issue can't mask the attention/output test.
-    # The unquant fix below is staged — flip back to true once base output is clean.
+    # → exitCode 137 → worker cascade. THE SHAPE FACTS (verified via safetensors
+    # headers) are correct: the MTP layer (layers.80) experts are BF16 (gate/up_proj
+    # hidden=4096, NO weight_scale), while the MAIN layers are NVFP4 (U8, hidden packed
+    # 2-per-byte =2048, + weight_scale). SGLang builds an NVFP4 w13 buffer (hidden=2048)
+    # for the NEXTN head and tries to copy the BF16 weight (hidden=4096) into it → the
+    # 2048-vs-4096 mismatch.
+    #
+    # ⚠ CORRECTION 2026-07-11 (code-verified, image 0.5.14-sm121 + upstream main):
+    # `speculative_draft_model_quantization: unquant` DOES NOT FIX THIS — it is a no-op
+    # for a built-in NEXTN head. The earlier "FIX = force draft quant to unquant" note
+    # was checkpoint-level reasoning only (never validated at boot); empirically it still
+    # crashed with unquant set. Why it's a no-op, traced through the source:
+    #   1. server_args.py: draft `unquant` → `speculative_draft_model_quantization=None`
+    #      — and, unlike the MAIN model's `--quantization unquant` (which ALSO sets
+    #      `_quantization_explicitly_unset=True`), the DRAFT path sets NO such flag.
+    #   2. model_config.from_server_args(is_draft_model=True) passes quantization=None.
+    #   3. model_config._verify_quantization: `if self.quantization is None:
+    #      self.quantization = quant_method` — quant_method is read from the checkpoint's
+    #      hf_quant_config.json (global modelopt_fp4). So None is silently re-promoted to
+    #      modelopt_fp4. (`_quantization_explicitly_unset` is never consulted here — it
+    #      only guards the server_args-level model adjustments, not ModelConfig.)
+    # → the NEXTN MoE is ALWAYS built modelopt_fp4 on GB10 regardless of this knob.
+    # (hunyuan_v3_nextn.py lacks even the NPU-only `quant_config=None` guard that
+    # glm4_moe_nextn.py / qwen3_5_mtp.py carry — and that guard is CUDA-inert anyway.)
+    # Same no-op mechanism is documented for the Mistral EAGLE case in
+    # sglang_launch.sh (~:831). See [[reference_draft_quant_unquant]] (updated).
+    #
+    # REAL FIX (built elsewhere, not yet wired here): a NEXTN loader patch analogous to
+    # the shared_experts→shared_mlp remap — force the MTP layer (layers.80) to build
+    # BF16, i.e. make SGLang honor the checkpoint's per-layer exclude that it currently
+    # ignores on the NEXTN path. Until that lands, spec MUST stay OFF; the no-spec base
+    # model is VALIDATED coherent (2026-07-10). Only known-working Hy3+MTP on Spark is
+    # vLLM W4A16-marlin (QUANT_HY3_GOTCHAS.md prior-art), a path SGLang lacks (Blocker A).
+    # The `unquant` value below is LEFT for documentation of intent but is inert — do NOT
+    # rely on it; it does not prevent the crash.
     speculative_enabled: false
     speculative_algo: EAGLE
     speculative_num_steps: 2
     speculative_eagle_topk: 1
     speculative_num_draft_tokens: 3
-    speculative_draft_model_quantization: "unquant"  # MTP head is BF16 (see above) — must NOT inherit modelopt_fp4
+    speculative_draft_model_quantization: "unquant"  # INERT for built-in NEXTN: normalizes to None → _verify_quantization re-promotes to modelopt_fp4 (see note above). Real fix = NEXTN BF16-loader patch.
 
     # Official recommendation (tencent/Hy3 card): temperature=0.9, top_p=1.0 (same
     # for thinking + no_think; the card tunes behavior via reasoning_effort, not

@@ -345,6 +345,96 @@ else:
 PATCH_HUNYUAN_SHARED_EOF
 fi
 
+# ── HYV3 NEXTN/MTP head fixes — ONLY when EAGLE/MTP speculative decode is on ──
+# The built-in NEXTN/MTP head (whole model.layers.80*) is BF16-EXCLUDED from NVFP4
+# in hf_quant_config.json (verified: layer 80 = 0 scale tensors, all BF16), but
+# SGLang's hunyuan_v3_nextn.py does NOT honour that exclude — it inherits the
+# target's modelopt_fp4 quant_config → FusedMoE builds a packed NVFP4 buffer
+# (hidden=2048) → boot crash vs the BF16 weight (hidden=4096) in _load_w13.
+# --speculative-draft-model-quantization unquant does NOT help (SGLang normalizes
+# "unquant"→None → re-auto-detects modelopt_fp4 from the shared checkpoint).
+# Two source patches (neither upstream-merged as of 0.5.14). Drop on an image that
+# ships PR #30331 + a NEXTN-side quant guard for hunyuan_v3_nextn.py.
+if { [[ "$SGLANG_MODEL" == *"Hy3"* ]] || [[ "$SGLANG_MODEL" == *"Hunyuan"* ]]; } \
+   && [ "$SGLANG_SPECULATIVE_ENABLED" = "true" ]; then
+
+  # --- 1) hunyuan_v3_nextn.py: force the NEXTN/MTP head UNQUANTIZED (BF16) ---
+  # Null quant_config at the HYV3ForCausalLMNextN.__init__ top so it covers the whole
+  # draft (decoder layer-80 experts + shared_mlp + attention + lm_head — ALL BF16-
+  # excluded). Same guard glm4_moe_nextn.py / qwen3_5_mtp.py already carry; HYV3 lacks it.
+  python3 - <<'PATCH_HY3_NEXTN_BF16_EOF'
+import pathlib
+p = pathlib.Path("/usr/local/lib/python3.12/dist-packages/sglang/srt/models/hunyuan_v3_nextn.py")
+if not p.exists():
+    print("hunyuan_v3_nextn.py: not found, skipping")
+else:
+    src = p.read_text()
+    marker = "# [patch] _sgl_hy3_nextn_bf16_head_"
+    anchor = (
+        "        nn.Module.__init__(self)\n"
+        "        self.config = config\n"
+        "        self.quant_config = quant_config\n"
+    )
+    inject = (
+        "        nn.Module.__init__(self)\n"
+        "        self.config = config\n"
+        "        " + marker + "\n"
+        "        # layer-80 (NEXTN/MTP head) is BF16-excluded in hf_quant_config.json;\n"
+        "        # drop the target's NVFP4 quant so create_weights allocates BF16 buffers.\n"
+        "        if quant_config is not None and quant_config.get_name() in (\n"
+        "            \"modelopt_fp4\",\n"
+        "            \"modelopt_mixed\",\n"
+        "        ):\n"
+        "            quant_config = None\n"
+        "        self.quant_config = quant_config\n"
+    )
+    if marker in src:
+        print("hunyuan_v3_nextn.py: BF16-head override already patched, skipping")
+    elif anchor not in src:
+        print("hunyuan_v3_nextn.py: __init__ anchor not found, skipping (code changed?)")
+    else:
+        p.write_text(src.replace(anchor, inject, 1))
+        print("Patched hunyuan_v3_nextn.py: NEXTN/MTP head forced unquantized (BF16)")
+PATCH_HY3_NEXTN_BF16_EOF
+
+  # --- 2) hunyuan_v3_nextn.py load_weights: remap the draft head's output norm ---
+  # Checkpoint stores it as model.layers.80.final_layernorm.weight; the module is
+  # model.shared_head.norm. Without this it falls into the generic else →
+  # model.decoder.final_layernorm.weight (no such param) → silently dropped →
+  # shared_head.norm stays default-init → accept-rate collapses. Upstream PR #30331.
+  python3 - <<'PATCH_HY3_NEXTN_FINALNORM_EOF'
+import pathlib
+p = pathlib.Path("/usr/local/lib/python3.12/dist-packages/sglang/srt/models/hunyuan_v3_nextn.py")
+if not p.exists():
+    print("hunyuan_v3_nextn.py: not found, skipping")
+else:
+    src = p.read_text()
+    marker = "# [patch] _sgl_hy3_nextn_final_layernorm_"
+    anchor = (
+        "                if any(subname.startswith(s) for s in spec_weight_names):\n"
+        "                    name = f\"model.{subname}\"\n"
+        "                else:\n"
+        "                    name = f\"model.decoder.{subname}\"\n"
+    )
+    inject = (
+        "                if any(subname.startswith(s) for s in spec_weight_names):\n"
+        "                    name = f\"model.{subname}\"\n"
+        "                elif subname.startswith(\"final_layernorm\"):\n"
+        "                    " + marker + "  # upstream PR #30331\n"
+        "                    name = \"model.shared_head.norm.weight\"\n"
+        "                else:\n"
+        "                    name = f\"model.decoder.{subname}\"\n"
+    )
+    if marker in src:
+        print("hunyuan_v3_nextn.py: final_layernorm remap already patched, skipping")
+    elif anchor not in src:
+        print("hunyuan_v3_nextn.py: load_weights name-map anchor not found, skipping (code changed?)")
+    else:
+        p.write_text(src.replace(anchor, inject, 1))
+        print("Patched hunyuan_v3_nextn.py: final_layernorm -> shared_head.norm (PR #30331)")
+PATCH_HY3_NEXTN_FINALNORM_EOF
+fi
+
 # Patch SGLang get_config() to convert dict sub_configs after loading (transformers 5.5.0 bug).
 # Transformers 5.x auto-generates __init__ for PretrainedConfig subclasses with sub_configs,
 # bypassing dict→config conversion. from_pretrained() also bypasses __post_init__.
