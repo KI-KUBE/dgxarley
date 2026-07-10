@@ -52,7 +52,7 @@ sglang_port: 8000
 #
 # --- Hunyuan-3 (Tencent; hy_v3 arch) ---
 sglang_model: "vroomfondel/Hy3-NVFP4-W4A4"                     # ✅ VALIDATED WORKING on GB10/sm121 (2026-07-10) — full W4A4, 295B/21B-active Hunyuan-3 MoE (192 exp/top-8 +1 shared), modelopt NVFP4 + FP8 KV, 256K ctx → ~40 GB/GPU TP4/EP1; hunyuan tool/reasoning parser; BF16 MTP head (EAGLE staged). Serves coherently once the sglang_launch.sh shared_experts→shared_mlp loader remap is applied (see profile). The long "W4A4 garbles/NaNs" story was a weight-name-load gap, now fixed.
-# sglang_model: "kodelow/Hy3-NVFP4-W4A16"                      # SAME hy_v3 295B MoE, WEIGHT-ONLY NVFP4 (compressed-tensors nvfp4-pack-quantized; experts-only, attn/dense/KV BF16). DEAD END in SGLang: no weight-only-NVFP4 MoE scheme → crashes at load (Blocker A in QUANT_HY3_GOTCHAS.local.md). Use the W4A4 build above (now working); kodelow only serves via vLLM+MARLIN.
+# sglang_model: "kodelow/Hy3-NVFP4-W4A16"                      # SAME hy_v3 295B MoE, WEIGHT-ONLY NVFP4 (compressed-tensors nvfp4-pack-quantized; experts-only, attn/dense/KV BF16). DEAD END in SGLang: no weight-only-NVFP4 MoE scheme → crashes at load (Blocker A in QUANT_HY3_GOTCHAS.md). Use the W4A4 build above (now working); kodelow only serves via vLLM+MARLIN.
 #
 # --- MiniMax ---
 # sglang_model: "nvidia/MiniMax-M2.5-NVFP4"

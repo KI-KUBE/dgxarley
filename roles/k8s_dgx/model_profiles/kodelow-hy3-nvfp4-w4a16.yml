@@ -22,7 +22,7 @@
 #     "serves on MARLIN" is a vLLM claim — SGLang's marlin path is integer-only and is
 #     never reached here (the crash is during scheme resolution, before backend select).
 #     A None-guard would only turn the crash into "unsupported scheme", not make it load.
-#     Full write-up: QUANT_HY3_GOTCHAS.local.md (Blocker A).
+#     Full write-up: QUANT_HY3_GOTCHAS.md (Blocker A).
 #
 #   ⟳ RECHECK(sglang>0.5.14): re-test if upstream adds a weight-only-NVFP4 MoE scheme
 #     (grep `.../compressed_tensors/schemes/` for a W4A16/WNA16-NVFP4 *float* MoE, or a

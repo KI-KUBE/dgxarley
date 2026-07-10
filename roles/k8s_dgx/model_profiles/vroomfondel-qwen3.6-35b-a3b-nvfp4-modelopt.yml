@@ -42,7 +42,7 @@
 #   shared_mlp+eh_proj), and aggressive W4A4-on-attention is a suspected sm121 NaN
 #   source (#18954). So even if forced to load, this is likely to NaN — the
 #   linear_attn FP4 is the wrong choice here regardless of the loader.
-#   Full analysis: QUANT_HY3_GOTCHAS.local.md, [[reference_hybrid_uniform_w4a4_nan]],
+#   Full analysis: QUANT_HY3_GOTCHAS.md, [[reference_hybrid_uniform_w4a4_nan]],
 #   [[reference_qwen35moe_linear_attn_nvfp4_unloadable]].
 #
 #   FIX (recommended = re-quant, then re-upload + re-test):

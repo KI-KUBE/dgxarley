@@ -8,7 +8,7 @@
 #   loader remap is applied (see the "shared_experts → shared_mlp" note below).
 #
 # ROOT CAUSE of the long "W4A4 NaNs on GB10" saga (SOLVED — full trail in
-#   ../../../QUANT_HY3_GOTCHAS.local.md): NOT the FP4 kernels / flashinfer / JIT cache /
+#   ../../../QUANT_HY3_GOTCHAS.md): NOT the FP4 kernels / flashinfer / JIT cache /
 #   dtype / model code (all exonerated). It was a WEIGHT-NAME MISMATCH — this checkpoint
 #   names the shared expert `model.layers.N.mlp.SHARED_EXPERTS.*`, but SGLang's HYV3 model
 #   module is `shared_mlp`, and load_weights had no remap → the (real, FP4) shared-expert
