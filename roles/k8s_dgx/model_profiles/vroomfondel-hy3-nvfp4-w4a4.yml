@@ -2,11 +2,21 @@
 # Model profile: vroomfondel/Hy3-NVFP4-W4A4
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 #
-# ⚠ UNVALIDATED first-contact scaffold (written 2026-07-08). Arch/kernel knobs
-#   derived from the HF card + the tencent/Hy3 base config + our validated
-#   modelopt_fp4 SM121 recipe (Qwen3-235B-NVFP4 Test-17 winner). NOTHING here has
-#   booted on this cluster yet — run the nn4 TP=4 EP=4 matrix before treating any
-#   number as measured, then replace this note with the TESTLOG reference.
+# ✅ VALIDATED WORKING on GB10/sm121 (2026-07-10) — serves coherently (correct German,
+#   correct 86.67 km/h math, valid fib() code; no NaN, no salad) via the 0.5.14-sm121
+#   image + tp4/ep1 + moe/fp4=flashinfer_cutlass + attn=triton, ONCE the shared-expert
+#   loader remap is applied (see the "shared_experts → shared_mlp" note below).
+#
+# ROOT CAUSE of the long "W4A4 NaNs on GB10" saga (SOLVED — full trail in
+#   ../../../QUANT_HY3_GOTCHAS.local.md): NOT the FP4 kernels / flashinfer / JIT cache /
+#   dtype / model code (all exonerated). It was a WEIGHT-NAME MISMATCH — this checkpoint
+#   names the shared expert `model.layers.N.mlp.SHARED_EXPERTS.*`, but SGLang's HYV3 model
+#   module is `shared_mlp`, and load_weights had no remap → the (real, FP4) shared-expert
+#   weights were silently skipped → shared_mlp zero-init → shared_mlp.down_proj NaN at
+#   layer 1, first forward. Localised with the per-layer `--debug-tensor-dump` trace.
+#   FIX: sglang_launch.sh step-3 monkey-patch remaps `.shared_experts.`→`.shared_mlp.` in
+#   hunyuan_v3.py load_weights (gated on Hy3/Hunyuan, idempotent). No re-quant, no graft.
+#   Drop the launch patch once SGLang ships the remap upstream.
 #
 # WHAT THIS CHECKPOINT IS (HF card, 2026-07-08):
 #   vroomfondel's NVIDIA-ModelOpt NVFP4 (W4A4) repackage of tencent/Hy3 — the
