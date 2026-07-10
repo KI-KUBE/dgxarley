@@ -105,10 +105,18 @@ update-dockerhub-readmes:
 	  if [ -z "$$SHORT" ]; then \
 	    echo "  -> ERROR: no '<!-- short: ... -->' line on first line of $$FILE"; continue; \
 	  fi; \
+	  if [ $${#SHORT} -gt 100 ]; then \
+	    echo "  -> ERROR: short description is $${#SHORT} chars (Docker Hub limit is 100) — skipping $$REPO"; continue; \
+	  fi; \
 	  echo "Updating $$REPO from $$FILE (short=$${#SHORT} chars, long=$$(wc -c < $$FILE) chars)..."; \
-	  curl -sS -X PATCH "https://hub.docker.com/v2/repositories/$$REPO/" \
+	  RESP=$$(curl -sS -X PATCH "https://hub.docker.com/v2/repositories/$$REPO/" \
 	    -H "Authorization: Bearer $$TOKEN" \
 	    -H "Content-Type: application/json" \
-	    -d "$$(jq -n --arg desc "$$SHORT" --rawfile full "$$FILE" '{description: $$desc, full_description: $$full}')" \
-	    | jq -r '"  -> short=\"\(.description)\"  long=\(.full_description|length) chars  updated=\(.last_updated)"'; \
+	    -d "$$(jq -n --arg desc "$$SHORT" --rawfile full "$$FILE" '{description: $$desc, full_description: $$full}')"); \
+	  if echo "$$RESP" | jq -e '.last_updated' >/dev/null 2>&1; then \
+	    echo "$$RESP" | jq -r '"  -> short=\"\(.description)\"  long=\(.full_description|length) chars  updated=\(.last_updated)"'; \
+	  else \
+	    echo "  -> ERROR: Docker Hub rejected the update for $$REPO:"; \
+	    echo "$$RESP" | jq -r 'if type=="object" then (.detail // .message // (to_entries|map("\(.key): \(.value)")|join("; "))) else . end' | sed 's/^/       /'; \
+	  fi; \
 	done
