@@ -124,6 +124,15 @@ sglang_kv_cache_dtype: "{{ sglang_model_profiles[_sglang_active_model].kv_cache_
 # explicit dtype — e.g. EAGLE MTP with a Mistral-native draft (no dtype in its
 # params.json → auto falls back to fp32→fp16, colliding with the bf16 target).
 sglang_model_dtype: "{{ sglang_model_profiles[_sglang_active_model].dtype | default('auto') }}"
+# Debug: per-layer forward-output tensor dump (localise where inf/nan first appears).
+# Empty = OFF (zero impact). Set to a MOUNTED path — e.g. /root/.cache/huggingface/tensor_dump
+# (hf-cache is JuiceFS-shared, so all TP/PP ranks dump into one readable folder) — to
+# register a forward hook on every layer that writes its output tensors there. Read the
+# dumps off any spark under {{ hf_cache_path }}/... (or the JuiceFS root). Layers empty =
+# ALL layers (heavy: 80 layers × ranks); set a comma/space list of layer ids to narrow.
+# Wire only — enable at deploy: -e sglang_debug_tensor_dump_output_folder=/root/.cache/huggingface/tensor_dump
+sglang_debug_tensor_dump_output_folder: "{{ sglang_model_profiles[_sglang_active_model].debug_tensor_dump_output_folder | default('') }}"
+sglang_debug_tensor_dump_layers: "{{ sglang_model_profiles[_sglang_active_model].debug_tensor_dump_layers | default('') }}"
 sglang_mem_fraction_static: "{{ sglang_model_profiles[_sglang_active_model].mem_fraction_static }}"
 sglang_reasoning_parser: "{{ sglang_model_profiles[_sglang_active_model].reasoning_parser | default('') }}"
 sglang_tool_call_parser: "{{ sglang_model_profiles[_sglang_active_model].tool_call_parser | default('') }}"

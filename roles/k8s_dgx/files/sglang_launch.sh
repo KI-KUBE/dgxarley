@@ -1772,6 +1772,16 @@ args=(
 if [ -n "$SGLANG_MODEL_DTYPE" ] && [ "$SGLANG_MODEL_DTYPE" != "auto" ]; then
   args+=(--dtype "$SGLANG_MODEL_DTYPE")
 fi
+# Debug: per-layer forward-output tensor dump (localise the first inf/nan). OFF unless
+# SGLANG_DEBUG_TENSOR_DUMP_OUTPUT_FOLDER is set (registers a forward hook on every layer
+# → dumps outputs to the folder; SGLang model_runner.py register_forward_hook_for_model).
+# Layers empty = all; else pass the id list through (space-separated for --debug-tensor-dump-layers).
+if [ -n "${SGLANG_DEBUG_TENSOR_DUMP_OUTPUT_FOLDER:-}" ]; then
+  args+=(--debug-tensor-dump-output-folder "$SGLANG_DEBUG_TENSOR_DUMP_OUTPUT_FOLDER")
+  if [ -n "${SGLANG_DEBUG_TENSOR_DUMP_LAYERS:-}" ]; then
+    args+=(--debug-tensor-dump-layers ${SGLANG_DEBUG_TENSOR_DUMP_LAYERS})
+  fi
+fi
 # PP async micro-batching: overlap forward passes across pipeline stages.
 if [ -n "$PP_ASYNC_BATCH_DEPTH" ] && [ "$PP_ASYNC_BATCH_DEPTH" != "0" ]; then
   args+=(--pp-async-batch-depth "$PP_ASYNC_BATCH_DEPTH")

@@ -51,8 +51,8 @@ sglang_port: 8000
 # sglang_model: "TheBloke/Nous-Hermes-2-Mixtral-8x7B-DPO-AWQ"  # 47B/13B MoE (Mixtral 8x7B), GENUINE AWQ int4 (gemm), ChatML, 32K ctx, no reasoning → ~6.2 GB/GPU TP4 (tiny). UNVALIDATED first-contact
 #
 # --- Hunyuan-3 (Tencent; hy_v3 arch) ---
-# sglang_model: "vroomfondel/Hy3-NVFP4-W4A4"                     # WIP UNSTABLE 295B/21B-active Hunyuan-3 MoE (192 exp/top-8 +1 shared), modelopt NVFP4 (W4A4) + FP8 KV, 256K ctx → ~40 GB/GPU TP4/EP4 (fits, huge KV headroom); hunyuan tool/reasoning parser; BF16 MTP head (EAGLE staged). ⚠ W4A4 garbles/NaNs on GB10/sm121 (see profile)
-sglang_model: "kodelow/Hy3-NVFP4-W4A16"                      # SAME hy_v3 295B MoE, WEIGHT-ONLY NVFP4 (compressed-tensors nvfp4-pack-quantized; experts-only, attn/dense/KV BF16) → avoids the W4A4 activation-FP4 sm121 garbage path; serves via MARLIN kernel. UNVALIDATED first-contact on GB10
+sglang_model: "vroomfondel/Hy3-NVFP4-W4A4"                     # ACTIVE 2026-07-10 — clean re-serve test after flashinfer JIT-cache clear (verify W4A4 still NaNs on confirmed 0.6.14). WIP UNSTABLE 295B/21B-active Hunyuan-3 MoE (192 exp/top-8 +1 shared), modelopt NVFP4 (W4A4) + FP8 KV, 256K ctx → ~40 GB/GPU TP4/EP4; hunyuan tool/reasoning parser; BF16 MTP head (EAGLE staged). ⚠ W4A4 garbles/NaNs on GB10/sm121 (see profile) — this test checks whether that survives a clean JIT recompile
+# sglang_model: "kodelow/Hy3-NVFP4-W4A16"                      # SAME hy_v3 295B MoE, WEIGHT-ONLY NVFP4 (compressed-tensors nvfp4-pack-quantized; experts-only, attn/dense/KV BF16) → avoids the W4A4 activation-FP4 sm121 garbage path; serves via MARLIN kernel. UNVALIDATED first-contact on GB10 — RESTORE THIS (and re-comment W4A4) after the test
 #
 # --- MiniMax ---
 # sglang_model: "nvidia/MiniMax-M2.5-NVFP4"
@@ -97,6 +97,8 @@ sglang_model: "kodelow/Hy3-NVFP4-W4A16"                      # SAME hy_v3 295B M
 # sglang_model: "Qwen/Qwen3.6-35B-A3B-FP8"
 # sglang_model: "RedHatAI/Qwen3.6-35B-A3B-NVFP4"                # 35B/3B MoE, uniform NVFP4 (compressed-tensors) — patch-free winner
 # sglang_model: "nvidia/Qwen3.6-35B-A3B-NVFP4"                  # 35B/3B MoE NVFP4 (modelopt MIXED_PRECISION → needs sglang_launch.sh _sgl_mixed_nvfp4_* patch)
+# sglang_model: "vroomfondel/Qwen3.6-35B-A3B-NVFP4-ModelOpt"    # ⛔ DOES NOT BOOT (2026-07-10): UNIFORM W4A4 NVFP4 (our kikube/quantizer modelopt_fp4 export) quantized linear_attn.in_proj_qkvz → SGLang Qwen3_5 builds it unquantized → weight-load AssertionError. Re-quant nvfp4_mlp_only to fix (see profile). Kept as documented negative result
+
 #
 # --- Qwen3-VL (multimodal companion) ---
 # sglang_model: "Qwen/Qwen3-VL-8B-Instruct-FP8"                  # 8B dense multimodal (vision), block-128 FP8, 256K ctx → ~9 GB, tp=1. Vision companion for the text-only Nemotron; run as its OWN instance (see sglang_instances). UNVALIDATED first-contact

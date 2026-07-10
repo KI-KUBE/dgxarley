@@ -1,0 +1,144 @@
+---
+# Model profile: vroomfondel/Qwen3.6-35B-A3B-NVFP4-ModelOpt
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# ⛔ DOES NOT BOOT on SGLang — CONFIRMED at first deploy 2026-07-10 (image
+#   xomoxcc/dgx-spark-sglang:0.5.14-sm121, snapshot c32bfd8c). NOT a serving
+#   candidate as-uploaded; the fix is a RE-QUANT (see below), not a profile knob.
+#   Kept in-repo as the documented negative result.
+#
+#   BOOT CRASH (weight load, TP0):
+#     Parameter model.layers.0.linear_attn.in_proj_qkvz.input_scale not found in params_dict
+#     qwen3_5.py:388 weight_loader → linear.py:724 assert param_data.shape ==
+#     loaded_weight.shape → AssertionError → SIGQUIT → worker cascade.
+#   ROOT CAUSE (verified against hf_quant_config.json + config.json): this UNIFORM
+#   NVFP4 export quantized the Gated-DeltaNet `linear_attn.in_proj_qkvz` Q/K/V/Z
+#   projection to FP4 (packed-U8 weight + input_scale). ModelOpt's exclude_modules
+#   keeps conv1d / in_proj_a / in_proj_b / mlp.gate / shared_expert_gate / mtp* in
+#   BF16 — but NOT in_proj_qkvz. SGLang's Qwen3_5MoeForConditionalGeneration builds
+#   in_proj_qkvz as a PLAIN UNQUANTIZED Linear (no quant-method path for it on this
+#   arch) → params_dict has no input_scale slot AND the FP4-packed (half-width)
+#   weight ≠ the BF16 param shape. This is a checkpoint↔model-class STRUCTURAL
+#   mismatch, unreachable by any quantization=/backend/spec/dtype knob. It is
+#   exactly why the upstream NVFP4 builds keep linear_attn high-precision (nvidia
+#   = FP8 MIXED_PRECISION; RedHatAI = out of the compressed-tensors nvfp4 group)
+#   and why the quantizer config flags uniform-W4A4-on-this-arch as a probe only.
+#   See [[reference_hybrid_uniform_w4a4_nan]] / [[reference_qwen35moe_linear_attn_nvfp4_unloadable]].
+#
+#   FIX (checkpoint-side, pick one, then re-upload + re-test):
+#     1. RE-QUANT with the sibling `nvfp4_mlp_only` config
+#        (kikube/quantizer/configs/qwen3.6-35b-a3b_nvfp4-mlp-only.yaml) — experts-only
+#        FP4, linear_attn/dense stay high-precision → matches SGLang's modelopt_fp4
+#        path for this arch. The quantizer's own "safe default". RECOMMENDED.
+#     2. Or re-run THIS nvfp4 config with `*.linear_attn.in_proj_qkvz` (probably the
+#        whole `*.linear_attn.*`) added to ModelOpt exclude_modules.
+#
+# Knobs below are derived from the kikube/quantizer config that PRODUCES this
+#   export (kikube/quantizer/configs/qwen3.6-35b-a3b_nvfp4.yaml) plus the
+#   arch-intrinsic knobs of the two VALIDATED siblings. They are the intended
+#   serving config once a LOADABLE checkpoint (fix 1/2) replaces this one.
+#
+# WHAT THIS CHECKPOINT IS (from the quantizer config, our OWN ModelOpt output):
+#   vroomfondel's NVIDIA-ModelOpt export of Qwen/Qwen3.6-35B-A3B with
+#   `qformat: nvfp4` = UNIFORM W4A4 (weights AND activations FP4, E2M1, group 16,
+#   FP8 block scales) + FP8 KV cache. Unified HF checkpoint → hf_quant_config.json
+#   `quant_algo: NVFP4` → SGLang `quantization: modelopt_fp4` (NOT modelopt_mixed).
+#
+# ── HOW THIS DIFFERS FROM nvidia/RedHatAI Qwen3.6-35B-A3B-NVFP4 (SAME base) ──
+#   The nvidia upload is MIXED_PRECISION (linear_attn/Gated-DeltaNet → FP8,
+#   experts → W4A16_NVFP4) and needs `modelopt_mixed` + the two paired
+#   `_sgl_mixed_nvfp4_*` sglang_launch.sh dispatch patches. RedHatAI is
+#   compressed-tensors uniform NVFP4. THIS probe is UNIFORM W4A4 modelopt: it
+#   ALSO quantizes the Gated-DeltaNet linear-attn path to FP4 — exactly what the
+#   upstream builds DELIBERATELY AVOID. So it is the standard `modelopt_fp4` path
+#   (no dispatch/variant patch), structurally the twin of vroomfondel-hy3-nvfp4-w4a4.yml.
+#
+# ── FAILURE MODES ──
+#   1. ⛔ CONFIRMED-FATAL (2026-07-10): the FP4-quantized linear_attn.in_proj_qkvz
+#      cannot be loaded by SGLang's Qwen3_5 class → boot crash. This is the wall;
+#      full mechanism + re-quant fix in the ⛔ banner above. Never reached the
+#      earlier-feared runtime NaN — it dies at weight load, before serving.
+#   2. MTP/NEXTN draft-quant mismatch (SECONDARY — only relevant AFTER fix 1). A
+#      LOADABLE re-quant will still exclude the MTP head from quant (kept BF16 —
+#      CONFIRMED: hf_quant_config.json exclude_modules lists `mtp*` / `mtp.layers.0*`).
+#      SGLang defaults the draft quant to the target's (modelopt_fp4) → it builds an
+#      FP4 draft buffer and copies the BF16 MTP weights in → dim-mismatch
+#      SIGQUIT/137 (as on the Hy3-W4A4 twin). Pre-empted by forcing the draft to
+#      unquant (set below). See [[reference_draft_quant_unquant]].
+#
+#   architectures Qwen3_5MoeForConditionalGeneration, 40 layers, 256 experts /
+#   8 routed + 1 shared per token, max_position_embeddings 262144,
+#   mtp_num_hidden_layers 1 (native MTP head → NEXTN speculative). 35B total /
+#   ~3B active, Gated-DeltaNet hybrid-mamba MoE → SGLang routes it through the
+#   mamba scheduler path (hence the extra_buffer + spec_v2 knobs below).
+_model_profile:
+  "vroomfondel/Qwen3.6-35B-A3B-NVFP4-ModelOpt":
+    knowledge_cutoff: null  # not officially disclosed; community (Reddit r/Qwen_AI) claims ~mid-2024, unconfirmed
+    release_date: "2026-04-16"  # Qwen3.6-35B-A3B base; official QwenLM GitHub changelog (this NVFP4 export 2026-07-10)
+    info_url: "https://huggingface.co/vroomfondel/Qwen3.6-35B-A3B-NVFP4-ModelOpt"
+    # SM121 sgl-kernel build required for NVFP4 on GB10. Pinned to the current
+    # siblings' image so this profile resolves without a -e override.
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-sm121"
+    # 35B/3B MoE (Gated DeltaNet hybrid), UNIFORM W4A4 nvfp4 (~10–12 GB on-device
+    # weights vs ~35 GB FP8). 256 experts, 8 routed + 1 shared per token. Native
+    # 262K context (extensible to ~1M via YaRN — not enabled here). MTP → NEXTN.
+    context_length: 262144
+    # Uniform-NVFP4 unified ModelOpt checkpoint → standard modelopt_fp4 loader.
+    # NO modelopt_mixed / _sgl_mixed_nvfp4_* patch (that is the nvidia MIXED_PRECISION
+    # upload's path, not this one). Matches the quantizer's `qformat: nvfp4`.
+    quantization: "modelopt_fp4"
+    trust_remote_code: true
+    # FP8 KV baked into the checkpoint (quant.kv_qformat: fp8) → fp8_e4m3 matches.
+    kv_cache_dtype: "fp8_e4m3"
+    # 0.6 conservative first-contact (matches the quantizer config + both 3.6-35B
+    # NVFP4 siblings); MTP draft tokens want extra KV headroom and NVFP4 weights
+    # are ~3× smaller than FP8 → plenty of slack.
+    mem_fraction_static: "0.6"
+    nccl_transport: roce
+    # Backend = the quantizer serving block (mirrors the dgxarley NVFP4 winner for
+    # this arch): flashinfer_cutlass MoE runner + flashinfer attn + flashinfer_cutlass
+    # FP4 GEMM. NVFP4 unlocks cutlass/flashinfer_cutlass (the FP8 sibling crashed on
+    # those). ⚠ if boot asserts on "intermediate size required padding", switch the
+    # MoE runner to flashinfer_trtllm (see [[reference_nvfp4_gated_moe_padding]]).
+    moe_runner_backend: flashinfer_cutlass
+    attention_backend: flashinfer
+    fp4_gemm_backend: flashinfer_cutlass
+    disable_deep_gemm: true
+    # eager (disable_cuda_graph) is broken on any cutlass_moe_fp4 path (TURBOQUANT.md);
+    # piecewise graphs crash at startup in this kernel family on SM121 → start safe.
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    pp_async_batch_depth: 0
+    cuda_graph_max_bs: 32
+    jit_max_jobs: 4
+    ep_size: 1
+    tp_size: 4
+    num_experts: 256
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
+    reasoning_parser: "qwen3"
+    tool_call_parser: "qwen3_coder"
+    # thinking (default) + non-thinking via chat_template_kwargs={"enable_thinking":false}.
+    #   thinking:        temperature=1.0  top_p=0.95  top_k=20  presence_penalty=1.5
+    #   thinking_coding: temperature=0.6  top_p=0.95  top_k=20  presence_penalty=0.0
+    #   non_thinking:    temperature=0.7  top_p=0.80  top_k=20  presence_penalty=1.5
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      presence_penalty: 1.5
+    # MTP / speculative (NEXTN) — native 1-layer MTP head (mtp_num_hidden_layers: 1).
+    # s=2 / draft=3 is the VALIDATED sweet spot from the RedHatAI matrix (Tests 45–48:
+    # n=8 peak s=2→438.07, monotonic decay s=3/4/5). The two hybrid-mamba knobs
+    # (extra_buffer + spec_v2) avoid the spec-v2-vs-radix-cache boot crash on this
+    # Gated-DeltaNet MoE arch. speculative_draft_model_quantization=unquant forces the
+    # ModelOpt-excluded (BF16) MTP head to load as BF16 — see risk #2 in the header;
+    # drop it only if this export ships an FP4 MTP head.
+    speculative_enabled: true
+    speculative_algo: NEXTN
+    speculative_num_steps: 2
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 3
+    mamba_scheduler_strategy: extra_buffer
+    enable_spec_v2: true
+    speculative_draft_model_quantization: "unquant"  # MTP head is ModelOpt-excluded BF16 — must NOT inherit modelopt_fp4

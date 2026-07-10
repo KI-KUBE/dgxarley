@@ -82,6 +82,10 @@
         SGLANG_CONTEXT_LENGTH: "{{ sglang_context_length | string }}"
         SGLANG_KV_CACHE_DTYPE: "{{ sglang_kv_cache_dtype }}"
         SGLANG_MODEL_DTYPE: "{{ sglang_model_dtype }}"
+        # Debug per-layer tensor dump (empty = off). Folder must be a mounted path;
+        # /root/.cache/huggingface/... is JuiceFS-shared so all ranks dump to one place.
+        SGLANG_DEBUG_TENSOR_DUMP_OUTPUT_FOLDER: "{{ sglang_debug_tensor_dump_output_folder }}"
+        SGLANG_DEBUG_TENSOR_DUMP_LAYERS: "{{ sglang_debug_tensor_dump_layers }}"
         SGLANG_MEM_FRACTION: "{{ sglang_mem_fraction_static }}"
         SGLANG_REASONING_PARSER: "{{ sglang_reasoning_parser }}"
         SGLANG_TOOL_CALL_PARSER: "{{ sglang_tool_call_parser }}"
