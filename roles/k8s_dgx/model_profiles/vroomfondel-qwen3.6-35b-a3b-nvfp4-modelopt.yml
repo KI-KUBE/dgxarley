@@ -2,36 +2,56 @@
 # Model profile: vroomfondel/Qwen3.6-35B-A3B-NVFP4-ModelOpt
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 #
-# ⛔ DOES NOT BOOT on SGLang — CONFIRMED at first deploy 2026-07-10 (image
-#   xomoxcc/dgx-spark-sglang:0.5.14-sm121, snapshot c32bfd8c). NOT a serving
-#   candidate as-uploaded; the fix is a RE-QUANT (see below), not a profile knob.
-#   Kept in-repo as the documented negative result.
+# ⛔ DOES NOT BOOT as-configured — first deploy 2026-07-10 (image
+#   xomoxcc/dgx-spark-sglang:0.5.14-sm121, snapshot c32bfd8c), quantization:
+#   modelopt_fp4. NOT a serving candidate yet. Recommended path is a RE-QUANT
+#   (see below), but this is NOT a hard "SGLang can't read it" wall — see the
+#   loadability note. Kept in-repo as the documented negative result.
 #
 #   BOOT CRASH (weight load, TP0):
 #     Parameter model.layers.0.linear_attn.in_proj_qkvz.input_scale not found in params_dict
 #     qwen3_5.py:388 weight_loader → linear.py:724 assert param_data.shape ==
 #     loaded_weight.shape → AssertionError → SIGQUIT → worker cascade.
-#   ROOT CAUSE (verified against hf_quant_config.json + config.json): this UNIFORM
+#   MECHANISM (verified against hf_quant_config.json + config.json): this UNIFORM
 #   NVFP4 export quantized the Gated-DeltaNet `linear_attn.in_proj_qkvz` Q/K/V/Z
 #   projection to FP4 (packed-U8 weight + input_scale). ModelOpt's exclude_modules
 #   keeps conv1d / in_proj_a / in_proj_b / mlp.gate / shared_expert_gate / mtp* in
-#   BF16 — but NOT in_proj_qkvz. SGLang's Qwen3_5MoeForConditionalGeneration builds
-#   in_proj_qkvz as a PLAIN UNQUANTIZED Linear (no quant-method path for it on this
-#   arch) → params_dict has no input_scale slot AND the FP4-packed (half-width)
-#   weight ≠ the BF16 param shape. This is a checkpoint↔model-class STRUCTURAL
-#   mismatch, unreachable by any quantization=/backend/spec/dtype knob. It is
-#   exactly why the upstream NVFP4 builds keep linear_attn high-precision (nvidia
-#   = FP8 MIXED_PRECISION; RedHatAI = out of the compressed-tensors nvfp4 group)
-#   and why the quantizer config flags uniform-W4A4-on-this-arch as a probe only.
-#   See [[reference_hybrid_uniform_w4a4_nan]] / [[reference_qwen35moe_linear_attn_nvfp4_unloadable]].
+#   BF16 — but NOT in_proj_qkvz. On the PLAIN `modelopt_fp4` path SGLang built
+#   in_proj_qkvz UNQUANTIZED → params_dict has no input_scale slot AND the
+#   FP4-packed (half-width) weight ≠ the built (BF16) param shape → the assert.
 #
-#   FIX (checkpoint-side, pick one, then re-upload + re-test):
+#   ⚠ THIS IS A DISPATCH/LOADER GAP ON THE UNIFORM PATH, NOT A STRUCTURAL WALL.
+#   in_proj_qkvz IS quantizable on this arch: the nvidia MIXED_PRECISION sibling
+#   loads a quantized (FP8) in_proj_qkvz via modelopt_mixed, and sglang_launch.sh's
+#   `_sgl_mixed_nvfp4_variant_` patch already routes NVFP4-labelled linears to the
+#   FP4 loader. Whether THIS uniform checkpoint can be made to load — e.g. via
+#   `quantization: modelopt_mixed` (does the mixed dispatch fire for a uniform,
+#   non-MIXED_PRECISION checkpoint?) or a small qwen3_5.py:388 loader patch — is
+#   UNVERIFIED; it needs a source read of the fused-qkvz weight loader + the
+#   get_quant_method dispatch. Do not treat "unfixable" as settled.
+#
+#   BUT re-quant is still the RECOMMENDED path, on merits (not "SGLang can't"):
+#   quantizing linear_attn to 4-bit is the hybrid-arch "wrong layer quantized"
+#   anti-pattern (vLLM #40252: Qwen3-Next NVFP4 garbles when linear-attn isn't in
+#   ignore). EVERY working recipe keeps linear-attn/attention out of 4-bit
+#   (nvidia→FP8, RedHatAI→excluded, kodelow-W4A16 ignore excludes self_attn+
+#   shared_mlp+eh_proj), and aggressive W4A4-on-attention is a suspected sm121 NaN
+#   source (#18954). So even if forced to load, this is likely to NaN — the
+#   linear_attn FP4 is the wrong choice here regardless of the loader.
+#   Full analysis: QUANT_HY3_GOTCHAS.local.md, [[reference_hybrid_uniform_w4a4_nan]],
+#   [[reference_qwen35moe_linear_attn_nvfp4_unloadable]].
+#
+#   FIX (recommended = re-quant, then re-upload + re-test):
 #     1. RE-QUANT with the sibling `nvfp4_mlp_only` config
 #        (kikube/quantizer/configs/qwen3.6-35b-a3b_nvfp4-mlp-only.yaml) — experts-only
 #        FP4, linear_attn/dense stay high-precision → matches SGLang's modelopt_fp4
-#        path for this arch. The quantizer's own "safe default". RECOMMENDED.
+#        path for this arch AND the working-recipe rule. The quantizer's own "safe
+#        default". RECOMMENDED.
 #     2. Or re-run THIS nvfp4 config with `*.linear_attn.in_proj_qkvz` (probably the
 #        whole `*.linear_attn.*`) added to ModelOpt exclude_modules.
+#     3. Or (research, unverified) keep this uniform checkpoint and pursue the
+#        modelopt_mixed / loader-patch route above — only if the goal is explicitly
+#        to serve 4-bit linear-attn, accepting the likely-NaN risk.
 #
 # Knobs below are derived from the kikube/quantizer config that PRODUCES this
 #   export (kikube/quantizer/configs/qwen3.6-35b-a3b_nvfp4.yaml) plus the
@@ -54,10 +74,12 @@
 #   (no dispatch/variant patch), structurally the twin of vroomfondel-hy3-nvfp4-w4a4.yml.
 #
 # ── FAILURE MODES ──
-#   1. ⛔ CONFIRMED-FATAL (2026-07-10): the FP4-quantized linear_attn.in_proj_qkvz
-#      cannot be loaded by SGLang's Qwen3_5 class → boot crash. This is the wall;
-#      full mechanism + re-quant fix in the ⛔ banner above. Never reached the
-#      earlier-feared runtime NaN — it dies at weight load, before serving.
+#   1. ⛔ CONFIRMED boot crash (2026-07-10): the FP4-quantized linear_attn.in_proj_qkvz
+#      isn't loaded by the modelopt_fp4 uniform path (built unquantized) → shape
+#      assert. A dispatch/loader gap, NOT a structural wall (nvidia-mixed loads a
+#      quantized in_proj_qkvz at FP8) — full mechanism + fix options in the ⛔ banner
+#      above. Dies at weight load, before serving, so the runtime NaN in #2 of the
+#      Hy3 gotchas was never reached here.
 #   2. MTP/NEXTN draft-quant mismatch (SECONDARY — only relevant AFTER fix 1). A
 #      LOADABLE re-quant will still exclude the MTP head from quant (kept BF16 —
 #      CONFIRMED: hf_quant_config.json exclude_modules lists `mtp*` / `mtp.layers.0*`).
