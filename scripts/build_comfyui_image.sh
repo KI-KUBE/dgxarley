@@ -36,7 +36,7 @@
 #     ssh-copy-id -i ~/.ssh/id_podman root@spark4
 #   Override path via BUILD_COMFYUI_SSH_IDENTITY.
 # - `podman login docker.io -u xomoxcc` already done on this host.
-# - ~25 GB free disk for the image after scp.
+# - ~25 GB free disk for the image after the registry pull.
 #
 # Prerequisites on spark4 (the build host)
 # ----------------------------------------

@@ -30,7 +30,7 @@
 #    pytorch_builder target stage compiles NCCL + PyTorch + torchvision +
 #    torchaudio all from source on arm64 (versions per the active recipe).
 # 5. Result is stored in the build host's local podman image store as
-#    ${IMAGE_TAG}. By default it is ALSO scp'd back to the x86 control host
+#    ${IMAGE_TAG}. By default it is ALSO streamed back (save|load) to the x86 control host
 #    and pushed to Docker Hub (same flow as build_sm121_image.sh) — pass
 #    --no-push to keep it local-only so the subsequent sgl-kernel sm121
 #    build (build_sm121_image.sh) finds it by name on that same host without
@@ -120,7 +120,7 @@ BUILD_JOBS="${BUILD_PYTORCH_BUILD_JOBS:-8}"
 
 # Docker Hub push. ON by default to match build_sm121_image.sh's behavior —
 # pass --no-push to keep the image local-only on the remote build host. Push
-# uses the x86 host's pre-configured registry credentials after scp'ing the
+# uses the x86 host's pre-configured registry credentials after copying the
 # image back from the remote build host.
 PUSH_IMAGE=1
 
@@ -139,12 +139,12 @@ Usage: $(basename "$0") [--no-push] [--remote-host user@host] [--help]
 Builds ${IMAGE_TAG} on the remote build host (${REMOTE_HOST}) via remote podman socket.
 
 This is a one-time-ish build that produces the base image consumed by
-build_sm121_image.sh. By default the result is scp'd back to the x86
+build_sm121_image.sh. By default the result is streamed back (save|load) to the x86
 control host and pushed to Docker Hub (same flow as build_sm121_image.sh).
 Expected duration: 3-5 hours cold build.
 
 Options:
-  --no-push              Skip the scp+push steps and keep the image only in
+  --no-push              Skip the local-copy+push steps and keep the image only in
                          the remote build host's local podman store. Useful
                          for iteration on the recipe without consuming Docker
                          Hub bandwidth. Default: push.
@@ -430,13 +430,13 @@ run_build() {
 
 transfer_image_from_remote() {
     if (( PUSH_IMAGE == 0 )); then
-        log "Skipping image scp (--no-push)"
+        log "Skipping local copy (--no-push)"
         return
     fi
 
     log "Copying docker.io/${IMAGE_TAG} from ${PODMAN_CONNECTION} to local image store"
 
-    # Remove any older local copy under either tag so the scp doesn't silently
+    # Remove any older local copy under either tag so the save→load doesn't silently
     # keep stale layers around.
     podman image rm "${IMAGE_TAG}" 2>/dev/null || true
     podman image rm "docker.io/${IMAGE_TAG}" 2>/dev/null || true

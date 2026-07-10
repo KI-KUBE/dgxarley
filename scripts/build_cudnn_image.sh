@@ -90,7 +90,7 @@ PODMAN_SSH_IDENTITY="${BUILD_CUDNN_SSH_IDENTITY:-${HOME}/.ssh/id_podman}"
 
 # Docker Hub push. ON by default to match build_sm121_image.sh's behavior —
 # pass --no-push to keep a local copy on x86 without pushing, or
-# --no-local-copy to also skip the scp back so the image stays only on
+# --no-local-copy to also skip the local copy back so the image stays only on
 # the remote build host. Push uses the x86 host's pre-configured registry
 # credentials after streaming the image back from the remote build host.
 PUSH_IMAGE=1
@@ -133,7 +133,7 @@ Options:
                Name of the registered podman connection to use. When
                omitted, derived from --remote-host (strip user@ and domain).
   --no-local-copy
-               Skip the image scp back to this host AFTER the remote build
+               Skip the local copy back to this host AFTER the remote build
                finishes. The image stays only in the remote build host's
                podman store. Use this when a subsequent distribute script
                (e.g. distrcudnnimage.sh) will pull the image directly from
@@ -360,13 +360,13 @@ run_build() {
 
 transfer_image_from_remote() {
     if (( NO_LOCAL_COPY == 1 )); then
-        log "Skipping image scp (--no-local-copy) — image stays on ${PODMAN_CONNECTION}"
+        log "Skipping local copy (--no-local-copy) — image stays on ${PODMAN_CONNECTION}"
         return
     fi
 
     log "Copying docker.io/${IMAGE_TAG} from ${PODMAN_CONNECTION} to local image store"
 
-    # Remove any older local copy under either tag so the scp doesn't silently
+    # Remove any older local copy under either tag so the save→load doesn't silently
     # keep stale layers around.
     podman image rm "${IMAGE_TAG}" 2>/dev/null || true
     podman image rm "docker.io/${IMAGE_TAG}" 2>/dev/null || true

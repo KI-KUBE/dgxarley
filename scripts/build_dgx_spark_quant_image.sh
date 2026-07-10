@@ -14,7 +14,7 @@
 # CUDA/sm121 image and the layers do real torch/modelopt imports at build time.
 # Emulated arm64 would be unusably slow, so — exactly like build_sm121_image.sh —
 # the build runs NATIVELY on an arm64 Spark via a registered podman connection,
-# then the result is `podman image scp`'d back here and pushed from here.
+# then the result is streamed back here (podman save|load) and pushed from here.
 #
 # Workflow (all steps run on the x86 control host)
 # -------------------------------------------------
@@ -28,14 +28,19 @@
 #    the podman socket, the build runs natively on arm64, the image lands in the
 #    Spark's local podman store. (Context is an EMPTY temp dir: the Dockerfile
 #    COPYs nothing, so there is nothing to stream — keeps it instant.)
-# 4. `podman image scp <name>::<image>` pulls the built image Spark → x86.
+# 4. Stream the built image Spark → x86 over the SAME podman socket connection
+#    (`podman image save | pv | podman image load`), NOT `podman image scp`:
+#    scp materializes a full temp tarball on both ends (transient 2× disk on a
+#    multi-GB CUDA image) and uses a separate, finickier transport. The streamed
+#    pipe reuses the validated --connection, needs no intermediate file, and
+#    shows progress — same choice build_sm121_image.sh makes.
 # 5. `podman push` from x86 using this host's pre-existing registry creds
 #    (the Spark never holds Docker Hub credentials).
 #
 # Subcommands / usage
 # -------------------
-#   build_dgx_spark_quant_image.sh            # build (remote) → scp local → push
-#   build_dgx_spark_quant_image.sh --no-push  # build → scp local, no push
+#   build_dgx_spark_quant_image.sh            # build (remote) → stream local → push
+#   build_dgx_spark_quant_image.sh --no-push  # build → stream local, no push
 #   build_dgx_spark_quant_image.sh check      # validate remote podman connection only
 #   build_dgx_spark_quant_image.sh pull       # pull the pushed image from the registry to local
 #   build_dgx_spark_quant_image.sh --help
@@ -97,7 +102,7 @@ the result back here (unless --no-local-copy), and pushes it from here
 (unless --no-push or --no-local-copy).
 
 Subcommands:
-  build   (default)  Ensure connection → remote build → scp local → push.
+  build   (default)  Ensure connection → remote build → stream local → push.
   check              Validate the remote podman connection and exit.
   pull               Pull ${IMAGE} from the registry to the local podman store.
 
@@ -114,9 +119,9 @@ Options:
   --podman-connection NAME
                      Registered podman connection to use/create. If omitted,
                      derived from --remote-host (strip user@ and domain).
-  --no-local-copy    Skip the scp of the built image back here. Implies --no-push
+  --no-local-copy    Skip streaming the built image back here. Implies --no-push
                      (you cannot push what was never copied local).
-  --no-push          Skip 'podman push' after build + scp.
+  --no-push          Skip 'podman push' after build + local transfer.
   --help             Show this help.
 
 Environment overrides:
@@ -270,13 +275,20 @@ run_build() {
     ctx="$(mktemp -d)"
     trap 'rm -rf "${ctx}"' RETURN
 
+    # Tag both the short name AND the docker.io/ FQN, exactly like
+    # build_sm121_image.sh: the streamed save|load transfer below keys on the
+    # FQN so the received image lands under the name downstream `podman push`
+    # (and containerd/ansible/k3s) expect.
     log "Building ${IMAGE} on '${PODMAN_CONNECTION}' (BASE_IMAGE=${BASE_IMAGE})"
     podman --connection "${PODMAN_CONNECTION}" build \
         --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
         -f "${DOCKERFILE}" \
         -t "${IMAGE}" \
+        -t "docker.io/${IMAGE}" \
         "${ctx}" \
         || die "Remote build failed"
+    podman --connection "${PODMAN_CONNECTION}" image exists "docker.io/${IMAGE}" \
+        || die "Build finished but docker.io/${IMAGE} not in the remote store — check output above"
     echo "Built ${IMAGE} on ${PODMAN_CONNECTION}"
 
     if (( NO_LOCAL_COPY == 1 )); then
@@ -284,22 +296,83 @@ run_build() {
         return 0
     fi
 
-    log "Copying ${IMAGE} from ${PODMAN_CONNECTION} → this host (podman image scp)"
-    podman image scp "${PODMAN_CONNECTION}::${IMAGE}" || die "podman image scp failed"
-    echo "Image present in local podman store: ${IMAGE}"
+    transfer_image_from_remote
 
     if (( PUSH_IMAGE == 1 )); then
         run_push
     else
-        echo "Skipping push (--no-push). To push later: $(basename "$0") --image ${IMAGE} && podman push ${IMAGE}"
+        echo "Skipping push (--no-push). To push later: $(basename "$0") --image ${IMAGE} && podman push docker.io/${IMAGE}"
     fi
 }
 
+# Stream the built image from the remote podman store to the local one over the
+# SAME validated podman socket connection — mirrors build_sm121_image.sh's
+# transfer_image_from_remote(). Chosen over `podman image scp` deliberately:
+#   - streams save→load (no intermediate tarball → no transient 2× disk on each
+#     side, which matters for a multi-GB CUDA-derived image),
+#   - reuses the already-validated --connection (not scp's separate, finickier
+#     transport), and
+#   - shows a pv progress bar / ETA.
+transfer_image_from_remote() {
+    log "Copying docker.io/${IMAGE} from ${PODMAN_CONNECTION} → local image store"
+
+    # Drop any older local copy first so the save→load pipe can't silently keep
+    # stale layers. `localhost/` is included because `podman load` of a short
+    # name normalizes the RepoTag to `localhost/...`.
+    podman image rm "${IMAGE}" 2>/dev/null || true
+    podman image rm "docker.io/${IMAGE}" 2>/dev/null || true
+    podman image rm "localhost/${IMAGE}" 2>/dev/null || true
+
+    # Size (for pv -s ETA), best-effort.
+    local size size_human
+    size=$(podman --connection "${PODMAN_CONNECTION}" image inspect \
+            --format '{{.Size}}' "docker.io/${IMAGE}" 2>/dev/null || echo "")
+    if [[ -n "${size}" ]] && command -v numfmt >/dev/null 2>&1; then
+        size_human=$(numfmt --to=iec --suffix=B "${size}")
+        echo "Transfer target: ${size_human} (${size} bytes)"
+    elif [[ -n "${size}" ]]; then
+        echo "Transfer target: ${size} bytes"
+    else
+        warn "Could not determine image size on ${PODMAN_CONNECTION}; pv will run without ETA"
+    fi
+
+    if command -v pv >/dev/null 2>&1; then
+        local pv_args=(-ptebar)
+        [[ -n "${size}" ]] && pv_args+=(-s "${size}")
+        set -o pipefail
+        podman --connection "${PODMAN_CONNECTION}" image save "docker.io/${IMAGE}" \
+            | pv "${pv_args[@]}" \
+            | podman image load \
+            || die "streamed image transfer failed"
+    else
+        set -o pipefail
+        podman --connection "${PODMAN_CONNECTION}" image save "docker.io/${IMAGE}" \
+            | podman image load \
+            || die "streamed image transfer failed"
+    fi
+
+    # save|load strips the `docker.io/` registry component; the image lands as
+    # `localhost/${IMAGE}` (or the bare short name). Retag to the docker.io FQN
+    # so `podman push docker.io/${IMAGE}` finds it. `podman tag` atomically
+    # moves the tag, so this is safe across re-runs.
+    if podman image exists "localhost/${IMAGE}"; then
+        podman tag "localhost/${IMAGE}" "docker.io/${IMAGE}"
+    elif podman image exists "${IMAGE}"; then
+        podman tag "${IMAGE}" "docker.io/${IMAGE}"
+    fi
+
+    podman image inspect "docker.io/${IMAGE}" >/dev/null \
+        || die "Image not present locally after transfer — check podman output"
+    echo "Image transferred: docker.io/${IMAGE}"
+}
+
 run_push() {
-    log "Pushing ${IMAGE} (using this host's registry credentials)"
-    podman image exists "${IMAGE}" || die "Image '${IMAGE}' not in the local podman store — build/scp it first"
-    podman push "${IMAGE}" || die "podman push failed (is 'podman login docker.io' done on this host?)"
-    echo "Pushed ${IMAGE}"
+    log "Pushing docker.io/${IMAGE} (using this host's registry credentials)"
+    podman image exists "docker.io/${IMAGE}" \
+        || die "Image 'docker.io/${IMAGE}' not in the local podman store — build + transfer it first"
+    podman push "docker.io/${IMAGE}" \
+        || die "podman push failed (is 'podman login docker.io' done on this host?)"
+    echo "Pushed docker.io/${IMAGE}"
 }
 
 run_pull() {

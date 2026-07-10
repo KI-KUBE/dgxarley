@@ -28,7 +28,7 @@
 #    runs natively on arm64 (no QEMU), and the resulting image is stored
 #    in spark4's local podman image store. The x86 host never writes
 #    credentials to spark4.
-# 5. `podman image scp` to pull the built image from spark4 back to x86.
+# 5. Streamed `podman image save | load` to pull the built image from spark4 back to x86.
 # 6. `podman push` from x86 using the x86 host's pre-existing registry
 #    credentials. spark4 never has Docker Hub credentials.
 #
@@ -41,7 +41,7 @@
 #   The key MUST be unencrypted — podman's Go SSH client does not support
 #   ssh-agent or encrypted keys. Override via BUILD_SM121_SSH_IDENTITY.
 # - `podman login docker.io -u xomoxcc` already done on the x86 host.
-# - ~10 GB free disk for the image after scp.
+# - ~10 GB free disk for the image after the local copy.
 # - git, patch (cuda-containers clone + patch apply happens on x86).
 #
 # Prerequisites on spark4 (the build host)
@@ -377,7 +377,7 @@ Options:
                the local copy would be a pure ~15-minute time sink.
                Implies --no-push (you cannot push without a local copy;
                the build host has no Docker Hub credentials by design).
-  --no-push    Skip 'podman push' after build + scp.
+  --no-push    Skip 'podman push' after build + local copy.
   --help       Show this help.
 
 Environment overrides:
