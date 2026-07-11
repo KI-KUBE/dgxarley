@@ -199,9 +199,20 @@ _model_profile:
     # rely on it; it does not prevent the crash.
     speculative_enabled: true
     speculative_algo: EAGLE
-    speculative_num_steps: 2
-    speculative_eagle_topk: 1
-    speculative_num_draft_tokens: 3
+    # --- Draft-tree tuning: variant B (deeper chain + runtime-adaptive) ---
+    # Baseline steps=2/topk=1/num_draft=3 gave accept_len ~1.75-2.3 (accept rate
+    # ~0.4-0.6). This cluster is inter-node/NCCL-bound (TP=4 over QSFP), so each
+    # decode-verify step pays a FIXED all-reduce tax regardless of tokens emitted
+    # → amortizing more accepted tokens per verify is unusually valuable here.
+    # A deeper chain + adaptive tuning targets that. UNVALIDATED — measure
+    # accept_len + tok/s (spec-on) after deploy; revert to 2/1/3 if no net gain.
+    speculative_num_steps: 4          # was 2 — deeper draft chain (adaptive seed)
+    speculative_eagle_topk: 1         # MUST stay 1: speculative_adaptive is disabled for topk>1
+    speculative_num_draft_tokens: 6   # was 3 — larger verify tree (adaptive seed)
+    # Adaptive Spec V2 (SGLang >=0.5.12): retunes num_steps/num_draft_tokens at
+    # runtime from observed accept rate + batch pressure. Requires EAGLE + topk=1
+    # (both satisfied). The three values above are just the starting seed.
+    speculative_adaptive: true
     speculative_draft_model_quantization: "unquant"  # INERT for built-in NEXTN: normalizes to None → _verify_quantization re-promotes to modelopt_fp4 (see note above). Real fix = NEXTN BF16-loader patch.
 
     # Official recommendation (tencent/Hy3 card): temperature=0.9, top_p=1.0 (same

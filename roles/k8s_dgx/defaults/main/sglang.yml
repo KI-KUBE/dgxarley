@@ -347,7 +347,7 @@ sglang_haproxy_timeout: 8000
 # 600s cleanly separates "slow peer" (waits ~2min) from "dead peer" (fails at 10min).
 # Per-profile overridable (dist_timeout) for a model whose first collective legitimately
 # runs longer (e.g. a huge first prefill) — raise it there, not globally.
-sglang_dist_timeout: "{{ sglang_model_profiles[_sglang_active_model].dist_timeout | default(600) }}"
+sglang_dist_timeout: "{{ sglang_model_profiles[_sglang_active_model].dist_timeout | default(900) }}"
 # Timeout (seconds) for the head's wait-for-worker initContainer.
 # Must be long enough for all workers to become Ready (model download + pod scheduling).
 sglang_wait_timeout: 1200
