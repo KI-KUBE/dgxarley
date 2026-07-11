@@ -1,0 +1,128 @@
+---
+# Model profile: nvidia/Mistral-Medium-3.5-128B-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# FIRST CONTACT / UNVALIDATED (written 2026-07-11). No boot/matrix run yet — the
+# values below are derived from (a) the verified HF config.json + hf_quant_config.json
+# of THIS repo and (b) the two validated siblings it inherits from:
+#   * recviking-mistral-medium-3.5-128b-nvfp4.yml — SAME base model, but a DIFFERENT
+#     packaging (compressed-tensors / llm-compressor uniform NVFP4). Source of every
+#     ARCH-intrinsic knob here (dense Mistral3, vision-tower BF16, dtype bf16, KV fp8,
+#     mistral reasoning/tool parsers, tp=4 GQA math).
+#   * nvidia-qwen3.6-35b-a3b-nvfp4.yml — DIFFERENT base model, but the SAME packaging
+#     (nvidia ModelOpt MIXED_PRECISION → needs `modelopt_mixed` + the paired
+#     sglang_launch.sh `_sgl_mixed_nvfp4_*` dispatch patches). Source of the quant knobs.
+# Rewrite with the winner config + measured throughput after the first sweep.
+#
+# WHY THIS REPO vs the RecViking sibling (SAME base, both HF-format, both boot on the
+# stock SGLang path) ─────────────────────────────────────────────────────────────
+#   Prefer RecViking unless you specifically want NVIDIA's first-party ModelOpt build:
+#   the nvidia (Qwen3.6) mixed-precision experience showed "no measured serving
+#   advantage over a regular NVFP4 export". This nvidia Mistral upload keeps ATTENTION
+#   + the first/last MLP blocks in FP8 (higher precision, slightly larger on-device)
+#   vs RecViking's uniform-NVFP4 text transformer. Both keep the vision tower BF16.
+#
+# WHAT THIS CHECKPOINT IS (verified against HF config.json + hf_quant_config.json,
+# 2026-07-11) ─────────────────────────────────────────────────────────────────────
+#   arch Mistral3ForConditionalGeneration (model_type mistral3), MULTIMODAL:
+#     - text_config: model_type "ministral3", DENSE (NOT MoE) — 88 layers,
+#       hidden_size 12288, intermediate_size 28672, 96 attn heads,
+#       num_key_value_heads 8 (GQA), head_dim 128, vocab 131072.
+#       YaRN rope: factor 64 over original 4096 → 262144 native context.
+#     - vision_config: pixtral (kept BF16, see below).
+#   QUANT: nvidia ModelOpt export (hf_quant_config.json producer "modelopt" 0.37.0),
+#   `quant_algo: MIXED_PRECISION`, `kv_cache_quant_algo: FP8`. Per-layer:
+#     - ALL attention q/k/v/o proj (88 layers) → FP8.
+#     - MLP gate/up/down: layers 0-3 AND layer 87 → FP8; layers 4-86 → NVFP4
+#       (group_size 16, E2M1 weights + FP8 block scales).
+#     - NO exclude_modules; the vision tower + projector stay BF16 by virtue of not
+#       being in the quantized layer set (same net effect as RecViking's ignore list).
+#   torch_dtype bfloat16. Fits comfortably at TP=4 (~20-25 GB/GPU incl. the FP8 attn +
+#   BF16 vision) → lots of headroom for KV + CUDA graphs, like the RecViking sibling.
+#
+# ── BOOT REQUIREMENTS (why modelopt_mixed + the two launch patches) ───────────────
+#   MIXED_PRECISION is dispatched upstream by ARCHITECTURE: NemotronH → modelopt_mixed,
+#   everything else → w4afp8 (the WRONG int4+fp8-scale loader for these NVFP4 experts).
+#   Mistral3ForConditionalGeneration falls through to w4afp8 → crash. The two idempotent
+#   sglang_launch.sh patches fix it (same pair the nvidia-Qwen3.6-35B mixed profile relies
+#   on — ⚠ if either is dropped, this profile breaks):
+#     1. `_sgl_mixed_nvfp4_dispatch_` — routes any NVFP4-bearing MIXED_PRECISION
+#        checkpoint → modelopt_mixed regardless of arch. With `quantization: modelopt_mixed`
+#        below, detection matches and _verify_quantization passes.
+#     2. `_sgl_mixed_nvfp4_variant_` — normalizes W4A16_NVFP4-style quant_algo strings to
+#        NVFP4 so the per-layer loader runs. This checkpoint labels its FP4 MLP layers
+#        plain `NVFP4` (not W4A16_NVFP4), so patch 2 is likely a no-op here, but it is
+#        idempotent and harmless — keep it.
+#   ⚠ VISION-TOWER NVFP4 CRASH RISK: compressed-tensors VLMs hit an
+#   "mm_fp4 accepts 2d tensors" crash when SGLang wrongly quantizes the BF16 vision tower
+#   (fixed for the RecViking sibling by `_sgl_vlm_ignore_fix`, see
+#   reference_vlm_compressed_tensors_ignore_mismatch). This is a MODELOPT checkpoint with
+#   NO exclude list, so the failure mode differs; if the vision tower crashes at boot,
+#   check whether the modelopt_mixed loader leaves the pixtral tower unquantized (it
+#   should — vision layers are absent from the quant layer set). First deploy must verify
+#   the multimodal path end-to-end (a generated shape-image describe test), as RecViking did.
+_model_profile:
+  "nvidia/Mistral-Medium-3.5-128B-NVFP4":
+    knowledge_cutoff: null  # not officially disclosed (Mistral Medium 3.5 card silent)
+    release_date: "2026-04-28"  # base Mistral-Medium-3.5 (RecViking quant build date); nvidia ModelOpt upload later
+    info_url: "https://huggingface.co/nvidia/Mistral-Medium-3.5-128B-NVFP4"
+    # SM121 sgl-kernel build required for NVFP4 on GB10, AND the modelopt_mixed dispatch
+    # comes from the sglang_launch.sh runtime patch (works on any -sm121 image). Pinned to
+    # the current sibling image so this profile resolves without a -e override.
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-sm121"
+    # ~80-90 GB / TP=4 → ~20-25 GB/GPU (FP4 MLP + FP8 attn + BF16 vision). TP=4 valid:
+    # num_key_value_heads=8, 8 % 4 == 0 → 2 KV heads/rank (clean GQA). Fits easily.
+    tp_size: 4
+    # Full native 262144 (config max_position_embeddings). No EAGLE/MTP draft on the
+    # nvidia repo (unlike RecViking, which caps to 128000 to match its draft), so there
+    # is NO draft-context mismatch here → keep the full 256K. Memory is not the constraint.
+    context_length: 262144
+    # nvidia ModelOpt MIXED_PRECISION checkpoint (FP8 attn + NVFP4 MLP + FP8 KV). REQUIRES
+    # BOTH sglang_launch.sh "_sgl_mixed_nvfp4_*" patches (see header) — stock SGLang would
+    # dispatch this non-NemotronH arch to the wrong w4afp8 loader. Do NOT set modelopt_fp4
+    # (that is the UNIFORM-NVFP4 path; this is per-layer mixed).
+    quantization: "modelopt_mixed"
+    # trust_remote_code: give the repo a chance to register the mistral3/ministral3 types
+    # if the base transformers doesn't know them (loaded fine on 0.5.12 for the sibling).
+    trust_remote_code: true
+    # hf_quant_config kv_cache_quant_algo: FP8 → fp8_e4m3 matches the baked KV scheme.
+    kv_cache_dtype: "fp8_e4m3"
+    # Compute dtype → --dtype bfloat16. Matches config torch_dtype and the RecViking
+    # sibling. Orthogonal to the FP4/FP8 weights (only sets compute dtype). No EAGLE draft
+    # here, so the sibling's "draft fp32→fp16 collision" reason doesn't apply, but bf16 is
+    # still the correct compute dtype for this checkpoint.
+    dtype: "bfloat16"
+    # DENSE model — NO moe_runner_backend / num_experts / ep_size keys. fp4_gemm_backend
+    # governs the dense NVFP4 MLP linear GEMM (layers 4-86); the FP8 attn/MLP-edge layers
+    # use SGLang's FP8 path. Conservative seed mirrors the dense RecViking sibling.
+    attention_backend: "flashinfer"
+    fp4_gemm_backend: "flashinfer_cutlass"
+    disable_deep_gemm: true        # DeepGemm targets FP8/ue8m0 scales, not NVFP4
+    disable_cuda_graph: false      # eager is broken on cutlass_moe_fp4 paths (TURBOQUANT.md)
+    disable_piecewise_cuda_graph: true
+    cuda_graph_max_bs: 32
+    pp_async_batch_depth: 0
+    jit_max_jobs: 4
+    # Plenty of headroom (~20-25 GB/GPU weights). 0.7 is safe; can push higher for more KV
+    # if a sweep shows benefit. NOT the tight 0.6 the big MoEs need.
+    mem_fraction_static: "0.7"
+    # REASONING — Medium-3.5 IS a thinking model ([THINK] special tokens; chat_template
+    # exposes reasoning_effort 'none'|'high'). OFF by default (reasoning_effort 'none'),
+    # toggled PER REQUEST: reasoning_effort="high" or chat_template_kwargs={"reasoning_effort":
+    # "high"}. SGLang's MistralDetector (key "mistral", [THINK]/[/THINK]) splits reasoning
+    # into reasoning_content when present. tool_call_parser "mistral" handles tool calls.
+    reasoning_parser: "mistral"
+    tool_call_parser: "mistral"
+    recommended_sampling:
+      # Mistral card guidance: low temperature for production (non-thinking). Raise toward
+      # ~0.7 when reasoning_effort="high" (thinking traces need slack).
+      temperature: 0.15
+      top_p: 1.0
+    sampling_overrides: {}
+    # ── NO speculative decoding ──────────────────────────────────────────────────────
+    # The nvidia repo ships NO EAGLE/MTP draft (unlike RecViking, which uses the official
+    # mistralai/Mistral-Medium-3.5-128B-EAGLE draft). Leaving speculative off is why the
+    # context can stay at the full 262144 (no draft-derived-context mismatch to guard).
+    # To add speculation later, reuse RecViking's EAGLE draft config — but note the draft
+    # is Mistral-native (128000 context fallback → would force capping the target to 128000).
+    speculative_enabled: false
