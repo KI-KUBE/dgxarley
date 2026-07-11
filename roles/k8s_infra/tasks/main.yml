@@ -287,6 +287,13 @@
     - isk3smaster is defined
     - isk3smaster
 
+- name: Deploy Matrix Synapse homeserver + Cinny web client (gated install/teardown)
+  import_tasks: apps/matrix.yml
+  tags: matrix
+  when:
+    - isk3smaster is defined
+    - isk3smaster
+
 # === DNS ===
 
 - name: Register DNS A records for k8s_infra ingress services
