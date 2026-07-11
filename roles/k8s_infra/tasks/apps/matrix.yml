@@ -256,9 +256,12 @@
                   app: synapse
               spec:
                 restartPolicy: Always
-                # hostPath data lives on k3smaster (amd64). Never on the GPU sparks.
+                # Pin to amd64 (k3smaster is the only amd64 node) — keeps it off
+                # the ARM64 GPU sparks. NB: the hostPath data dir lives on k3smaster;
+                # if a second amd64 node is ever added, pin back to `node-role:
+                # k3smaster` so Synapse doesn't move away from its data.
                 nodeSelector:
-                  node-role: k3smaster
+                  kubernetes.io/arch: "amd64"
                 securityContext:
                   fsGroup: 991
                 dnsConfig:
