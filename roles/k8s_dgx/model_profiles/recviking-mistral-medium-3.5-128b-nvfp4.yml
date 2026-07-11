@@ -155,14 +155,17 @@ _model_profile:
     # through MistralConfigParser → dense GQA → MistralForCausalLMEagle, and the
     # FP8 draft quant (params.json qformat_weight fp8_e4m3) is mapped to quant_method
     # fp8. (Probed live in scitrera/dgx-spark-sglang:0.5.12.)
-    # >>> ONE OPEN RISK — speculative stays DISABLED, pre-staged, until measured <<<
-    #   CROSS-PRECISION DRIFT on SM121: an FP8 draft against an NVFP4 target risks
-    #   the same FP4→BF16 hidden-state distribution drift that made EAGLE3×NVFP4
-    #   degenerate (NaN logprobs, parallelism collapse) on this hardware — see the
-    #   empirical note in nvidia-qwen3-235b-a22b-nvfp4.yml. Plus the target here is
-    #   a multimodal Mistral3 wrapper — EAGLE-against-Mistral3 is itself untested.
-    # Flip speculative_enabled to true ONLY after a bench shows a positive accept-
-    # rate and no NaN-recovery storm. This is now a TEST, not a prerequisite hunt.
+    # >>> VALIDATED (2026-06-27) — the "cross-precision drift" risk did NOT materialize <<<
+    #   An earlier draft of this block warned that an FP8 draft against an NVFP4 target
+    #   might hit FP4→BF16 hidden-state drift (extrapolated from the nvidia-qwen3-235b
+    #   EAGLE3 note) and that EAGLE-against-Mistral3 was untested. Both are now RESOLVED:
+    #   this exact FP8 EAGLE-v1 × NVFP4 multimodal-Mistral3 combo boots clean, accept_len
+    #   ~1.8, accept_rate ~0.27, coherent, NO NaN (reference_mistral_native_eagle_dtype).
+    #   ⚠ Do NOT re-import the 235B "drift" warning here: that was a DIFFERENT draft
+    #   (EAGLE3, BF16) on old SGLang 0.5.10, and its "distribution drift" cause was an
+    #   ATTRIBUTED hypothesis, not a proven mechanism — it does not generalize to fp8
+    #   EAGLE-v1. The only real gotchas were mundane + solved: `dtype: bfloat16` (the
+    #   out_dtype fix) + `context_length: 128000` (the Mistral-native draft YaRN fallback).
     speculative_enabled: true
     speculative_algo: "EAGLE"
     speculative_draft_model_path: "mistralai/Mistral-Medium-3.5-128B-EAGLE"

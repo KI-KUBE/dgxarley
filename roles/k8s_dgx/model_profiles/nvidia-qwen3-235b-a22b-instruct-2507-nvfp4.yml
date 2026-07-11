@@ -90,8 +90,10 @@ _model_profile:
       temperature: 0.7
       top_p: 0.8
       top_k: 20
-    # No MTP heads on this arch. EAGLE3 was measured NON-viable on the original
-    # NVFP4 sibling (NaN draft logprobs from FP4→BF16 hidden-state drift collapse
-    # the tree → ~17% of baseline peak). Left off; revisit only if an
-    # NVFP4-aware draft appears. See nvidia-qwen3-235b-a22b-nvfp4.yml for detail.
+    # No MTP heads on this arch. EAGLE3 (BF16) was measured NON-viable on the original
+    # NVFP4 sibling: NaN draft logprobs → ~17% of baseline peak (nvidia-qwen3-235b-a22b-
+    # nvfp4.yml). The FP4→BF16 "drift" cause is ATTRIBUTED, not proven, and EAGLE3-SPECIFIC
+    # — an fp8 EAGLE-v1 × NVFP4 target works fine (reference_mistral_native_eagle_dtype), so
+    # this is a "no NVFP4-aware EAGLE3 draft" gap, NOT a cross-precision law. Left off;
+    # revisit only if an NVFP4-aware EAGLE3 draft appears.
     speculative_enabled: false
