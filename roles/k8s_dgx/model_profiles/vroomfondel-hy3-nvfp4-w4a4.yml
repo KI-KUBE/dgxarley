@@ -181,8 +181,8 @@ _model_profile:
     # EAGLE algorithm over the model's own head with topk=1 (no draft path, so
     # speculative_draft_model_path/_quantization stay unset). Params verbatim from
     # the card. VALIDATED on GB10 2026-07-11 (boots + serves; two sglang_launch.sh
-    # patches — see REAL FIX below). Flip speculative_enabled:false only to A/B a
-    # spec-off baseline (still unmeasured).
+    # patches — see REAL FIX below). BUT at current acceptance it is a net decode LOSS,
+    # so speculative_enabled defaults FALSE here (measured numbers under REAL FIX).
     # ── MTP/NEXTN boot crash 2026-07-09 — RESOLVED 2026-07-11 (two sglang_launch.sh
     #    patches; NOT the "unquant" knob, which is a NO-OP — see REAL FIX below) ──
     # Deploy with spec ON crash-loops: hunyuan_v3_nextn.py load_weights →
@@ -222,26 +222,36 @@ _model_profile:
     #   (2) remap layers.80.final_layernorm.weight → shared_head.norm.weight (upstream
     #       PR #30331) → without it the draft output-norm is default-init and acceptance
     #       collapses.
-    # With both applied, spec is ON and VALIDATED 2026-07-11: MTP boots + serves coherently
-    # (CUDA-graph capture, no crash). Acceptance is MODEST / load-dependent — single-req
-    # accept_len ~1.6 (accept rate ~0.20, ~16-17 tok/s); 4-req batch accept_len ~2.0,
-    # accept rate peaks ~0.5 post-prefill then settles ~0.28-0.33 (~40-53 tok/s aggregate).
-    # No spec-off baseline measured on the same load yet → net speedup NOT yet quantified.
+    # With both applied, spec BOOTS + serves coherently 2026-07-11 (CUDA-graph, no crash) —
+    # the load crash is fixed. BUT at current acceptance it is NOT a decode speedup
+    # (end-to-end benchmark aggregates, 1024-token gen):
+    #   single request: 21.2 tok/s spec-off vs 17.1 spec-on (accept_len ~1.6,
+    #                    accept rate ~0.20)         → ~20% SLOWER;
+    #   4 concurrent:    ~40 tok/s spec-off vs ~40-53 (noisy, ~44) spec-on (accept_len ~2.0,
+    #                    accept rate ~0.28-0.33)     → ~break-even.
+    # → speculative_enabled defaults FALSE below (net loss single-stream); flip true only to
+    #   experiment under batch load. Low acceptance is likely (a) precision mismatch — the
+    #   BF16 NEXTN draft head vs an all-NVFP4 target (draft is aligned to full-precision Hy3;
+    #   quant shifts the hidden states + the target's chosen token) and/or (b) the test
+    #   workload is near-pure reasoning/think tokens (high-entropy, hard to speculate). Not
+    #   yet isolated — see the HF card's hypotheses block.
     # The no-spec base model stays VALIDATED coherent (2026-07-10); vLLM W4A16-marlin
     # remains the other known-working Hy3+MTP path (QUANT_HY3_GOTCHAS.md, SGLang Blocker A).
     # The `unquant` value below is INERT (see CORRECTION above) — it is NOT the fix; the
     # two sglang_launch.sh patches are. HF card updated 2026-07-11 to match.
-    speculative_enabled: true
+    speculative_enabled: false
     speculative_algo: EAGLE
     # --- Draft-tree tuning: variant B (deeper chain + runtime-adaptive) ---
     # Baseline steps=2/topk=1/num_draft=3 gave accept_len ~1.75-2.3 (accept rate
     # ~0.4-0.6). This cluster is inter-node/NCCL-bound (TP=4 over QSFP), so each
     # decode-verify step pays a FIXED all-reduce tax regardless of tokens emitted
     # → amortizing more accepted tokens per verify is unusually valuable here.
-    # A deeper chain + adaptive tuning targets that. MEASURED 2026-07-11 (spec-on,
-    # adaptive): single-req accept_len ~1.6 / ~17 tok/s; 4-req accept_len ~2.0 /
-    # ~40-53 tok/s agg (accept rate settles ~0.28-0.33). Still no spec-off baseline on
-    # the same load → revisit the seed once a controlled spec-off vs spec-on run exists.
+    # A deeper chain + adaptive tuning targets that. MEASURED 2026-07-11 (adaptive):
+    # single req 21.2 tok/s spec-off vs 17.1 spec-on (accept_len ~1.6) = ~20% SLOWER;
+    # 4-req ~40 tok/s spec-off vs ~44 spec-on (accept_len ~2.0) = ~break-even. So the
+    # deeper-tree seed did NOT turn spec into a win — retune (or fix draft acceptance,
+    # see REAL FIX hypotheses) before enabling; these seeds are inert while
+    # speculative_enabled=false.
     # ValueError: --speculative-num-steps=4 is not in the adaptive config candidate_steps [0, 1, 3, 7]. Pass one of those values.
     speculative_num_steps: 3          # was 2 — deeper draft chain (adaptive seed)
     speculative_eagle_topk: 1         # MUST stay 1: speculative_adaptive is disabled for topk>1
