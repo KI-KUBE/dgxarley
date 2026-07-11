@@ -150,42 +150,54 @@
   retries: 30
   delay: 10
 
-- name: Create rndc-secret in cert-manager namespace
+# ACME (Let's Encrypt) DNS01 issuers are created generically by looping over
+# `certmanager_acme_issuers` (group_vars/all/main/dns.yml) — add a list entry to
+# publish a ClusterIssuer for another external DNS zone. The DNS server + TSIG key
+# come from the referenced `nsupdate_servers[item.nsupdate]` backend (vaulted via
+# Jinja, so no private zone/key appears here). Each backend's TSIG key MUST be
+# authorized for its zone on the RFC2136/PowerDNS server. tsigAlgorithm is derived
+# from the backend's nsupdate-style name (hmac-sha256 → cert-manager's HMACSHA256).
+- name: Create TSIG secrets for ACME DNS01 issuers
   kubernetes.core.k8s:
     state: present
     definition:
       apiVersion: v1
       kind: Secret
       metadata:
-        name: tsig-secret
+        name: "{{ item.tsig_secret_name }}"
         namespace: cert-manager
       type: generic
       stringData:
-        tsig-secret-key: "{{ tsig_secret_key }}"
+        tsig-secret-key: "{{ nsupdate_servers[item.nsupdate].tsig_key_secret }}"
+  loop: "{{ certmanager_acme_issuers }}"
+  loop_control:
+    label: "{{ item.name }}"
 
-- name: Create letsencrypt-production ClusterIssuer
+- name: Create ACME DNS01 ClusterIssuers
   kubernetes.core.k8s:
     state: present
     definition:
       apiVersion: cert-manager.io/v1
       kind: ClusterIssuer
       metadata:
-        name: letsencrypt-production
+        name: "{{ item.name }}"
       spec:
         acme:
-          email: "{{ certmanager_letsencrypt_email }}"
-          server: https://acme-v02.api.letsencrypt.org/directory
+          email: "{{ item.email | default(certmanager_letsencrypt_email) }}"
+          server: "{{ item.acme_server | default('https://acme-v02.api.letsencrypt.org/directory') }}"
           privateKeySecretRef:
-            name: elasticc-issuer-key-production
+            name: "{{ item.private_key_ref }}"
           solvers:
             - dns01:
                 rfc2136:
-                  nameserver: "{{ nsupdate_server }}:53"
-                  tsigKeyName: "{{ dns_external_domain_suffix }}"
-                  tsigAlgorithm: HMACSHA256
+                  nameserver: "{{ item.nameserver | default(nsupdate_servers[item.nsupdate].server ~ ':53') }}"
+                  tsigKeyName: "{{ nsupdate_servers[item.nsupdate].tsig_key_name }}"
+                  tsigAlgorithm: "{{ item.tsig_algorithm | default(nsupdate_servers[item.nsupdate].tsig_algorithm | upper | replace('-', '')) }}"
                   tsigSecretSecretRef:
-                    name: tsig-secret
+                    name: "{{ item.tsig_secret_name }}"
                     key: tsig-secret-key
               selector:
-                dnsZones:
-                  - "{{ dns_external_domain_suffix }}"
+                dnsZones: "{{ item.dns_zones }}"
+  loop: "{{ certmanager_acme_issuers }}"
+  loop_control:
+    label: "{{ item.name }}"

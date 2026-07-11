@@ -522,7 +522,11 @@
               - "{{ item }}.{{ matrix.base_domain }}"
             secretName: "{{ item }}.{{ matrix.base_domain }}"
             issuerRef:
-              name: letsencrypt-production
+              # ClusterIssuer whose dns_zones cover matrix.base_domain — one of the
+              # certmanager_acme_issuers entries (see certmanager.yml). Configurable
+              # because base_domain may live in a zone letsencrypt-production's
+              # solver (scoped to dns_external_domain_suffix) cannot solve.
+              name: "{{ matrix_tls_issuer }}"
               kind: ClusterIssuer
       loop:
         - matrix

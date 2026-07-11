@@ -8,3 +8,65 @@ nsupdate_tsig_key_secret: "CHANGEME_BASE64_TSIG_KEY"
 nsupdate_tsig_algorithm: "hmac-sha256"
 nsupdate_ttl: 3600
 nsupdate_ingress_ip: "192.168.124.100"
+
+# Per-zone TSIG credentials for the "secondary" DNS backend (a SECOND external zone
+# the cluster backend does NOT cover — the main issuer's solver is selector-scoped
+# to dns_external_domain_suffix and its key is only authorized there). The real
+# zone/key-name/secret are private and live ONLY in vault/; these are neutral
+# example dummies. Add more `<foo>_dns_zone/_tsig_key_name/_tsig_key_secret` trios
+# + an nsupdate_servers entry to describe another backend.
+certmanager_secondary_dns_zone: "example.eu"
+certmanager_secondary_tsig_key_name: "ddns-key.example.eu"
+certmanager_secondary_tsig_key_secret: "CHANGEME_BASE64_TSIG_KEY"
+
+# Named DNS (RFC2136/nsupdate) backends — one bundle of {server, zone, TSIG,
+# ttl, ingress_ip} per authoritative server/zone. NO secret is literal here: each
+# field references a vaulted scalar via Jinja. `primary` wraps the flat nsupdate_*
+# scalars above (the cluster backend, still used directly by the ~26 nsupdate
+# record consumers); `secondary` is the extra external zone. certmanager_acme_issuers
+# entries point at a backend by key. NOTE: `.zone` is the RFC2136 UPDATE zone
+# (e.g. the parent zone for A-records), which is NOT necessarily a cert's hostname
+# suffix — cert-manager selector zones stay on the issuer entry (`dns_zones`).
+nsupdate_servers:
+  primary:
+    server: "{{ nsupdate_server }}"
+    zone: "{{ nsupdate_zone }}"
+    tsig_key_name: "{{ nsupdate_tsig_key_name }}"
+    tsig_key_secret: "{{ nsupdate_tsig_key_secret }}"
+    tsig_algorithm: "{{ nsupdate_tsig_algorithm }}"
+    ttl: "{{ nsupdate_ttl }}"
+    ingress_ip: "{{ nsupdate_ingress_ip }}"
+  secondary:
+    server: "{{ nsupdate_server }}"           # same PowerDNS, different zone/key
+    zone: "{{ certmanager_secondary_dns_zone }}"
+    tsig_key_name: "{{ certmanager_secondary_tsig_key_name }}"
+    tsig_key_secret: "{{ certmanager_secondary_tsig_key_secret }}"
+    tsig_algorithm: "hmac-sha256"
+    ttl: 900
+    ingress_ip: "{{ nsupdate_ingress_ip }}"
+
+# cert-manager ACME (Let's Encrypt) DNS01 ClusterIssuers — created generically by
+# looping over this list in roles/k8s_infra/tasks/core/certmanager.yml. Each entry
+# publishes one ClusterIssuer + its TSIG Secret, sourcing the DNS server + TSIG key
+# from nsupdate_servers[<nsupdate>]. This file stays public (secrets resolve from
+# vault via the referenced backend). To add a resolver, append an entry (+ a new
+# nsupdate_servers backend if it's a new zone). A Certificate selects an issuer by
+# `issuerRef.name` == the entry's `name`.
+#   name             — ClusterIssuer name (Certificate issuerRef target)
+#   nsupdate         — key into nsupdate_servers (provides server + TSIG key/secret/algo)
+#   dns_zones        — cert hostname suffixes this issuer solves (selector.dnsZones);
+#                      distinct from the backend's RFC2136 update zone
+#   tsig_secret_name — k8s Secret name that will hold the TSIG key (keep stable)
+#   private_key_ref  — ACME account key Secret name (renaming re-registers the account)
+#   optional: email, acme_server, nameserver, tsig_algorithm (override the backend)
+certmanager_acme_issuers:
+  - name: letsencrypt-production
+    nsupdate: primary
+    dns_zones: ["{{ dns_external_domain_suffix }}"]
+    tsig_secret_name: tsig-secret
+    private_key_ref: elasticc-issuer-key-production
+  - name: letsencrypt-secondary
+    nsupdate: secondary
+    dns_zones: ["{{ certmanager_secondary_dns_zone }}"]
+    tsig_secret_name: tsig-secret-secondary
+    private_key_ref: elasticc-issuer-key-secondary

@@ -35,6 +35,12 @@
 matrix_enabled: false
 matrix_teardown: false
 
+# cert-manager ClusterIssuer that mints the matrix/cinny TLS certs. MUST be one of
+# the `name:`s in certmanager_acme_issuers (group_vars/all/main/dns.yml) whose
+# dns_zones cover <base_domain>. A standalone scalar (not inside the matrix dict,
+# which is hash_behaviour=replace) so it needs no vault duplication.
+matrix_tls_issuer: "letsencrypt-secondary"
+
 matrix:
   namespace: "matrix"
   base_domain: "example.eu"
