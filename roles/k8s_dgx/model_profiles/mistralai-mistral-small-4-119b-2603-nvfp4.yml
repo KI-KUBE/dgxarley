@@ -1,0 +1,116 @@
+---
+# Model profile: mistralai/Mistral-Small-4-119B-2603-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# UNTESTED first-contact (written 2026-07-11). Direct SMALL sibling of
+# mistralai-mistral-large-3-675b-instruct-2512-nvfp4.yml: SAME org, SAME
+# Mistral-native format, SAME compressed-tensors experts-only-NVFP4 recipe, SAME
+# MLA-MoE (DeepSeek-V3-style) + pixtral-vision family — just ~5.7× smaller. Every
+# structural knob below is inherited from that validated-shape sibling; rewrite
+# with the winner config + measured throughput after the first sweep.
+#
+# WHAT THIS CHECKPOINT IS (verified against HF params.json 2026-07-11) ─────────
+#   DeepSeek-V3-style MLA MoE, multimodal. params.json:
+#     dim 4096, n_layers 36, head_dim 128, n_heads 32, n_kv_heads 32.
+#     MLA: q_lora_rank 1024, kv_lora_rank 256, qk_nope 64 / qk_rope 64,
+#       v_head_dim 128 → compressed KV (tiny KV footprint, like DeepSeek/Large-3).
+#     MoE: 128 routed experts, top-4 + 1 shared, first_k_dense_replace 0 (ALL 36
+#       layers are MoE — no dense prefix, unlike Large-3's 3), expert_hidden_dim 2048.
+#     119B total / ~6.5B active per token → the ~116 GB of routed-expert FFN
+#       dominates the parameter count; that is the "Small" (cheap-to-run) part.
+#     Context: max_position_embeddings 1048576 via YaRN factor 128 over original
+#       8192 (+ llama_4_scaling beta 0.1). Model card documents 256K as the tested
+#       window; treat 1M as the theoretical YaRN ceiling.
+#     Vision encoder: 24 layers, hidden 1024, patch 14, image 1540 (pixtral,
+#       smaller than Large-3's 48/1664) — BF16, NOT quantized.
+#   QUANT: compressed-tensors NVFP4 (format nvfp4-pack-quantized, group_size 16,
+#     num_bits 4, weights + input_activations FP4 = post-training W4A4). IGNORE list
+#     keeps HIGH PRECISION: embeddings, the WHOLE vision stack (vision_encoder,
+#     patch_merger, vision_language_adapter), ALL attention (re:.*self_attn.* +
+#     re:.*attention.* + the MLA q_a_proj / kv_a_proj_with_mqa lora projections),
+#     the router re:.*gate$, and lm_head → ONLY the routed-expert FFN Linear ops are
+#     FP4. kv_cache_scheme absent (KV BF16 in-checkpoint; we still run an fp8 KV pool
+#     at runtime via kv_cache_dtype below — orthogonal choice).
+#     NOTE: because attention is NOT quantized, the compressed-tensors fused-QKV
+#     matcher gap that kills the DSV4 NVFP4 repos does NOT apply here (same as Large-3).
+#   ~68 GB on-device (~58 GB FP4 experts + ~10 GB BF16 attn/shared/vision/embeds) →
+#   ~17 GB/GPU at TP=4. COMFORTABLE — the OPPOSITE of the 675B's squeeze. Plenty of
+#   room for long context + high concurrency (MLA keeps KV tiny on top of that).
+#
+# ── >>> FORMAT: MISTRAL-NATIVE (params.json) — SGLang IS "WIP" PER THE CARD ────
+#   Files: params.json + consolidated-000{01..13}.safetensors +
+#   consolidated.safetensors.index.json + tekken.json/tokenizer*, NO config.json,
+#   NO hf_quant_config.json. This is the SAME Mistral-native layout as Large-3.
+#   BUT the model card lists SGLang as "WIP" and recommends vLLM. Large-3 loads on
+#   SGLang because utils/hf_transformers/mistral_utils.py::is_mistral_model() matches
+#   the substring "mistral-large-3"; whether the same table already matches
+#   "mistral-small-4" in our pinned SGLang image is UNVERIFIED. So unlike Large-3,
+#   >>> SGLang loadability is UNCONFIRMED here <<< — the adapt_config_dict trigger
+#   (moe.num_shared_experts>0 AND llama_4_scaling present) IS satisfied, so IF the
+#   name-dispatch matches, it should route MLA/MoE correctly; probe before trusting it.
+#   The CONFIRMED path is vLLM (card-recommended): mistral_format below drives
+#   --config-format mistral / --load-format mistral / --tokenizer-mode mistral
+#   (vllm_launch.sh). Card serve flags: --attention-backend TRITON_MLA
+#   --reasoning-parser mistral --tool-call-parser mistral (card example uses TP=2;
+#   we run TP=4 on the fixed 4-node topology — memory is not the constraint here).
+#   compressed-tensors NVFP4 survives the parse (params.json carries
+#   quantization_config, not a `quantization` key) → leave `quantization` empty.
+#
+#   VLM-ignore risk (SGLang path only): compressed-tensors VLMs can hit the "mm_fp4
+#   accepts 2d tensors" crash if SGLang wrongly quantizes the BF16 vision tower;
+#   fixed for the RecViking Medium-3.5 sibling by `_sgl_vlm_ignore_fix` in
+#   sglang_launch.sh (see reference_vlm_compressed_tensors_ignore_mismatch). Verify
+#   the multimodal path end-to-end on first SGLang boot. Not a vLLM-path concern.
+_model_profile:
+  "mistralai/Mistral-Small-4-119B-2603-NVFP4":
+    knowledge_cutoff: null  # not officially disclosed (Mistral Small 4 card silent)
+    release_date: "2026-03"  # "2603" tag → March 2026 (Mistral Small 4 v26.03)
+    info_url: "https://huggingface.co/mistralai/Mistral-Small-4-119B-2603-NVFP4"
+    # SM121 sgl-kernel build required for NVFP4 on GB10 (the default scitrera 0.5.12
+    # lacks it). Pinned so the profile resolves without a -e override IF/WHEN the
+    # SGLang name-dispatch lands for this model. Inert on the vLLM path.
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-sm121"
+    nccl_transport: "roce"
+    # ~68 GB / TP=4 → ~17 GB/GPU. TP=4 valid: n_heads 32 % 4 == 0. Card example runs
+    # TP=2; we standardize on TP=4 across spark1-4. Huge weight headroom either way.
+    tp_size: 4
+    # >>> MISTRAL-NATIVE FORMAT — drives vLLM's --config-format mistral /
+    # --load-format mistral / --tokenizer-mode mistral trio (vllm_launch.sh). Inert
+    # on the SGLang path (name-based dispatch there, no such flags).
+    mistral_format: true
+    # 256K = the card's tested window (YaRN allows up to 1048576, not enabled here).
+    # Memory is NOT the constraint (unlike the 675B, which had to start at 64K), so
+    # the full tested context fits comfortably. Raise toward 1M only after a sweep.
+    context_length: 262144
+    # compressed-tensors NVFP4 — autodetected from the checkpoint metadata. On the
+    # vLLM path leave VLLM_QUANTIZATION empty (autodetect); do NOT force modelopt_fp4
+    # (this is llm-compressor / compressed-tensors, NOT a ModelOpt export).
+    quantization: ""
+    trust_remote_code: true
+    kv_cache_dtype: "fp8_e4m3"
+    # COMFORTABLE headroom (~17 GB/GPU weights) — NOT the tight 0.85 the 675B needs.
+    # 0.85 here buys a large KV pool on top of the already-tiny MLA KV. Tune if a
+    # sweep shows benefit; too low → KV pool underfilled, not negative like the 675B.
+    mem_fraction_static: "0.85"
+    # 128 routed experts. On the vLLM path EP is the boolean --enable-expert-parallel
+    # (VLLM_ENABLE_EP); 128 % 4 == 0 so EP=TP=4 is valid. Seed EP off (TP-sharded
+    # experts) for first contact; flip on after a clean boot if MoE all-reduce
+    # dominates. (SGLang-style moe_runner_backend keys are inert on the vLLM path.)
+    num_experts: 128
+    ep_size: 1
+    # REASONING — Small 4 unifies instruct + reasoning + coding. Thinking is OFF by
+    # default and toggled PER REQUEST via reasoning_effort="high" (OpenAI param /
+    # chat_template_kwargs), NOT a launch flag. SGLang's MistralDetector (key
+    # "mistral", tokens [THINK]/[/THINK]) splits the thinking block into
+    # reasoning_content when present — harmless when off. Native function calling +
+    # JSON output → tool_call_parser "mistral".
+    reasoning_parser: "mistral"
+    tool_call_parser: "mistral"
+    recommended_sampling:
+      # Mistral card guidance: low temperature for production (non-thinking). Raise
+      # toward ~0.7 when reasoning_effort="high" (thinking traces need slack).
+      temperature: 0.15
+      top_p: 1.0
+    sampling_overrides: {}
+    # No EAGLE/MTP draft published for Small 4 (no mtp block in params.json); speculative off.
+    speculative_enabled: false
