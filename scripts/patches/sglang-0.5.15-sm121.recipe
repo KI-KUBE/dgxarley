@@ -1,0 +1,218 @@
+#
+# Custom recipe: SGLang v0.5.15 + our SM121 sgl-kernel patches.
+#
+# This is THE production 0.5.15-sm121 image, successor to sglang-0.5.14-sm121
+# .recipe. Serves nvidia/DeepSeek-V4-Flash-NVFP4 (NATIVE) AND
+# nvidia/Qwen3.6-35B-A3B-NVFP4 (now NATIVE too, see delta 2). Created 2026-07-12.
+#
+# Pinned to upstream tag `v0.5.15` (released 2026-07-10T22:58Z). The 0.5.14-sm121
+# recipe is kept for rollback.
+#
+# ── DELTA gegenüber sglang-0.5.14-sm121.recipe ──────────────────────────────
+#   1. SGLANG_VERSION 0.5.14 → 0.5.15, SGLANG_REF v0.5.14 → v0.5.15.
+#   2. Qwen3.6 mixed NVFP4 (PR #27906 + cookbook #29905) is now MERGED upstream
+#      (both in the v0.5.15 tag — merge commits verified reachable from v0.5.15,
+#      2026-07-06 / 2026-07-02). APPLY_QWEN36_MIXED_NVFP4_PR27906 is therefore
+#      set to 0 — re-applying a merged patch fails the in-container dry-run and
+#      aborts the build. Verified in-source at v0.5.15: modelopt_quant.py's
+#      ModelOptMixedPrecisionConfig now natively handles the "W4A16_NVFP4" path
+#      Qwen3.6 needs (lines ~615-829), which v0.5.14 lacked (v0.5.14 had only the
+#      modelopt_mixed BASE class, hence the patch was still on there).
+#      ⚠️  The OPEN dispatch fix #28099 (MIXED_PRECISION content-detection) is a
+#      RUNTIME patch in roles/k8s_dgx/files/sglang_launch.sh, NOT a recipe patch —
+#      it is unaffected by this recipe. Re-validate Qwen3.6 on the live model:
+#      #27906 gives model support, #28099 (still open) gives the auto-dispatch, so
+#      the launch-script model_config.py routing patch may still be needed.
+#      The now-unused sglang-qwen36-mixed-nvfp4-pr27906{,-mainahead}.patch files
+#      are retained on disk for the 0.5.13/0.5.14 recipes and git history.
+#   3. TRANSFORMERS_VERSION 5.8.1 → 5.12.1 — exact v0.5.15 pyproject pin (bumped
+#      upstream via PR #29393). See the TRANSFORMERS_VERSION block below.
+#   4. DSV4 EAGLE-MTP marlin + TileLang 0.1.8 indexer compat: STILL needed on GB10
+#      (APPLY_DSV4_MTP_MARLIN_TILELANG kept at 1). Verified in-source at v0.5.15:
+#      HybridFp8NvFp4Config.get_quant_method STILL hardcodes the MTP/nextn draft
+#      MoE to Mxfp4FlashinferTrtllmMoEMethod (SM100-only TVM kernel) with no marlin
+#      branch (modelopt_quant.py, v0.5.15 line ~1401), so DSV4-Flash-NVFP4's
+#      speculative marlin path still crashes on SM121 without the patch.
+#      ✅ VERIFIED 2026-07-12 in a non-GPU podman container (python:3.12-slim,
+#         pure `patch -p1` against the v0.5.15 source, no rebase needed):
+#         • sglang-dsv4-mtp-marlin-v0.5.14.patch  → Hunk #1 applies (offset -61),
+#           lands inside HybridFp8NvFp4Config.is_fp4_experts BEFORE the trtllm
+#           fallback; build guard `Mxfp4MarlinMoEMethod(Fp8MoEMethod(self)` passes.
+#           Symbols still present in v0.5.15: mxfp4_marlin_moe.Mxfp4MarlinMoEMethod,
+#           get_moe_runner_backend().is_marlin().
+#         • sglang-tilelang-018-indexer-compat.patch → both hunks apply (offset
+#           -16); build guard `TL0.1.8 fix` passes.
+#         Both files keep their -v0.5.14 name (they still apply; only offsets, which
+#         `patch -p1` tolerates). The in-container dry-run gate remains the backstop
+#         on any future source drift. Non-spec DSV4 serving is unaffected either way.
+#   5. flashinfer / cutlass-dsl overrides UNCHANGED from 0.5.14 (0.6.14 + 4.6.0,
+#      the live-validated release-mate pair). v0.5.15's pyproject STILL pins
+#      flashinfer 0.6.12 + cutlass-dsl 4.5.2, and flashinfer's own cutlass
+#      constraint is open-ended (>=4.5.0), so the same transitive-resolution ICE
+#      risk from delta note 7 of the 0.5.14 recipe persists → the explicit pins
+#      remain mandatory. See FLASHINFER_VERSION / CUTLASS_DSL_VERSION blocks and
+#      the full wheel-swap post-mortem in sglang-0.5.14-sm121.recipe (delta 7).
+#      RE-VERIFY on the built image (GPU required):
+#        python -c "import flashinfer, torch; \
+#          from flashinfer.norm import rmsnorm; \
+#          x=torch.randn(4,512,device='cuda',dtype=torch.bfloat16); \
+#          w=torch.randn(512,device='cuda',dtype=torch.bfloat16); \
+#          print(rmsnorm(x,w).shape)"
+#      (must NOT raise the GPUModuleOp TypeError / mlir_global_dtors ICE).
+#
+# ── Runtime patches now UPSTREAM in v0.5.15 (drop from sglang_launch.sh, not here)
+#   • Hunyuan Hy3/HYV3 special-token suffix (PR #29920, merged 2026-07-04) is in
+#     the v0.5.15 tag → the `_sgl_hunyuan_token_suffix_` backport block in
+#     sglang_launch.sh becomes dead code on this image. Its grep guard makes it a
+#     no-op, but it can be deleted when this image is the pinned one.
+#   These are LAUNCH-SCRIPT concerns, not recipe patches — listed here only so the
+#   image bump and the script cleanup stay coordinated.
+#
+# ✅ The SM121 sgl-kernel source patches (sgl-kernel-sm121 / arch-prune /
+#     disable-fa3 / skip-sm90-target / skip-flashmla) were VERIFIED to apply clean
+#     against the v0.5.15 source in a non-GPU podman container 2026-07-12 —
+#     cumulatively in Dockerfile order, MAINAHEAD variants for disable-fa3 +
+#     skip-sm90-target, offsets only (patch -p1-tolerated), every post-apply marker
+#     guard (`dgxarley sgl-kernel-*.patch`) passing. The optional sm121-debug patch
+#     (default OFF) also stacks clean. No regeneration needed. The in-container
+#     `patch --dry-run` gate stays the backstop for any future source drift; if one
+#     ever FAILS, regenerate it against v0.5.15 (and refresh the "-mainahead.patch"
+#     sibling if the canonical form no longer fits — see SGL_KERNEL_MAINAHEAD).
+#
+# RUNTIME CAVEAT (unchanged): the DSV4 NVFP4 path default-routes to
+# moe_runner_backend=flashinfer_trtllm_routed which is not runnable on SM121
+# (#26324). The DSV4 model profiles pin flashinfer_cutlass explicitly.
+#
+# Voraussetzungen: xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132 Base
+# auf spark4 (scripts/build_pytorch_base_image.sh, siehe
+# ensure_base_image_present in build_sm121_image.sh).
+#
+DOCKERFILE=Dockerfile.sglang-nightly
+TARGET=runtime
+
+BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
+
+# Override über den v0.5.15-Upstream-Pin (flashinfer_python[cu13]==0.6.12) hinaus
+# auf 0.6.14 (stable, released 2026-07-02) — enthält PR #3576 (head_dim=512 /
+# Gemma-4 SM120/121, Issue #3297) + NVFP4-Quant-Kernel-Verbesserungen UND
+# zusätzliche SM120/121-Attention-Fixes (FMHAv2 head_dim 256/512 + sliding-window
+# masks) — direkt relevant für die GB10-Sparks. Bewusst gepaart mit cutlass-dsl
+# 4.6.0 unten: beide am 2026-07-02 released, gegeneinander getestete Release-Mates
+# (0.5.14 recipe delta 7). v0.5.15 pinnt im pyproject WEITERHIN 0.6.12, der
+# Override bleibt also nötig. Roll-back-Optionen: 0.6.13 oder 0.6.12 (Upstream).
+# FLASHINFER_VERSION=0.6.13
+# FLASHINFER_VERSION=0.6.12
+FLASHINFER_VERSION=0.6.14
+
+# transformers 5.12.1 — exakt SGLang v0.5.15s pyproject-Pin (==5.12.1, gebumpt
+# von v0.5.14s ==5.8.1 via PR #29393). NICHT isoliert über die SGLang-Ref hinaus
+# bumpen (kein Perf-Nutzen — transformers ist nicht im Inferenz-Hot-Path).
+# HINWEIS: der get_config()-sub_configs-Patch in sglang_launch.sh war gegen die
+# transformers-5.5.0-Regression geschrieben; gegen 5.12.1 verhält er sich per
+# grep-Guard als No-op falls gefixt — auf dem gebauten Image gegenprüfen.
+TRANSFORMERS_VERSION=5.12.1
+
+# kernels 0.14.1 — exakt SGLang v0.5.15s pyproject-Pin (kernels>=0.14.1,<0.15,
+# unverändert ggü. v0.5.14). PERF-NEUTRAL für SM121: der einzige hub-geladene
+# SGLang-Kernel (sgl-flash-attn3) ist auf GB10 hart deaktiviert (_is_fa3_supported
+# → major==9||8, GB10 ist major==12) und hat keine sm_121/ARM64-Builds; der
+# SM121-Hotpath läuft über das kompilierte sgl-kernel + flashinfer, nicht über den
+# HF-Hub. 0.14.1 (nicht open-ended): 0.14.0 hat einen breaking repo-type-change,
+# 0.14.1 ist der Bugfix.
+KERNELS_VERSION=0.14.1
+
+# nvidia-cutlass-dsl 4.6.0 — explicit pin, force-reinstalled late in the build
+# (empty = no-op). flashinfer requires only >=4.5.0 (open-ended) AND NVIDIA has
+# shipped different wheel content under the same 4.5.2 version number (v0.5.15
+# still pins 4.5.2 in pyproject); the 2026-07-06 4.5.2 variant + 4.5.3 both ICE on
+# every fresh CuTe-DSL JIT compile (mlir_global_dtors 'data' kwarg / GPUModuleOp
+# TypeError — full post-mortem in the 0.5.14 recipe delta 7). 4.6.0 (2026-07-02)
+# is the clean in-order release with matching python codegen + native libs.
+# Conservative fallback if 4.6.0 misbehaves: 4.5.1 (last pre-swap release).
+# Wired via dockerfile-cutlass-dsl-pin.patch (build_sm121_image.sh step 2-cutlass).
+CUTLASS_DSL_VERSION=4.6.0
+
+# Audio multimodal deps — installed by dockerfile-audio-deps.patch (gated ARG,
+# empty = no-op). Required for omni models that decode audio at runtime, e.g.
+# nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4 (SGLang nano_nemotron_vl.py
+# get_audio_feature → librosa; upstream SGLang does NOT install it). librosa pulls
+# soundfile/audioread/numba/llvmlite as deps. Text + image/video work without this;
+# only AUDIO input needs it. Empty/remove to drop the audio stack from the image.
+AUDIO_DEPS="librosa"
+
+# accelerate — baked into the image (was a runtime `pip install` in
+# sglang_launch.sh). SGLang's ModelOptModelLoader (_load_modelopt_base_model)
+# imports it; the upstream base image omits it, so GLM-5-NVFP4 and any
+# EAGLE/speculative-decode target with a modelopt-quantized base ImportError
+# without it. Installed by dockerfile-accelerate.patch (gated ARG, default
+# "accelerate"). The launch-script `import accelerate || pip install` guard
+# stays as belt-and-suspenders for non-baked images and becomes a fast no-op
+# here. Set empty to opt out (unset also defaults to "accelerate" — the ARG
+# default in the Dockerfile patch).
+ACCELERATE_DEPS="accelerate"
+
+SGLANG_VERSION=0.5.15
+SGLANG_REF="v0.5.15"
+
+# main-ahead sgl-kernel patch variant. The mscclpp link refactor (dropped
+# mscclpp_static from the common_ops_sm90/sm100 link lines + removed the
+# mscclpp-build block) that first broke sgl-kernel-skip-sm90-target.patch on
+# v0.5.14 is STILL present in v0.5.15. This flag makes build_sm121_image.sh install
+# the "-mainahead" patch siblings under their canonical names where they exist
+# (currently skip-sm90-target, disable-fa3). The other sgl-kernel patches have no
+# -mainahead sibling and are applied canonically; the in-container dry-run gates
+# all of them. ✅ All verified to apply clean against v0.5.15 2026-07-12 (see the
+# sgl-kernel note in the header). Drop this flag only if a future SGLANG_REF
+# predates the mscclpp refactor.
+SGL_KERNEL_MAINAHEAD=1
+
+# ── DeepSeek-V4 FlashMLA kernel: DROPPED (native SM120/121 since v0.5.13) ─────
+# PR #24692 (in v0.5.13+, still in v0.5.15) ships a native SM120/121 sparse-decode
+# path; the 0xSero vendored sm_121a kernel + stock-flash_mla install are
+# redundant (UPSTREAM_DSV4_BUGS.md §8, walls 0+6). Empty values skip the step.
+FLASH_MLA_REPO=
+FLASH_MLA_REF=
+DSV4_KERNEL_REPO=
+DSV4_KERNEL_REF=
+DSV4_KERNEL_ARCH=
+
+# ── DeepSeek-V4 NVFP4 MoE: NATIVE since v0.5.14 (PR #25820 merged) → OFF ──────
+# PR #25820 merged upstream 2026-06-22, in v0.5.14 and v0.5.15. Set to 0:
+# re-applying a merged patch fails the in-container dry-run and aborts the build.
+# The DSV4 profiles still serve off this image natively.
+APPLY_DSV4_NVFP4_PR25820=0
+
+# ── DeepSeek-V4 EAGLE-MTP marlin branch + TileLang 0.1.8 indexer compat → ON ─
+# Verified in-source at v0.5.15 (modelopt_quant.py): the native
+# HybridFp8NvFp4Config.get_quant_method STILL hardcodes the MTP/nextn draft MoE
+# layers to Mxfp4FlashinferTrtllmMoEMethod (SM100-only TVM kernel, ~line 1391) —
+# no marlin branch — so nvidia/DeepSeek-V4-Flash-NVFP4's speculative_enabled: true
+# / speculative_moe_runner_backend: marlin still crashes on GB10 as shipped. The
+# companion dsa/tilelang_kernel.py 1D alloc_shared bug (breaks
+# SGLANG_OPT_USE_TILELANG_INDEXER on TileLang 0.1.8) likewise persists. Both are
+# small GB10-only remainders. Gates dockerfile-dsv4-mtp-marlin-tilelang.patch in
+# build_sm121_image.sh::apply_patches. Applies TWO source patches:
+# sglang-dsv4-mtp-marlin-v0.5.14.patch (modelopt_quant.py) +
+# sglang-tilelang-018-indexer-compat.patch (dsa/tilelang_kernel.py).
+# ✅ Both VERIFIED to apply clean against the v0.5.15 source in a non-GPU podman
+#    container 2026-07-12 (offsets only, `patch -p1`-tolerated; build guards +
+#    referenced symbols confirmed present) — see delta note 4. No rebase needed;
+#    the in-container dry-run gate stays the backstop for future drift.
+# Non-spec (no MTP) DSV4 serving is UNAFFECTED either way (native, no gate).
+# Drop to 0 / delete once both fixes land upstream (marlin branch in SGLang,
+# TileLang >=0.1.9 with the inject_permuted_layout 1D-shared fix).
+APPLY_DSV4_MTP_MARLIN_TILELANG=1
+
+# ── Qwen3.6 ModelOpt mixed NVFP4: MERGED upstream (PR #27906) → OFF ──────────
+# PR #27906 (+ cookbook #29905) merged and shipped in the v0.5.15 tag (merge
+# commit b1942fc reachable from v0.5.15). v0.5.15's modelopt_quant.py natively
+# handles the "W4A16_NVFP4" MIXED_PRECISION path Qwen3.6 needs (verified in-source,
+# ModelOptMixedPrecisionConfig ~lines 615-829). Set to 0: re-applying a merged
+# patch fails the in-container dry-run and aborts the build.
+# ⚠️  The OPEN dispatch fix #28099 (detect MIXED_PRECISION by content) is a RUNTIME
+#     patch in sglang_launch.sh, unaffected by this flag — re-validate Qwen3.6 on
+#     the live model; the launch-script model_config.py routing patch may still be
+#     needed until #28099 merges.
+APPLY_QWEN36_MIXED_NVFP4_PR27906=0
+
+IMAGE_TAG=xomoxcc/dgx-spark-sglang:0.5.15-sm121

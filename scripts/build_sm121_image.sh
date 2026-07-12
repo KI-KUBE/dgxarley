@@ -79,22 +79,26 @@ BRANCH_NAME="sm121"
 # source patches (PRs #22929/#22928) are also applied — the underlying
 # build steps and SM121 sgl-kernel patches are identical.
 #
-# Current set (v0.5.14 line — DEFAULT):
-#   sglang-0.5.14-sm121.recipe         — THE production image. SGLang v0.5.14 +
+# Current set (v0.5.15 line — DEFAULT):
+#   sglang-0.5.15-sm121.recipe         — THE production image. SGLang v0.5.15 +
 #                                        SM121 sgl-kernel patches (mainahead) +
-#                                        flashinfer 0.6.13 + kernels 0.14.1. DSV4
-#                                        NVFP4 MoE (PR #25820) is NATIVE in v0.5.14
-#                                        → its patch is OFF (APPLY_DSV4_NVFP4_PR25820
-#                                        =0). ONE stacked unmerged model PR remains:
-#                                          · Qwen3.6 ModelOpt mixed NVFP4 PR #27906
-#                                            (APPLY_QWEN36_MIXED_NVFP4_PR27906=1,
-#                                            still OPEN) — modelopt_mixed +
-#                                            W4A16_NVFP4 lm_head/MoE/linears +
-#                                            wrapper-prefix + MTP. Trailing-context-
-#                                            only dockerfile patch.
-#                                        Serves nvidia/DeepSeek-V4-Flash/Pro-NVFP4
-#                                        (native) + nvidia/Qwen3.6-35B-A3B-NVFP4.
-#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.14-sm121
+#                                        flashinfer 0.6.14 + cutlass-dsl 4.6.0 +
+#                                        transformers 5.12.1 + kernels 0.14.1. BOTH
+#                                        DSV4 NVFP4 MoE (PR #25820) AND Qwen3.6
+#                                        mixed NVFP4 (PR #27906) are NATIVE now
+#                                        → both patches OFF (APPLY_DSV4_NVFP4_PR25820
+#                                        =0, APPLY_QWEN36_MIXED_NVFP4_PR27906=0). The
+#                                        GB10-only DSV4 EAGLE-MTP marlin + TileLang
+#                                        0.1.8 remainder stays ON (APPLY_DSV4_MTP_
+#                                        MARLIN_TILELANG=1; nextn draft MoE still has
+#                                        no marlin branch upstream). All patches
+#                                        verified clean vs v0.5.15 (non-GPU container,
+#                                        2026-07-12). Serves nvidia/DeepSeek-V4-Flash/
+#                                        Pro-NVFP4 + nvidia/Qwen3.6-35B-A3B-NVFP4.
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.15-sm121
+#   sglang-0.5.14-sm121.recipe         — prior production image (rollback). SGLang
+#                                        v0.5.14; Qwen3.6 NVFP4 was still PATCHED
+#                                        (PR #27906, then OPEN). Tag: …:0.5.14-sm121
 #   sglang-0.5.14-gemma4-diffusion-sm121.recipe — THE unified Gemma-4 image, now
 #                                        pinned to the v0.5.14 TAG (was main-ahead
 #                                        3a1417a): FROZEN_KV_MTP #28081 native +
@@ -157,11 +161,25 @@ BRANCH_NAME="sm121"
 # sglang-0.5.14-sm121.recipe sets APPLY_DSV4_NVFP4_PR25820=0 (re-applying a merged
 # patch fails the in-container dry-run). The rebased sglang-dsv4-nvfp4-pr25820
 # .patch stays on disk for the 0.5.13 recipe + git history. Ref: UPSTREAM_DSV4_BUGS.md.
-RECIPE_NAME="sglang-0.5.14-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.14-sm121"
+#
+# ACTIVE (2026-07-12): bumped to the v0.5.15 TAG (released 2026-07-10). Delta vs
+# 0.5.14: Qwen3.6 mixed-NVFP4 (#27906) now MERGED upstream → APPLY_QWEN36_MIXED_
+# NVFP4_PR27906=0 (re-applying a merged patch fails the dry-run); transformers
+# pinned 5.8.1→5.12.1. DSV4-MTP-marlin/TileLang + all SM121 sgl-kernel patches
+# were VERIFIED to apply clean against v0.5.15 in a non-GPU container 2026-07-12
+# (recipe header for details). flashinfer 0.6.14 + cutlass-dsl 4.6.0 overrides
+# unchanged. Ref: UPSTREAM_DSV4_BUGS.md, sglang-0.5.15-sm121.recipe.
+RECIPE_NAME="sglang-0.5.15-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.15-sm121"
 
-# Rollback: previous production line (v0.5.13). DSV4 NVFP4 (#25820) was still
-# patched there; it is native in v0.5.14 and the patch is OFF in the 0.5.14 recipe.
+# Rollback: previous production line (v0.5.14). Qwen3.6 mixed-NVFP4 (#27906) was
+# still patched there (APPLY_QWEN36_MIXED_NVFP4_PR27906=1); it is native in v0.5.15
+# and the patch is OFF in the 0.5.15 recipe.
+#RECIPE_NAME="sglang-0.5.14-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.14-sm121"
+
+# Rollback: production line before that (v0.5.13). DSV4 NVFP4 (#25820) was still
+# patched there; native since v0.5.14.
 #RECIPE_NAME="sglang-0.5.13-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.13-sm121"
 
@@ -207,7 +225,7 @@ IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.14-sm121"
 # Both can also be set by flags (--remote-host / --podman-connection); the
 # derivation of the connection name from the host happens after argparse
 # so that a late --remote-host override propagates.
-REMOTE_HOST="${BUILD_SM121_REMOTE_HOST:-root@spark4.local}"
+REMOTE_HOST="${BUILD_SM121_REMOTE_HOST:-root@spark5.local}"
 PODMAN_CONNECTION="${BUILD_SM121_PODMAN_CONNECTION:-}"
 PODMAN_SSH_IDENTITY="${BUILD_SM121_SSH_IDENTITY:-${HOME}/.ssh/id_podman}"
 
