@@ -190,6 +190,36 @@
     - installbasicpackages
     - bottom
 
+# yq (mikefarah/yq) is not in Ubuntu apt (the apt `yq` is the unrelated kislyuk
+# jq-wrapper). It ships a single static binary — fetch it straight to
+# /usr/local/bin. Version pinned via yq_version; arch derived from the host so
+# this works on both k3smaster (amd64) and the arm64 sparks. get_url with the
+# default force:no would skip the fetch whenever the file already exists (so a
+# version bump would silently NOT update) — hence we gate the download on the
+# currently-installed version, making it a no-op once up to date.
+- name: check installed yq version
+  ansible.builtin.command: yq --version
+  register: _yq_installed
+  changed_when: false
+  failed_when: false
+  tags:
+    - installbasicpackages
+    - yq
+
+- name: install yq (mikefarah) from GitHub release binary
+  ansible.builtin.get_url:
+    url: "https://github.com/mikefarah/yq/releases/download/{{ yq_version }}/yq_linux_{{ _yq_arch }}"
+    dest: /usr/local/bin/yq
+    mode: "0755"
+    owner: root
+    group: root
+  vars:
+    _yq_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] }}"
+  when: yq_version not in (_yq_installed.stdout | default(''))
+  tags:
+    - installbasicpackages
+    - yq
+
 - name: Install software-properties-common on Ubuntu
   apt:
     pkg:

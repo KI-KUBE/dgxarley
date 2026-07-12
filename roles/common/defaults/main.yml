@@ -14,6 +14,12 @@ deinstall_apparmor: false
 # curl -s https://api.github.com/repos/ClementTsang/bottom/releases/latest | jq -r '.tag_name'
 bottom_version: "0.14.4"
 
+# yq (mikefarah/yq, the Go YAML processor — NOT the apt kislyuk jq-wrapper).
+# Ships only a static binary (no .deb), so it's fetched to /usr/local/bin. Pin
+# the version here (tag HAS a leading "v"); arch derived from ansible_architecture.
+# curl -s https://api.github.com/repos/mikefarah/yq/releases/latest | jq -r '.tag_name'
+yq_version: "v4.53.3"
+
 # smartd monitoring
 smartd_mail_recipients: "root,admin@example.com"
 smartd_devices: []  # Override per host in hosts.yml
