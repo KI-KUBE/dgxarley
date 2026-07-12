@@ -65,7 +65,7 @@ DOCKERFILE="${PATCHES_DIR}/dgx-spark-quant-sm121.Dockerfile"
 
 # Tag suffix, shared by the produced image and the serving base it layers on.
 # Bump this in lockstep with the serving image you are quantizing against.
-TAG="${BUILD_QUANT_TAG:-0.5.14-sm121}"
+TAG="${BUILD_QUANT_TAG:-0.5.15-sm121}"
 
 # Produced image. Overridable wholesale via BUILD_QUANT_IMAGE.
 IMAGE="${BUILD_QUANT_IMAGE:-xomoxcc/dgx-spark-quant:${TAG}}"
@@ -77,7 +77,7 @@ BASE_IMAGE="${BUILD_QUANT_BASE_IMAGE:-xomoxcc/dgx-spark-sglang:${TAG}}"
 
 # Remote arm64 build host + its registered podman connection name + SSH key.
 # Same defaults/derivation as build_sm121_image.sh.
-REMOTE_HOST="${BUILD_QUANT_REMOTE_HOST:-root@spark4.local}"
+REMOTE_HOST="${BUILD_QUANT_REMOTE_HOST:-root@spark5.local}"
 PODMAN_CONNECTION="${BUILD_QUANT_PODMAN_CONNECTION:-}"
 PODMAN_SSH_IDENTITY="${BUILD_QUANT_SSH_IDENTITY:-${HOME}/.ssh/id_podman}"
 

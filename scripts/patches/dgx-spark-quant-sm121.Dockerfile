@@ -24,15 +24,15 @@
 # build_sm121_image.sh. From the x86 control host with a registered podman
 # connection to the arm64 build host (e.g. spark4):
 #   podman --connection spark4 build \
-#     --build-arg BASE_IMAGE=xomoxcc/dgx-spark-sglang:0.5.14-sm121 \
+#     --build-arg BASE_IMAGE=xomoxcc/dgx-spark-sglang:0.5.15-sm121 \
 #     -f scripts/patches/dgx-spark-quant-sm121.Dockerfile \
-#     -t xomoxcc/dgx-spark-quant:0.5.14-sm121 .
-#   podman image scp spark4::xomoxcc/dgx-spark-quant:0.5.14-sm121
-#   podman push xomoxcc/dgx-spark-quant:0.5.14-sm121
+#     -t xomoxcc/dgx-spark-quant:0.5.15-sm121 .
+#   podman image scp spark4::xomoxcc/dgx-spark-quant:0.5.15-sm121
+#   podman push xomoxcc/dgx-spark-quant:0.5.15-sm121
 # (Nothing here is built/pushed automatically -- this is a reviewable draft.)
 # ============================================================================
 
-ARG BASE_IMAGE=xomoxcc/dgx-spark-sglang:0.5.14-sm121
+ARG BASE_IMAGE=xomoxcc/dgx-spark-sglang:0.5.15-sm121
 FROM ${BASE_IMAGE}
 
 # WHAT THE BASE ALREADY SHIPS (verified on 0.5.14-sm121): nvidia-modelopt 0.45.0,
