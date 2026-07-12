@@ -24,7 +24,7 @@ kernels for.
 
 ## What's inside
 
-- **SGLang** built from upstream tags (currently `v0.5.14`)
+- **SGLang** built from upstream tags (currently `v0.5.15`)
 - **sgl-kernel** with SM121 patches: CUTLASS NVFP4 blockwise MoE
   (`StageCount<1>` + `KernelPtrArrayTmaWarpSpecialized`), arch-prune to
   `sm_121` only, FA3 / sm90 / FlashMLA stripped (the bundled FlashMLA is
@@ -47,20 +47,26 @@ kernels for.
   (`SGLANG_OPT_FP8_WO_A_GEMM=0`), `mem_fraction_static`, node swap for the load
   peak — in
   [`UPSTREAM_DSV4_BUGS.md`](https://github.com/vroomfondel/dgxarley/blob/main/UPSTREAM_DSV4_BUGS.md).
-- **flashinfer bumped to `0.6.13rc2`** (over the v0.5.13 upstream pin of
-  `0.6.12`). `0.6.13rc2` (tagged 2026-06-17) lands flashinfer
+- **flashinfer bumped to `0.6.14`** (over the v0.5.15 upstream pin of
+  `0.6.12`), deliberately paired with **nvidia-cutlass-dsl `4.6.0`** — both
+  2026-07-02 release-mates. flashinfer only constrains cutlass-dsl `>=4.5.0`
+  (open-ended), and NVIDIA has shipped internally-inconsistent `4.5.2`/`4.5.3`
+  wheels that ICE on every fresh CuTe-DSL JIT compile at CUDA-graph warmup, so
+  the cutlass pin is not optional. `0.6.14` lands flashinfer
   [PR #3576](https://github.com/flashinfer-ai/flashinfer/pull/3576)
-  (`head_dim=512` dispatch for SM120/121) plus NVFP4 quant-kernel
+  (`head_dim=512` dispatch for SM120/121) plus additional SM120/121 attention
+  fixes (FMHAv2 head_dim 256/512 + sliding-window masks) and NVFP4 quant-kernel
   improvements. **Caveat for Gemma-4:** SGLang's own attention-backend
   allowlist hard-rejects `flashinfer` for the Gemma-4 architecture (only
   `trtllm_mha | triton | intel_xpu` are accepted), so PR #3576 turns out to
   be moot for Gemma *attention* — the Gemma-4 profiles still set
   `attention_backend=triton` (no longer a flashinfer-version limitation but a
   SGLang allowlist constraint). The 0.6.13rc2 bump still pays off on the
-  NVFP4 MoE quant path. Roll back to the upstream pin with
-  `FLASHINFER_VERSION=0.6.12`.
-- **transformers pinned to `5.8.1`** (exactly SGLang v0.5.13's pyproject
-  pin) — required for the Gemma-4 `*-assistant` drafter checkpoints used by
+  NVFP4 MoE quant path. Roll back with `FLASHINFER_VERSION=0.6.13` (prior pin)
+  or `0.6.12` (upstream).
+- **transformers pinned to `5.12.1`** (exactly SGLang v0.5.15's pyproject
+  pin; was `5.8.1` on v0.5.13/v0.5.14) — required for the Gemma-4 `*-assistant`
+  drafter checkpoints used by
   NEXTN/MTP speculative decoding (`google/gemma-4-{26B-A4B,31B}-it-assistant`).
   Earlier transformers releases don't know the drafter's config subclass
   and the SGLang head exits with `Unrecognized configuration class` during
@@ -123,7 +129,8 @@ kernels for.
 
 | Tag                                 | Notes                                                                       |
 |-------------------------------------|------------------------------------------------------------------------------|
-| `0.5.14-sm121`                      | SGLang v0.5.14 + SM121 patches; native NVFP4-MoE dispatch (PR #25820), native MTP for Nemotron-3 Super 120B, ModelOptMixedPrecisionConfig / W4A16_NVFP4 support for Qwen3.6; flashinfer 0.6.13 — **(current)** |
+| `0.5.15-sm121`                      | SGLang v0.5.15 + SM121 patches; NVFP4-MoE dispatch (PR #25820) **and** Qwen3.6 ModelOpt mixed / W4A16_NVFP4 (PR #27906) now **native**; GB10-only DSV4 EAGLE-MTP marlin + TileLang 0.1.8 remainder still patched; flashinfer 0.6.14 + cutlass-dsl 4.6.0 + transformers 5.12.1 — **(current)** |
+| `0.5.14-sm121`                      | SGLang v0.5.14 + SM121 patches; native NVFP4-MoE dispatch (PR #25820), native MTP for Nemotron-3 Super 120B; Qwen3.6 W4A16_NVFP4 still **patched** (PR #27906, then unmerged); flashinfer 0.6.14. Rollback / A/B |
 | `0.5.13-sm121`                      | SGLang v0.5.13 + SM121 patches + DeepSeek-V4 NVFP4 MoE (PR #25820); native SM120/121 FlashMLA (PR #24692), no vendored kernel; flashinfer 0.6.13rc2 |
 | `0.5.14-gemmadiffusion-sm121`       | **Unified Gemma-4 image** — main-ahead (`3a1417a`, post-v0.5.13) serving all five Gemma-4 profiles incl. DiffusionGemma dLLM (PR #28054) + FROZEN_KV_MTP fix (PR #28081). First-contact |
 | `0.5.13-gemmadiffusion-sm121`       | Gemma-4 diffusion build on v0.5.13 base (2026-06-19); rollback / A/B against `0.5.14-gemmadiffusion-sm121` |
@@ -151,8 +158,8 @@ Relevant entry points:
 
 - [`scripts/build_sm121_image.sh`](https://github.com/vroomfondel/dgxarley/blob/main/scripts/build_sm121_image.sh)
   — remote-podman build driver (x86 control host → arm64 build runner)
-- [`scripts/patches/sglang-0.5.13-sm121.recipe`](https://github.com/vroomfondel/dgxarley/blob/main/scripts/patches/sglang-0.5.13-sm121.recipe)
-  — recipe pinned by the build (SGLang + flashinfer + transformers + DSV4 NVFP4 pins)
+- [`scripts/patches/sglang-0.5.15-sm121.recipe`](https://github.com/vroomfondel/dgxarley/blob/main/scripts/patches/sglang-0.5.15-sm121.recipe)
+  — recipe pinned by the build (SGLang + flashinfer + cutlass-dsl + transformers pins)
 - [`scripts/patches/sgl-kernel-sm121.patch`](https://github.com/vroomfondel/dgxarley/blob/main/scripts/patches/sgl-kernel-sm121.patch)
   — the core CUTLASS NVFP4 SM121 fix
 - [`scripts/patches/sglang-dsv4-nvfp4-pr25820.patch`](https://github.com/vroomfondel/dgxarley/blob/main/scripts/patches/sglang-dsv4-nvfp4-pr25820.patch)
