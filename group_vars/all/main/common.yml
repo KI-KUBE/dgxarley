@@ -6,7 +6,6 @@ fail2ban_recipient: "fail2ban@example.com"
 fail2ban_ignoreips:
   - "192.168.123.0/16"
 
-certmanager_letsencrypt_email: "admin@example.com"
 smartd_mail_recipients: "root,admin@example.com"
 
 # Postfix relay
@@ -41,9 +40,8 @@ wifi_access_points: []
 # DynDNS hostname for ipset updates
 dyndns_hostname: "dyn.example.com"
 
-# HAProxy stats + Traefik dashboard
+# HAProxy stats
 haproxy_stats_password: "changeme"
-traefik_dashboard_password: "changeme"
 
 # Podman: use the static mgoltzsche/podman-static bundle instead of apt podman.
 # Only takes effect on hosts with `wantspodman: true` (the dgxsparks); k3smaster has

@@ -9,6 +9,9 @@ nsupdate_tsig_algorithm: "hmac-sha256"
 nsupdate_ttl: 3600
 nsupdate_ingress_ip: "192.168.124.100"
 
+# cert-manager ACME account email (Let's Encrypt registration)
+certmanager_letsencrypt_email: "admin@example.com"
+
 # Per-zone TSIG credentials for the "secondary" DNS backend (a SECOND external zone
 # the cluster backend does NOT cover — the main issuer's solver is selector-scoped
 # to dns_external_domain_suffix and its key is only authorized there). The real

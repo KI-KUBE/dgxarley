@@ -24,3 +24,21 @@ ollama_embed_model_profiles:
     context_length: 8192
 ollama_embedding_model: "{{ ollama_embed_model }}"
 ollama_embedding_model_max_ctx: "{{ ollama_embed_model_profiles[ollama_embed_model].context_length }}"
+
+
+# === Ollama embedding — legacy deploy switch (default ON) =================
+# enable_ollama_embed gates the STANDALONE Ollama embedding deployment
+# (roles/k8s_dgx/tasks/ollama_embed.yml) that the sglang-embed instance
+# (enable_embedding_model above) is set to REPLACE. Deliberately INDEPENDENT of
+# enable_embedding_model so both run in parallel during the cutover — ollama-embed
+# must stay up while consumers still point at it. Cutover order:
+#   1. enable_embedding_model: true  → deploy + verify sglang-embed
+#   2. rewire the consumers (LiteLLM fragment, honcho/hindsight/OpenWebUI URLs)
+#   3. enable_ollama_embed: false, then
+#        ansible-playbook k8s_dgx.yml --tags ollama_embed
+#      → TEARS DOWN the running ollama-embed resources (Deployment/Service/
+#        ConfigMaps/IngressRoutes/cert/DNS record) via ollama_embed_teardown.yml.
+#        The ollama Namespace, ollama-tls-haproxy-config and the shared
+#        Middlewares stay (also owned by tasks/ollama.yml); the model cache
+#        hostPath /var/lib/ollama-embed-data on spark2 stays too (manual cleanup).
+enable_ollama_embed: true

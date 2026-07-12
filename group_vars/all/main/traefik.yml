@@ -4,3 +4,6 @@
 traefik_internal_allowlist:
   - "192.168.123.0/24"
   - "192.168.124.0/24"
+
+# Traefik dashboard basic-auth password
+traefik_dashboard_password: "changeme"
