@@ -40,6 +40,9 @@
 - name: copy root dotfiles
   # Config files, not scripts → 0644 (non-executable) and NO iptables-handler notify
   # (editing .bashrc/.tmux.conf has nothing to do with re-running the root scripts).
+  # Own `dotfiles` tag (in addition to the inherited `iptables` import tag) so the
+  # dotfiles can be pushed on their own: `--tags dotfiles`, without touching iptables.
+  tags: dotfiles
   copy:
     src: "{{ item }}"
     dest: "/root/{{ item }}"
