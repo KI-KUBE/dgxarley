@@ -84,6 +84,10 @@ spec:
         # email-patch: subPath ConfigMap mounts don't surface updates without a
         # restart. Consumed by the hermes-gateway sidecar (below), same as webui.
         checksum/email-patch: "{{ _email_enabled | bool }}:{{ lookup('file', 'hermes_email_gateway_patched.py') | hash('sha256') }}"
+        # maildebug: rolls the pod when the `hermes-mail` launcher/rc changes
+        # (subPath mounts don't surface ConfigMap updates without a restart).
+        # Present in the agent + gateway containers whenever email is enabled.
+        checksum/maildebug: "{{ _email_enabled | bool }}:{{ (lookup('file', 'hermes_mail.sh') ~ lookup('file', 'hermes_neomuttrc')) | hash('sha256') }}"
         # health-patch: same subPath-doesn't-update reason as email-patch. Rolls
         # the pod when the gateway health-endpoint patch changes (gateway only).
         checksum/health-patch: "{{ _gateway_enabled | bool }}:{{ lookup('file', 'hermes_health_patch.py') | hash('sha256') }}"
@@ -461,6 +465,18 @@ spec:
             - name: files
               mountPath: /workspace
 {% endif %}
+{% if _email_enabled %}
+            # `hermes-mail` debug client (see the maildebug ConfigMap): rc dir +
+            # launcher on PATH. subPath for the launcher so it lands as a single
+            # executable in the pre-existing /usr/local/bin without shadowing it.
+            - name: maildebug
+              mountPath: /opt/maildebug
+              readOnly: true
+            - name: maildebug
+              mountPath: /usr/local/bin/hermes-mail
+              subPath: hermes_mail.sh
+              readOnly: true
+{% endif %}
             # 2026-06-11: ui-tui overlay disabled together with the
             # copy-ui-tui initContainer (see its comment block above) — the
             # v2026.6.5 image tree is expected to work as baked.
@@ -624,6 +640,16 @@ spec:
               mountPath: /opt/hermes/plugins/platforms/email/adapter.py
               subPath: adapter.py
               readOnly: true
+            # `hermes-mail` debug client, same as the dashboard container — this
+            # is the process that actually runs the adapter, so debugging from
+            # here (`kubectl exec -c hermes-gateway`) sees the exact env.
+            - name: maildebug
+              mountPath: /opt/maildebug
+              readOnly: true
+            - name: maildebug
+              mountPath: /usr/local/bin/hermes-mail
+              subPath: hermes_mail.sh
+              readOnly: true
 {% endif %}
 {% endif %}
         # Tail agent.log onto stdout so `kubectl logs -c log-tail <pod>` works
@@ -707,6 +733,12 @@ spec:
             items:
               - key: adapter.py
                 path: adapter.py
+        # Debug mail client (launcher + rc). defaultMode 0755 so the launcher is
+        # executable when subPath-mounted onto /usr/local/bin/hermes-mail.
+        - name: maildebug
+          configMap:
+            name: hermes-maildebug
+            defaultMode: 0755
 {% endif %}
         # RETIRED with the Caddy auth sidecar (commented out above). Kept for
         # rollback alongside the caddy container + init-caddy-data init.

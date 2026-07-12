@@ -1,0 +1,49 @@
+# hermes_neomuttrc — env-driven neomutt config for hands-on debugging of the
+# Hermes email gateway from INSIDE the pod. Launched via `hermes-mail`
+# (roles/k8s_infra/files/hermes_mail.sh), which exports the gateway's own
+# EMAIL_* credentials (out of /opt/data/.env) into neomutt's environment.
+#
+# WHY env-driven: the credentials never touch this file or its ConfigMap — they
+# are read at parse time from the process env via `printf` backtick expansion,
+# so `hermes-maildebug` stays a NON-secret ConfigMap (same rule as the .env-vs-
+# ConfigMap split for the gateway itself). The launcher also composes HM_FOLDER
+# and the HM_{WORKING,DONE,SENT} folder names (with the adapter's defaults).
+#
+# Backtick note: neomutt runs each `...` via /bin/sh at parse time and splices
+# stdout into the line. One backtick per line (never nested) keeps it robust.
+# A password containing a literal " would break the quoting here — fine for a
+# debug tool (IMAP app-passwords are alnum); rotate/URL-check if you hit it.
+
+set folder    = "`printf %s \"$HM_FOLDER\"`"
+set imap_user = "`printf %s \"$EMAIL_ADDRESS\"`"
+set imap_pass = "`printf %s \"$EMAIL_PASSWORD\"`"
+set spoolfile = "+INBOX"
+set record    = "+`printf %s \"$HM_SENT\"`"
+set postponed = "+Drafts"
+
+# STARTTLS on 143 (the gateway's default port): require TLS, never fall back to
+# cleartext. ssl_starttls is on by default; ssl_force_tls makes it mandatory.
+set ssl_starttls  = yes
+set ssl_force_tls = yes
+
+# CRITICAL for gateway debugging: opening a message must NOT set \Seen, because
+# the adapter keys its INBOX pickup off UNSEEN. imap_peek keeps reads passive so
+# you can watch the gateway's own UNSEEN -> Working -> Done transitions untouched.
+set imap_peek = yes
+unset mark_old
+
+# The folders the adapter shuffles mail through — one `mailboxes` per line so
+# each carries a single backtick. Shown in the sidebar / `c?` mailbox picker.
+mailboxes "+INBOX"
+mailboxes "+`printf %s \"$HM_WORKING\"`"
+mailboxes "+`printf %s \"$HM_DONE\"`"
+mailboxes "+`printf %s \"$HM_SENT\"`"
+
+set sort     = threads
+set sort_aux = reverse-last-date-received
+
+# Sidebar for a quick per-folder overview while debugging the lifecycle moves.
+set sidebar_visible    = yes
+set sidebar_width      = 26
+set sidebar_short_path = yes
+set sidebar_format     = "%B%* %?N?%N/?%S"

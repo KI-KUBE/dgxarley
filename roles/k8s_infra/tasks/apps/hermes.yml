@@ -376,6 +376,28 @@
       data:
         hermes_merge_config.py: "{{ lookup('file', 'hermes_merge_config.py') }}"
 
+# Email-gateway debug mail client — a preconfigured `neomutt` launcher +
+# env-driven rc, subPath-mounted into the agent + gateway containers whenever
+# email.enabled. `hermes-mail` opens the gateway's own IMAP account (creds read
+# from /opt/data/.env at runtime, so NOTHING sensitive is in this ConfigMap) to
+# eyeball the INBOX -> Hermes_Working -> Hermes_Done lifecycle. neomutt is
+# apt-installed on first use (not in the base image). See the two files' headers.
+- name: Render hermes email-gateway debug mail-client ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    apply: true  # kubectl-apply three-way merge → prune renamed/removed data keys
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: hermes-maildebug
+        namespace: "{{ hermes.namespace }}"
+        labels:
+          app: hermes
+      data:
+        hermes_mail.sh: "{{ lookup('file', 'hermes_mail.sh') }}"
+        hermes_neomuttrc: "{{ lookup('file', 'hermes_neomuttrc') }}"
+
 - name: Render hermes gateway-state refresher ConfigMap
   kubernetes.core.k8s:
     state: present
