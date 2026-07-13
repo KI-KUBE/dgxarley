@@ -129,12 +129,15 @@ _model_profile:
     # ── Tool calling: Llama-4 emits PYTHONIC function calls ─────────────────
     # SGLang parser for Llama 3.2/3.3/4 is "pythonic" (confirmed: SGLang tool
     # parser docs + discussion #9270). Required so Hermes/Honcho tool calling
-    # works behind hermes-default. NOTE: SGLang's stricter pythonic behaviour
-    # wants --chat-template tool_chat_template_llama4_pythonic.jinja, but this
-    # stack has no chat-template-FILE knob (only chat_template_kwargs) — the
-    # model's built-in tokenizer chat_template already carries tool support, so
-    # start without it and only wire a custom template if tool parsing misbehaves.
+    # works behind hermes-default.
     tool_call_parser: "pythonic"
+    # chat_template (wired 2026-07-13 -> sglang_launch.sh --chat-template): empty =
+    # use the checkpoint tokenizer's own Llama-4 chat_template (already carries tool
+    # support). This image ships NO pythonic-tool jinja FILE, but a built-in
+    # template NAME "llama-4" is registered (sglang/lang/chat_template.py) — set
+    # chat_template: "llama-4" to force it if the tokenizer template misbehaves on
+    # tool calls. A custom jinja would have to be baked into the image first.
+    chat_template: ""
     # No reasoning_parser: Scout-Instruct is NOT a thinking model (no <think>).
     # Meta's general Llama-4 inference guidance (the NVIDIA card overrides none):
     recommended_sampling:

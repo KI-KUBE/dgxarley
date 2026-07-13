@@ -350,6 +350,7 @@ fi
 # these three fixes to models/mllama4.py. Verified against 0.5.15-sm121: all four
 # anchors match and the model then produces coherent text. Upstream-PR-worthy;
 # drop them on an image that ships the fixes (grep guards self-noop then).
+# Full rationale + re-sync steps: UPSTREAM_SGLANG_LLAMA4_NVFP4_BUG.md.
 #   1) _handle_expert_scale_params: NVFP4 ships a per-expert 3D block-scale
 #      [num_experts, in_blocks, out] under one (name-less) key. The FP8-era code
 #      broadcast a single 2D scale into every expert slot -> forces the whole 3D
@@ -406,6 +407,80 @@ for tag, old, new in edits:
         print(f">>> mllama4 patch {tag}: ANCHOR NOT FOUND (SGLang version drift?)")
 open(f, "w").write(s)
 PATCH_MLLAMA4_LOADER_EOF
+
+# ── Llama-4 NVFP4 KV-scale patches (QUALITY: load the baked FP8 KV scales) ────
+# The modelopt-NVFP4 checkpoint bakes FP8 KV scales (...k_proj.k_scale /
+# ...v_proj.v_scale). Without these two SGLang never loads them -> falls back to
+# scale 1.0 ("less accurate results"). Verified on 0.5.15-sm121: 0 not-loaded
+# warnings, and the triton attn backend uses the loaded scale (cache_k.div_(k_scale)).
+# NOT a load-blocker (serves without them, just at scale 1.0). Both are needed
+# (A alone is a no-op). Same no-gate rationale as the loader patches above:
+# llama4.py / mllama4.py are imported only for the Llama4 arch.
+#   A) llama4.py: Llama4Attention built RadixAttention() WITHOUT quant_config
+#      (unlike llama.py / qwen2.py) -> create_weights never ran -> k_scale/v_scale
+#      stayed plain None attrs, never in named_parameters(). Fix: pass quant_config.
+#   B) mllama4.py: _handle_scale_remapping returned a bool but never COPIED the
+#      remapped scale into the param (llama.py's loader does; mllama4's reimpl
+#      dropped the copy). Fix: thread loaded_weight in + _handle_default_weight().
+python3 - <<'PATCH_MLLAMA4_KVSCALE_EOF'
+def patch(f, edits):
+    s = open(f).read()
+    for tag, old, new in edits:
+        if old in s:
+            s = s.replace(old, new, 1); print(f">>> kv patch {tag}: APPLIED")
+        elif new.strip() in s:
+            print(f">>> kv patch {tag}: already applied")
+        else:
+            print(f">>> kv patch {tag}: ANCHOR NOT FOUND (SGLang version drift?)")
+    open(f, "w").write(s)
+
+patch("/usr/local/lib/python3.12/dist-packages/sglang/srt/models/llama4.py", [
+ ("A-quant_config",
+'''        self.attn = RadixAttention(
+            self.num_heads,
+            self.head_dim,
+            self.scaling,
+            num_kv_heads=self.num_kv_heads,
+            layer_id=layer_id,
+            prefix=add_prefix("attn", prefix),
+            use_irope=self.use_rope,
+        )''',
+'''        self.attn = RadixAttention(
+            self.num_heads,
+            self.head_dim,
+            self.scaling,
+            num_kv_heads=self.num_kv_heads,
+            layer_id=layer_id,
+            quant_config=quant_config,
+            prefix=add_prefix("attn", prefix),
+            use_irope=self.use_rope,
+        )'''),
+])
+patch("/usr/local/lib/python3.12/dist-packages/sglang/srt/models/mllama4.py", [
+ ("B-def",
+'''    def _handle_scale_remapping(self, name: str, params_dict: dict) -> bool:
+        """Handle scale parameter remapping. Returns True if handled."""
+        if "scale" in name and "expert" not in name:
+            remapped_name = maybe_remap_kv_scale_name(name, params_dict)
+            return remapped_name != name
+        return False''',
+'''    def _handle_scale_remapping(
+        self, name: str, loaded_weight: torch.Tensor, params_dict: dict
+    ) -> bool:
+        """Handle scale parameter remapping. Returns True if handled."""
+        if "scale" in name and "expert" not in name:
+            remapped_name = maybe_remap_kv_scale_name(name, params_dict)
+            if remapped_name is None:
+                return True
+            if remapped_name != name:
+                self._handle_default_weight(remapped_name, loaded_weight, params_dict)
+            return True
+        return False'''),
+ ("B-call",
+'''            if self._handle_scale_remapping(name, params_dict):''',
+'''            if self._handle_scale_remapping(name, loaded_weight, params_dict):'''),
+])
+PATCH_MLLAMA4_KVSCALE_EOF
 
 # ── HYV3 NEXTN/MTP head fixes — ONLY when EAGLE/MTP speculative decode is on ──
 # The built-in NEXTN/MTP head (whole model.layers.80*) is BF16-EXCLUDED from NVFP4
