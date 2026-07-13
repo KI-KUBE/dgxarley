@@ -69,7 +69,7 @@ _model_profile:
     # SM121 sgl-kernel build required for NVFP4 on GB10, AND the modelopt_mixed dispatch
     # comes from the sglang_launch.sh runtime patch (works on any -sm121 image). Pinned to
     # the current sibling image so this profile resolves without a -e override.
-    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-sm121"
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.15-sm121"
     # ~80-90 GB / TP=4 → ~20-25 GB/GPU (FP4 MLP + FP8 attn + BF16 vision). TP=4 valid:
     # num_key_value_heads=8, 8 % 4 == 0 → 2 KV heads/rank (clean GQA). Fits easily.
     tp_size: 4

@@ -79,7 +79,7 @@ _model_profile:
     # default) so this profile resolves correctly without a -e override. The MIXED_PRECISION
     # dispatch the modelopt_mixed loader needs comes from the sglang_launch.sh runtime patch
     # (works on any -sm121 image; 0.5.12/0.5.13 source identical), NOT from this build.
-    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-sm121"
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.15-sm121"
     # 35B/3B MoE (Gated DeltaNet hybrid), MIXED_PRECISION modelopt: W4A16_NVFP4 MoE
     # experts + FP8 attn (~10–12 GB on-device vs ~35 GB FP8). 256 experts, 8 routed + 1 shared per token. Native 262K
     # context (extensible to ~1M via YaRN — not enabled here). MTP-trained → NEXTN.

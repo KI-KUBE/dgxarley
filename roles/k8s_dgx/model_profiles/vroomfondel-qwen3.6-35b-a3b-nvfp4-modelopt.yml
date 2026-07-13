@@ -104,7 +104,7 @@ _model_profile:
     info_url: "https://huggingface.co/vroomfondel/Qwen3.6-35B-A3B-NVFP4-ModelOpt"
     # SM121 sgl-kernel build required for NVFP4 on GB10. Pinned to the current
     # siblings' image so this profile resolves without a -e override.
-    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-sm121"
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.15-sm121"
     # 35B/3B MoE (Gated DeltaNet hybrid), UNIFORM W4A4 nvfp4 (~10–12 GB on-device
     # weights vs ~35 GB FP8). 256 experts, 8 routed + 1 shared per token. Native
     # 262K context (extensible to ~1M via YaRN — not enabled here). MTP → NEXTN.

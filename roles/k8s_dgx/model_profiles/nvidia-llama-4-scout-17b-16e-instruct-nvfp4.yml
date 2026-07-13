@@ -1,0 +1,129 @@
+---
+# Model profile: nvidia/Llama-4-Scout-17B-16E-Instruct-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# NVIDIA's OWN ModelOpt NVFP4 quant of meta-llama/Llama-4-Scout-17B-16E-Instruct
+# (HF upload 2025-07-28, NVIDIA Open Model License — commercial use permitted).
+# A sibling packaging of the SAME base model exists on HF:
+#   * RedHatAI/Llama-4-Scout-17B-16E-Instruct-NVFP4 — compressed-tensors
+#     (nvfp4-pack-quantized, llm-compressor), targets ["Linear"], ignore = the
+#     whole vision tower + lm_head, NO baked KV-cache quant. Its config.json is
+#     PUBLIC. This NVIDIA repo is GATED behind the Llama license (needs an HF
+#     token with access — the cluster's dgx_read_ALL token works).
+#
+# ── ✅ ModelOpt quant CONFIRMED from the gated hf_quant_config.json ─────────
+# Read directly (2026-07-13, dgx_read_ALL token). producer modelopt
+# 0.22.1.dev751+g33877b02c (d20250825 — NOT the "v0.33.0" the HF card text
+# implies). The block is:
+#   quant_algo:          "NVFP4"   (UNIFORM — not MIXED_PRECISION, so plain
+#                                   modelopt_fp4, no _sgl_mixed_nvfp4_* patches)
+#   kv_cache_quant_algo: "FP8"     (KV quant is BAKED INTO THE CHECKPOINT →
+#                                   kv_cache_dtype fp8_e4m3 below is REQUIRED to
+#                                   match, not just a memory lever)
+#   group_size:          16
+#   exclude_modules:     language_model.lm_head, multi_modal_projector*,
+#                        vision_model*
+# → ALL language_model linears (self_attn + MoE experts + shared) are uniform
+#   NVFP4; lm_head + the ENTIRE vision tower + the MM projector stay BF16.
+# This is the key difference vs the RedHat sibling: same uniform-NVFP4 text
+# coverage + same vision/lm_head exclusions, but NVIDIA is modelopt-format AND
+# additionally bakes FP8 KV, whereas RedHat is compressed-tensors with no KV quant.
+#
+# ── ⚠️ FIRST-CONTACT / UNVALIDATED (backends only) ─────────────────────────
+# The quant path above is confirmed, but this model has NEVER been deployed or
+# matrix-tested on this cluster. Every BACKEND knob below is an INHERITED sibling
+# default (mirrored from the working SM121 NVFP4-MoE profiles: Qwen3-235B-NVFP4 /
+# Gemma-4-NVFP4), NOT a measured winner. Re-run the matrix before trusting
+# throughput, and see the attention_backend caveat (the top boot risk).
+#
+# ── ARCHITECTURE (Llama4ForConditionalGeneration, model_type "llama4") ─────
+# Multimodal MoE (text + vision). text_config (Llama4TextConfig):
+#   * 48 layers, hidden_size 5120, intermediate_size 8192 (expert) /
+#     16384 (shared/dense MLP).
+#   * num_attention_heads 40, num_key_value_heads 8 (5:1 GQA), head_dim 128
+#     → TP=4 gives 10 q-heads / 2 kv-heads per GPU (both divide cleanly).
+#   * MoE: num_local_experts 16 + 1 shared expert, num_experts_per_tok 1
+#     (top-1 routing), interleave_moe_layer_step 1 (Scout = MoE in every layer).
+#   * iRoPE / chunked LOCAL attention (attention_chunk_size 8192) with NoPE on
+#     every 4th layer + attn_temperature_tuning + use_qk_norm. This is a HYBRID
+#     sliding-window arch → SGLang's SWA KV path applies (swa_full_tokens_ratio /
+#     page_size are the levers if KV memory needs tuning; left at SGLang default
+#     for first boot).
+#   * rope_theta 500000, max_position_embeddings 10485760 (10M native, no YaRN).
+# Vision: Llama-4 ViT + multi_modal_projector (SGLang serves the multimodal path;
+#   mm_attention_backend left empty = SGLang default for first contact).
+# 109B params total / 17B active per token; NVFP4 weights ≈ 55 GB → ≈ 14 GB/GPU
+# at TP=4 — ample KV headroom on GB10 128GB unified.
+_model_profile:
+  "nvidia/Llama-4-Scout-17B-16E-Instruct-NVFP4":
+    knowledge_cutoff: "2024-08"  # Meta Llama 4 card (pretraining data cutoff Aug 2024)
+    release_date: "2025-04-05"   # Llama 4 family launch (Meta); NVFP4 upload 2025-07-28
+    info_url: "https://huggingface.co/nvidia/Llama-4-Scout-17B-16E-Instruct-NVFP4"
+    # ALTERNATIVES: BF16 source https://huggingface.co/meta-llama/Llama-4-Scout-17B-16E-Instruct
+    #   compressed-tensors sibling https://huggingface.co/RedHatAI/Llama-4-Scout-17B-16E-Instruct-NVFP4
+    #
+    # Current SM121 image (SGLang v0.5.15 + flashinfer 0.6.14 + transformers
+    # 5.12.1 + cutlass-dsl 4.6.0). Pinned so the profile resolves without a -e
+    # override; the newer transformers matters for Llama-4 multimodal support.
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.15-sm121"
+    # UNIFORM NVFP4 ModelOpt checkpoint — CONFIRMED (quant_algo "NVFP4",
+    # group_size 16; see header). Plain modelopt_fp4, no mixed-precision path.
+    quantization: "modelopt_fp4"
+    trust_remote_code: true
+    tp_size: 4          # kv_heads 8 → 2/GPU; experts 16 replicated (EP=1)
+    ep_size: 1
+    num_experts: 16
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
+    # 256K cap, WELL below the 10M native ceiling (native iRoPE, no YaRN, no
+    # json_model_override_args needed). Chunked local attention keeps most KV
+    # cheap, but 10M would still blow the pool — raise deliberately if needed.
+    context_length: 262144
+    # BAKED FP8 KV cache (hf_quant_config kv_cache_quant_algo: "FP8") — this must
+    # match the checkpoint, so keep fp8_e4m3 (also keeps the 256K KV pool sane).
+    kv_cache_dtype: "fp8_e4m3"
+    # Weights ~14 GB/GPU → lots of slack; 0.8 gives the KV pool room at 256K.
+    mem_fraction_static: "0.8"
+    nccl_transport: "roce"
+    # ── ⚠️ attention_backend is the #1 thing to validate ───────────────────
+    # Llama-4 uses chunked LOCAL (sliding-window) attention. flashinfer is the
+    # SM121 NVFP4 norm and the first thing to try, BUT the sibling hybrid-SWA
+    # arch (Gemma-4) is hard-REJECTED by SGLang's flashinfer allowlist and forced
+    # to triton — Llama-4 MAY hit the same guard. If boot aborts at server-arg
+    # parsing with an "only supports ... attention backend" assertion, fall back
+    # to triton (proven SWA path) or fa3 (SGLang's own Llama-4 examples use fa3;
+    # availability on GB10/SM121 unconfirmed). A/B all three once it boots.
+    attention_backend: "flashinfer"
+    # Multimodal (vision) attention backend. Empty → SGLang default. Bisect
+    # (sdpa / fa3 / triton_attn / flashinfer_cudnn) if image requests crash.
+    mm_attention_backend: ""
+    # SM121 NVFP4 MoE default (flashinfer_cutlass whitelisted + working on GB10).
+    moe_runner_backend: "flashinfer_cutlass"
+    # cutlass FP4 GEMM — flashinfer_cudnn FP4 GEMM is broken on SM121 (100%
+    # startup crash across every sibling NVFP4 matrix). cutlass is the only path.
+    fp4_gemm_backend: "flashinfer_cutlass"
+    disable_deep_gemm: true
+    disable_cuda_graph: false
+    # fp4_quantize has no fake-tensor impl → piecewise-CG dynamo trace fails on
+    # every NVFP4 model here (same as the Gemma-4 / GLM NVFP4 profiles). Keep off
+    # for boot safety; A/B false once it serves.
+    disable_piecewise_cuda_graph: true
+    cuda_graph_max_bs: 32
+    pp_async_batch_depth: 0
+    jit_max_jobs: 4
+    # ── Tool calling: Llama-4 emits PYTHONIC function calls ─────────────────
+    # SGLang parser for Llama 3.2/3.3/4 is "pythonic" (confirmed: SGLang tool
+    # parser docs + discussion #9270). Required so Hermes/Honcho tool calling
+    # works behind hermes-default. NOTE: SGLang's stricter pythonic behaviour
+    # wants --chat-template tool_chat_template_llama4_pythonic.jinja, but this
+    # stack has no chat-template-FILE knob (only chat_template_kwargs) — the
+    # model's built-in tokenizer chat_template already carries tool support, so
+    # start without it and only wire a custom template if tool parsing misbehaves.
+    tool_call_parser: "pythonic"
+    # No reasoning_parser: Scout-Instruct is NOT a thinking model (no <think>).
+    # Meta's general Llama-4 inference guidance (the NVIDIA card overrides none):
+    recommended_sampling:
+      temperature: 0.6
+      top_p: 0.9
+    # No speculative decoding: Scout ships no MTP head / no external EAGLE draft.
+    speculative_enabled: false
