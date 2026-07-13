@@ -29,12 +29,23 @@
 # coverage + same vision/lm_head exclusions, but NVIDIA is modelopt-format AND
 # additionally bakes FP8 KV, whereas RedHat is compressed-tensors with no KV quant.
 #
-# ── ⚠️ FIRST-CONTACT / UNVALIDATED (backends only) ─────────────────────────
-# The quant path above is confirmed, but this model has NEVER been deployed or
-# matrix-tested on this cluster. Every BACKEND knob below is an INHERITED sibling
-# default (mirrored from the working SM121 NVFP4-MoE profiles: Qwen3-235B-NVFP4 /
-# Gemma-4-NVFP4), NOT a measured winner. Re-run the matrix before trusting
-# throughput, and see the attention_backend caveat (the top boot risk).
+# ── STATUS: backends validated (2026-07-13, TP=1) — clean dgxarley deploy
+#    STILL BLOCKED until the loader patches are ported ────────────────────────
+# The quant path (above) is confirmed and the two backend knobs below
+# (attention_backend + moe_runner_backend = triton) were VALIDATED at TP=1 on
+# the current SM121 image — NOT inherited guesses. Do NOT read this as "fully
+# validated" though: a normal dgxarley deploy will NOT serve this model yet,
+# because three things live OUTSIDE this profile and are not done here:
+#   1. mllama4.py loader: SGLang can't load Scout's fused NVFP4 MoE without 3
+#      loader patches (would go into sglang_launch.sh as a gated Python heredoc,
+#      GLM-5/Hunyuan-style, matched on "Llama-4"). Without them the model does
+#      not load at all. NOT yet added — upstream-PR-worthy.
+#   2. chat template: sglang_launch.sh has no `--chat-template <file>` flag (only
+#      --chat-template-kwargs). Needs the flag added OR a template baked into the
+#      checkpoint download. Real code gap.
+#   3. KV-scale mismatch: doc caveat only (output stays coherent).
+# Throughput is still unmeasured (TP=1 was a functional bring-up, not the 4-node
+# serving config) — re-run the matrix at tp_size=4 before trusting numbers.
 #
 # ── ARCHITECTURE (Llama4ForConditionalGeneration, model_type "llama4") ─────
 # Multimodal MoE (text + vision). text_config (Llama4TextConfig):
@@ -85,20 +96,24 @@ _model_profile:
     # Weights ~14 GB/GPU → lots of slack; 0.8 gives the KV pool room at 256K.
     mem_fraction_static: "0.8"
     nccl_transport: "roce"
-    # ── ⚠️ attention_backend is the #1 thing to validate ───────────────────
-    # Llama-4 uses chunked LOCAL (sliding-window) attention. flashinfer is the
-    # SM121 NVFP4 norm and the first thing to try, BUT the sibling hybrid-SWA
-    # arch (Gemma-4) is hard-REJECTED by SGLang's flashinfer allowlist and forced
-    # to triton — Llama-4 MAY hit the same guard. If boot aborts at server-arg
-    # parsing with an "only supports ... attention backend" assertion, fall back
-    # to triton (proven SWA path) or fa3 (SGLang's own Llama-4 examples use fa3;
-    # availability on GB10/SM121 unconfirmed). A/B all three once it boots.
-    attention_backend: "flashinfer"
+    # ── attention_backend: triton (VALIDATED 2026-07-13, TP=1) ──────────────
+    # Llama-4 uses chunked LOCAL (sliding-window) attention. SGLang's flashinfer
+    # allowlist HARD-REJECTS flashinfer for Llama4 (same guard as the Gemma-4
+    # hybrid-SWA arch) → the server aborts at arg-parse ("only supports ...
+    # attention backend"). triton is the validated SWA path. (fa3 appears in
+    # SGLang's own Llama-4 examples but is unconfirmed on GB10/SM121 — triton is
+    # the proven choice here.)
+    attention_backend: "triton"
     # Multimodal (vision) attention backend. Empty → SGLang default. Bisect
     # (sdpa / fa3 / triton_attn / flashinfer_cudnn) if image requests crash.
     mm_attention_backend: ""
-    # SM121 NVFP4 MoE default (flashinfer_cutlass whitelisted + working on GB10).
-    moe_runner_backend: "flashinfer_cutlass"
+    # moe_runner_backend: triton (VALIDATED 2026-07-13, TP=1). flashinfer_cutlass
+    # ASSERTS on Llama-4's apply_router_weight_on_input=True (top-1 routing bakes
+    # the router weight into the expert INPUT; the flashinfer cutlass MoE path
+    # doesn't honor that flag) → forward-time assert. triton honors it. NOTE:
+    # only the MoE runner moves to triton — fp4_gemm_backend stays
+    # flashinfer_cutlass (below).
+    moe_runner_backend: "triton"
     # cutlass FP4 GEMM — flashinfer_cudnn FP4 GEMM is broken on SM121 (100%
     # startup crash across every sibling NVFP4 matrix). cutlass is the only path.
     fp4_gemm_backend: "flashinfer_cutlass"
