@@ -22,7 +22,7 @@
         HF_HOME: "/huggingface-cache"
         # Disable hf_xet transfer path (hex-hash reconstruction bug); real value
         # (1 = off) in group_vars/all/vault/huggingface.yml.
-        HF_HUB_DISABLE_XET: "{{ hf_hub_disable_xet | default(0) }}"
+        HF_HUB_DISABLE_XET: "{{ hf_hub_disable_xet | default(0) | string }}"
 
 - name: Create docling service
   kubernetes.core.k8s:

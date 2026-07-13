@@ -105,7 +105,7 @@
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
                   - name: HF_HUB_DISABLE_XET
-                    value: "{{ hf_hub_disable_xet | default(0) }}"
+                    value: "{{ hf_hub_disable_xet | default(0) | string }}"
                   - name: HF_HUB_DISABLE_PROGRESS_BARS
                     value: "0"
                 volumeMounts:
@@ -140,7 +140,7 @@
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
                   - name: HF_HUB_DISABLE_XET
-                    value: "{{ hf_hub_disable_xet | default(0) }}"
+                    value: "{{ hf_hub_disable_xet | default(0) | string }}"
                   - name: SGLANG_ENABLE_JIT_DEEPGEMM
                     value: "false"
                   - name: PYTORCH_CUDA_ALLOC_CONF
@@ -215,7 +215,7 @@
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
                   - name: HF_HUB_DISABLE_XET
-                    value: "{{ hf_hub_disable_xet | default(0) }}"
+                    value: "{{ hf_hub_disable_xet | default(0) | string }}"
                   - name: HF_HUB_DISABLE_PROGRESS_BARS
                     value: "0"
                 volumeMounts:
@@ -266,7 +266,7 @@
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
                   - name: HF_HUB_DISABLE_XET
-                    value: "{{ hf_hub_disable_xet | default(0) }}"
+                    value: "{{ hf_hub_disable_xet | default(0) | string }}"
                   - name: SGLANG_ENABLE_JIT_DEEPGEMM
                     value: "false"
                   - name: PYTORCH_CUDA_ALLOC_CONF
