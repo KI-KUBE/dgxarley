@@ -193,6 +193,8 @@
                     value: "{{ vllm_model }}"
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
+                  - name: HF_HUB_DISABLE_XET
+                    value: "{{ hf_hub_disable_xet | default(0) }}"
                   - name: HF_HUB_DISABLE_PROGRESS_BARS
                     value: "0"
                 volumeMounts:
@@ -229,6 +231,8 @@
                     value: "{{ vllm_port | string }}"
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
+                  - name: HF_HUB_DISABLE_XET
+                    value: "{{ hf_hub_disable_xet | default(0) }}"
                 resources:
                   limits:
                     nvidia.com/gpu: "1"
@@ -305,6 +309,8 @@
                     value: "{{ vllm_model }}"
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
+                  - name: HF_HUB_DISABLE_XET
+                    value: "{{ hf_hub_disable_xet | default(0) }}"
                   - name: HF_HUB_DISABLE_PROGRESS_BARS
                     value: "0"
                 volumeMounts:
@@ -353,6 +359,8 @@
                     value: "{{ vllm_port | string }}"
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
+                  - name: HF_HUB_DISABLE_XET
+                    value: "{{ hf_hub_disable_xet | default(0) }}"
                 resources:
                   limits:
                     nvidia.com/gpu: "1"

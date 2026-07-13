@@ -2,3 +2,10 @@
 # Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
 # HuggingFace
 hf_token: "hf_CHANGEME"
+# HF_HUB_DISABLE_XET propagated to every container that does HF downloads
+# (sglang/vllm head+worker+shard, hf_preload, sglang_tune_moe, comfyui, docling).
+# 0 = keep hf_xet transfer; 1 = disable it. The real value lives in the vault
+# copy (set to 1) — hf_xet's reconstruction has a "Unable to parse string as hex
+# hash value" bug against our JuiceFS-backed HF cache. HF reads this as a boolean
+# (only 1/true/yes/on disable xet), so leaving the dummy 0 here is a safe default.
+hf_hub_disable_xet: 0

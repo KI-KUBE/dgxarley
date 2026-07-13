@@ -68,6 +68,8 @@
                     value: "{{ sglang_ep | string }}"
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
+                  - name: HF_HUB_DISABLE_XET
+                    value: "{{ hf_hub_disable_xet | default(0) }}"
                   - name: MOE_CONFIG_DIR
                     value: "{{ sglang_moe_config_dir }}"
                   - name: HF_CACHE_HOST_PATH

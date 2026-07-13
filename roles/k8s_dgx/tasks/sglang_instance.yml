@@ -409,6 +409,8 @@
                     value: "{{ _sglang_active_model }}{{ ',' + sglang_speculative_draft_model_path if (sglang_speculative_enabled | bool) and sglang_speculative_draft_model_path else '' }}"
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
+                  - name: HF_HUB_DISABLE_XET
+                    value: "{{ hf_hub_disable_xet | default(0) }}"
                   - name: HF_HUB_DISABLE_PROGRESS_BARS
                     value: "0"
                 volumeMounts:
@@ -459,6 +461,8 @@
                     value: "{{ inst.port | string }}"
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
+                  - name: HF_HUB_DISABLE_XET
+                    value: "{{ hf_hub_disable_xet | default(0) }}"
                   # Both names set explicitly so the collective path is identical
                   # on 0.5.11 (reads SGLANG_USE_JIT_ALL_REDUCE) and 0.5.12 (reads
                   # SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2). See sglang_jit_allreduce
@@ -593,6 +597,8 @@
                     value: "{{ _sglang_active_model }}{{ ',' + sglang_speculative_draft_model_path if (sglang_speculative_enabled | bool) and sglang_speculative_draft_model_path else '' }}"
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
+                  - name: HF_HUB_DISABLE_XET
+                    value: "{{ hf_hub_disable_xet | default(0) }}"
                   - name: HF_HUB_DISABLE_PROGRESS_BARS
                     value: "0"
                 volumeMounts:
@@ -667,6 +673,8 @@
                     value: "{{ inst.internal_port | string }}"
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
+                  - name: HF_HUB_DISABLE_XET
+                    value: "{{ hf_hub_disable_xet | default(0) }}"
                   # Both names set explicitly so the collective path is identical
                   # on 0.5.11 (reads SGLANG_USE_JIT_ALL_REDUCE) and 0.5.12 (reads
                   # SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2). See sglang_jit_allreduce
