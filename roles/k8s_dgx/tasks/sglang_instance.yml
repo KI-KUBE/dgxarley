@@ -89,6 +89,7 @@
         SGLANG_MEM_FRACTION: "{{ sglang_mem_fraction_static }}"
         SGLANG_REASONING_PARSER: "{{ sglang_reasoning_parser }}"
         SGLANG_TOOL_CALL_PARSER: "{{ sglang_tool_call_parser }}"
+        SGLANG_CHAT_TEMPLATE: "{{ sglang_chat_template }}"
         SGLANG_QUANTIZATION: "{{ sglang_quantization }}"
         SGLANG_TRUST_REMOTE_CODE: "{{ sglang_trust_remote_code | string | lower }}"
         SGLANG_JSON_MODEL_OVERRIDE_ARGS: "{{ sglang_json_model_override_args }}"

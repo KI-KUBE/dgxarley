@@ -1903,6 +1903,13 @@ fi
 if [ -n "$SGLANG_TOOL_CALL_PARSER" ]; then
   args+=(--tool-call-parser "$SGLANG_TOOL_CALL_PARSER")
 fi
+# --chat-template: a built-in template NAME or a path to a .jinja file present in
+# the container (from the profile's `chat_template` knob via SGLANG_CHAT_TEMPLATE).
+# Empty -> no flag -> SGLang falls back to the model tokenizer's chat_template.
+# Distinct from the --chat-template-kwargs handling further below.
+if [ -n "$SGLANG_CHAT_TEMPLATE" ]; then
+  args+=(--chat-template "$SGLANG_CHAT_TEMPLATE")
+fi
 if [ "$SGLANG_SPECULATIVE_ENABLED" = "true" ]; then
   args+=(--speculative-algo "$SGLANG_SPECULATIVE_ALGO")
   args+=(--speculative-num-steps "$SGLANG_SPECULATIVE_NUM_STEPS")

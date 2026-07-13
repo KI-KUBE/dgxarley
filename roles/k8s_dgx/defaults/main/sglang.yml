@@ -136,6 +136,11 @@ sglang_debug_tensor_dump_layers: "{{ sglang_model_profiles[_sglang_active_model]
 sglang_mem_fraction_static: "{{ sglang_model_profiles[_sglang_active_model].mem_fraction_static }}"
 sglang_reasoning_parser: "{{ sglang_model_profiles[_sglang_active_model].reasoning_parser | default('') }}"
 sglang_tool_call_parser: "{{ sglang_model_profiles[_sglang_active_model].tool_call_parser | default('') }}"
+# --chat-template value from the profile: a BUILT-IN template name OR a path to a
+# .jinja file that exists INSIDE THE CONTAINER (e.g. a baked-in sglang example
+# template). Empty ("") -> no flag -> SGLang uses the model tokenizer's own
+# chat_template. Distinct from sglang_chat_template_kwargs (--chat-template-kwargs).
+sglang_chat_template: "{{ sglang_model_profiles[_sglang_active_model].chat_template | default('') }}"
 sglang_quantization: "{{ sglang_model_profiles[_sglang_active_model].quantization | default('') }}"
 sglang_trust_remote_code: "{{ sglang_model_profiles[_sglang_active_model].trust_remote_code | default(false) }}"
 # Raw JSON string passed to SGLang via --json-model-override-args. Used to
