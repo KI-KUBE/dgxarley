@@ -70,6 +70,10 @@
                     value: "{{ hf_token }}"
                   - name: HF_HUB_DISABLE_XET
                     value: "{{ hf_hub_disable_xet | default(0) | string }}"
+                  - name: HF_XET_HIGH_PERFORMANCE
+                    value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
+                  - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
+                    value: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
                   - name: MOE_CONFIG_DIR
                     value: "{{ sglang_moe_config_dir }}"
                   - name: HF_CACHE_HOST_PATH

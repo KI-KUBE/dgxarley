@@ -9,3 +9,22 @@ hf_token: "hf_CHANGEME"
 # hash value" bug against our JuiceFS-backed HF cache. HF reads this as a boolean
 # (only 1/true/yes/on disable xet), so leaving the dummy 0 here is a safe default.
 hf_hub_disable_xet: 0
+# HF_XET_HIGH_PERFORMANCE — same propagation as above, but wired through this
+# INVERTED knob (mirrors the hf_hub_disable_* naming). The env var is the negation:
+#   HF_XET_HIGH_PERFORMANCE = 1  when  hf_hub_xet_disable_high_performance = 0 (default)
+#   HF_XET_HIGH_PERFORMANCE = 0  when  hf_hub_xet_disable_high_performance = 1
+# i.e. high-performance transfer is ON by default; set this to 1 to turn it OFF.
+# High-perf is the official replacement for the now-ignored HF_HUB_ENABLE_HF_TRANSFER
+# and bumps hf_xet concurrency / buffer / parallel-file limits (HF recommends it on
+# high-bandwidth hosts with >=64GB RAM — the GB10 sparks have 128GB unified, so it
+# fits). NOTE: no-op when HF_HUB_DISABLE_XET=1 turns the whole xet path off.
+hf_hub_xet_disable_high_performance: 0
+# HF_XET_NUM_CONCURRENT_RANGE_GETS — concurrent byte-range GETs from S3 per file on
+# the XET transfer path (a xorb/chunk tunable). XET-ONLY: it does NOT affect plain
+# HTTPS/LFS downloads (the path used when HF_HUB_DISABLE_XET=1) and is a no-op there.
+# Applies to both normal and high-performance xet. HF default is 16; dummy kept at 16
+# (neutral no-op), real value in the vault copy. NOTE: the env var was renamed from
+# HF_HUB_NUM_CONCURRENT_RANGE_GETS → HF_XET_NUM_CONCURRENT_RANGE_GETS in hf-xet 1.1;
+# the ansible var name matches the current env name. HF recommends the HF cache be on
+# SSD/NVMe, not a distributed FS — ours is JuiceFS, so tune conservatively.
+hf_xet_num_concurrent_range_gets: 16

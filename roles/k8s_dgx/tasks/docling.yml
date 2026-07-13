@@ -23,6 +23,11 @@
         # Disable hf_xet transfer path (hex-hash reconstruction bug); real value
         # (1 = off) in group_vars/all/vault/huggingface.yml.
         HF_HUB_DISABLE_XET: "{{ hf_hub_disable_xet | default(0) | string }}"
+        # hf_xet high-performance transfer, wired through the inverted
+        # hf_hub_xet_disable_high_performance knob. No-op when xet is disabled above.
+        HF_XET_HIGH_PERFORMANCE: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
+        # xet concurrent range-GETs per file (xet-only; no-op on plain HTTPS).
+        HF_XET_NUM_CONCURRENT_RANGE_GETS: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
 
 - name: Create docling service
   kubernetes.core.k8s:

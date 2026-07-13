@@ -20,6 +20,8 @@ hf_token: "hf_CHANGEME"
 # HuggingFace model pre-download Job
 hf_preload_models:
   - "nvidia/Llama-4-Scout-17B-16E-Instruct-NVFP4"
+  - "ressl/Ornith-1.0-35B-NVFP4"
+  # - "deepreinforce-ai/Ornith-1.0-35B"
   - "mistralai/Mistral-Small-4-119B-2603-NVFP4"
   - "mistralai/Mistral-Small-4-119B-2603-eagle"
   - "vroomfondel/Qwen3.6-35B-A3B-NVFP4-ModelOpt"

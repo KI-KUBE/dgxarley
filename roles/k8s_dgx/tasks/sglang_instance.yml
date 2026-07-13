@@ -411,6 +411,10 @@
                     value: "{{ hf_token }}"
                   - name: HF_HUB_DISABLE_XET
                     value: "{{ hf_hub_disable_xet | default(0) | string }}"
+                  - name: HF_XET_HIGH_PERFORMANCE
+                    value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
+                  - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
+                    value: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
                   - name: HF_HUB_DISABLE_PROGRESS_BARS
                     value: "0"
                 volumeMounts:
@@ -463,6 +467,10 @@
                     value: "{{ hf_token }}"
                   - name: HF_HUB_DISABLE_XET
                     value: "{{ hf_hub_disable_xet | default(0) | string }}"
+                  - name: HF_XET_HIGH_PERFORMANCE
+                    value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
+                  - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
+                    value: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
                   # Both names set explicitly so the collective path is identical
                   # on 0.5.11 (reads SGLANG_USE_JIT_ALL_REDUCE) and 0.5.12 (reads
                   # SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2). See sglang_jit_allreduce
@@ -599,6 +607,10 @@
                     value: "{{ hf_token }}"
                   - name: HF_HUB_DISABLE_XET
                     value: "{{ hf_hub_disable_xet | default(0) | string }}"
+                  - name: HF_XET_HIGH_PERFORMANCE
+                    value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
+                  - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
+                    value: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
                   - name: HF_HUB_DISABLE_PROGRESS_BARS
                     value: "0"
                 volumeMounts:
@@ -675,6 +687,10 @@
                     value: "{{ hf_token }}"
                   - name: HF_HUB_DISABLE_XET
                     value: "{{ hf_hub_disable_xet | default(0) | string }}"
+                  - name: HF_XET_HIGH_PERFORMANCE
+                    value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
+                  - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
+                    value: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
                   # Both names set explicitly so the collective path is identical
                   # on 0.5.11 (reads SGLANG_USE_JIT_ALL_REDUCE) and 0.5.12 (reads
                   # SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2). See sglang_jit_allreduce
