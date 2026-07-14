@@ -192,6 +192,14 @@
         # Default FLASHINFER_WORKSPACE_BASE is /root (→ /root/.cache/flashinfer/,
         # overlay-FS, lost on restart). Redirect to persistent hostPath volume.
         FLASHINFER_WORKSPACE_BASE: "/root/.cache/flashinfer_persistent"
+        # sm121 RMSNorm workaround: flashinfer's cute RMSNorm JITs via cutlass-dsl's
+        # TVM-FFI path, which is broken on GB10/sm121 (mlir_global_dtors() TypeError
+        # -> ICE). FLASHINFER_USE_CUDA_NORM=1 takes the non-cute CUDA norm branch in
+        # _rmsnorm_impl (norm/__init__.py) and never touches TVM-FFI. (CUTE_DSL_ENABLE_TVM_FFI=0
+        # was dropped: inert here, since rmsnorm_cute hardcodes options="--enable-tvm-ffi"
+        # per-compile and this branch is never taken once CUDA norm is on.) Drop once
+        # the image ships a cutlass-dsl with a working TVM-FFI path.
+        FLASHINFER_USE_CUDA_NORM: "1"
         # Fix CUDA allocator fragmentation during AWQ Marlin repack (SGLang #11471)
         PYTORCH_CUDA_ALLOC_CONF: "expandable_segments:True"
         SGLANG_MOE_CONFIG_DIR: "{{ sglang_moe_config_dir }}"
