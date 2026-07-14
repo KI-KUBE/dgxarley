@@ -53,11 +53,13 @@ RUN python3 -m pip freeze --all > /tmp/serving-constraints.txt \
 
 # --- 2. add ONLY the genuinely-missing leaves, pinned by the freeze ----------------
 # accelerate has no fsspec/datasets dep, so it resolves cleanly against the freeze.
+# py-spy is a self-contained Rust binary (no python deps) for sampling-profiler
+# tracing of a running serving process, so it also resolves cleanly.
 # NOTE (fallback): should a future base bump make even this conflict, rebase FROM
 # xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132 (no sglang stack to constrain) and
 # run smoke serving from the serving image instead.
 RUN python3 -m pip install --no-cache-dir -c /tmp/serving-constraints.txt \
-      accelerate hf_transfer
+      accelerate hf_transfer py-spy
 
 # --- 3. assert the base modelopt is new enough for the (later) mixed-precision recipe
 # path (>=0.45 = the release NVIDIA built Qwen3.5-397B-NVFP4-V2 with; first with the
