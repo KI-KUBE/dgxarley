@@ -832,6 +832,128 @@ else:
 PATCH_MIXED_NVFP4_VARIANT_EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Patch qwen3_5.py: allow QUANTIZED attention for uniform-NVFP4 modelopt_fp4
+# checkpoints (e.g. kikube's vroomfondel/Ornith-1.0-35B-NVFP4-ModelOpt).
+#
+# qwen3_5.py hardcodes attention (both the full self_attn qkv/o_proj AND the
+# GatedDeltaNet linear-attn in_proj_qkvz/in_proj_ba) to UNQUANTIZED (BF16) the
+# moment quant_config.get_name() == "modelopt_fp4", at two byte-identical sites:
+#     linear_attn_quant_config = (
+#         None
+#         if quant_config and quant_config.get_name() == "modelopt_fp4"
+#         else quant_config)
+# Every NVIDIA-published Qwen3.5/3.6 NVFP4 excludes attention (MoE-only NVFP4), so
+# the shortcut matches THEIR modelopt_fp4 checkpoints. Distinct from the
+# MIXED_PRECISION patches above: nvidia/Qwen3.6 (W4A16_NVFP4 MoE + FP8 attn) is
+# quant_method modelopt_mixed, so this override never fires for it. But a UNIFORM
+# W4A4 checkpoint that ALSO quantizes attention (kikube's deliberately-risky nvfp4
+# recipe, vs the safe nvfp4_mlp_only) is modelopt_fp4 -> hits this override -> gets
+# a plain BF16 param for qkv_proj/in_proj_qkvz, and the merged loader then copies a
+# NVFP4-packed uint8 chunk (half input-dim width) into the full-width BF16 slot ->
+# "assert param_data.shape == loaded_weight.shape" (linear.py Merged/QKV loader).
+# Fix: replace the forced-None condition with False so the real quant_config passes
+# through and ModelOptFp4Config.is_layer_excluded() decides per-prefix (the SAME
+# dispatch that already keeps mlp.gate/conv1d/in_proj_a/in_proj_b BF16 for this
+# checkpoint). create_weights() already supports merged quantized linears; the code
+# was reachable, just unreached. INERT for NVIDIA MoE-only NVFP4 (excluded
+# attention -> UnquantizedLinearMethod), for MIXED_PRECISION (modelopt_mixed, not
+# modelopt_fp4), and for FP8/etc (the ternary already took the else branch). No
+# model-name gate: qwen3_5.py is imported only for the Qwen3.5 arch.
+# ─────────────────────────────────────────────────────────────────────────────
+python3 - <<'PATCH_QWEN35_ATTN_QUANT_EOF'
+import os
+f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/models/qwen3_5.py"
+if not os.path.exists(f):
+    print(">>> qwen3_5 attn-quant patch: qwen3_5.py not found, skipping")
+else:
+    s = open(f).read()
+    old = '            if quant_config and quant_config.get_name() == "modelopt_fp4"'
+    new = '            if False  # [patch] kikube: let is_layer_excluded() decide (allow quantized attention)'
+    n = s.count(old)
+    if n:
+        open(f, "w").write(s.replace(old, new))
+        print(f">>> qwen3_5 attn-quant patch: APPLIED ({n} occurrence(s))")
+    elif new.strip() in s:
+        print(">>> qwen3_5 attn-quant patch: already applied")
+    else:
+        print(">>> qwen3_5 attn-quant patch: ANCHOR NOT FOUND (SGLang version drift?)")
+PATCH_QWEN35_ATTN_QUANT_EOF
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Patch qwen3_5.py: load the baked FP8 KV scales (QUALITY, mirrors the Llama-4
+# KV-scale patch A+B above, applied to qwen3_5).
+#
+# A modelopt-NVFP4 Qwen3.5 checkpoint with quantized attention bakes per-layer FP8
+# KV scales (full-attn layers only: ...self_attn.k_proj.k_scale / ...v_proj.v_scale,
+# F32 scalars). Two gaps in qwen3_5.py drop them -> SGLang logs "Using FP8 KV cache
+# but no scaling factors provided. Defaulting to scaling factors of 1.0" and the
+# flashinfer attn backend uses 1.0 (baked scales are ~0.01-0.04 -> 25-80x off, a
+# real precision loss). NOT a load-blocker. Relevant only for checkpoints that
+# quantize attention (kikube uniform-W4A4); NVIDIA MoE-only NVFP4 has no baked KV
+# scales so both edits are inert there. No model-name gate (qwen3_5.py is imported
+# only for this arch).
+#   A) RadixAttention built WITHOUT quant_config -> FP8-KV quant method never runs
+#      -> no k_scale/v_scale params. Fix: pass quant_config.
+#   B) load_weights skips ...k_proj.k_scale/...v_proj.v_scale via ignore_suffixes and
+#      never calls maybe_remap_kv_scale_name. Fix: remap onto the attn.k_scale/
+#      v_scale params (which A registers) BEFORE the ignore-skip. Both needed.
+# ─────────────────────────────────────────────────────────────────────────────
+python3 - <<'PATCH_QWEN35_KVSCALE_EOF'
+import os
+f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/models/qwen3_5.py"
+if not os.path.exists(f):
+    print(">>> qwen3_5 kv-scale patch: qwen3_5.py not found, skipping")
+else:
+    s = open(f).read()
+    edits = [
+        ("A-radixattn-quant_config", "# [patch] kikube A: RadixAttention quant_config",
+"""            num_kv_heads=self.num_kv_heads,
+            layer_id=layer_id,
+            prefix=f"{prefix}.attn",
+        )""",
+"""            num_kv_heads=self.num_kv_heads,
+            layer_id=layer_id,
+            quant_config=quant_config,  # [patch] kikube A: RadixAttention quant_config
+            prefix=f"{prefix}.attn",
+        )"""),
+        ("B-kv-scale-remap", "# [patch] kikube B: kv-scale remap",
+"""            if ".self_attn." in name:
+                name = name.replace(".self_attn", "")
+""",
+"""            if ".self_attn." in name:
+                name = name.replace(".self_attn", "")
+            # [patch] kikube B: kv-scale remap -- load the baked FP8 KV scales.
+            # qwen3_5 strips .self_attn (line above) then fuses k_proj/v_proj ->
+            # qkv_proj in the stacked loop below, so the stock
+            # maybe_remap_kv_scale_name (which keys off .self_attn.) never matches
+            # and falls to a wrong generic branch. Map k_proj.k_scale/v_proj.v_scale
+            # onto the RadixAttention attn.k_scale/attn.v_scale params that patch A
+            # registers, BEFORE the fusion rename, so FP8 KV uses the calibrated
+            # scale instead of the 1.0 fallback. Inert if A did not register the
+            # param (remapped name not in params_dict -> name left unchanged ->
+            # ignore-skipped as before).
+            if name.endswith(".k_scale") or name.endswith(".v_scale"):
+                _rm = name.replace(".k_proj.k_scale", ".attn.k_scale").replace(
+                    ".v_proj.v_scale", ".attn.v_scale"
+                )
+                if _rm in params_dict:
+                    name = _rm
+"""),
+    ]
+    for tag, marker, old, new in edits:
+        if marker in s:
+            print(f">>> qwen3_5 kv-scale patch {tag}: already applied")
+        else:
+            n = s.count(old)
+            if n:
+                s = s.replace(old, new)
+                print(f">>> qwen3_5 kv-scale patch {tag}: APPLIED ({n} occurrence(s))")
+            else:
+                print(f">>> qwen3_5 kv-scale patch {tag}: ANCHOR NOT FOUND (SGLang drift?)")
+    open(f, "w").write(s)
+PATCH_QWEN35_KVSCALE_EOF
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Patch compressed_tensors/utils.py: keep VLM vision tower + multimodal projector
 # in BF16 for compressed-tensors NVFP4 checkpoints (e.g. Mistral3/Pixtral such as
 # RecViking/Mistral-Medium-3.5-128B-NVFP4).
