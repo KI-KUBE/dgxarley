@@ -833,7 +833,7 @@ PATCH_MIXED_NVFP4_VARIANT_EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Patch qwen3_5.py: allow QUANTIZED attention for uniform-NVFP4 modelopt_fp4
-# checkpoints (e.g. kikube's vroomfondel/Ornith-1.0-35B-NVFP4-ModelOpt).
+# checkpoints (e.g. 's vroomfondel/Ornith-1.0-35B-NVFP4-ModelOpt).
 #
 # qwen3_5.py hardcodes attention (both the full self_attn qkv/o_proj AND the
 # GatedDeltaNet linear-attn in_proj_qkvz/in_proj_ba) to UNQUANTIZED (BF16) the
@@ -846,7 +846,7 @@ PATCH_MIXED_NVFP4_VARIANT_EOF
 # the shortcut matches THEIR modelopt_fp4 checkpoints. Distinct from the
 # MIXED_PRECISION patches above: nvidia/Qwen3.6 (W4A16_NVFP4 MoE + FP8 attn) is
 # quant_method modelopt_mixed, so this override never fires for it. But a UNIFORM
-# W4A4 checkpoint that ALSO quantizes attention (kikube's deliberately-risky nvfp4
+# W4A4 checkpoint that ALSO quantizes attention ('s deliberately-risky nvfp4
 # recipe, vs the safe nvfp4_mlp_only) is modelopt_fp4 -> hits this override -> gets
 # a plain BF16 param for qkv_proj/in_proj_qkvz, and the merged loader then copies a
 # NVFP4-packed uint8 chunk (half input-dim width) into the full-width BF16 slot ->
@@ -868,7 +868,7 @@ if not os.path.exists(f):
 else:
     s = open(f).read()
     old = '            if quant_config and quant_config.get_name() == "modelopt_fp4"'
-    new = '            if False  # [patch] kikube: let is_layer_excluded() decide (allow quantized attention)'
+    new = '            if False  # [patch]: let is_layer_excluded() decide (allow quantized attention)'
     n = s.count(old)
     if n:
         open(f, "w").write(s.replace(old, new))
@@ -889,7 +889,7 @@ PATCH_QWEN35_ATTN_QUANT_EOF
 # but no scaling factors provided. Defaulting to scaling factors of 1.0" and the
 # flashinfer attn backend uses 1.0 (baked scales are ~0.01-0.04 -> 25-80x off, a
 # real precision loss). NOT a load-blocker. Relevant only for checkpoints that
-# quantize attention (kikube uniform-W4A4); NVIDIA MoE-only NVFP4 has no baked KV
+# quantize attention ( uniform-W4A4); NVIDIA MoE-only NVFP4 has no baked KV
 # scales so both edits are inert there. No model-name gate (qwen3_5.py is imported
 # only for this arch).
 #   A) RadixAttention built WITHOUT quant_config -> FP8-KV quant method never runs
@@ -906,23 +906,23 @@ if not os.path.exists(f):
 else:
     s = open(f).read()
     edits = [
-        ("A-radixattn-quant_config", "# [patch] kikube A: RadixAttention quant_config",
+        ("A-radixattn-quant_config", "# [patch] A: RadixAttention quant_config",
 """            num_kv_heads=self.num_kv_heads,
             layer_id=layer_id,
             prefix=f"{prefix}.attn",
         )""",
 """            num_kv_heads=self.num_kv_heads,
             layer_id=layer_id,
-            quant_config=quant_config,  # [patch] kikube A: RadixAttention quant_config
+            quant_config=quant_config,  # [patch]  A: RadixAttention quant_config
             prefix=f"{prefix}.attn",
         )"""),
-        ("B-kv-scale-remap", "# [patch] kikube B: kv-scale remap",
+        ("B-kv-scale-remap", "# [patch]  B: kv-scale remap",
 """            if ".self_attn." in name:
                 name = name.replace(".self_attn", "")
 """,
 """            if ".self_attn." in name:
                 name = name.replace(".self_attn", "")
-            # [patch] kikube B: kv-scale remap -- load the baked FP8 KV scales.
+            # [patch]  B: kv-scale remap -- load the baked FP8 KV scales.
             # qwen3_5 strips .self_attn (line above) then fuses k_proj/v_proj ->
             # qkv_proj in the stacked loop below, so the stock
             # maybe_remap_kv_scale_name (which keys off .self_attn.) never matches
@@ -964,6 +964,95 @@ else:
                 print(f">>> qwen3_5 kv-scale patch {tag}: ANCHOR NOT FOUND (SGLang drift?)")
     open(f, "w").write(s)
 PATCH_QWEN35_KVSCALE_EOF
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Patch linear.py: NVFP4 scalar-scale loading for fused/merged linears.
+# Upstream fix PR #29151 / commit cfc3d0555e ("Fix ModelOpt NVFP4 scalar scales for
+# merged linears"), merged 2026-07-13, MAIN-ONLY (not in the 0.5.15 image).
+# MergedColumnParallelLinear / QKVParallelLinear weight_loader_v2 hardcode shard_id=0
+# for the PerTensorScaleParameter (NVFP4 weight_scale_2 / input_scale scalars) when
+# loaded_shard_id is None OR a tuple, leaving the other logical slots UNINITIALIZED;
+# the shared ModelOpt NVFP4 path then .max()es over the slots, so a garbage slot
+# becomes the runtime global alpha -> catastrophic dequant -> word-salad. Worst on
+# GDN-hybrid models whose fused linear_attn.in_proj_qkv loads via a TUPLE shard_id
+# (Ornith-1.0-9B: 24 GDN layers dominate -> total garbage). Fix: fill EVERY logical
+# slot with the scalar. INERT for non-NVFP4 checkpoints (PerTensorScaleParameter path
+# only taken for modelopt_fp4 scalar scales).
+# ─────────────────────────────────────────────────────────────────────────────
+python3 - <<'PATCH_LINEAR_NVFP4SCALE_EOF'
+import os
+f = "/usr/local/lib/python3.12/dist-packages/sglang/srt/layers/linear.py"
+if not os.path.exists(f):
+    print(">>> linear.py nvfp4-scale patch: linear.py not found, skipping")
+else:
+    s = open(f).read()
+    edits = [
+        ("D-merged-col-scalar-scale", "# [patch]: PR #29151 -- fill every logical slot",
+"""            if isinstance(param, PerTensorScaleParameter):
+                param.load_merged_column_weight(
+                    loaded_weight=loaded_weight,
+                    shard_id=0,
+                    tp_rank=self.tp_rank,
+                    tp_size=self.tp_size,
+                )
+                return
+""",
+"""            if isinstance(param, PerTensorScaleParameter):
+                # [patch]: PR #29151 -- fill every logical slot with the
+                # scalar NVFP4 scale instead of only slot 0, else the unfilled slots
+                # feed garbage into the .max() global alpha (fused merged linears,
+                # e.g. GDN in_proj_qkv with tuple shard_id).
+                if loaded_weight.numel() != 1:
+                    raise ValueError(
+                        "Expected scalar scale for fused-in-checkpoint "
+                        "merged-column checkpoint load, got shape "
+                        f"{tuple(loaded_weight.shape)}"
+                    )
+                if loaded_shard_id is None:
+                    shard_ids = range(param.data.shape[0])
+                else:
+                    shard_ids = loaded_shard_id
+                for shard_id in shard_ids:
+                    param.load_merged_column_weight(
+                        loaded_weight=loaded_weight,
+                        shard_id=shard_id,
+                        tp_rank=self.tp_rank,
+                        tp_size=self.tp_size,
+                    )
+                return
+"""),
+        ("D-qkv-scalar-scale", "# [patch]: PR #29151 -- fill all q/k/v slots",
+"""            if isinstance(param, PerTensorScaleParameter):
+                param.load_qkv_weight(loaded_weight=loaded_weight, shard_id=0)
+                return
+""",
+"""            if isinstance(param, PerTensorScaleParameter):
+                # [patch]: PR #29151 -- fill all q/k/v slots with the scalar scale
+                if loaded_weight.numel() != 1:
+                    raise ValueError(
+                        "Expected scalar scale for fused-in-checkpoint QKV "
+                        "checkpoint load when loaded_shard_id is None, got "
+                        f"shape {tuple(loaded_weight.shape)}"
+                    )
+                for shard_id in param.qkv_idxs:
+                    param.load_qkv_weight(
+                        loaded_weight=loaded_weight, shard_id=shard_id
+                    )
+                return
+"""),
+    ]
+    for tag, marker, old, new in edits:
+        if marker in s:
+            print(f">>> linear.py nvfp4-scale patch {tag}: already applied")
+        else:
+            n = s.count(old)
+            if n:
+                s = s.replace(old, new)
+                print(f">>> linear.py nvfp4-scale patch {tag}: APPLIED ({n} occurrence(s))")
+            else:
+                print(f">>> linear.py nvfp4-scale patch {tag}: ANCHOR NOT FOUND (SGLang drift?)")
+    open(f, "w").write(s)
+PATCH_LINEAR_NVFP4SCALE_EOF
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Patch compressed_tensors/utils.py: keep VLM vision tower + multimodal projector
