@@ -1,21 +1,33 @@
 #!/bin/bash
 set -e
 
-# Force apt to IPv4 only — the cluster is IPv4-only (pod/service CIDRs are v4,
-# no IPv6 route in pods), so a returned AAAA just wastes a connect attempt with
-# "Network is unreachable". Belt to the CoreDNS no-AAAA change (k8s_infra
-# coredns.yml). NOTE: this does NOT make an unreachable mirror reachable — if
-# ports.ubuntu.com has no egress, apt still times out on IPv4.
+# Runtime deps (tini/ping/ip/ethtool/net-tools — NOT baked into the sglang image,
+# verified 2026-07-15) must be apt-installed at boot. Canonical's ports.ubuntu.com
+# is US-hosted behind a ~40-60% packet-loss Zayo transit path from this site
+# (measured: 60% ICMP loss from the workstation, path exits via Zayo → Boston/US;
+# 1.1.1.1 is 0% loss), so a single apt attempt fails ~80% of the time and, under
+# `set -e`, crashloops head+workers with exit 100. Three mitigations:
+#   1. Force IPv4 (cluster is IPv4-only; belt to the CoreDNS no-AAAA change).
+#   2. Repoint apt at the well-peered German FAU Erlangen ports mirror
+#      (ftp.fau.de/ubuntu-ports — 0% loss, ~29ms, full noble suites verified).
+#   3. Retry the whole update+install in a bounded loop as a final safety net.
+# The block is non-fatal on total failure (a later ping-dependent step would then
+# surface a clearer error). See remote-control 2026-07-15.
 echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4
+sed -i 's|ports.ubuntu.com/ubuntu-ports|ftp.fau.de/ubuntu-ports|g' \
+  /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list 2>/dev/null || true
 
-# Install ping for ARP priming (not included in sglang image).
-# apt-get update is NON-FATAL (|| true): the six packages are already cached in
-# the image, so `install` succeeds offline. A failing `update` (unreachable
-# Ubuntu mirror — the cluster has no egress to ports.ubuntu.com) returns 100
-# non-deterministically and would otherwise abort the whole pod under `set -e`,
-# crashlooping head+workers. See remote-control 2026-07-15.
-apt-get update -qq 2>/dev/null || true
-apt-get install -y -qq tini iproute2 iputils-ping net-tools curl ethtool >/dev/null 2>&1
+apt_ok=false
+for i in $(seq 1 15); do
+  apt-get update -qq 2>/dev/null || true
+  if apt-get install -y -qq tini iproute2 iputils-ping net-tools curl ethtool >/dev/null 2>&1; then
+    apt_ok=true
+    break
+  fi
+  echo "[launch] apt install attempt ${i}/15 failed (lossy mirror), retrying in 5s..."
+  sleep 5
+done
+[ "$apt_ok" = true ] || echo "[launch] WARNING: apt install failed after 15 attempts; continuing (ping-dependent steps may fail)"
 
 # accelerate: required by SGLang's ModelOptModelLoader
 # (srt/model_loader/loader.py → _load_modelopt_base_model). Triggered by:
