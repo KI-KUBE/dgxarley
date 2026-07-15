@@ -13,8 +13,10 @@ Structural changes to container-build/Dockerfile.sglang-nightly:
    fifth is a diagnostic for CUTLASS sm120 GEMM template iteration work
    and stays OFF by default.
 
-2. Add `patch` to the apt-get install list. The base image
-   (scitrera/dgx-spark-pytorch-dev) does not ship the `patch` binary.
+2. Add `patch` to the builder apt install list (the base image
+   scitrera/dgx-spark-pytorch-dev does not ship the `patch` binary), and
+   wrap that whole builder apt step in the connectivity retry loop of
+   point 7.
 
 3. MOVE the sglang Python package install (`uv pip install ./python`)
    from its original early position to the end of the builder stage,
@@ -38,7 +40,27 @@ Structural changes to container-build/Dockerfile.sglang-nightly:
    tini, iproute2, iputils-ping, net-tools, ethtool. These give the
    served SGLang pods an init binary plus in-pod network diagnostics
    (ip/ping/ifconfig/ethtool) — useful for QSFP/RoCE/VF debugging. curl
-   is already present in the runtime list, so it is not re-added.
+   is already present in the runtime list, so it is not re-added. The
+   runtime apt step is likewise wrapped in the retry loop of point 7.
+
+7. Wrap BOTH apt steps (builder + runtime) in a bounded connectivity
+   retry loop, so a transient loss of connectivity to the Ubuntu package
+   mirrors does not fail the whole (long, expensive arm64) image build.
+   Mirrors the runtime launch script's idiom, adapted for a build:
+     - `Acquire::ForceIPv4 "true"` drop-in (the cluster forces IPv4 for
+       apt anyway — see commit "Force IPv4-only DNS and apt traffic").
+     - swap the lossy default arm64 mirror ports.ubuntu.com/ubuntu-ports
+       -> ftp.fau.de/ubuntu-ports (best-effort `sed`, `|| true`).
+     - `apt_ok=false; for i in $(seq 1 10); do apt-get update -qq; if
+       apt-get install …; then apt_ok=true; break; fi; sleep 5; done`.
+   Key difference vs the runtime script (which warns-and-continues): a
+   BUILD must not ship a half-installed image, so after 10 failed
+   attempts the loop ABORTS the build with `exit 1` and a clear
+   "no connectivity to Ubuntu package servers" diagnostic. The
+   non-network tail of each RUN (builder `ln -s`; both `rm -rf
+   /var/lib/apt/lists/*` + runtime `pip install uv`) stays OUTSIDE the
+   loop. No `#` comments live inside these RUNs — shell-form joins every
+   continued line into one, where a `#` would comment out the remainder.
 
 Idempotency: Every patch application is preceded by a dry-run so
 upstream drift fails immediately with a clear diagnostic instead of
@@ -73,15 +95,61 @@ carries this patch; see scripts/build_sm121_image.sh.
  ARG CUDA_ARCHITECTURES=121
  ARG TORCH_CUDA_ARCH_LIST="12.1a"
  ARG NVCC_GENCODE="-gencode=arch=compute_121,code=sm_121"
-@@ -30,6 +44,7 @@
-         python3-pip \
-         python3-dev \
-         git \
-+        patch \
-         wget \
-         ccache \
-         libcudnn9-cuda-13 \
-@@ -95,9 +110,53 @@
+@@ -25,19 +39,40 @@
+ ENV PIP_CONSTRAINT=/tmp/torch-constraints.txt \
+     UV_CONSTRAINT=/tmp/torch-constraints.txt
+ 
+-RUN apt-get update && apt-get upgrade -y \
+-    && apt-get install -y --allow-change-held-packages --no-install-recommends \
+-        python3-pip \
+-        python3-dev \
+-        git \
+-        wget \
+-        ccache \
+-        libcudnn9-cuda-13 \
+-        libibverbs1 \
+-        rdma-core \
+-        numactl \
+-        openmpi-common \
+-        openmpi-bin && \
++# dgxarley: bounded retry loop (up to 10 attempts, 5s backoff) around the
++# builder apt step so a transient loss of connectivity to the Ubuntu package
++# mirrors does not fail the whole image build. Mirrors the runtime launch
++# script's idiom: ForceIPv4 + swap ports.ubuntu.com -> ftp.fau.de/ubuntu-ports
++# (lossy default arm64 mirror) + apt_ok retry flag. Difference vs runtime: this
++# is a BUILD, so after 10 failures it ABORTS (exit 1) with a clear diagnostic
++# instead of warning-and-continuing. Non-network `ln -s` + cache cleanup stay
++# outside the loop. (No `#` comments inside the RUN: shell-form joins all lines
++# into one, where a `#` would comment out the remainder.)
++RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4 && \
++    sed -i 's|ports.ubuntu.com/ubuntu-ports|ftp.fau.de/ubuntu-ports|g' \
++      /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list 2>/dev/null || true; \
++    apt_ok=false; \
++    for i in $(seq 1 10); do \
++        apt-get update -qq 2>/dev/null || true; \
++        if apt-get upgrade -y \
++           && apt-get install -y --allow-change-held-packages --no-install-recommends \
++               python3-pip \
++               python3-dev \
++               git \
++               patch \
++               wget \
++               ccache \
++               libcudnn9-cuda-13 \
++               libibverbs1 \
++               rdma-core \
++               numactl \
++               openmpi-common \
++               openmpi-bin; then \
++            apt_ok=true; break; \
++        fi; \
++        echo "[build] builder apt attempt ${i}/10 failed (lossy Ubuntu mirror), retrying in 5s..."; sleep 5; \
++    done; \
++    [ "$apt_ok" = true ] || { echo "ERROR: builder apt failed after 10 attempts - no connectivity to Ubuntu package servers"; exit 1; }; \
+     ln -s /usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)/openmpi /opt/openmpi && \
+     rm -rf /var/lib/apt/lists/*
+ 
+@@ -95,9 +130,53 @@
  ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_SGLANG=${SGLANG_VERSION} \
      SETUPTOOLS_SCM_PRETEND_VERSION=${SGLANG_VERSION}
  
@@ -138,7 +206,7 @@ carries this patch; see scripts/build_sm121_image.sh.
  
  # Copy any pre-built sgl-kernel wheels from build context (may be empty)
  COPY wheel-cache/ /data/wheel-cache/
-@@ -185,6 +244,46 @@
+@@ -185,6 +264,46 @@
          uv pip install -U transformers --pre; \
      fi
  
@@ -185,14 +253,65 @@ carries this patch; see scripts/build_sm121_image.sh.
  # Break up dist-packages into smaller layers to avoid hitting Docker layer size limits
  COPY stages/directory_split2.sh /opt/directory_split2.sh
  RUN chmod +x /opt/directory_split2.sh && \
-@@ -219,6 +219,11 @@ RUN apt update && \
-     libibverbs-dev \
-     rdma-core \
-     libxcb1 \
-+    tini \
-+    iproute2 \
-+    iputils-ping \
-+    net-tools \
-+    ethtool \
-     && rm -rf /var/lib/apt/lists/* && \
+@@ -203,23 +322,44 @@
+     TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas
+ 
+ # runtime base installs
+-RUN apt update && \
+-    apt install -y --no-install-recommends \
+-    python3 \
+-    python3-pip \
+-    python3-dev \
+-    vim \
+-    curl \
+-    git \
+-    wget \
+-    libcudnn9-cuda-13 \
+-    libnccl-dev \
+-    libnccl2 \
+-    libibverbs1 \
+-    libibverbs-dev \
+-    rdma-core \
+-    libxcb1 \
+-    && rm -rf /var/lib/apt/lists/* && \
++# dgxarley: bounded retry loop around the RUNTIME apt step (the one that lands
++# in the final serving image) - same rationale + idiom as the builder loop
++# above (ForceIPv4 + ftp.fau.de mirror swap + apt_ok retry, up to 10 attempts,
++# fatal after exhaustion). The pip steps stay outside the loop (PyPI, not the
++# Ubuntu mirrors). tini/iproute2/iputils-ping/net-tools/ethtool are the
++# added in-pod init + network-debug tools; curl was already present.
++RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4 && \
++    sed -i 's|ports.ubuntu.com/ubuntu-ports|ftp.fau.de/ubuntu-ports|g' \
++      /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list 2>/dev/null || true; \
++    apt_ok=false; \
++    for i in $(seq 1 10); do \
++        apt-get update -qq 2>/dev/null || true; \
++        if apt-get install -y --no-install-recommends \
++               python3 \
++               python3-pip \
++               python3-dev \
++               vim \
++               curl \
++               git \
++               wget \
++               libcudnn9-cuda-13 \
++               libnccl-dev \
++               libnccl2 \
++               libibverbs1 \
++               libibverbs-dev \
++               rdma-core \
++               libxcb1 \
++               tini \
++               iproute2 \
++               iputils-ping \
++               net-tools \
++               ethtool; then \
++            apt_ok=true; break; \
++        fi; \
++        echo "[build] runtime apt attempt ${i}/10 failed (lossy Ubuntu mirror), retrying in 5s..."; sleep 5; \
++    done; \
++    [ "$apt_ok" = true ] || { echo "ERROR: runtime apt failed after 10 attempts - no connectivity to Ubuntu package servers"; exit 1; }; \
++    rm -rf /var/lib/apt/lists/* && \
      pip install uv && (pip uninstall -y flash-attn || true)
+ 
+ # Copy Python dependencies from builder (split into 4 layers for size management)
