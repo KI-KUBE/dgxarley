@@ -27,12 +27,16 @@
                 fallthrough
               }
           
+          # Return NODATA (NOERROR + empty answer) for every AAAA query → pods are
+          # IPv4-only (cluster has v4-only pod/service CIDRs, no IPv6 route). glibc
+          # getaddrinfo then hands back only A records, so apt/curl/pip pull over
+          # IPv4 and never waste a connect attempt on an unreachable v6 address.
+          # Cluster-wide: intercepts AAAA for cluster.local too (harmless on an
+          # IPv4-only cluster — those services have no AAAA anyway).
           # https://jbn1233.medium.com/disable-coredns-aaaa-ipv6-query-response-a99ce9bc6dec
-          
-          #   template ANY AAAA {
-          #     rcode NXDOMAIN
-          #     authority {{ '"{{ .Zone }} 3600 {{ .Class }} SOA ns1.home.net. dnsadmin.home.net (2022122100 14400 3600 604800 30)"' }}
-          #   }
+              template ANY AAAA {
+                rcode NOERROR
+              }
           
               prometheus :9153
           

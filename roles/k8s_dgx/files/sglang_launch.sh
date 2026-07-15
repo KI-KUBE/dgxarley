@@ -1,8 +1,21 @@
 #!/bin/bash
 set -e
 
-# Install ping for ARP priming (not included in sglang image)
-apt-get update -qq && apt-get install -y -qq tini iproute2 iputils-ping net-tools curl ethtool >/dev/null 2>&1
+# Force apt to IPv4 only — the cluster is IPv4-only (pod/service CIDRs are v4,
+# no IPv6 route in pods), so a returned AAAA just wastes a connect attempt with
+# "Network is unreachable". Belt to the CoreDNS no-AAAA change (k8s_infra
+# coredns.yml). NOTE: this does NOT make an unreachable mirror reachable — if
+# ports.ubuntu.com has no egress, apt still times out on IPv4.
+echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4
+
+# Install ping for ARP priming (not included in sglang image).
+# apt-get update is NON-FATAL (|| true): the six packages are already cached in
+# the image, so `install` succeeds offline. A failing `update` (unreachable
+# Ubuntu mirror — the cluster has no egress to ports.ubuntu.com) returns 100
+# non-deterministically and would otherwise abort the whole pod under `set -e`,
+# crashlooping head+workers. See remote-control 2026-07-15.
+apt-get update -qq 2>/dev/null || true
+apt-get install -y -qq tini iproute2 iputils-ping net-tools curl ethtool >/dev/null 2>&1
 
 # accelerate: required by SGLang's ModelOptModelLoader
 # (srt/model_loader/loader.py → _load_modelopt_base_model). Triggered by:
