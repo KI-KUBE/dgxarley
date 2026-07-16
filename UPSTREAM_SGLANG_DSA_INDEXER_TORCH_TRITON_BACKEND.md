@@ -1,6 +1,6 @@
 # UPSTREAM PR: `dsa_paged_mqa_logits_backend=torch` fallback (+ Triton fast path) for the DSA indexer
 
-Status: **NOT YET FILED** (drafted 2026-07-16). Local implementation =
+Status: **FILED 2026-07-16 als sgl-project/sglang PR #31480** (https://github.com/sgl-project/sglang/pull/31480). Local implementation =
 `roles/k8s_dgx/files/sglang_patches/p30_dsa_torch_backend.py` (torch backend,
 incl. next_n>=2) + `p35_dsa_indexer_triton_logits.py` (Triton fast path),
 live-proven on dgxarley (DGX Spark GB10, SM121). After a merge lands in a

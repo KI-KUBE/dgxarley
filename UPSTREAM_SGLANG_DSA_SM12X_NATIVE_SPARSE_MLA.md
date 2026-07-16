@@ -1,6 +1,6 @@
 # UPSTREAM PR: DSA sparse attention on SM120/SM121 via flashinfer's native sparse-MLA backend
 
-Status: **NOT YET FILED** (drafted 2026-07-16). Local implementation =
+Status: **FILED 2026-07-16 als sgl-project/sglang PR #31481** (https://github.com/sgl-project/sglang/pull/31481). Local implementation =
 `roles/k8s_dgx/files/sglang_patches/p34_dsa_trtllm_sparse_sm120.py`, live-proven
 on the dgxarley cluster (4× DGX Spark GB10, SM121, TP4,
 `0xSero/glm-5.2-reap-504B-v2` = GlmMoeDsaForCausalLM). After a merge lands in a
