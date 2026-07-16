@@ -1323,6 +1323,11 @@ new_dispatch = f'''elif self.dsa_decode_impl == "aiter":
                 sm_scale=layer.scaling,
                 v_head_dim=layer.v_head_dim,
                 metadata=metadata,
+                k_scale=(
+                    layer.k_scale_float
+                    if getattr(layer, "k_scale_float", None) is not None
+                    else 1.0
+                ),
             )
 
         else:
@@ -1339,6 +1344,7 @@ new_method = '''    def _forward_flashinfer_gather(
         sm_scale: float,
         v_head_dim: int,
         metadata: "DSAMetadata",
+        k_scale: float = 1.0,
     ) -> torch.Tensor:
         """Phase 1 (dsalogitrework.md PART 2, plain decode / next_n==1 only).
 
@@ -1346,21 +1352,42 @@ new_method = '''    def _forward_flashinfer_gather(
         FMHA = datacenter-only ISA, flashmla = extension not built in this
         image, fa3 = hard SM90/SM100 gate, tilelang = proven smem/compile
         contradiction). Instead of a new kernel: gather the indexer's top-k
-        selected KV via dequantize_k_cache_paged (already imported/used above
-        by the flashmla_sparse RAGGED-prefill path -- fused gather + fp8->bf16
-        dequant, not reinvented here) and run flashinfer's DENSE MLA decode
-        (backend="fa2", the kernel that already serves this model's dense
-        baseline on SM121) over the small gathered+dequantized subset.
+        selected KV and run flashinfer's DENSE MLA decode (backend="fa2", the
+        kernel that already serves this model's dense baseline on SM121) over
+        the small gathered+dequantized subset.
 
         flashinfer's MLA wrapper rejects fp8 kv_data_type outside SM90/fa3
         (dsalogitrework.md Section 2 "THE blocker"), which is why the dequant
-        to bf16 happens BEFORE the wrapper, not inside it. Numerically
-        verified (2026-07-16, GPU pod) against an independent manual gather +
-        dequant + softmax reference using the real production packed-fp8 KV
-        byte layout: max abs diff ~0.0008-0.0012 (bf16-level), no NaN/all-zero,
-        seed-varying. Open point (dsalogitrework.md): kv_len_arr masking for
-        requests with real context < topk is wired (clamp + flashinfer's own
-        kv_len_arr) but not proven correct end-to-end, only plumbing-tested.
+        to bf16 happens BEFORE the wrapper, not inside it.
+
+        FIXED 2026-07-16 (live crash: "AssertionError: dim_quant: 576 != 656
+        detected in dequantize_k_cache_paged"): the KV pool's byte layout is
+        NOT always the 656-byte packed/block-quantized layout that
+        dequantize_k_cache_paged hardcodes. Per
+        model_runner_kv_cache_mixin.py::calculate_mla_kv_cache_dim, that packed
+        layout (dsa_kv_cache_store_fp8=True, 512 fp8 nope + 16 scale bytes +
+        128 bf16-rope bytes = 656) is used ONLY when dsa_prefill_backend and
+        dsa_decode_backend are both NOT "trtllm" (and, on HIP, not
+        tilelang/aiter). Our deployment keeps dsa_prefill_backend="trtllm", so
+        the pool is ALWAYS the plain layout (dim = kv_lora_rank +
+        qk_rope_head_dim = 576): nope and rope are simply cast to fp8_e4m3
+        directly at write time (memory_pool.py set_mla_kv_buffer's "else"
+        branch), no per-block scale stored -- a single scalar k_scale (mirrors
+        _forward_trtllm's own bmm1_scale derivation) applies uniformly on
+        dequant. Branch on self.dsa_kv_cache_store_fp8 so BOTH pool layouts are
+        handled correctly (not just our deployment's config) -- the original
+        dequantize_k_cache_paged path is kept for when the packed layout really
+        is in use, per the parent investigation's "do not force the 656
+        assumption" directive.
+
+        Numerically verified (2026-07-16, GPU pod) against an independent
+        manual gather + dequant + softmax reference in BOTH byte layouts (the
+        formerly-tested 656 packed layout AND, after this fix, the real
+        production 576 plain layout): max abs diff ~0.0008-0.0012 (bf16-level),
+        no NaN/all-zero, seed-varying. Open point (dsalogitrework.md):
+        kv_len_arr masking for requests with real context < topk is wired
+        (clamp + flashinfer's own kv_len_arr) but not proven correct
+        end-to-end, only plumbing-tested.
         """
         from flashinfer.mla import BatchMLAPagedAttentionWrapper
 
@@ -1376,7 +1403,27 @@ new_method = '''    def _forward_flashinfer_gather(
         device = q_nope.device
 
         # (num_tokens_q * topk, 1, kv_lora_rank + qk_rope_head_dim), bf16.
-        gathered = dequantize_k_cache_paged(kv_cache, page_table_1.reshape(-1))
+        if self.dsa_kv_cache_store_fp8:
+            # Packed block-quantized layout (656 bytes/token). See docstring.
+            gathered = dequantize_k_cache_paged(kv_cache, page_table_1.reshape(-1))
+        else:
+            # Plain raw layout (576 = kv_lora_rank + qk_rope_head_dim here, but
+            # derived from the buffer itself, not hardcoded): flat per-token
+            # fp8 slots, gather by the same flattened page_table_1 index
+            # dequantize_k_cache_paged would have used, then a single-scalar
+            # fp8->bf16 dequant (no per-block scale to unpack).
+            flat_kv_cache = kv_cache.view(-1, kv_cache.shape[-1])
+            gathered_fp8 = flat_kv_cache[page_table_1.reshape(-1).long()]
+            # fp32 intermediate for the scale multiply (matches the existing
+            # _dequantize_k_cache_fast_kernel Triton convention: load+cast to
+            # fp32, multiply by scale, THEN cast down to bf16) -- avoids
+            # extra bf16 rounding when k_scale != 1.0. A no-op precision-wise
+            # when k_scale == 1.0 (today's default; see docstring).
+            gathered = (
+                (gathered_fp8.to(torch.float32) * k_scale)
+                .to(torch.bfloat16)
+                .unsqueeze(1)
+            )
         ckv = gathered[..., :v_head_dim].contiguous()
         kpe = gathered[..., v_head_dim:].contiguous()
 
