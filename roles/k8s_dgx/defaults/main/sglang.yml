@@ -398,6 +398,16 @@ sglang_dsa_paged_mqa_logits_backend: "{{ sglang_model_profiles[_sglang_active_mo
 # subset instead of a new kernel. Wired to --dsa-decode-backend. Only meaningful
 # together with attention_backend: "dsa".
 sglang_dsa_decode_backend: "{{ sglang_model_profiles[_sglang_active_model].dsa_decode_backend | default('') }}"
+# DSA PREFILL attention backend (the MLA attention step over the indexer's top-k KV
+# selection, for extend/prefill tokens). Empty → SGLang default ("auto" → trtllm-gen
+# FMHA, dead on SM121, identical failure to the decode backend above). "flashinfer_gather"
+# reuses the SAME _sgl_ runtime-patched gather+dense-fa2 fallback as decode (no separate
+# kernel — source-traced: with SGLANG_DSA_FUSE_TOPK=true (default) + dsa_topk_backend=
+# sgl-kernel, page_table_1 has identical [num_query_tokens, topk] semantics in both
+# forward_decode and forward_extend, so the existing decode implementation is reused
+# unchanged for prefill too). Wired to --dsa-prefill-backend. Only meaningful together
+# with attention_backend: "dsa". See dsalogitrework.md / DSA_speedup.md.
+sglang_dsa_prefill_backend: "{{ sglang_model_profiles[_sglang_active_model].dsa_prefill_backend | default('') }}"
 # Multimodal (vision/audio) attention backend. Empty → SGLang default. Choices:
 # sdpa, fa3, fa4, triton_attn, ascend_attn, aiter_attn, flashinfer_cudnn. Only
 # relevant for multimodal models (e.g. MiMoV2 omni). Wired to --mm-attention-backend.
