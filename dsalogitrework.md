@@ -710,3 +710,41 @@ and replay; **0.024 ms vs 1.476 ms at the live decode point (61x)** -> indexer c
 ~1.9 ms/token instead of ~116.6. Harness: 0 drift, idempotent. Expected live
 effect: decode moves from 8.4 tok/s to the next floor (attention ~5.7 ms + MoE
 weight-bandwidth; plausibly ~25-40 tok/s single-stream). NOT yet deployed.
+
+## p35 LIVE RESULT 2026-07-16 + the REAL decode floor (profiled; hypothesis CORRECTED)
+
+**p35 deployed and working:** boot clean, decode graph capture 16.8 s with the
+Triton kernel captured (capture memory HALVED: 0.71 vs 1.45 GB - no fp32
+intermediates), smoke coherent, dispatch verified active in the live server.
+The indexer logits kernel no longer appears in the top-16 CUDA kernels of a
+live decode profile.
+
+**BUT decode stayed at ~8.4 tok/s - the "indexer is the floor" claim was WRONG
+at the live shapes, and the earlier 116.6-vs-119 ms match was coincidence.** The
+bench assumed page-table width 131072 (the KV pool); live `context_length` is
+16384 (profile cap) -> table width 16384, where the torch logits cost only a
+small fraction. Lesson: the width assumption was never verified against
+server_args.
+
+**The REAL floor (torch profiler, live head, 22 decode steps, 88% GPU-busy,
+~131 ms kernel time/token):**
+
+| ms/token | share | what |
+|---|---|---|
+| ~59 | ~45% | cuBLAS **bf16 GEMV** (166 us x ~3.25/layer) + dsv3_fused_a_gemm + lm_head: the UNQUANTIZED bf16 MLA projections (modelopt kept attention dense) - pure weight-bandwidth at bs=1 |
+| ~27 | ~21% | cutlass grouped GEMM: the NVFP4 MoE |
+| ~12 | ~10% | small bf16 wmma GEMMs (kv_b / indexer projections) |
+| ~10 | ~8%  | NCCL AllReduce (61 us x 2/layer, TP4) |
+| ~3  | ~2.5%| sparse_mla_decode_dsv3_2 (the p34 attention - as predicted, tiny) |
+
+**Correctness regression PASSED:** GSM8K 2-shot n=20 conc 8 with the Triton
+kernel in the decode graph: **18/20 = 90%, 0 errors, 0 restarts, 342 s** (p34
+baseline: 17/20, 421 s; the accuracy delta is one problem = noise at n=20).
+
+**Consequences:** for SHORT contexts there is nothing left to win in the DSA
+software stack; the levers are now (a) **MTP** (multiplies tokens per weight
+read; unlocked by p34, verify runs through the same sparse kernel) and
+(b) batching. The bf16 projections are checkpoint-inherent (a re-quantization
+question, not a serving-code one). p35 remains valuable: the logits cost scales
+linearly with table width, so at a 128k-context profile it WOULD be the wall
+(1.476 ms/layer measured at width 131072); plus the halved capture memory.

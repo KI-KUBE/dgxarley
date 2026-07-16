@@ -206,12 +206,17 @@ GB10-Zugriff — GPU-Verifikation braucht KEINEN Cluster).
 * ~~p34 end-to-end im Cluster~~ — **erledigt 2026-07-16**: Boot + Graph-Capture +
   Smoke + GSM8K conc 8 (85%, 0 Fehler, 0 Restarts) liefen live durch. Der alte
   Gather-PREFILL (p32) bleibt design-kaputt; er ist nur nicht mehr der aktive Pfad.
-* **Decode-Perf-Boden = torch-Indexer (p30)** — Plan abgearbeitet 2026-07-16:
-  (1) flashinfer-nativer Indexer = NEGATIV (Image UND upstream-main gescannt),
-  (2) Triton-Fusion = **p35, implementiert + GPU-verifiziert** (bit-exakt, 61×,
-  gemessene Ursache: torch arbeitet unter cuda-graph über die CAPTURE-Breite der
-  Page-Table statt der echten Seq). **p35 ist NICHT deployed** — das ist der
-  offene nächste Schritt. Details: `dsalogitrework.md` "NEXT-PLAN RESULTS".
+* **Decode-Perf-Boden: KORRIGIERT durch Live-Profiling 2026-07-16.** p35 (Triton-
+  Indexer-Logits, bit-exakt) ist deployed und nachweislich aktiv (Logits-Kernel aus
+  dem Decode-Profil verschwunden, Capture-Speicher halbiert), Decode blieb aber bei
+  ~8.4 tok/s: die "Indexer ist der Boden"-These stimmte am Live-Shape NICHT
+  (context_length=16384, nicht die 131k-Breite der Bench-Annahme). Profilierter
+  echter Boden pro Token: ~59 ms **unquantisierte bf16-MLA-Projektions-GEMVs**
+  (Checkpoint-inhärent), ~27 ms NVFP4-MoE, ~10 ms NCCL, ~3 ms Sparse-Attention.
+  Hebel für kurze Kontexte: **MTP** (durch p34 freigeschaltet) + Batching, NICHT
+  weitere DSA-Kernel-Arbeit. p35 zahlt bei langen Kontexten (Logits skaliert mit
+  Table-Breite). Kill-Switch `dsa_indexer_triton: false` im Profil (verdrahtet).
+  Details: `dsalogitrework.md` "p35 LIVE RESULT".
 * Der Tree-Diff beweist **Verhaltensgleichheit zum Vorzustand**, nicht Korrektheit. Wenn ein Patch
   vorher falsch war, ist er es nachher identisch falsch.
 
