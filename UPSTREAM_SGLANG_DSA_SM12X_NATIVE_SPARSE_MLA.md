@@ -127,3 +127,29 @@ Pfad-Restrukturierung in main beachten, `pre-commit run --all-files`,
 `register_cuda_ci` für die CI-fähigen Tests, DCO beim ersten Push prüfen).
 flashinfer-Mindestversion (>= 0.6.x mit `_sparse_mla_sm120`) im PR nennen und
 ggf. als Import-Guard kodieren.
+
+## Review-Lektionen aus dem Präzedenz-PR #24692 (NICHT als Vorbild, als Warnung)
+
+Der Präzedenz-PR war KEIN Selbstläufer: 24 Tage bis zum Merge, 27 Commits,
+**64 Review-Kommentare** (gemini-Bot + mehrere Menschen). Die dort gerissenen
+Punkte, präventiv auf UNS angewendet:
+
+1. **Kanonische Arch-Utils statt roher Capability-Checks** ("There is a util
+   for both is_cuda and is_sm120_supported. Do not export this either"): unser
+   Port ersetzt `device_sm_major == 12` / `get_device_capability()[0] == 12`
+   durch die existierenden sglang-Utils (`is_sm120_supported`-Familie) — die
+   lokalen Patches durften das nicht (Anker-Minimalität), der PR muss es.
+2. **`-1`-Sentinel-Behandlung wurde dort explizit angemahnt** (topk_ids-
+   Padding): bei uns semantisch zentral (Kernel skippt -1) → eigener Testfall
+   + Kommentar an der Stelle, nicht nur Verhalten.
+3. **Kein stilles Durchfallen**: für auf SM12x nicht unterstützte Randpfade
+   (z.B. DSA-CP-Zweige) explizites NotImplementedError statt Misrouting —
+   beim Port die `dsa_use_prefill_cp`-Zweige daraufhin prüfen.
+4. **Keine degradierten Assert-Messages, keine irreführenden Aliase,
+   Backend-Selektion klar strukturieren** (drei der Bot-Findings dort).
+5. **Scope klein halten**: #24692 bündelte MoE+MLA+Indexer+Docs in einem PR —
+   ein Grund für die 64 Kommentare. Unsere Zwei-PR-Teilung (Attention-Routing
+   vs. Indexer-Backend) ist die richtige Antwort darauf; im PR-Body auf den
+   Companion verweisen, aber nicht mergen-lassen-abhängig machen.
+6. **Erwartungsmanagement**: mehrwöchige Review mit Iterationen einplanen;
+   gemini-Bot-Review kommt zuerst und ist gründlich.

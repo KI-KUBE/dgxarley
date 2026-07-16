@@ -134,3 +134,13 @@ Entwicklung/Vorvalidierung auf spark5 möglich (podman-Methode).
 - PR-Body aus diesem Dokument; Companion-PR verlinken.
 - Offen zu prüfen beim Einreichen: DCO/Sign-off-Pflicht (in der Guide nicht
   gesehen, beim ersten Push gegen die PR-Checks verifizieren).
+
+## Review-Lektionen aus dem Präzedenz-PR #24692
+
+Siehe den ausführlichen Abschnitt im Companion-Dokument
+(UPSTREAM_SGLANG_DSA_SM12X_NATIVE_SPARSE_MLA.md): #24692 brauchte 24 Tage,
+27 Commits, 64 Review-Kommentare. Für DIESEN PR besonders relevant: kanonische
+Arch-Utils statt roher Checks, `-1`-Sentinel explizit testen UND kommentieren,
+kein stilles Durchfallen für nicht unterstützte Pfade (next_n-Randfälle,
+CP-Zweige), Assert-Messages beschreibend halten, Scope eng (nur das
+Indexer-Backend, kein Beifang).
