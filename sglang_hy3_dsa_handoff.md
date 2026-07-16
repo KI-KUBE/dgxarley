@@ -59,11 +59,12 @@ Alle **ungegatet** (`when=True`) — sie sind inert, weil die gepatchten Dispatc
 | `p31_dsa_flashinfer_gather.py` (300 Z.) | `server_args.py` + `dsa_backend.py` | `dsa_decode_backend=flashinfer_gather`: top-2048 KV gathern + dense fa2 drüber (FALLBACK, s.u.) |
 | `p32_dsa_flashinfer_gather_prefill.py` (116 Z.) | `dsa_backend.py` | dieselbe Impl für prefill/extend (**design-kaputt**, nur Historie) |
 | `p33_dsa_fig_graph_split.py` (329 Z.) | `dsa_backend.py` | cuda-graph plan/run-split für p31 (`plan()` ist nicht graph-recordbar) |
-| `p34_dsa_trtllm_sparse_sm120.py` | `model_runner_kv_cache_mixin.py` + `dsa_backend.py` | **der AKTIVE Pfad**: routet `dsa_*_backend=trtllm` auf flashinfers NATIVE SM120/121-Sparse-MLA (Decode UND Prefill; `backend="auto"` + 656-packed-Pool + `kv_scale_format="arbitrary_fp32"`) |
+| `p34_dsa_trtllm_sparse_sm120.py` | `model_runner_kv_cache_mixin.py` + `dsa_backend.py` + `forward_mla.py` | **der AKTIVE Pfad**: routet `dsa_*_backend=trtllm` auf flashinfers NATIVE SM120/121-Sparse-MLA (Decode UND Prefill; `backend="auto"` + 656-packed-Pool + `kv_scale_format="arbitrary_fp32"` + Rope bleibt upstream/bf16-Query) |
+| `p35_dsa_indexer_triton_logits.py` | **legt `dsa/triton_paged_mqa_logits.py` neu an** + editiert p30s `torch_paged_mqa_logits.py` | Triton-fused Indexer-Logits (61×; Early-Exit auf echter Seq unter statischem Graph-Grid). Kill-Switch: `SGLANG_DSA_INDEXER_TRITON=0` |
 
-**Fünf Patches, eine gemeinsame Datei (`dsa_backend.py`), Reihenfolge p30 → p31 → p32 → p33 → p34.**
-Die `pNN`-Nummern kodieren das. Nicht umbenennen. p34s Edits liegen in Regionen, die
-p30-p33 nicht anfassen (`_forward_trtllm` + der Mixin), kollidieren also nicht.
+**Sechs Patches, Reihenfolge p30 → p31 → p32 → p33 → p34 → p35.** Die `pNN`-Nummern
+kodieren das. Nicht umbenennen. p34s Edits liegen in Regionen, die p30-p33 nicht
+anfassen; **p35 editiert die von p30 ERZEUGTE Datei** (muss also nach p30 laufen).
 
 ### Die Falle, in die ich getappt bin (und du auch wirst)
 
@@ -205,10 +206,12 @@ GB10-Zugriff — GPU-Verifikation braucht KEINEN Cluster).
 * ~~p34 end-to-end im Cluster~~ — **erledigt 2026-07-16**: Boot + Graph-Capture +
   Smoke + GSM8K conc 8 (85%, 0 Fehler, 0 Restarts) liefen live durch. Der alte
   Gather-PREFILL (p32) bleibt design-kaputt; er ist nur nicht mehr der aktive Pfad.
-* **Decode-Perf-Boden = torch-Indexer (p30)** — nächste Schritte (user-approved):
-  (1) flashinfer 0.6.14 auf einen nativen SM120-Indexer-Kernel inspizieren
-  (p34-Methode), (2) sonst Triton-Fusion der torch-Kette. Plan:
-  `dsalogitrework.md` Abschnitt "NEXT".
+* **Decode-Perf-Boden = torch-Indexer (p30)** — Plan abgearbeitet 2026-07-16:
+  (1) flashinfer-nativer Indexer = NEGATIV (Image UND upstream-main gescannt),
+  (2) Triton-Fusion = **p35, implementiert + GPU-verifiziert** (bit-exakt, 61×,
+  gemessene Ursache: torch arbeitet unter cuda-graph über die CAPTURE-Breite der
+  Page-Table statt der echten Seq). **p35 ist NICHT deployed** — das ist der
+  offene nächste Schritt. Details: `dsalogitrework.md` "NEXT-PLAN RESULTS".
 * Der Tree-Diff beweist **Verhaltensgleichheit zum Vorzustand**, nicht Korrektheit. Wenn ein Patch
   vorher falsch war, ist er es nachher identisch falsch.
 

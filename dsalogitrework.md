@@ -673,3 +673,40 @@ Context for prioritisation: concurrency already amortises the indexer (aggregate
 conc-8 throughput >> 8.4), and MTP (now reachable, verify runs through the same
 sparse kernel) multiplies decode independently -- it may be worth more than
 indexer work; decide after Option 1's answer is known.
+
+## NEXT-PLAN RESULTS 2026-07-16 (same day): Option 1 NEGATIVE, Option 2 IMPLEMENTED (p35)
+
+**Option 1 (flashinfer-native indexer): NEGATIVE, definitively.** flashinfer 0.6.14
+in the image has no indexer/fp8-paged-MQA-logits kernel (module scan), and the
+upstream flashinfer main tree (2294 files, scanned 2026-07-16) contains zero
+mqa/indexer/lightning candidates. flashinfer covers the sparse ATTENTION only.
+sgl_kernel ships the topk side (`fast_topk*`) and a DSV4 q-prep fusion
+(`dsv4_fused_q_indexer_rope_hadamard_quant`), but not the logits scoring.
+
+**The measurement that pinned the floor** (spark5 GB10, exact live shapes): the p30
+torch logits kernel costs **1.476 ms/layer x 79 = 116.6 ms/token** at bs=1,
+page-table width 131072 (the cuda-graph CAPTURE width), true seq 300 -- live decode
+is ~119 ms/token (8.4 tok/s). Match to within ~2%. Root cause is structural:
+`max_seq_len = block_tables.shape[1] * 64` (dsa_indexer.py:827) is the capture
+constant, and torch gathers + fp32-dequants + bmms the FULL width every step;
+torch cannot do data-dependent work under graph capture. Counterfactual: a tight
+table costs 0.097 ms -> ~10x decode headroom. (Prefill is unaffected: its
+max_seq_len is the true batch max, eager -- hence the healthy 873 tok/s.)
+
+**Option 2 (Triton fusion): IMPLEMENTED as `p35_dsa_indexer_triton_logits.py`.**
+One Triton program per (request, 64-token page): STATIC launch grid over the full
+table width (graph-safe) with per-block EARLY EXIT on the true `seq_lens[b]` read
+at replay time, fused fp8-load + inline-scale dequant + q.k dot + relu + weighted
+head-sum, no fp32 HBM intermediates. Delivered as a new module
+(`dsa/triton_paged_mqa_logits.py`) + a dispatch inserted into the p30 torch
+fallback after its shape asserts; env kill-switch `SGLANG_DSA_INDEXER_TRITON=0`
+reverts to pure torch. Activation contract unchanged
+(`dsa_paged_mqa_logits_backend: torch`).
+
+GPU-verified on spark5: **bit-exact** vs the torch reference (max|diff|=0.0 direct;
+3.6e-7 through the patched module) incl. identical -inf masks; cuda-graph
+capture+replay correct WITH a seq-len change in the static buffer between capture
+and replay; **0.024 ms vs 1.476 ms at the live decode point (61x)** -> indexer cost
+~1.9 ms/token instead of ~116.6. Harness: 0 drift, idempotent. Expected live
+effect: decode moves from 8.4 tok/s to the next floor (attention ~5.7 ms + MoE
+weight-bandwidth; plausibly ~25-40 tok/s single-stream). NOT yet deployed.
