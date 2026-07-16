@@ -23,11 +23,14 @@ the sparse indexer cannot run on SM121 via any hardware kernel; the torch fallba
 > 7 seqs/2240 tokens @ 873 tok/s input (the gather-killer shape), GSM8K 2-shot n=20
 > conc 8 = 85% with 0 errors / 0 restarts. The indexer torch fallback
 > (dsalogitrework.md PART 1) REMAINS required and is now the sole DSA perf floor
-> (~113 of ~119 ms/token). NEXT (user-approved plan): (1) inspect flashinfer 0.6.14
-> for a native SM120 indexer/fp8-paged-MQA-logits kernel (the p34 method); (2) if
-> none, fuse the torch chain into one Triton kernel behind the existing
-> dsa_paged_mqa_logits_backend=torch plumbing. Full detail: dsalogitrework.md
-> PART 4 + LIVE-DEPLOY RESULT + NEXT sections.
+> CORRECTION (same day, profiled): the "indexer = floor" claim was wrong at live
+> shapes (context 16k, not the 131k-wide bench assumption). p35 (Triton logits,
+> bit-exact, 61x) is deployed and active, decode stayed ~8.4 tok/s. The PROFILED
+> floor per token: ~59 ms unquantized bf16 MLA-projection GEMVs
+> (checkpoint-inherent), ~27 ms NVFP4 MoE, ~10 ms NCCL, ~3 ms sparse attention.
+> Short-context levers from here: MTP (unlocked by p34) + batching. p35 pays at
+> LONG contexts (logits scales with table width; 1.476 ms/layer at width 131k).
+> Full detail: dsalogitrework.md p35 LIVE RESULT.
 
 ## UPDATE 2026-07-16 (GPU-debug-pod verified) - the sparse path is a HARD SM121 block
 
