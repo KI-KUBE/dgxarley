@@ -78,7 +78,10 @@ _model_profile:
                                  # This run tests: boots past both crash points, GSM8K-correct vs dense, cuda-graph
                                  # capture of flashinfer_gather. Revert to "flashinfer" (dense) if it regresses.
     dsa_paged_mqa_logits_backend: "torch"       # SM121 torch indexer fallback (necessary for dsa)
-    dsa_decode_backend: "flashinfer_gather"     # SM121 gather+dense-fa2 MLA attention fallback
+    dsa_decode_backend: "flashinfer_gather"     # SM121 gather+dense-fa2 MLA attention fallback (decode)
+    dsa_prefill_backend: "flashinfer_gather"    # SM121 same gather+dense-fa2 fallback for prefill/extend
+                                                # (dsa_prefill_backend=trtllm hits the same TllmGenFmhaRunner
+                                                # SM121 assert at the warmup prefill; reuses the decode impl)
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4
     disable_piecewise_cuda_graph: true
