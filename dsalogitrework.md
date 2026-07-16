@@ -402,3 +402,66 @@ is a plausible, reviewable PR) — but that is a follow-up decision, not part of
   are staying on dense MLA (current state, known-correct, known-slow, no MTP) or waiting on
   upstream DeepGEMM SM121 support with no committed timeline. Scope expectations
   accordingly before investing significant implementation time.
+
+---
+
+# PART 2 - The attention decode: gather + reuse dense fa2 (implementation plan)
+
+The indexer torch fallback (Part 1) got the boot past the DeepGEMM assert but then crashed at
+the MLA decode attention (`dsa_decode_backend=trtllm` -> trtllm-gen FMHA `Unsupported architecture`).
+A full survey found EVERY dedicated DSA attention kernel dead on SM121 (trtllm-gen ISA, flashmla
+not built, fa3 hard gate, tilelang smem/compile contradiction - proven). But a GPU-prototyped
+alternative works: **gather the top-2048 selected KV and run flashinfer's DENSE MLA decode (fa2,
+already working on SM121) over the gathered subset.** This is REUSE, not a new kernel.
+
+## Why it works (GPU-prototyped 2026-07-16, PASS)
+
+- The gather prep ALREADY exists: `dsa_backend.py::forward_decode` builds
+  `page_table_1 = transform_index_page_table_decode(page_table, topk_indices, page_size=1)`
+  (`dsa/transform_index.py`) -> `[bs, 2048]` int32 KV-slot indices, for every backend. In the
+  real sparse regime (seq>2048) `index_score.topk(min(topk, end_pos))` returns exactly 2048 valid
+  indices, no -1 padding -> static shape, CUDA-graph-friendly.
+- `flashinfer_mla_backend.py::BatchMLAPagedAttentionWrapper.plan()` takes `page_size` as a param and
+  holds arbitrary non-contiguous `kv_indices`/`kv_indptr` (gathers in-kernel). Feed
+  `plan(page_size=1, kv_indices=page_table_1.flatten(), kv_len=2048)` + `.run(q_nope, q_pe, k_buffer)`.
+  Auto-selects fa2 on SM121 - the same kernel that already serves the dense base model.
+- Numerics: vs a pure-torch gather + Q.K^T softmax .V reference: max abs diff 0.00068 (bf16), no NaN,
+  seed-varying. Perf: sparse-2048 0.26 ms vs dense-8192 0.80 ms (sub-linear -> real win at long ctx).
+
+## THE blocker: fp8 KV
+
+flashinfer's MLA decode rejects `kv_cache_dtype=fp8_e4m3` on EVERY backend
+(`FP8 kv_data_type for MLA is only supported with the fa3 backend on SM90`; fa3 is SM121-dead).
+Fix options, cheapest first:
+1. **Dequant ONLY the gathered 2048 KV to bf16 per decode step** (recommended). Cheap because it is
+   2048 entries x dims, not the whole 256k cache. The gather already materialises those 2048 slots;
+   add a `.to(bf16)` (with the fp8 scale) on the gathered k_buffer before `.run()`.
+2. bf16 KV cache for this path - doubles KV memory (13 GB -> 26 GB), tight at mem_fraction 0.9-0.99
+   (would need a lower max_total_tokens).
+3. Wait for flashinfer upstream fp8 MLA on consumer Blackwell.
+
+## Implementation (Phase 1 = plain decode, next_n==1)
+
+1. New `dsa_decode_backend` value `flashinfer_gather` (enum + choices + resolve, mirroring how we
+   added `torch` to `dsa_paged_mqa_logits_backend`). Opt-in, no arch gate, not in `auto`.
+2. `_forward_flashinfer_gather(...)` branch in `dsa_backend.py::forward_decode`: take the existing
+   `page_table_1`, construct/plan a `BatchMLAPagedAttentionWrapper` with `page_size=1` +
+   `kv_indices=page_table_1`, dequant the gathered 2048 KV to bf16 (option 1), run, return.
+3. Deliver as runtime patch block(s) in `sglang_launch.sh` per the established anchor + ANCHOR-DRIFT
+   pattern. Wire a profile knob (`dsa_decode_backend` + the render, mirroring
+   `dsa_paged_mqa_logits_backend`). Do NOT change behavior on non-SM121 / other backends.
+
+## Verification
+
+- Static: bash -n, real-anchor apply against the live image, py_compile, idempotency.
+- GPU numeric: the gathered-subset fa2 result vs a torch gather+softmax reference (max abs diff,
+  no NaN/all-zero, seed-varying) - already prototyped, re-check inside the wired path.
+- Live (deploy): base with `attention_backend=dsa` + `dsa_paged_mqa_logits_backend=torch` +
+  `dsa_decode_backend=flashinfer_gather`: boots past both the indexer AND the attention, GSM8K
+  correct vs the dense baseline, throughput.
+
+## Open points
+
+fp8 dequant correctness (scale handling), CUDA-graph compat of the wrapper plan-rebuild
+(plan-per-batch vs graph replay), mixed batches where some requests have seq<2048 (-1 padding in
+`page_table_1`), and `next_n>=2` (MTP multi-token draft verify - not covered by Phase 1, a follow-up).
