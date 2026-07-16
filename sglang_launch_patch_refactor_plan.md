@@ -1,8 +1,28 @@
 # Plan: SGLang-Runtime-Patches aus `sglang_launch.sh` in `files/sglang_patches/` auslagern
 
-Status (2026-07-16): **Phase 0, 1 und 2 sind umgesetzt und verifiziert.** `launch.sh` ist von 3899
-auf 2319 Zeilen (193 KB auf 120 KB) geschrumpft, 24 Patches liegen als Dateien vor, die ConfigMap
-misst 99 KB. **Noch nicht deployt** (kein Rollout ohne Freigabe). Offen: Phase 3 + 4.
+Status (2026-07-16): **Phase 0 bis 3 sind umgesetzt und verifiziert.** `launch.sh` ist von 3899 auf
+670 Zeilen (193 KB auf 34 KB) geschrumpft, **36 Patches** liegen als Dateien vor, die ConfigMap misst
+198 KB (Limit 1 MiB). In `launch.sh` ist **kein einziger Source-Patch mehr** — nur noch Launcher-Logik
+(apt/pip-Bootstrap, der `SGLANG_HUNYUAN_TOKEN_SUFFIX`-Export, die beiden `.pth`-Installationen, der
+Flag-Bau und `exec`). **Noch nicht deployt** (kein Rollout ohne Freigabe). Offen: Phase 4.
+
+## Testabdeckung: Gate-Profile (Phase 3 hat das erzwungen)
+
+Mit Phase 3 sind die bash-`if`-Gates zu `when=`-Gates geworden. Ein Lauf mit `neutral/none`
+exerziert davon **keinen einzigen**. Die Harness fährt deshalb vier Profile, und deren
+Referenzmengen unterscheiden sich messbar:
+
+| Profil | Env | berührte Dateien | deckt ab |
+|---|---|---|---|
+| `neutral` | `SGLANG_MODEL=neutral/none` | 26 | alle ungegateten (DSA, Phase-2-Set) |
+| `hy3` | Hy3-Modell + `SPECULATIVE_ENABLED=true` + hunyuan-Parser | 29 | `p64`, `p40`, `p41`, `p42` |
+| `glm5` | GLM-5-Modellname | 27 | `p13` |
+| `spec` | `SPECULATIVE_ENABLED=true` | 27 | `p42` ohne Hunyuan |
+
+**Nicht abgedeckt: `p62` / `p63`** (Hunyuan tool/reasoning parser). Sie sind auf `0.5.15-sm121`
+**dauerhafte No-Ops**: das Image enthält PR #29920 bereits, der Guard greift, beide Seiten tun nichts.
+Der Tree-Diff kann über ihre Konversion also nichts aussagen. Ihr eigener RE-SYNC-Hinweis sagt
+"DELETE this block" für genau diesen Fall — Kandidaten zum Löschen, bewusst nicht eigenmächtig getan.
 
 ## Abweichungen vom ursprünglichen Plan (erzwungen, nicht kosmetisch)
 
@@ -34,7 +54,27 @@ ANCHOR-DRIFT und "Patched"-Erfolgsmeldung im Log** — sie wären im Betrieb als
    `logger = ...` injiziert.
 
 Lehre für Phase 3: **Vor jeder Konversion die Ersetzungs-Semantik des Originals prüfen** (`replace`
-mit/ohne `count`, `sed` ersetzt pro *Zeile*), und die Trefferzahl im echten Image zählen.
+mit/ohne `count`, `sed` ersetzt pro *Zeile*), und die Trefferzahl im echten Image zählen. Das wurde
+in Phase 3 durchgehend gemacht (alle Anker dort: genau 1 Vorkommen, alle Originale `count=1`), die
+Regel hat also gehalten.
+
+### Und was Phase 3 zusätzlich gefunden hat: der Gruppen-Marker (p31)
+
+Der Idempotenz-Test (Runner ZWEIMAL, wie bei jedem Pod-Restart) fing einen Fehler, den der
+Tree-Diff **strukturell nicht sehen kann**, weil der nur einen Lauf vergleicht:
+
+`p31` (flashinfer_gather) hat drei Edits in `dsa_backend.py`. Das Original prüfte **einen** Marker
+**einmal vorab** und übersprang damit alle drei gemeinsam. Die Konversion verließ sich stattdessen
+auf Pro-Edit-Proben (`new` als Probe). Das ist tödlich, weil **`p33` später genau den Text
+umschreibt, den `p31` injiziert**: beim zweiten Lauf findet die Probe von B2/B3 ihren Text nicht
+mehr, der Anker passt noch, also feuern sie erneut und zerlegen die Datei. Das Original war
+idempotent, die Konversion nicht — eine reine Regression.
+
+Regel daraus: **Wenn das Original eine Gruppe von Edits an EINEM Marker vorab gated, muss die
+Konversion das auch tun.** Pro-Edit-Proben sind nur zulässig, solange kein späterer Patch den
+injizierten Text anfasst. Und: **Idempotenz immer gegen ein Profil testen, in dem die Patches
+wirklich feuern**, sowie gegen das Original gegenprüfen (`run_idem_old.sh`), um Regression von
+Altlast zu unterscheiden.
 
 ## Verifikations-Harness (steht, spark5)
 
@@ -250,11 +290,19 @@ Block mitbenutzt — eine wörtliche Löschung des einen hätte den anderen gebr
 gemeinsam weg (`p23` + `p28`). Bei Phase 3 dieselbe Prüfung fahren: `grep` auf jede im Löschbereich
 deklarierte Variable.
 
-**Phase 3, die restlichen Patches (Hunyuan, HY3-NEXTN, DSNEXTN, DSA, MEM_FALLBACK).**
-Hunyuan-Detektoren (2) + shared-experts, HY3-NEXTN (2), DS-NEXTN-mixed-MTP, DSA-torch (5),
-DSA-flashinfer-gather. Hier wandert das Bash-`if` in das `when=` des Patches, das ist der einzige
-Schritt mit echtem Logik-Umzug, also der riskanteste. Die 5 `PATCH_DSA_TORCH_*` teilen ein Gate und
-gehören zusammen in **eine** Datei (`30_dsa_torch_backend.py`), sonst laufen sie auseinander.
+**Phase 3, die restlichen Patches. ERLEDIGT.**
+12 Patches: `p13` mem_fallback (GLM-5), `p29` CUTLASS-mma (siehe unten), `p30` DSA-torch (5 Blöcke,
+eine Datei), `p31`/`p32`/`p33` DSA-flashinfer-gather + prefill + cuda-graph-split, `p40`/`p41`
+HY3-NEXTN, `p42` DS-NEXTN-mixed-MTP, `p62`/`p63`/`p64` Hunyuan.
+Bash-`if` -> `when=`: das war wie erwartet der Schritt mit echtem Logik-Umzug.
+Zwei Dinge, die beim Schneiden zählten:
+* Wo der `if` nach dem Umzug LEER zurückbliebe, muss er mit raus (HY3-NEXTN, DSNEXTN). Wo noch
+  Launcher-Logik drinsteht, muss er bleiben: der Hunyuan-`if` enthält den
+  `SGLANG_HUNYUAN_TOKEN_SUFFIX`-Export, der GLM-5-`if` den pip-Install und den `else`-Zweig.
+* **`p29` fehlte in jeder Inventur**: der CUTLASS-`mma.py`-Patch nutzt kein `python3`-Heredoc,
+  sondern eine `sed`-Schleife, und wurde von jedem `grep` auf `PATCH_*_EOF` übersehen. Gefunden
+  erst durch `grep dist-packages` auf dem Rest-Script. Wer hier weitermacht: nach `sed -i`,
+  `python3 -c` und `dist-packages` greppen, nicht nur nach Heredoc-Markern.
 
 **Phase 4, Aufräumen.**
 sed-Blöcke, die noch übrig sind, nach Python konvertieren (sie sind ohnehin Anchor-Replacements),
