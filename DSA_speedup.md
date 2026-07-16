@@ -71,6 +71,36 @@ A GPU-debug-pod test on GB10 (device capability (12,1)) settled the two candidat
   the dense baseline (a community torch fallback silently returned NaN/zeros on SM120 -> numeric
   verification is mandatory, not optional).
 
+## KERNEL-PATH SURVEY 2026-07-16 (verdict: DSA-sparse on SM121 is NOT config-reachable)
+
+After the torch indexer fallback was implemented + live-deployed, the boot got PAST the DeepGEMM
+indexer assert (torch gating worked, all 3 metadata call sites) and PAST KV alloc, then crashed at
+CUDA-graph autotune of the MLA decode attention: `TllmGenFmhaRunner ... Unsupported architecture`
+(trtllm-gen FMHA). A full GPU-pod survey of every DSA decode/prefill attention backend:
+
+| Backend (`dsa_decode/prefill_backend`) | Origin | SM121 status |
+|---|---|---|
+| `trtllm` (auto-default when kv fp8 + major>=10) | trtllm-gen FMHA (`TllmGenFmhaRunner`) | ISA wall, live crash |
+| `flashmla_sparse` / `flashmla_kv` | `sgl_kernel.flash_mla` (`flashmla_ops`) | extension NOT built in image (ImportError; only `sm100/common_ops`) |
+| `fa3` | flash-attention-v3 | hard gate `_is_fa3_supported()` = major==8 or 9; GB10=12 -> False |
+| `tilelang` | `dsa/tilelang_kernel.py` (own JIT) | COMPILES on sm121 (no ISA reject) but kernel-launch OOMs shared mem (231 KB req > GB10 99 KB; tile tuned for H100) |
+| `aiter` | ROCm | N/A (AMD) |
+| indexer `dsa_paged_mqa_logits_backend=torch` | our port | WORKS (this is what got the boot past the indexer) |
+
+Root cause of the auto-default: `arg_groups/overrides.py::_dsa_split_backend_resolution` picks
+`trtllm if major>=10` - the SAME `major>=10` bug that conflates datacenter Blackwell (SM100) with
+consumer Blackwell (SM120/121), and it recurs structurally across `dsa_backend.py` (flashmla padding,
+workspace-buffer gate, `_forward_standard_mha` dispatch), not a one-liner.
+
+**Verdict: the torch indexer fix was necessary but NOT sufficient.** The MLA decode attention has the
+same datacenter-vs-consumer gap, and unlike the indexer there is NO ready merged torch reference in the
+image to port. Of all attention backends only `tilelang` even compiles on SM121; it fails on shared-memory
+capacity, which is a TILE-TUNING problem (shrink for GB10's smaller smem), real kernel work with no
+guarantee, no config flag. So DSA-sparse (and therefore NEXTN/MTP, which needs the indexer) is blocked on
+GB10/SM121 until either upstream adds consumer-Blackwell kernels or someone does the tilelang tuning.
+Prod stays on `attention_backend="flashinfer"` (dense MLA). The torch indexer fallback + the wiring
+(`--dsa-paged-mqa-logits-backend`) stay committed for when the attention side is unblocked.
+
 ## Symptom (measured)
 
 - Single-stream decode: ~2.5-4 tok/s (head-log `Decode batch ... #running-req: 1-2 ...

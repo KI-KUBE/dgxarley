@@ -68,20 +68,21 @@ _model_profile:
                                  # leftover memory stays free for the MTP draft worker's weights + graph capture.
                                  # UNMEASURED: draft weight size unknown (earlier MTP crashed on the w13 bug pre-
                                  # alloc) -> watch avail_mem at draft capture + the KV alloc line, adjust if tight.
-    attention_backend: "flashinfer"  # KEEP flashinfer. "dsa" was tried 2026-07-16 and is a HARD NO-GO on
-                                 # GB10/SM121 (GPU-debug-pod verified): DeepseekSparseAttnBackend's indexer
-                                 # dispatches paged-MQA-logits to DeepGEMM (dsa_paged_mqa_logits_backend=auto ->
-                                 # DEEPGEMM), and deep_gemm.get_paged_mqa_logits_metadata() throws a compiled
-                                 # C++ "Unsupported architecture" assert on SM121. That path runs on EVERY decode
-                                 # step (not just draft), so "dsa" would crash the TARGET on its first token.
-                                 # Alternatives dead on GB10: cutedsl gated behind is_sm100_supported()=False;
-                                 # the SGLANG_FP8_PAGED_MQA_LOGITS_TORCH fallback is wired only into dsv4/indexer.py
-                                 # (DeepSeek-V4), NOT the dsa.dsa_indexer.Indexer that GlmMoeDsa uses; aiter=ROCm.
-                                 # KEY: under "flashinfer", FlashInferMLAAttnBackend.get_indexer_metadata() returns
-                                 # None -> the sparse indexer is a silent no-op -> this model runs DENSE MLA
-                                 # (correct but slow, the fa2 path in DSA_speedup.md). DSA sparse never actually
-                                 # runs here. MTP/NEXTN needs the indexer (draft is_nextn always computes
-                                 # topk_indices) -> blocked by the same DeepGEMM SM121 gap until it is closed.
+    attention_backend: "flashinfer"  # PROD config (dense MLA, known-working). "dsa" (real sparse) is NOT
+                                 # viable on GB10/SM121 - a full kernel-path survey (2026-07-16) found the
+                                 # WHOLE DSA decode path blocked, not just the indexer:
+                                 #   - indexer paged-MQA-logits: deepgemm/cutedsl blocked; our torch fallback
+                                 #     (dsa_paged_mqa_logits_backend=torch) WORKS + is committed, but is
+                                 #     necessary-not-sufficient.
+                                 #   - MLA decode attention: trtllm=trtllm-gen FMHA ISA wall (live crash),
+                                 #     flashmla_*=extension not built in image, fa3=hard sm==8/9 gate,
+                                 #     tilelang=compiles on sm121 but OOMs GB10 shared-mem (tile tuned for H100).
+                                 # So DSA-sparse needs kernel work (tilelang tile-tuning, uncertain) or upstream
+                                 # SM121 support. To retry "dsa": set attention_backend: "dsa" +
+                                 # dsa_paged_mqa_logits_backend: "torch" (both wired; the torch fix is applied).
+                                 # Full detail: DSA_speedup.md. Under flashinfer the indexer is a silent no-op
+                                 # (dense MLA) - correct, this is what serves.
+    # dsa_paged_mqa_logits_backend: "torch"   # only meaningful with attention_backend: "dsa" (see above)
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4
     disable_piecewise_cuda_graph: true

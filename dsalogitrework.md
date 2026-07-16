@@ -5,6 +5,20 @@ Plan only, no implementation. Written 2026-07-16 against image
 (background: why GB10/SM121 needs this) and memory
 `reference_glm52_dsa_indexer_deepgemm_sm121`.
 
+## STATUS 2026-07-16 (post-implementation): DONE but NOT sufficient on its own
+
+Phase 1 of this plan was implemented (5 runtime patch blocks in `sglang_launch.sh`, opt-in
+`dsa_paged_mqa_logits_backend=torch`), numerically verified, committed, and LIVE-DEPLOYED. It
+WORKS: the boot got past the DeepGEMM indexer assert and past KV alloc (all 3 metadata call
+sites gated). BUT a full DSA kernel-path survey then showed the indexer is only ONE of several
+SM121 blocks: the MLA decode attention (`dsa_decode_backend=trtllm` -> trtllm-gen FMHA) also
+hard-asserts on sm_121, and every other attention backend is dead too except `tilelang`, which
+compiles on sm121 but OOMs GB10 shared memory. So porting THIS indexer fallback does not by
+itself unblock DSA-sparse / MTP; the attention side needs its own kernel work (tilelang tile
+re-tuning for GB10 smem) or upstream consumer-Blackwell support. Full survey + verdict:
+`DSA_speedup.md` (KERNEL-PATH SURVEY 2026-07-16). Prod stays on `attention_backend="flashinfer"`
+(dense MLA). This plan/port remains valid + committed for when the attention side is unblocked.
+
 ## 1. Problem, exact failure point
 
 `0xSero/glm-5.2-reap-504B-v2` (`GlmMoeDsaForCausalLM`) uses DeepSeek Sparse Attention

@@ -3064,6 +3064,12 @@ fi
 if [ -n "$SGLANG_ATTENTION_BACKEND" ]; then
   args+=(--attention-backend "$SGLANG_ATTENTION_BACKEND")
 fi
+# DSA paged-MQA-logits backend (DeepSeek Sparse Attention indexer decode kernel).
+# Empty → no flag → SGLang default ("auto" → DeepGEMM). Set "torch" on GB10/SM121 to use
+# the _sgl_ torch fallback (DeepGEMM asserts on sm_121). Other choices: deepgemm/cutedsl/aiter.
+if [ -n "$SGLANG_DSA_PAGED_MQA_LOGITS_BACKEND" ]; then
+  args+=(--dsa-paged-mqa-logits-backend "$SGLANG_DSA_PAGED_MQA_LOGITS_BACKEND")
+fi
 # Multimodal (vision/audio) attention backend. Empty → no flag → SGLang default.
 # Choices (0.5.12): sdpa, fa3, fa4, triton_attn, ascend_attn, aiter_attn,
 # flashinfer_cudnn. Only relevant for multimodal models (e.g. MiMoV2 omni).

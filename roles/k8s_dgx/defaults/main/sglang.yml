@@ -384,6 +384,11 @@ sglang_schedule_policy: "lpm"
 # Attention backend: per-model in sglang_model_profiles, defaults to "flashinfer".
 # Set to "triton" for hybrid GDN models (MoE+Mamba) on Blackwell GPUs.
 sglang_attention_backend: "{{ sglang_model_profiles[_sglang_active_model].attention_backend | default('flashinfer') }}"
+# DSA paged-MQA-logits backend (DeepSeek Sparse Attention indexer decode). Empty → SGLang
+# default (auto → DeepGEMM). On GB10/SM121 DeepGEMM asserts, so set "torch" (the _sgl_ torch
+# fallback runtime-patched into dsa_indexer.py) to run the sparse indexer. Wired to
+# --dsa-paged-mqa-logits-backend. Only meaningful together with attention_backend: "dsa".
+sglang_dsa_paged_mqa_logits_backend: "{{ sglang_model_profiles[_sglang_active_model].dsa_paged_mqa_logits_backend | default('') }}"
 # Multimodal (vision/audio) attention backend. Empty → SGLang default. Choices:
 # sdpa, fa3, fa4, triton_attn, ascend_attn, aiter_attn, flashinfer_cudnn. Only
 # relevant for multimodal models (e.g. MiMoV2 omni). Wired to --mm-attention-backend.
