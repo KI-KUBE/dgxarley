@@ -24,12 +24,30 @@ Hint: 2. set --cuda-graph-max-bs-decode to a smaller value
 ```
 
 `plan()` does host-side dynamic work (stream sync / allocation) that is not
-CUDA-graph-recordable. Every other SM121 hardware wall for DSA is already
-cleared (indexer via the torch fallback, no `trtllm-gen` FMHA assert, the
-576-byte KV dequant fix) — this is the last implementation gap, not a
-hardware dead end. Current workaround: `disable_cuda_graph: true` in the
-profile, which proves functional correctness (GSM8K) at eager (slow) speed
-while this fix is pending.
+CUDA-graph-recordable. The SM121 hardware walls for the DSA DECODE are cleared
+(indexer via the torch fallback, no `trtllm-gen` FMHA assert on decode, the
+576-byte KV dequant fix) — this is the last DECODE-side implementation gap, not
+a hardware dead end.
+
+### PREREQUISITE discovered 2026-07-16: the PREFILL hits the same wall
+
+`disable_cuda_graph: true` clears the decode-capture crash but does NOT by itself
+make the model serve: the first forward (warmup = a PREFILL) crashes with
+`TllmGenFmhaRunner ... Unsupported architecture` (fmhaRunner.cuh:37), because
+`dsa_prefill_backend=trtllm` uses the SAME trtllm-gen FMHA the decode used to. So
+the PREFILL needs its own flashinfer-reuse fallback (`dsa_prefill_backend`, a new
+value; reuse flashinfer's dense MLA prefill like the base model — dense for
+seq<=2048 which covers the GSM8K/smoke prompts, sparse >2048 a follow-up), being
+implemented separately. That prefill fix is a PREREQUISITE for BOTH: (a) the
+eager functional test (disable_cuda_graph) to serve at all, AND (b) this decode
+cuda-graph fix (§7 step 3 redeploys with cuda graph back on, which only works once
+the model boots + serves = prefill fixed). NOTE: prefill CUDA graph is auto-disabled
+(`cuda_graph_config prefill.backend='disabled'`), so THIS document stays DECODE-only;
+the prefill fallback does not need a plan/run-split, just a working SM121 kernel path.
+
+Current workaround while both fixes are pending: `disable_cuda_graph: true` +
+(once landed) the prefill fallback -> proves functional correctness (GSM8K) at
+eager (slow) speed, then this decode cuda-graph fix restores decode-graph perf.
 
 ## 2. Correction to the assumed hook interface
 
