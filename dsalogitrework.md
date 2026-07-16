@@ -5,6 +5,11 @@ Plan only, no implementation. Written 2026-07-16 against image
 (background: why GB10/SM121 needs this) and memory
 `reference_glm52_dsa_indexer_deepgemm_sm121`.
 
+> **READ PART 4 (end of file) FIRST for the current state**: flashinfer ships a
+> NATIVE SM120/121 sparse-MLA (decode + prefill); `p34` wires it. The attention
+> chronology in PARTs 2-3 (gather decode, prefill design error) is the trail
+> that led there; the indexer part of THIS document (PART 1) remains current.
+
 ## STATUS 2026-07-16 (post-implementation): DONE but NOT sufficient on its own
 
 Phase 1 of this plan was implemented (5 runtime patch blocks in `sglang_launch.sh`, opt-in
@@ -549,3 +554,122 @@ so GSM8K stays impractical.
 long prefill** in its current form. Before building the dense-prefill project, measure
 the dense baseline (`attention_backend: flashinfer`, one profile line, zero code) to get
 the number DSA must justify itself against. See `dsa_cuda_graph_plan.md` §7ter(d).
+
+# PART 4 - RESOLVED: flashinfer ships NATIVE SM120/121 sparse MLA; p34 wires it (2026-07-16)
+
+**Supersedes PART 3's "dense prefill = project" verdict AND replaces PART 2's gather
+decode as the primary path.** During the planned dense-prefill inspection, the image's
+flashinfer 0.6.14 turned out to already contain `flashinfer/mla/_sparse_mla_sm120.py`:
+a native sparse-MLA paged attention, `@supported_compute_capability([120, 121])`,
+PREBUILT (no JIT wall), with an explicit **GLM_NSA model type** (d_qk=576,
+arbitrary-fp32 inline scales), `(16, 2048)` in the decode dispatch set (= our TP4
+heads + index_topk), native `-1`-padding skip, warp-spec decode kernels for
+num_tokens<=64 and a **prefill orchestrator** above that.
+
+## The whole "trtllm wall" was ONE hardcoded argument
+
+`flashinfer.decode.trtllm_batch_decode_with_kv_cache_mla` (the function
+`_forward_trtllm` ALREADY calls, with `sparse_mla_top_k=index_topk`) routes
+`cc==12 && sparse_mla_top_k>0` to the native sparse backend - but only with
+`backend="auto"`. SGLang hardcodes `backend="trtllm-gen"` -> the
+`TllmGenFmhaRunner Unsupported architecture` assert that motivated the entire
+gather workaround. Upstream main still hardcodes it (checked 2026-07-16) ->
+upstream-PR candidate.
+
+## What p34 does (`p34_dsa_trtllm_sparse_sm120.py`)
+
+1. `model_runner_kv_cache_mixin.py::calculate_mla_kv_cache_dim`: skip the
+   "trtllm -> plain 576 layout" early-return on SM12x, so the pool keeps the
+   656-byte packed layout (512 fp8 + 4x fp32 tile scales + 128 B bf16 rope) the
+   sm120 kernel consumes - the SAME layout `quantize_k_cache` already writes
+   (live-tested by the gather deploys). `dsa_kv_cache_store_fp8` flips True
+   automatically (derived from the override dim).
+2. `dsa_backend.py::_forward_trtllm`: on `device_sm_major==12 &&
+   dsa_kv_cache_store_fp8` pass `backend="auto"`, a uint8 view of the KV buffer,
+   and `kv_scale_format="arbitrary_fp32"` - sglang's quantizer writes amax/448
+   arbitrary fp32 scales (source-verified, NOT pow2/ue8m0), which is exactly
+   flashinfer's GLM_NSA semantics; the default "auto" would misread them as
+   DSv3.2 pow2. skip_softmax forced None (sparse backend raises on it).
+   SM100/SM103 byte-identical via the else sides.
+
+Profile: `dsa_decode_backend: trtllm` + `dsa_prefill_backend: trtllm` (was
+flashinfer_gather/flashinfer_gather). `dsa_paged_mqa_logits_backend: torch` (p30)
+stays - the indexer is untouched by all of this and remains the decode perf floor.
+p31/p32/p33 remain as the documented gather fallback (decode-only; the gather
+PREFILL stays design-broken per PART 3).
+
+## GPU verification (spark5 podman, GB10, real quantize_k_cache, torch reference)
+
+| case | numerics | time |
+|---|---|---|
+| decode bs=4 topk=2048 | max\|diff\| 0.008 | 0.072 ms/call (gather: 0.26 ms) |
+| decode bs=32 | ok | 0.236 ms/call |
+| decode seq_lens>topk (sglang's UNCLIPPED cache_seqlens) | PASS, kernel clamps | - |
+| seq_lens=None / heavy -1 padding | PASS | - |
+| prefill 2400 extend tokens (the GSM8K conc-8 killer) | max\|diff\| 0.016 | 14.4 ms/layer |
+| prefill 8192 (chunked_prefill_size) | ok | 48.5 ms/layer |
+| cuda-graph capture+replay | finite, works DIRECTLY | 0.239 ms/replay |
+
+The seq_lens subtlety: the sparse entry interprets a `[num_tokens]`-shaped
+seq_lens as ACTIVE top-k length per token (a `[batch]`-shaped one is ignored ->
+all columns active, -1 skipped). Both of sglang's shapes (per-token
+`dsa_cache_seqlens_int32` for extend - already topk-clipped - and per-request
+`cache_seqlens_int32` for decode, unclipped) verified safe.
+
+Prefill for the GSM8K batch: ~2400 tokens x 79 layers ~= 1.1 s attention total,
+vs the gather impl's 11.3 GB OOM crash and 8-40 min projection. And cuda-graph
+needs NO plan/run split on this path (the kernel is a plain custom op).
+
+Validation: full patch chain applied in a pristine container (36 patched, 0
+ANCHOR-DRIFT), py_compile + import OK, idempotency (second run changed nothing),
+mixin unit test on GB10 (656 trtllm+fp8 / 656 gather-combo unchanged / 576 bf16).
+mypy strict + black clean. NOT yet cluster-deployed.
+
+## LIVE-DEPLOY RESULT 2026-07-16 (p34, two iterations)
+
+**Deploy 1 (FAILED at decode graph capture, all 4 ranks):** `ValueError: SM120
+sparse MLA v32/GLM expects BF16 query, got torch.float8_e4m3fn`. Root cause: for
+dsa+trtllm+fp8, `_fuse_rope_for_trtllm_mla` (forward_mla.py) skips rope upstream
+and `_forward_trtllm` fuse-ropes AND fp8-quantizes the query
+(`mla_quantize_and_rope_for_fp8`, meant for trtllm-gen's fp8xfp8 BMM). The sparse
+kernel dequants KV itself (inline scales) and requires a BF16 query. The spark5
+kernel test had covered the flashinfer call, not sglang's query prep before it.
+Fix = p34 edit 3 (`_fuse_rope_for_trtllm_mla` returns False on SM12x -> rope runs
+normally upstream) + skipping the fp8-quantize branch for `_sparse_sm120`; q stays
+bf16, k/k_rope reach the packed store in bf16 (its quantize_k_cache asserts that
+anyway). Crash location itself was informative: patches, weight load, packed KV
+alloc (656) and the routing INTO `_trtllm_batch_decode_sparse_mla_v32_sm120` were
+all correct.
+
+**Deploy 2 (SUCCESS, the current state):**
+
+| milestone | result |
+|---|---|
+| boot | clean, 0 restarts, 0 ANCHOR-DRIFT, all 37 patches applied |
+| weight load | 1056 s, avail 26.57 GB |
+| KV alloc | 131072 tokens, 7.51 GB, fp8 packed (656 B) |
+| decode graph capture (deploy-1 crash point) | 18.02 s, bs 1..32, avail 11.55 GB after |
+| smoke | coherent ("Paris. The city is located on the banks of the Seine...") |
+| decode | **8.4 tok/s, cuda graph: True** (= gather path; indexer-bound as predicted) |
+| prefill, the gather-killer shape | **7 seqs / 2240 tokens @ 873 tok/s input** (gather: 1-5 tok/s + OOM) |
+| GSM8K 2-shot n=20 conc 8 (the crash repro) | **17/20 = 85%, 0 errors, 0 restarts, 420.7 s total** |
+
+## NEXT: the indexer is now the only decode lever (plan, user-approved 2026-07-16)
+
+Decode is pinned at ~8.4 tok/s by the p30 torch indexer (unfused reference impl;
+attention is now ~5.7 ms of a ~119 ms token). Agreed sequence:
+
+1. **Option 1 - flashinfer-native indexer?** Inspect flashinfer 0.6.14 on spark5
+   for a native SM120/121 fp8-paged-MQA-logits / DSA-indexer kernel: whoever built
+   the GLM_NSA sparse-attention path plausibly ships the indexer too. Same method
+   as the p34 find (module scan + GPU numerics test vs the torch fallback). If it
+   exists: wire like p34 (small patch), done.
+2. **Option 2 - Triton fusion (fallback):** fuse the torch chain (index-k gather +
+   dequant + q.k logits + relu-weighted head sum) into one Triton kernel on the
+   p30 dispatch point. Bounded, SM121-safe, replaces only the kernel inside the
+   existing `dsa_paged_mqa_logits_backend=torch` plumbing.
+
+Context for prioritisation: concurrency already amortises the indexer (aggregate
+conc-8 throughput >> 8.4), and MTP (now reachable, verify runs through the same
+sparse kernel) multiplies decode independently -- it may be worth more than
+indexer work; decide after Option 1's answer is known.

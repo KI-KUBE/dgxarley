@@ -11,6 +11,24 @@ by the GPU-pod-verified conclusions in the UPDATE 2026-07-16 section directly be
 the sparse indexer cannot run on SM121 via any hardware kernel; the torch fallback in
 `dsalogitrework.md` is the one viable path). Read the UPDATE first.
 
+> **FINAL 2026-07-16 (NATIVE PATH FOUND, supersedes both the survey verdict AND the
+> gather workaround below):** flashinfer 0.6.14 in this very image ships a native
+> SM120/121 sparse-MLA (`flashinfer/mla/_sparse_mla_sm120.py`: GLM_NSA model type,
+> warp-spec decode kernels + prefill orchestrator, prebuilt). The "trtllm wall" was
+> only sglang hardcoding `backend="trtllm-gen"` in `_forward_trtllm`; with
+> `backend="auto"` flashinfer routes cc==12 + topk>0 to the sparse backend itself.
+> Wired by patch `p34_dsa_trtllm_sparse_sm120` (+ 656-byte packed pool on SM12x +
+> `kv_scale_format="arbitrary_fp32"` + bf16-query fix: rope stays upstream on SM12x).
+> **LIVE-PROVEN 2026-07-16**: boot clean, decode 8.4 tok/s cuda-graph, prefill
+> 7 seqs/2240 tokens @ 873 tok/s input (the gather-killer shape), GSM8K 2-shot n=20
+> conc 8 = 85% with 0 errors / 0 restarts. The indexer torch fallback
+> (dsalogitrework.md PART 1) REMAINS required and is now the sole DSA perf floor
+> (~113 of ~119 ms/token). NEXT (user-approved plan): (1) inspect flashinfer 0.6.14
+> for a native SM120 indexer/fp8-paged-MQA-logits kernel (the p34 method); (2) if
+> none, fuse the torch chain into one Triton kernel behind the existing
+> dsa_paged_mqa_logits_backend=torch plumbing. Full detail: dsalogitrework.md
+> PART 4 + LIVE-DEPLOY RESULT + NEXT sections.
+
 ## UPDATE 2026-07-16 (GPU-debug-pod verified) - the sparse path is a HARD SM121 block
 
 A GPU-debug-pod test on GB10 (device capability (12,1)) settled the two candidate levers:

@@ -532,3 +532,18 @@ restart before serving again). embed/vision were torn down by the user.
    eager baseline) and vs. the dense `flashinfer` baseline, to quantify the
    actual win before investing further (e.g. the warp-MMA path from
    `DSA_speedup.md`).
+
+## 8. ADDENDUM 2026-07-16: the plan/run-split is now the FALLBACK path only
+
+Later the same day, `p34_dsa_trtllm_sparse_sm120` unlocked flashinfer 0.6.14's
+NATIVE SM120/121 sparse-MLA kernels (decode + prefill) behind the existing
+`_forward_trtllm` call - the "trtllm wall" was only sglang's hardcoded
+`backend="trtllm-gen"`. That kernel is a plain custom op and **captures directly
+under cuda-graph** (GPU-verified: capture + 100 replays, 0.239 ms/replay, finite),
+so on the trtllm/p34 path NONE of this document's plan/run-split machinery runs.
+
+This document and its implementation (p33) stay relevant for the
+`dsa_decode_backend: flashinfer_gather` FALLBACK combo (and as the reference for
+any future wrapper.plan()-in-graph problem). The profile's active combo is now
+`dsa_decode_backend/dsa_prefill_backend: trtllm`. Chronology + verification of
+the native path: `dsalogitrework.md` PART 4.

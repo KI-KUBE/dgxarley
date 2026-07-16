@@ -70,73 +70,60 @@ _model_profile:
                                  # min(memory-derived, this) -> KV pool = 128k tokens (~7.5 GB).
                                  # UNMEASURED: draft weight size unknown (earlier MTP crashed on the w13 bug pre-
                                  # alloc) -> watch avail_mem at draft capture + the KV alloc line, adjust if tight.
-    attention_backend: "dsa"     # 2026-07-16 DSA-SPARSE VALIDATION run. Real DSA sparse attention on
-                                 # GB10/SM121, now that BOTH SM121 blockers have a fallback:
-                                 #   - indexer paged-MQA-logits -> dsa_paged_mqa_logits_backend: torch (committed)
-                                 #   - MLA decode attention -> dsa_decode_backend: flashinfer_gather (committed):
-                                 #     gather the top-2048 KV (SGLang's dequantize_k_cache_paged) + run the
-                                 #     working dense fa2 MLA over the subset. Both bypass the dead DeepGEMM /
-                                 #     trtllm-gen / tilelang kernels. Full detail: DSA_speedup.md + dsalogitrework.md.
-                                 # This run tests: boots past both crash points, GSM8K-correct vs dense, cuda-graph
-                                 # capture of flashinfer_gather. Revert to "flashinfer" (dense) if it regresses.
-    dsa_paged_mqa_logits_backend: "torch"       # SM121 torch indexer fallback (necessary for dsa)
-    dsa_decode_backend: "flashinfer_gather"     # SM121 gather+dense-fa2 MLA attention fallback (decode)
-    dsa_prefill_backend: "flashinfer_gather"    # SM121 same gather+dense-fa2 fallback for prefill/extend
-                                                # (dsa_prefill_backend=trtllm hits the same TllmGenFmhaRunner
-                                                # SM121 assert at the warmup prefill; reuses the decode impl)
-    # !! WARNING 2026-07-16: dsa_prefill_backend=flashinfer_gather is UNSAFE for
-    # CONCURRENT / LONG prefill and this profile WILL CRASH under real load. It is
-    # left as-is deliberately to preserve the investigated state; do NOT treat it as
-    # production-ready. Live: GSM8K (2-shot, concurrency 8) killed worker-2 + worker-3
-    # with "CUDA error: an illegal memory access" in _forward_flashinfer_gather via
-    # forward_extend. CAUSE: the gather materialises [num_tokens_q * topk, 576] plus an
-    # fp32 intermediate = ~4.7 MB PER QUERY TOKEN. Decode's num_tokens_q is the batch
-    # size (<=32 -> ~75 MB, fine); PREFILL's is EVERY extend token in the batch
-    # (~2400 tokens -> ~11.3 GB, vs ~11 GB avail -> boom; chunked_prefill_size 8192
-    # -> ~38 GB). A bs=1 smoke passes, which is why this survived to a live run.
-    # It is ALSO why prefill is only ~1-5 tok/s (614k gathered KV rows per layer for a
-    # 300-token prompt). NOT a bad index: the -1 padding is legal in torch.
-    # FIX = DENSE prefill (for seq<=2048 top-2048 IS the whole context, so dense is
-    # numerically identical AND fused), but no dense MLA path exists in the DSA backend
-    # on SM121 (trtllm ragged = dead, _forward_standard_mha = needs non-absorb MHA) ->
-    # it needs BatchPrefillWithRaggedKVCacheWrapper ported in = a project.
-    # Full analysis: dsalogitrework.md PART 3 + dsa_cuda_graph_plan.md 7ter.
-    # Before that project: measure the dense baseline (attention_backend: flashinfer).
+    attention_backend: "dsa"     # 2026-07-16 (v2, NATIVE): real DSA sparse attention on GB10/SM121 via
+                                 # flashinfer 0.6.14's PREBUILT SM120/121 sparse-MLA kernels (GLM_NSA
+                                 # model type, decode warp-spec kernels + prefill orchestrator), unlocked
+                                 # by p34_dsa_trtllm_sparse_sm120 (backend="auto" + packed-KV routing:
+                                 # the old "trtllm wall" was ONLY sglang hardcoding backend="trtllm-gen").
+                                 # The indexer still needs the torch fallback (p30). GPU-verified on
+                                 # spark5 vs torch reference: decode bs4 0.072 ms, prefill 2400 tokens
+                                 # 14.4 ms/layer, cuda-graph captures directly. DSA_speedup.md et al.
+    dsa_paged_mqa_logits_backend: "torch"  # SM121 torch indexer fallback (necessary for dsa; p30)
+    dsa_decode_backend: "trtllm"    # 2026-07-16 switched flashinfer_gather -> trtllm: with p34, SM12x
+    dsa_prefill_backend: "trtllm"   # routes to the NATIVE sparse kernels (decode AND prefill). This
+                                    # REPLACES the gather workaround (p31/p32/p33) which stays available:
+                                    # decode-only fallback combo = dsa_decode_backend: flashinfer_gather.
+                                    # HISTORY: dsa_prefill_backend=flashinfer_gather was a design error
+                                    # (O(tokens x topk) gather = ~4.7 MB/query-token -> GSM8K conc-8
+                                    # killed worker-2/-3 with an illegal memory access at ~11.3 GB, and
+                                    # prefill ran at ~1-5 tok/s; full analysis dsalogitrework.md PART 3 +
+                                    # dsa_cuda_graph_plan.md 7ter). Pre-p34, plain "trtllm" here died at
+                                    # warmup prefill in TllmGenFmhaRunner "Unsupported architecture".
     # ── PATCH-ACTIVATION CONTRACT (read before changing any of the 4 keys above) ──
-    # The whole SM121-DSA runtime-patch stack in roles/k8s_dgx/files/sglang_launch.sh
-    # (torch paged-mqa-logits indexer, flashinfer_gather decode+prefill dispatch, the
-    # 576-byte dequant branch, and the cuda-graph plan/run-split) is INERT unless this
-    # EXACT backend combo is selected. Each patch only adds a NEW dispatch branch /
-    # choice-list entry / method that is reached ONLY when its backend is chosen:
-    #   attention_backend: dsa                    -> without this, NONE of the DSA code runs
-    #   dsa_paged_mqa_logits_backend: torch       -> selects the torch indexer fallback
-    #   dsa_decode_backend: flashinfer_gather     -> selects gather+dense-fa2 decode
-    #   dsa_prefill_backend: flashinfer_gather    -> selects gather+dense-fa2 prefill
-    # Set any of these to another value and the corresponding patch becomes a dormant
-    # no-op (the branch is simply never taken; the added method/choice is harmless). So
-    # the patches never affect other models/profiles that keep the upstream defaults.
+    # The SM121-DSA patch stack lives in roles/k8s_dgx/files/sglang_patches/ and is
+    # INERT unless its backend combo is selected (each patch only adds a dispatch
+    # branch / choice-list entry that is reached ONLY when chosen):
+    #   attention_backend: dsa                 -> without this, NONE of the DSA code runs
+    #   dsa_paged_mqa_logits_backend: torch    -> p30 torch indexer fallback
+    #   dsa_decode/prefill_backend: trtllm     -> p34 native SM120/121 sparse MLA
+    #                                             (also needs SM12x + fp8 KV cache ->
+    #                                             656-byte packed pool, else the call
+    #                                             stays upstream trtllm-gen)
+    #   dsa_decode/prefill_backend: flashinfer_gather -> p31/p32 gather+dense-fa2,
+    #                                             p33 cuda-graph plan/run-split
+    # Other models/profiles that keep upstream defaults are never affected.
     #
-    # KNOWN-GOOD GB10/SM121 BASELINES (both boot + serve CORRECT; pick by speed need):
-    #   (A) DENSE, fastest-correct, NO DSA sparsity:
-    #         attention_backend: flashinfer   (drop all 4 dsa_* keys + disable_cuda_graph)
-    #       This is the safe revert if the DSA path ever regresses. Loses the top-2048
-    #       sparse-attention win but uses only stock, fully-supported SM121 kernels.
-    #   (B) DSA-SPARSE, EAGER (this combo + disable_cuda_graph: true): boots past both
-    #       SM121 crash walls and is numerically correct (smoke verified), but SLOW
-    #       (~5 tok/s decode, ~1-3 tok/s prefill: ungfused torch fallback + no graph).
-    #       This is the proven "it runs on GB10 but not fast" standard.
-    #   (C) DSA-SPARSE, CUDA-GRAPH (this combo + disable_cuda_graph: false): the target.
-    #       Requires the plan/run-split patch (dsa_cuda_graph_plan.md) so the decode
-    #       wrapper.plan() moves out of the captured region. Restores decode-graph perf.
+    # KNOWN GB10/SM121 COMBOS (chronological; pick by need):
+    #   (A) DENSE, stock kernels, no DSA sparsity:
+    #         attention_backend: flashinfer   (drop all dsa_* keys)
+    #       Safe revert if the DSA path regresses. Dense-MLA fa2 decode was measured
+    #       ~3-4 tok/s single-stream (DSA_speedup.md "Symptom").
+    #   (B) DSA-SPARSE via gather (dsa_decode_backend: flashinfer_gather), cuda-graph:
+    #       decode PROVEN live at 8.4 tok/s; its PREFILL variant is UNSAFE (see
+    #       HISTORY above) -- decode-fallback only, pair with prefill: trtllm.
+    #   (C) DSA-SPARSE NATIVE (this combo, dsa_*_backend: trtllm + p34): decode AND
+    #       prefill on flashinfer's SM120/121 sparse kernels. LIVE-PROVEN 2026-07-16:
+    #       decode 8.4 tok/s cuda-graph, prefill 873 tok/s input on the gather-killer
+    #       shape, GSM8K 2-shot n=20 conc8 = 85% with 0 errors / 0 restarts.
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4
     disable_piecewise_cuda_graph: true
-    disable_cuda_graph: false  # 2026-07-16 CUDA-GRAPH ON: the plan/run-split fix (dsa_cuda_graph_plan.md)
-                               # landed in sglang_launch.sh (PATCH_DSA_FIG_GRAPH_SPLIT). _forward_flashinfer_gather
-                               # no longer calls wrapper.plan() inside the captured region for decode: a per-bs
-                               # wrapper(use_cuda_graph=True) is real-planned OUT of graph (warmup run_once /
-                               # out_graph capture-prep), monkeypatched to fast_mla_decode_plan, and only
-                               # wrapper.run() is captured; out_graph fast-replans (fresh kv_len) each replay.
+    disable_cuda_graph: false  # 2026-07-16 CUDA-GRAPH ON. On the NATIVE trtllm/p34 path the sparse kernel
+                               # captures directly (GPU-verified capture+replay on spark5), no special
+                               # handling needed. (The gather fallback path additionally has the p33
+                               # plan/run-split so _forward_flashinfer_gather's wrapper.plan() stays out
+                               # of the captured region; only relevant with dsa_decode_backend:
+                               # flashinfer_gather. dsa_cuda_graph_plan.md.)
                                # Validated bit-exact vs eager on synthetic tensors (scratchpad/microtest.py:
                                # causal=True + short-seq) + full patch-chain py_compile/import in a GB10 debug pod.
                                # Prefill stays eager (is_decode=False -> inline plan; prefill cuda-graph is
