@@ -751,19 +751,27 @@ linearly with table width, so at a 128k-context profile it WOULD be the wall
 
 ## PHASE 2 IMPLEMENTED 2026-07-16 (MTP verify support in the torch/triton indexer)
 
-The p30 dispatch's `next_n >= 2` NotImplementedError is replaced by the Section-3
-"option b" folding, and it turned out even smaller than planned: at the call site,
-`seqlens_32_2d` for target-verify/draft-extend-v2 comes from
-`get_seqlens_expanded()` and is ALREADY per-token `[q_offset, 1]`, and q/weights are
-already sliced per token (`[:q_offset]`). The ONLY per-request tensor is
-`block_tables [B, W]` -> `repeat_interleave(next_n, dim=0)` maps row b to tokens
-b*next_n..(b+1)*next_n-1. The torch module and the p35 Triton kernel need ZERO
-changes (both are per-token by construction; the folding happens in the dispatch).
-Graph-safe (static shapes).
+The p30 dispatch's `next_n >= 2` NotImplementedError is removed. FINAL state
+(after one live lesson, see below): **pure pass-through, no reshaping at all** --
+EVERY input at the call site is already per-token: q/weights are sliced per token
+(`[:q_offset]`), `seqlens_32_2d` = `get_seqlens_expanded()` = per-token
+`[q_offset, 1]`, AND `block_tables` (= metadata `real_page_table`) is ALREADY
+`repeat_interleave`d to per-token rows by `init_forward_metadata` for ALL
+multi-token modes (target_verify / draft_extend_v2 / draft_extend;
+dsa_backend.py:834/874/881, source-verified). The torch module and the p35 Triton
+kernel need ZERO changes (per-token by construction).
 
-Verified on spark5 (B=4, next_n=4, mixed ctx lens 64..1900, live 256-page width):
-folded call vs a per-token-loop reference is **bit-exact on BOTH kernel paths**
-(triton and pure torch); patch chain idempotent, 0 drift.
+**LIVE LESSON (first MTP deploy attempt, 2026-07-16 ~17:19):** the first version
+of this fix assumed block_tables was per-REQUEST and added its own
+`repeat_interleave(next_n)` in the dispatch -- DOUBLE-expanding the already
+per-token table (B*next_n*next_n rows) and tripping the kernel's
+`page_table.shape[0] == batch_size` assert at the MTP warmup (flashinfer-autotune
+dummy verify batch), killing all 4 ranks. The spark5 numeric test had validated
+the folding math against SYNTHETIC per-request tables -- correct math for a shape
+that never occurs live. Same class of lesson as the p34 bf16-query crash: test
+sglang's input PREPARATION, not just the kernel contract. (The folding-vs-
+per-token-loop bit-exactness result remains true and documents the kernel's
+per-token semantics; it just isn't the dispatch's job.)
 
 Profile: `speculative_enabled: true` (NEXTN, 3 steps, 4 draft tokens). All MTP
 preconditions are now met: p42 (NVFP4 NextN weight load, live-validated), p34

@@ -530,24 +530,24 @@ NEW_DISPATCH_BRANCH = """        elif use_dg_native:
             )
         elif self.paged_mqa_logits_backend.is_torch():
             # Phase 1+2 (dsalogitrework.md Section 3): the torch/triton kernel is
-            # per-TOKEN (batch dim = flattened q tokens). Plain decode (next_n==1)
-            # is already per-token. For target-verify / draft-extend-v2
-            # (next_n>=2), seqlens_32_2d comes from get_seqlens_expanded() and is
-            # ALREADY per-token [q_offset, 1]; q/weights are sliced per token
-            # below. The ONLY per-REQUEST tensor is block_tables [B, W]: repeat
-            # each request row next_n times so row i belongs to flattened token i
-            # (token (b, n) -> row b; graph-safe, static shapes).
-            _bt_torch = (
-                block_tables.repeat_interleave(next_n, dim=0)
-                if next_n >= 2
-                else block_tables
-            )
+            # per-TOKEN (batch dim = flattened q tokens), and EVERY input here
+            # already is: q/weights are sliced per token ([:q_offset]),
+            # seqlens_32_2d is get_seqlens_expanded() = per-token [q_offset, 1]
+            # for verify/draft-extend, and block_tables (= metadata
+            # real_page_table) is ALREADY repeat_interleaved to per-token rows by
+            # init_forward_metadata for ALL multi-token modes (target_verify /
+            # draft_extend_v2 / draft_extend -- dsa_backend.py builds
+            # `page_table = torch.repeat_interleave(page_table, ...)` before
+            # storing the metadata; source-verified 2026-07-16). So next_n>=2
+            # needs NO reshaping at all -- an extra repeat here DOUBLE-expands
+            # and trips the kernel's shape assert (live crash at the MTP warmup,
+            # first deploy attempt).
             logits = fp8_paged_mqa_logits_torch_dsa(
                 q_fp8.unsqueeze(1)[:q_offset],
                 kv_cache_fp8,
                 weights[:q_offset],
                 seqlens_32_2d,
-                _bt_torch,
+                block_tables,
                 None,  # schedule_metadata unused by the torch path
                 max_seq_len,
                 clean_logits=False,
