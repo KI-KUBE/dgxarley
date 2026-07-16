@@ -93,6 +93,49 @@ class Patch:
         self._code = self._code.replace(old, new, 1)
         self._changed = True
 
+    def replace_all(self, old: str, new: str, marker: str | None = None, what: str | None = None) -> None:
+        """Like replace(), but replaces EVERY occurrence, not just the first.
+
+        Use this whenever the anchor legitimately appears more than once and all
+        of them must change (e.g. the same guard expression in two code paths).
+        Getting this wrong is silent: replace() would patch the first hit, report
+        success, and leave the rest untouched. That is exactly what happened on
+        the qwen3_5 attn-quant (2 hits) and kv-scale (4 hits) conversions on
+        2026-07-16 -- the patch logged "Patched" while the file was still half
+        original. If in doubt, count the hits in the real image before choosing.
+        """
+        label = what or self.name
+        probe = marker if marker is not None else new
+        if probe in self._code:
+            return
+        if old not in self._code:
+            raise AnchorDrift(f"{label} anchor missing")
+        self._code = self._code.replace(old, new)
+        self._changed = True
+
+    def prepend(self, text: str, marker: str) -> None:
+        """Prepend `text` at the top of the file (for import lines with no anchor)."""
+        if marker in self._code:
+            return
+        self._code = text + self._code
+        self._changed = True
+
+    @property
+    def code(self) -> str:
+        """The in-memory buffer. Assign to it for edits the helpers cannot express."""
+        return self._code
+
+    @code.setter
+    def code(self, value: str) -> None:
+        if value != self._code:
+            self._code = value
+            self._changed = True
+
+    @property
+    def changed(self) -> bool:
+        """True once an edit has modified the buffer (i.e. a write will happen)."""
+        return self._changed
+
     def insert_after(self, anchor: str, text: str, marker: str, what: str | None = None) -> None:
         """Insert `text` right after the first occurrence of `anchor`.
 

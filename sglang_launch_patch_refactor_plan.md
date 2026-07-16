@@ -1,6 +1,57 @@
 # Plan: SGLang-Runtime-Patches aus `sglang_launch.sh` in `files/sglang_patches/` auslagern
 
-Status: Vorschlag, nichts implementiert. Kein Deploy ohne Freigabe.
+Status (2026-07-16): **Phase 0, 1 und 2 sind umgesetzt und verifiziert.** `launch.sh` ist von 3899
+auf 2319 Zeilen (193 KB auf 120 KB) geschrumpft, 24 Patches liegen als Dateien vor, die ConfigMap
+misst 99 KB. **Noch nicht deployt** (kein Rollout ohne Freigabe). Offen: Phase 3 + 4.
+
+## Abweichungen vom ursprünglichen Plan (erzwungen, nicht kosmetisch)
+
+* **Dateinamen `p<NN>_...` statt `<NN>_...`** — mypy läuft strict über das ganze Repo und lehnt einen
+  Modulnamen mit führender Ziffer ab ("invalid module name"). Der Runner-Glob ist entsprechend
+  `p[0-9][0-9]_*.py`. Achtung: ein Name wie `p23b_...` matcht NICHT (nach zwei Ziffern muss `_`
+  folgen); zum Einsortieren eine freie Nummer nehmen.
+* **Kein `PYTHONPATH` nötig** — beim Aufruf `python3 /patches/pNN_x.py` ist `sys.path[0]` bereits
+  `/patches`, `from _patchlib import ...` funktioniert ohne Zutun.
+* **DSA-Patches bleiben in Phase 3**, obwohl sie ungegatet sind (der Plan hatte sie als "gegatet"
+  einsortiert, das stimmte nicht). Grund für die Verschiebung ist ein anderer: an DSA wird parallel
+  aktiv gearbeitet (3 Commits am 2026-07-16), ein Umzug jetzt erzeugt nur Konflikte.
+* **`_patchlib` brauchte mehr API als gedacht**: `replace_all()` (siehe unten), `prepend()` und einen
+  `code`-Buffer für tolerante Edits. Letzteren brauchten zwei Konvertierungen unabhängig voneinander
+  (`p10`, `p61`) — ohne ihn hätten sie auf private Interna zugegriffen.
+
+## Was die Verifikation tatsächlich gefunden hat (der Grund, warum es sie gibt)
+
+Der Tree-Diff hat in Phase 2 **drei echte Konversionsfehler** gefangen, alle drei bei **null
+ANCHOR-DRIFT und "Patched"-Erfolgsmeldung im Log** — sie wären im Betrieb also stumm gewesen:
+
+1. **`p50` / `p51` (qwen3_5.py):** die Originale ersetzten mit `s.replace(old, new)` **alle**
+   Vorkommen (2 bzw. 4 im echten Image), `_patchlib.replace()` nur das erste. Ergebnis: halb
+   gepatchte Datei, Log meldet Erfolg. Fix: neues `replace_all()`, plus ein Audit **aller**
+   Konversionen auf die Ersetzungs-Semantik des Originals (`p24` war latent betroffen: heute nur
+   1 Vorkommen, morgen vielleicht nicht).
+2. **`p10` (weight_utils.py):** der Logger-Import des Originals hing an
+   `if "\nlogger = " not in code`. Ohne die Bedingung wurde ein zweiter `import logging` +
+   `logger = ...` injiziert.
+
+Lehre für Phase 3: **Vor jeder Konversion die Ersetzungs-Semantik des Originals prüfen** (`replace`
+mit/ohne `count`, `sed` ersetzt pro *Zeile*), und die Trefferzahl im echten Image zählen.
+
+## Verifikations-Harness (steht, spark5)
+
+Beide Phasen laufen in je einem **frischen** podman-Container (Image ist unveränderlich, also kein
+Restore nötig), die berührten Dateien werden über ein md5-Manifest über **alle** `.py` in
+dist-packages ermittelt, nicht nur `sglang/`. Das ist keine Kosmetik: die Patch-Phase fasst auch
+`flashinfer` (3 Dateien) und `transformers` (1) an, eine sglang-only-Momentaufnahme hätte `p60`/`p61`
+komplett übersehen. Referenzmenge aktuell: **26 Dateien**.
+
+    cd /root/patchtest && for P in old new; do
+      podman run --rm -v /root/patchtest:/patchtest --entrypoint bash \
+        xomoxcc/dgx-spark-sglang:0.5.15-sm121 /patchtest/run_phase.sh $P
+    done && bash compare.sh
+    # dazu: run_idem.sh (Runner zweimal, zweiter Lauf muss nichts ändern)
+
+Ergebnis Phase 2: `touched-set: identical`, `TREE-DIFF: IDENTICAL`, 0 Drift auf beiden Seiten,
+zweiter Lauf ändert nichts (25× "already applied", 0× "Patched").
 
 ## Ausgangslage
 
@@ -184,19 +235,22 @@ Hash ist das egal, solange beide Seiten denselben Weg gehen.
 
 ## Migration in Phasen (jede Phase ist einzeln deploybar und rückrollbar)
 
-**Phase 0, Gerüst, kein Verhaltens-Delta.**
-`_patchlib.py` + Runner-Loop + ConfigMap + Mount + Checksum-Erweiterung. Noch kein Patch verschoben.
-Verifikation: Head bootet, Log identisch bis auf die neue Runner-Zeile.
+**Phase 0, Gerüst, kein Verhaltens-Delta. ERLEDIGT (Commit 6b77d64).**
+`_patchlib.py` + Runner-Loop + ConfigMap + Mount + Checksum-Erweiterung.
 
-**Phase 1, ein Pilot-Patch.**
-`20_moe_wna16_qzeros_ep.py` (klein, unkonditioniert, gut getestet) raus aus der `.sh`.
-Verifikation siehe unten (Tree-Diff).
+**Phase 1, ein Pilot-Patch. ERLEDIGT (Commit 6b77d64).**
+`p20_moe_wna16_qzeros_ep.py` (klein, unkonditioniert, gut getestet) raus aus der `.sh`.
 
-**Phase 2, die unkonditionierten Patches.**
-mllama4 (2), weight_utils/loader-Progress, linear NVFP4-Scale, VLM-ignore, Nemotron-Wrapper,
-Transformers-topk, FP8-out-dtype, Flashinfer (2), modelopt/cutlass/minimax/deepseek-cfg.
+**Phase 2, die unkonditionierten Patches. ERLEDIGT.**
+23 Patches: mllama4 (2), weight_utils (2) + loader-Progress, linear NVFP4-Scale, VLM-ignore,
+Nemotron-Wrapper, Transformers-topk, FP8-out-dtype, Flashinfer (2), modelopt (3), cutlass, minimax,
+deepseek-cfg, get_config, mistral-tokenizer, qwen3_5 (2), mixed-NVFP4 (2).
+Gotcha, der fast zugeschlagen hätte: der `MODELOPT_QUANT=`-Bash-Variable wurde vom *nachfolgenden*
+Block mitbenutzt — eine wörtliche Löschung des einen hätte den anderen gebrochen. Beide sind jetzt
+gemeinsam weg (`p23` + `p28`). Bei Phase 3 dieselbe Prüfung fahren: `grep` auf jede im Löschbereich
+deklarierte Variable.
 
-**Phase 3, die gegateten Patches.**
+**Phase 3, die restlichen Patches (Hunyuan, HY3-NEXTN, DSNEXTN, DSA, MEM_FALLBACK).**
 Hunyuan-Detektoren (2) + shared-experts, HY3-NEXTN (2), DS-NEXTN-mixed-MTP, DSA-torch (5),
 DSA-flashinfer-gather. Hier wandert das Bash-`if` in das `when=` des Patches, das ist der einzige
 Schritt mit echtem Logik-Umzug, also der riskanteste. Die 5 `PATCH_DSA_TORCH_*` teilen ein Gate und
