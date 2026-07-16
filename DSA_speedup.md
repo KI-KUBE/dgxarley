@@ -113,12 +113,35 @@ does not compile (the warp-specialized GEMM/layout choreography breaks at tiny t
 both. Shrinking below the budget would need a kernel REWRITE (single- instead of double-buffering, redoing
 the 3-warpgroup barrier choreography), not a parameter change.
 
-So DSA-sparse (and therefore NEXTN/MTP, which needs the indexer) is blocked on GB10/SM121 with NO config or
-tuning path. The only two real options, both a project with no guarantee: (1) upstream adds consumer-Blackwell
-kernels (trtllm-gen FMHA / flashmla / DeepGEMM for sm120/121), or (2) from-scratch kernel authoring on the
-attention decode (a single-buffered tilelang rewrite, or a torch MLA-attention fallback like the indexer one).
-Prod stays on `attention_backend="flashinfer"` (dense MLA, known-working). The torch indexer fallback + the
-`--dsa-paged-mqa-logits-backend` wiring stay committed for when the attention side is unblocked upstream.
+So the DEDICATED DSA attention kernels are all dead on SM121 (trtllm-gen ISA, flashmla not built, fa3 gate,
+tilelang smem contradiction).
+
+## VIABLE PATH FOUND 2026-07-16 (GPU-prototyped): gather + reuse the working dense fa2 kernel
+
+Instead of a new kernel, decompose the DSA sparse attention as: gather the top-2048 selected KV, then run
+flashinfer's DENSE MLA decode (fa2, which already works on SM121 for the base model) over that gathered
+subset. GPU-prototyped and PASSES:
+- The gather prep already exists: `dsa_backend.py::forward_decode` builds
+  `page_table_1 = transform_index_page_table_decode(page_table, topk_indices, page_size=1)` ([bs,2048] slot
+  indices) for every backend. In the real sparse regime (seq>2048) it is always exactly 2048 valid indices,
+  no -1 padding -> static shape, CUDA-graph-friendly.
+- `BatchMLAPagedAttentionWrapper.plan(page_size=1, kv_indices=page_table_1.flatten(), ...)` + `.run()` accepts
+  arbitrary non-contiguous kv_indices and gathers in-kernel. Auto-selects fa2 on SM121.
+- Numerics: vs a pure-torch gather+softmax reference, max abs diff 0.00068 (bf16), no NaN, seed-varying.
+- Perf: sparse-2048 0.26 ms/call vs dense-8192 0.80 ms/call - sub-linear, a real win at long context.
+
+**The one blocker: fp8 KV.** flashinfer's MLA decode rejects `kv_cache_dtype=fp8_e4m3` on every backend
+(`FP8 kv only supported with fa3 on SM90`; fa3 is SM121-dead). Fix options, cheapest first: (1) dequant ONLY
+the gathered 2048 KV to bf16 per decode step - cheap because it is 2048 entries, not the whole cache; (2) run
+a bf16 KV cache (doubles KV memory, tight at mem_fraction 0.9-0.99); (3) upstream fp8 support.
+
+**So DSA-sparse (and NEXTN/MTP) IS reachable on GB10** via a new `dsa_decode_backend=flashinfer_gather`
+(`_forward_flashinfer_gather` passing the existing `page_table_1` to `BatchMLAPagedAttentionWrapper` with
+page_size=1) + the gathered-subset fp8->bf16 dequant, patched per the sglang_launch.sh anchor pattern - reuse,
+not a from-scratch kernel. This SUPERSEDES the "attention decode is a dead end" verdict above. Open points for
+implementation: the fp8 dequant, next_n>=2 (MTP multi-token draft verify, untested), CUDA-graph compat of the
+wrapper plan-rebuild, mixed batches with <2048 (-1 padding). Until implemented, prod stays on
+`attention_backend="flashinfer"` (dense MLA).
 
 ## Symptom (measured)
 
