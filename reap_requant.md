@@ -173,6 +173,33 @@ noetig), nicht W4A16 -- bei bs=1 ist die Aktivierungs-Quant ein [1,in]-Tensor,
 vernachlaessigbar, und das oben ist bereits inklusive. Das vereinfacht Phase 1:
 Standard-modelopt-NVFP4 auf o_proj/q_b (dynamic input), kein Sonder-W4A16-Preset.
 
+### Phase 0b — Kernel-Entscheidung 2026-07-16: cutlass W4A4 (nicht Marlin W4A16)
+
+Nach dem GO wurde die Kernel-Wahl gemessen (spark5, o_proj/q_b Shapes, absolute
+fp4-Zeit ueber bs-Sweep). Marlin W4A16 (der W4A16-Pfad) kollabiert oberhalb
+bs~64 (bei bs=512 fast 3x langsamer als cutlass) und ist bei bs=1 instabil;
+cutlass W4A4 ist stabil und ab bs=128 klar ueberlegen. -> **cutlass W4A4
+gewaehlt** (User: nicht nur bs=1 optimieren).
+
+Konsequenzen: W4A4-dense unterstuetzt KEIN dynamic (Loader: "dynamic
+quantization is not supported") -> braucht statisches input_scale. Da 504B fuer
+Voll-modelopt-PTQ zu gross ist, **Option 3 (User-Wahl): HEURISTISCHES
+input_scale**, kein Kalibrierungslauf, GSM8K-gated. input_scale = generoeser
+amax-Ueberschaetzer / (6*448) pro Modul (Ueberschaetzen = kein Clipping).
+
+### Phase 1a — Format verifiziert + Script gebaut 2026-07-16
+
+Config-Weg ist EINFACH: o_proj/q_b aus quantization_config.ignore nehmen ->
+fallen in die bestehende W4A4-group_0 (gleicher Algo wie die Experten), KEIN
+MIXED_PRECISION noetig. Exaktes NVFP4-Format gegen einen echten Experten-Tensor
+verifiziert: weight uint8 [out,in//2], weight_scale float8_e4m3fn [out,in//16]
+in LINEAREM Layout (is_sf_swizzled_layout=False -- Round-Trip 0.089 vs swizzled
+0.23), weight_scale_2 fp32-Skalar = amax/(6*448). Data-free Script:
+`../kikube/quantizer/surgical_attn_nvfp4.py` (streamt Shards, quantisiert nur
+o_proj+q_b, Rest byte-identisch, schreibt in NEUES Verzeichnis; Quelle bleibt).
+NOCH NICHT gelaufen (wartet auf rsync-Abschluss). Deploy + GSM8K = separate
+approval-gated Schritte.
+
 ### Phase 1 — Shard-Rewrite-Script
 
 `../kikube/quantizer/` (dort lebt das Quant-Tooling): Script
