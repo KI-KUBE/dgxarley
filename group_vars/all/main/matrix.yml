@@ -37,6 +37,29 @@ matrix:
   admin:
     username: "admin"
     password: "changeme"
+  # Mail via the node-local postfix — see the long comment in
+  # roles/k8s_infra/defaults/main/matrix.yml for why smtp_host is a placeholder.
+  email:
+    enabled: false
+    smtp_host: "__NODE_IP__"
+    smtp_port: 25
+    notif_from: "Matrix <matrix@matrix.example.eu>"
+    app_name: "Matrix"
+    # Missed-message mails only — password reset works without it. Explicit
+    # rather than inherited; the two notif_* only bite while this is true.
+    enable_notifs: false
+    notif_for_new_users: true
+    notif_delay_before_mail: "10m"
+    # --- Auth / TLS — unset: the node-local postfix authorises by source IP and
+    # the hop never leaves the host. Uncomment HERE AND IN VAULT (the vault dict
+    # replaces this one wholesale) when smtp_host points at a real relay:
+    #
+    # smtp_user: "matrix@example.eu"
+    # smtp_pass: "CHANGEME"
+    # force_tls: false                 # true -> implicit TLS, smtp_port 465
+    # require_transport_security: true # refuse plaintext (STARTTLS on 587)
+    # enable_tls: true                 # false -> never attempt STARTTLS
+    # tlsname: "mail.example.eu"       # cert hostname, if != smtp_host
   # Regular human accounts, created directly at deploy (register_new_matrix_user
   # --no-admin). Examples — real accounts + passwords go in vault (git-crypt).
   # `email` is OPTIONAL: register_new_matrix_user cannot set third-party IDs, so
