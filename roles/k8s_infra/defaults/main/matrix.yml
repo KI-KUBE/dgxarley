@@ -40,6 +40,26 @@
 matrix_enabled: false
 matrix_teardown: false
 
+# --- Mail -------------------------------------------------------------------
+# matrix.email.* drives Synapse's `email:` section (password resets + notifs).
+# notif_from is the ONLY required key once enabled (Synapse refuses to start
+# without it). Port default follows force_tls upstream (465/25); we pin 25.
+#
+# smtp_host defaults to the literal __NODE_IP__ placeholder, which the container
+# start command rewrites to the pod's OWN node IP (status.hostIP, projected as
+# $NODE_IP). Reason: every node in this cluster runs a postfix on :25 relaying to
+# the same smarthost, and mynetworks is 10.0.0.0/8 — which the POD IP falls into.
+# That match only holds SAME-NODE: cross-node traffic to another node's :25 gets
+# masqueraded by flannel to 192.168.191.x and postfix rejects the relay. So the
+# pod must always talk to its own node, and a hardcoded IP would break the moment
+# the pod is scheduled elsewhere (its /data is on NFS, so it CAN move freely).
+#
+# Substitution is needed because Synapse does NOT expand env vars in a supplied
+# homeserver.yaml — /start.py only renders its own template via jinja in the
+# config-GENERATE path, which we never take (we mount a finished config).
+#
+# Set smtp_host to a real hostname to bypass all of this (sed then finds nothing).
+
 # cert-manager ClusterIssuer that mints the matrix/cinny TLS certs. MUST be one of
 # the `name:`s in certmanager_acme_issuers (group_vars/all/main/dns.yml) whose
 # dns_zones cover <base_domain>. A standalone scalar (not inside the matrix dict,
@@ -60,6 +80,29 @@ matrix:
   dns: {}
   enable_registration: false
   enable_token_authenticator: true
+  email:
+    enabled: false
+    smtp_host: "__NODE_IP__"
+    smtp_port: 25
+    notif_from: "Matrix <matrix@matrix.example.eu>"
+    app_name: "Matrix"
+    # Missed-message mails. Password reset does NOT need this (only smtp_host +
+    # notif_from). Upstream default is false; the two notif_* below only bite
+    # while this is true, but are spelled out rather than left to the upstream.
+    enable_notifs: false
+    notif_for_new_users: true      # false = accounts start unsubscribed
+    notif_delay_before_mail: "10m" # grace period to see it in a client first
+    # --- Auth / TLS — unset on purpose, the node-local postfix wants neither ---
+    # It authorises by source IP (mynetworks 10.0.0.0/8 covers the pod), and the
+    # hop is pod -> its own node, i.e. never leaves the host. Uncomment (here AND
+    # in vault, hash_behaviour=replace) when pointing smtp_host at a real relay:
+    #
+    # smtp_user: "matrix@example.eu"   # set -> smtp_user+smtp_pass get rendered
+    # smtp_pass: "CHANGEME"
+    # force_tls: false                 # true -> implicit TLS, use smtp_port 465
+    # require_transport_security: true # refuse to send if STARTTLS failed (587)
+    # enable_tls: true                 # false -> never attempt STARTTLS at all
+    # tlsname: "mail.example.eu"       # cert hostname, if != smtp_host
   # Traefik pods source X-Forwarded-For from the K3s pod CIDR.
   trusted_proxies: "10.68.0.0/16,10.69.0.0/16"
   registration_shared_secret: "CHANGEME_REGISTRATION_SHARED_SECRET"

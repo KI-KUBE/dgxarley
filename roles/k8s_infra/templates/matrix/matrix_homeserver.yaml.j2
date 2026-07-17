@@ -1,0 +1,135 @@
+{#
+  Synapse homeserver.yaml — rendered into the `synapse-config` Secret (NOT a
+  ConfigMap: it carries the DB password and the macaroon/form/jwt secrets).
+
+  Mounted read-only at /config/homeserver.yaml. The container start command seds
+  __NODE_IP__ into the pod's own node IP and writes the result to the tmpfs at
+  /run/synapse/homeserver.yaml, which is what SYNAPSE_CONFIG_PATH points at.
+  Synapse itself expands NO env vars in a supplied config, hence that detour.
+#}
+server_name: "matrix.{{ matrix.base_domain }}"
+pid_file: /data/homeserver.pid
+public_baseurl: "https://matrix.{{ matrix.base_domain }}/"
+
+listeners:
+  - port: 8008
+    tls: false
+    type: http
+    x_forwarded: true
+    resources:
+      - names: [client, federation]
+        compress: false
+
+database:
+  name: psycopg2
+  txn_limit: 10000
+  args:
+    user: synapse
+    password: "{{ synapse_db_password }}"
+    database: synapse
+    host: postgresql.postgresql.svc.cluster.local
+    port: 5432
+    cp_min: 5
+    cp_max: 10
+
+log_config: "/data/log.config"
+media_store_path: /data/media_store
+# Pinned explicitly, NOT left to the default: Synapse defaults this to true only
+# since 1.120, and the sister repo deliberately sets it FALSE (blocking
+# /_matrix/media/ at its external nginx instead). Here matrix.{{ matrix.base_domain }}
+# is reachable from the internet with no such edge block, so an image bump or a
+# default flip must never silently re-open the legacy unauthenticated
+# /_matrix/media/ download endpoint.
+enable_authenticated_media: true
+signing_key_path: /data/signing.key
+trusted_key_servers:
+  - server_name: "matrix.org"
+
+registration_shared_secret: "{{ matrix.registration_shared_secret }}"
+macaroon_secret_key: "{{ matrix.macaroon_secret_key }}"
+form_secret: "{{ matrix.form_secret }}"
+
+rc_message:
+  per_second: 5
+  burst_count: 30
+
+rc_login:
+  address:
+    per_second: 1
+    burst_count: 10
+  account:
+    per_second: 1
+    burst_count: 10
+
+report_stats: false
+enable_registration: {{ matrix.enable_registration | bool | lower }}
+# Pinned rather than inherited: guest access is a SECOND way to get an account
+# without enable_registration, so the two gates belong together and in the file.
+# Synapse defaults it to false today, but this server is reachable from the
+# internet and we do not want that to rest on an upstream default surviving every
+# image bump. (The third way is the token authenticator's jwt.allow_registration,
+# false in the module config below — it would auto-create users on first token
+# login.)
+allow_guest_access: false
+suppress_key_server_warning: true
+serve_server_wellknown: true
+
+password_config:
+  enabled: true
+{% if matrix.email.enabled | default(false) | bool %}
+
+email:
+  # Usually the __NODE_IP__ placeholder: every node runs a postfix on :25 relaying
+  # to the same smarthost, and its mynetworks (10.0.0.0/8) matches the POD ip —
+  # but only SAME-NODE, since cross-node traffic gets masqueraded to 192.168.191.x
+  # and refused. So this must be the node the pod actually landed on, which is why
+  # it is substituted at start rather than templated to a fixed address here.
+  smtp_host: "{{ matrix.email.smtp_host }}"
+  smtp_port: {{ matrix.email.smtp_port | default(25) }}
+{% if matrix.email.smtp_user | default('') %}
+  # Auth — only rendered when smtp_user is set. The node-local postfix needs none
+  # (it authorises us by source IP via mynetworks), so this stays off by default.
+  smtp_user: "{{ matrix.email.smtp_user }}"
+  smtp_pass: "{{ matrix.email.smtp_pass }}"
+{% endif %}
+{% if matrix.email.force_tls is defined %}
+  # true = implicit TLS from the first byte (submissions, port 465).
+  force_tls: {{ matrix.email.force_tls | bool | lower }}
+{% endif %}
+{% if matrix.email.require_transport_security is defined %}
+  # true = refuse to send unless STARTTLS succeeded (plaintext 25 then fails).
+  require_transport_security: {{ matrix.email.require_transport_security | bool | lower }}
+{% endif %}
+{% if matrix.email.enable_tls is defined %}
+  # false = never even attempt STARTTLS.
+  enable_tls: {{ matrix.email.enable_tls | bool | lower }}
+{% endif %}
+{% if matrix.email.tlsname | default('') %}
+  # Hostname to validate the server cert against, if it differs from smtp_host.
+  tlsname: "{{ matrix.email.tlsname }}"
+{% endif %}
+  # Required by Synapse once email is configured — it refuses to start without it.
+  notif_from: "{{ matrix.email.notif_from }}"
+  app_name: "{{ matrix.email.app_name | default('Matrix') }}"
+  # Missed-message notification mails ONLY. Password reset works without this and
+  # needs just smtp_host + notif_from. Upstream defaults it to false.
+  enable_notifs: {{ matrix.email.enable_notifs | default(false) | bool | lower }}
+  # Both only bite while enable_notifs is true.
+  notif_for_new_users: {{ matrix.email.notif_for_new_users | default(true) | bool | lower }}
+  notif_delay_before_mail: "{{ matrix.email.notif_delay_before_mail | default('10m') }}"
+  # Links in outgoing mails point at our web client, not upstream's matrix.to.
+  client_base_url: "https://cinny.{{ matrix.base_domain }}"
+{% endif %}
+{% if matrix.enable_token_authenticator %}
+
+modules:
+  - module: synapse_token_authenticator.TokenAuthenticator
+    config:
+      jwt:
+        secret: "{{ matrix.jwt_secret }}"
+        algorithm: HS512
+        # Keep false: true would auto-create an account on first token login and
+        # thereby walk straight around enable_registration.
+        allow_registration: false
+        require_expiry: true
+{% endif %}

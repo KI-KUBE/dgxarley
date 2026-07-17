@@ -122,102 +122,8 @@
             namespace: "{{ matrix.namespace }}"
           type: Opaque
           stringData:
-            homeserver.yaml: |
-              server_name: "matrix.{{ matrix.base_domain }}"
-              pid_file: /data/homeserver.pid
-              public_baseurl: "https://matrix.{{ matrix.base_domain }}/"
-
-              listeners:
-                - port: 8008
-                  tls: false
-                  type: http
-                  x_forwarded: true
-                  resources:
-                    - names: [client, federation]
-                      compress: false
-
-              database:
-                name: psycopg2
-                txn_limit: 10000
-                args:
-                  user: synapse
-                  password: "{{ synapse_db_password }}"
-                  database: synapse
-                  host: postgresql.postgresql.svc.cluster.local
-                  port: 5432
-                  cp_min: 5
-                  cp_max: 10
-
-              log_config: "/data/log.config"
-              media_store_path: /data/media_store
-              # Pinned explicitly, NOT left to the default: Synapse defaults this to
-              # true only since 1.120, and the sister repo deliberately sets it FALSE
-              # (blocking /_matrix/media/ at its external nginx instead). Here matrix.
-              # kikube.eu is reachable from the internet with no such edge block, so an
-              # image bump or default flip must never silently re-open the legacy
-              # unauthenticated /_matrix/media/ download endpoint.
-              enable_authenticated_media: true
-              signing_key_path: /data/signing.key
-              trusted_key_servers:
-                - server_name: "matrix.org"
-
-              registration_shared_secret: "{{ matrix.registration_shared_secret }}"
-              macaroon_secret_key: "{{ matrix.macaroon_secret_key }}"
-              form_secret: "{{ matrix.form_secret }}"
-
-              rc_message:
-                per_second: 5
-                burst_count: 30
-
-              rc_login:
-                address:
-                  per_second: 1
-                  burst_count: 10
-                account:
-                  per_second: 1
-                  burst_count: 10
-
-              report_stats: false
-              enable_registration: {{ matrix.enable_registration | bool | lower }}
-              # Pinned rather than inherited: guest access is a SECOND way to get an
-              # account without enable_registration, so the two gates belong together
-              # and in the file. Synapse defaults it to false today, but this server is
-              # reachable from the internet and we do not want that to rest on an
-              # upstream default surviving every image bump. (The third way is the
-              # token authenticator's jwt.allow_registration, false in the module
-              # config below — it would auto-create users on first token login.)
-              allow_guest_access: false
-              suppress_key_server_warning: true
-              serve_server_wellknown: true
-
-              password_config:
-                enabled: true
-              {% if matrix.enable_token_authenticator %}
-              modules:
-                - module: synapse_token_authenticator.TokenAuthenticator
-                  config:
-                    jwt:
-                      secret: "{{ matrix.jwt_secret }}"
-                      algorithm: HS512
-                      allow_registration: false
-                      require_expiry: true
-              {% endif %}
-            log.config: |
-              version: 1
-              formatters:
-                precise:
-                  format: '%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(request)s - %(message)s'
-              handlers:
-                console:
-                  class: logging.StreamHandler
-                  formatter: precise
-              loggers:
-                synapse.storage.SQL:
-                  level: INFO
-              root:
-                level: INFO
-                handlers: [console]
-              disable_existing_loggers: false
+            homeserver.yaml: "{{ lookup('template', 'matrix/matrix_homeserver.yaml.j2') }}"
+            log.config: "{{ lookup('template', 'matrix/matrix_log.config.j2') }}"
 
     # =======================================================================
     # Synapse server
@@ -309,13 +215,33 @@
                     # Always go through /start.py (stock entrypoint). When token
                     # auth is on, pip-install the module first — the `{% if %}`
                     # sits inside this block scalar, so it's Jinja-safe.
+                    #
+                    # The sed is what makes $NODE_IP usable: Synapse does NOT expand
+                    # env vars in a supplied homeserver.yaml (start.py only renders
+                    # its OWN template, and only in the config-generate path we never
+                    # take), so the placeholder is substituted here, before it ever
+                    # reads the file. The secret mount is read-only, hence the render
+                    # into the tmpfs at /run/synapse — which also keeps the DB
+                    # password and macaroon secret off disk. Runs unconditionally: on
+                    # a config without the placeholder the sed is just a copy.
                     command: ["/bin/sh", "-c"]
                     args:
                       - |
+                        set -e
+                        sed "s|__NODE_IP__|${NODE_IP}|g" /config/homeserver.yaml > /run/synapse/homeserver.yaml
+                        chown 991:991 /run/synapse/homeserver.yaml
+                        chmod 0400 /run/synapse/homeserver.yaml
                         {% if matrix.enable_token_authenticator %}pip install --no-cache-dir synapse-token-authenticator && {% endif %}exec /start.py
                     env:
                       - name: SYNAPSE_CONFIG_PATH
-                        value: /config/homeserver.yaml
+                        value: /run/synapse/homeserver.yaml
+                      # The pod's own node — see the sed above and the smtp_host
+                      # rationale in defaults/main/matrix.yml. Must be the node the
+                      # pod actually landed on (/data is NFS, so it can move).
+                      - name: NODE_IP
+                        valueFrom:
+                          fieldRef:
+                            fieldPath: status.hostIP
                       - name: TZ
                         value: "{{ matrix.time_zone }}"
                       - name: UID
@@ -361,6 +287,8 @@
                         mountPath: /data/log.config
                         subPath: log.config
                         readOnly: true
+                      - name: config-rendered
+                        mountPath: /run/synapse
                 volumes:
                   - name: data
                     hostPath:
@@ -369,6 +297,12 @@
                   - name: synapse-config
                     secret:
                       secretName: synapse-config
+                  # Target of the __NODE_IP__ sed. Memory-backed on purpose: the
+                  # rendered file carries the DB password and macaroon secret, and
+                  # this way they never touch the node's disk.
+                  - name: config-rendered
+                    emptyDir:
+                      medium: Memory
 
     # =======================================================================
     # Cinny web client — static SPA, config points straight at matrix.<base>.
@@ -391,6 +325,32 @@
                   "https://matrix.{{ matrix.base_domain }}"
                 ]
               }
+            # Mounted into conf.d/ (included inside the image's http{} block), so the
+            # stock nginx.conf and its default.conf server block stay untouched.
+            # Without this, $remote_addr is the Traefik POD ip and every access-log
+            # line reads 10.68.x.y — the real client only appears in the trailing
+            # $http_x_forwarded_for field of the default "main" log_format.
+            # realip rewrites $remote_addr itself, so ALL log lines become correct.
+            #
+            # Both hops must be listed. nginx walks the XFF chain right-to-left
+            # (real_ip_recursive) and stops at the first UNtrusted entry. Trusting
+            # only the pod CIDR would stop at the edge ip and report that; trusting
+            # the edge too lets it walk one more step to the actual client.
+            # Chain: <client> -> edge -> HAProxy -> Traefik pod -> cinny.
+            #
+            # NOTE: this only yields real client ips once Traefik actually forwards
+            # them, i.e. after traefik_forwarded_trusted_ips is live on the websecure
+            # entrypoint. Until then Traefik overwrites XFF with the edge ip and the
+            # chain simply terminates there — same output as before, never worse.
+            # The upstream list is rendered as ONE inline expression: a {% %} block
+            # would have to start at column 0 to avoid injecting indentation, and a
+            # column-0 tag inside a ConfigMap data block breaks the YAML parse.
+            realip.conf: |
+              # Traefik pods (the direct peer of this nginx)
+              set_real_ip_from {{ cluster_cidr }};
+              {{ traefik_forwarded_trusted_ips | default([]) | map('regex_replace', '^(.+)$', 'set_real_ip_from \\1;') | join('\n              ') }}
+              real_ip_header X-Forwarded-For;
+              real_ip_recursive on;
 
     - name: Create cinny Service
       kubernetes.core.k8s:
@@ -438,6 +398,13 @@
               metadata:
                 labels:
                   app: cinny
+                annotations:
+                  # A subPath mount never refreshes in place, and even a plain mount
+                  # would not make nginx re-read its config. Without this hash an edit
+                  # to realip.conf would update the ConfigMap and silently do nothing
+                  # until something else happened to roll the pod. Covers both inputs
+                  # the file is rendered from.
+                  checksum/realip-conf: "{{ (cluster_cidr ~ '|' ~ (traefik_forwarded_trusted_ips | default([]) | join(','))) | hash('sha1') }}"
               spec:
                 restartPolicy: Always
                 enableServiceLinks: false
@@ -471,6 +438,12 @@
                       - name: cinny-config
                         mountPath: /app/config.json
                         subPath: config.json
+                        readOnly: true
+                      # subPath, so the image's own default.conf in this directory
+                      # survives instead of being shadowed by the ConfigMap.
+                      - name: cinny-config
+                        mountPath: /etc/nginx/conf.d/realip.conf
+                        subPath: realip.conf
                         readOnly: true
                 volumes:
                   - name: cinny-config

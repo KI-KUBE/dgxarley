@@ -1,0 +1,24 @@
+{#
+  Synapse logging config — rendered into the `synapse-config` Secret and mounted
+  at /data/log.config (referenced by homeserver.yaml's log_config). It lives in
+  the Secret next to homeserver.yaml purely so both files ship together; it holds
+  nothing sensitive itself.
+
+  Static today (no vars), kept as a template so both Secret keys are sourced the
+  same way instead of one inline block and one file.
+#}
+version: 1
+formatters:
+  precise:
+    format: '%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(request)s - %(message)s'
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: precise
+loggers:
+  synapse.storage.SQL:
+    level: INFO
+root:
+  level: INFO
+  handlers: [console]
+disable_existing_loggers: false
