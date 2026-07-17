@@ -79,14 +79,24 @@ spec:
           #trustedIPs: [ ]
           #  - <proxy-ip>
           #  - 127.0.0.1
-        #forwardedHeaders:
-        #  insecure: true
-          #trustedIPs:
-          #  - <proxy-ip>
-          #  - 127.0.0.1
+        # forwardedHeaders.insecure: true would let ANY peer claim an arbitrary client
+        # IP via X-Forwarded-For. Use the explicit traefik_forwarded_trusted_ips
+        # allowlist instead. Omitted entirely when the list is empty (the main/ dummy),
+        # so a clone without the vault renders exactly the previous config: Traefik then
+        # trusts nobody and overwrites X-Forwarded-For with the peer IP.
+{% if traefik_forwarded_trusted_ips | default([]) | length > 0 %}
+        forwardedHeaders:
+          trustedIPs: {{ traefik_forwarded_trusted_ips | to_json }}
+{% endif %}
       websecure:
         port: 4430
         exposedPort: 4430
         nodePort: 30443
         proxyProtocol:
           insecure: true
+        # Same allowlist as web: without it Traefik discards the edge's X-Forwarded-For
+        # and every remote client looks like the proxy IP to the backend.
+{% if traefik_forwarded_trusted_ips | default([]) | length > 0 %}
+        forwardedHeaders:
+          trustedIPs: {{ traefik_forwarded_trusted_ips | to_json }}
+{% endif %}

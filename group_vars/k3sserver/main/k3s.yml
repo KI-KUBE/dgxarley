@@ -11,8 +11,17 @@ kubeconfig_api_server: "https://192.168.124.100:6443"
 cluster_cidr: "10.68.0.0/16"
 service_cidr: "10.69.0.0/16"
 
-# K3s Version -> check role defaults
-# k3s_version: "v1.36.1+k3s1"
+# Traefik: proxies whose X-Forwarded-* headers the web/websecure entrypoints trust.
+# Traefik discards inbound Forwarded headers from any peer NOT listed here and sets
+# X-Forwarded-For to the peer IP instead. With the list empty, a backend behind a
+# reverse proxy therefore only ever sees the proxy IP, never the real client.
+# List only IPs that are genuinely trustworthy: a listed peer may claim any client
+# IP it likes. Empty = trust nobody (Traefik default).
+# The peer Traefik matches is the PROXY-protocol source reported by the HAProxy in
+# front of it (roles/k3sserver/templates/etc_haproxy_haproxy.cfg.j2), not the raw TCP
+# peer. Kept deliberately separate from iptables_k3s_external_ips: a firewall
+# exception must not silently grant header trust as well.
+traefik_forwarded_trusted_ips: []
 # Pod/Service CIDRs fuer iptables ipsets
 localnets_k3sserver:
   - { cidr: "10.68.0.0/16", comment: "k3s-pods" }
