@@ -150,6 +150,13 @@
 
               log_config: "/data/log.config"
               media_store_path: /data/media_store
+              # Pinned explicitly, NOT left to the default: Synapse defaults this to
+              # true only since 1.120, and the sister repo deliberately sets it FALSE
+              # (blocking /_matrix/media/ at its external nginx instead). Here matrix.
+              # kikube.eu is reachable from the internet with no such edge block, so an
+              # image bump or default flip must never silently re-open the legacy
+              # unauthenticated /_matrix/media/ download endpoint.
+              enable_authenticated_media: true
               signing_key_path: /data/signing.key
               trusted_key_servers:
                 - server_name: "matrix.org"
@@ -263,11 +270,30 @@
                 nodeSelector:
                   kubernetes.io/arch: "amd64"
                 securityContext:
+                  # Kept for a possible future move back to a PVC, but NOTE: fsGroup
+                  # does NOT apply to hostPath volumes, so it does nothing here. The
+                  # sister repo gets away with fsGroup alone because its data volume
+                  # is a PVC; this port swapped that for hostPath. The fix-perms
+                  # initContainer below is what actually makes /data writable.
                   fsGroup: 991
                 dnsConfig:
                   options:
                     - name: ndots
                       value: "1"
+                initContainers:
+                  # /start.py only chowns the data dir in its config-GENERATE path.
+                  # We ship a ready-made homeserver.yaml via SYNAPSE_CONFIG_PATH, so
+                  # it takes the existing-config path, skips the chown and gosu's
+                  # straight to 991 — which then cannot create /data/signing.key on a
+                  # root-owned hostPath. Same fix-perms pattern as the hermes pods.
+                  - name: fix-perms
+                    image: busybox:stable
+                    command: ["sh", "-c", "chown -R 991:991 /data && chmod 0750 /data"]
+                    securityContext:
+                      runAsUser: 0
+                    volumeMounts:
+                      - name: data
+                        mountPath: /data
                 containers:
                   - name: synapse
                     image: "{{ matrix.images.synapse.repo }}:{{ matrix.images.synapse.tag }}"
@@ -506,7 +532,13 @@
             namespace: "{{ matrix.namespace }}"
           spec:
             ipAllowList:
-              sourceRange: "{{ traefik_internal_allowlist }}"
+              # traefik_internal_allowlist covers only RFC1918 — that is enough for
+              # internal clients, which pihole (sister repo, 14-meine-ips.conf) points
+              # straight at the cluster ingress. Remote colleagues arrive via the
+              # wireguard-host nginx, so Traefik sees THAT proxy's public source IP and
+              # would 403 without this entry. Same value that the public A record points
+              # at, hence the shared ingress_ip stanza rather than a second literal.
+              sourceRange: "{{ traefik_internal_allowlist + [matrix.dns.ingress_ip | default(nsupdate_ingress_ip) ~ '/32'] }}"
 
     - name: Create matrix + cinny TLS certificates
       kubernetes.core.k8s:
@@ -558,7 +590,13 @@
                 middlewares:
                   - name: redirect-myhttps
 
-    - name: Create synapse https IngressRoute (public — no allowlist)
+    # Unlike the sister repo's homeserver, this one does NOT federate, so nothing
+    # outside needs to reach Synapse directly: remote clients come in through the
+    # wireguard-host nginx (whose IP the allowlist carries) and internal ones are
+    # pointed at the cluster ingress by pihole. The allowlist therefore closes the
+    # direct-to-Traefik path without costing any legitimate client. Enabling
+    # federation later means dropping the middleware from the https route below.
+    - name: Create synapse https IngressRoute (allowlisted — no federation)
       kubernetes.core.k8s:
         state: present
         definition:
@@ -580,6 +618,8 @@
                     namespace: "{{ matrix.namespace }}"
                     passHostHeader: true
                     port: 8008
+                middlewares:
+                  - name: matrix-ip-allowlist
             tls:
               secretName: "matrix.{{ matrix.base_domain }}"
 
