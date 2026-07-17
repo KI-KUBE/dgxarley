@@ -332,6 +332,12 @@
         namespace: "{{ sglang_namespace }}"
       data:
         download_models.py: "{{ lookup('file', role_path ~ '/files/hf_preload_download.py') }}"
+        # Extracted initContainer scripts (were inline `bash -c` heredocs): the
+        # model-preload wrapper (head download+markers / worker marker-wait) and
+        # the blocking JuiceFS cache warmup with live progress. Mounted at /scripts
+        # in BOTH the model-download and jfs-warmup initContainers.
+        sglang_preload.sh: "{{ lookup('file', role_path ~ '/files/sglang_preload.sh') }}"
+        sglang_jfs_warmup.sh: "{{ lookup('file', role_path ~ '/files/sglang_jfs_warmup.sh') }}"
 
 - name: Create SGLang HAProxy config ConfigMap ({{ inst.prefix }})
   kubernetes.core.k8s:
@@ -455,6 +461,11 @@
               k8s.v1.cni.cncf.io/networks: "{{ '[{\"name\":\"qsfp-vf' ~ qsfp_sriov_assignments[_sglang_active_sriov_key].vf ~ '\",\"ips\":[\"' ~ _sglang_qsfp_ips[worker_rank] ~ '/24\"]}]' if qsfp_sriov_enabled | default(false) else 'qsfp-direct-worker' ~ worker_rank }}"
               kubectl.kubernetes.io/default-container: sglang
               checksum/launch-script: "{{ (lookup('file', role_path ~ '/files/sglang_launch.sh') ~ lookup('file', role_path ~ '/files/dsv4_memprobe.py') ~ _sglang_patches_blob) | hash('sha256') }}"
+              # Rolls pods when any of the ConfigMap-mounted initContainer scripts change
+              # (they run only at container start, so a ConfigMap-only edit would silently
+              # no-op without this). Covers the extracted preload/warmup scripts + the HF
+              # downloader they wrap.
+              checksum/preload-scripts: "{{ (lookup('file', role_path ~ '/files/sglang_preload.sh') ~ lookup('file', role_path ~ '/files/sglang_jfs_warmup.sh') ~ lookup('file', role_path ~ '/files/hf_preload_download.py')) | hash('sha256') }}"
               checksum/config: "{{ _sglang_configmap.result.data | to_json(sort_keys=True) | hash('sha256') }}"  # hash of the WHOLE rendered sglang-config ConfigMap (omit-stripped by k8s, sort_keys-stable) → rolls pods on ANY config/knob change (cuda_graph_max_bs, moe_runner_backend, mamba_*, …), not a hand-picked field subset
           spec:
             enableServiceLinks: false         # prevent K8s SGLANG_PORT=tcp://... injection
@@ -465,94 +476,7 @@
               - name: model-download
                 image: "{{ sglang_image }}"
                 imagePullPolicy: Always
-                command: ["/bin/bash", "-c"]
-                args:
-                  - |
-                    JFS="{{ hf_hub_cache_on_juicefs | bool | ternary('yes', 'no') }}"
-                    MARKDIR=/root/.cache/huggingface/hub/.preload-done
-                    if [ "$JFS" != "yes" ]; then
-                      exec python3 /scripts/download_models.py   # local per-node cache: every pod downloads itself
-                    fi
-                    if [ "${SGLANG_ROLE:-}" = "head" ]; then
-                      # Shared JuiceFS: the HEAD is the single downloader (one writer to the
-                      # shared dir), then drops a per-model done-marker for the workers.
-                      python3 /scripts/download_models.py || exit $?
-                      mkdir -p "$MARKDIR"
-                      for m in $(printf '%s' "$HF_PRELOAD_MODELS" | tr ',' ' '); do
-                        touch "$MARKDIR/$(printf '%s' "$m" | sed 's#/#--#g')"
-                      done
-                      echo "[preload] head download complete; markers written"
-                      # [2026-07-16] BLOCKING cache warmup for the HEAD's own local JuiceFS
-                      # cache. Design intent of this initContainer: it ends only when the
-                      # local cache is actually warm -- previously the head never warmed
-                      # itself at all (only download/presence-check), so its shard reads
-                      # went to the HDD-backed JuiceFS backend on cold local cache.
-                      # Markers are written BEFORE this so the workers warm in parallel.
-                      # On timeout/failure the init FAILS (exit 1): kubelet restarts it
-                      # with backoff and juicefs warmup RESUMES (cached blocks are
-                      # skipped), so each retry makes progress under a bounded timeout.
-                      if [ -x /usr/local/bin/juicefs ]; then
-                        for m in $(printf '%s' "$HF_PRELOAD_MODELS" | tr ',' ' '); do
-                          d="/root/.cache/huggingface/hub/models--$(printf '%s' "$m" | sed 's#/#--#g')"
-                          [ -d "$d" ] || continue
-                          echo "[preload] blocking warmup: $d"
-                          timeout 5400 /usr/local/bin/juicefs warmup --threads 1 "$d" \
-                            || { echo "[preload] ERROR: warmup timeout/failure for $m -> failing init (kubelet retries; warmup resumes where it stopped)"; exit 1; }
-                          /usr/local/bin/juicefs warmup --check "$d" 2>&1 | tail -1
-                        done
-                      fi
-                    else
-                      # Worker on shared JuiceFS: do NOT download (avoids a concurrent-write race
-                      # on the shared dir + redundant work). Wait for the head's per-model markers;
-                      # kick off a BACKGROUND warmup so warming overlaps the wait without blocking
-                      # the poll, and print the cache-fill % (juicefs warmup --check) each round.
-                      # Non-fatal 30min timeout -> sglang then fails loudly on a missing model.
-                      echo "[preload-wait] shared JuiceFS -> waiting for head preload markers (<=30min); background-warming"
-                      start=$(date +%s); deadline=$(( start + 1800 ))
-                      MODELS=$(printf '%s' "$HF_PRELOAD_MODELS" | tr ',' ' ')
-                      HAVE_JFS=no; [ -x /usr/local/bin/juicefs ] && HAVE_JFS=yes
-                      if [ "$HAVE_JFS" = yes ]; then
-                        for m in $MODELS; do
-                          d="/root/.cache/huggingface/hub/models--$(printf '%s' "$m" | sed 's#/#--#g')"
-                          [ -d "$d" ] && /usr/local/bin/juicefs warmup --threads 1 --background "$d" >/dev/null 2>&1 || true
-                        done
-                      fi
-                      while :; do
-                        now=$(date +%s); elapsed=$(( now - start )); pending=
-                        for m in $MODELS; do
-                          [ -e "$MARKDIR/$(printf '%s' "$m" | sed 's#/#--#g')" ] || pending="$pending $m"
-                        done
-                        [ -z "$pending" ] && { echo "[preload-wait] all markers present after ${elapsed}s"; break; }
-                        [ "$now" -ge "$deadline" ] && { echo "[preload-wait] TIMEOUT after ${elapsed}s; still pending:$pending (non-fatal)"; break; }
-                        if [ "$HAVE_JFS" = yes ]; then
-                          for m in $MODELS; do
-                            d="/root/.cache/huggingface/hub/models--$(printf '%s' "$m" | sed 's#/#--#g')"
-                            [ -d "$d" ] || continue
-                            pct=$(/usr/local/bin/juicefs warmup --check "$d" 2>&1 | grep -oE '\([0-9.]+%\)' | tail -1)
-                            echo "[preload-wait] ${elapsed}s; pending:$pending; warming $(basename "$d") cached=${pct:-?}"
-                          done
-                        else
-                          echo "[preload-wait] ${elapsed}s; pending:$pending"
-                        fi
-                        sleep 20
-                      done
-                      # [2026-07-16] Do NOT exit on markers alone: block until the local
-                      # cache is actually warm. Previously the container ended here with
-                      # the warmup still running detached in the background (markers
-                      # persist across deployments, so the wait was often 0s and the
-                      # "warmup" a pure fire-and-forget) -- the warm guarantee is the
-                      # whole point of this initContainer. Timeout -> fail + retry, as above.
-                      if [ "$HAVE_JFS" = yes ]; then
-                        for m in $MODELS; do
-                          d="/root/.cache/huggingface/hub/models--$(printf '%s' "$m" | sed 's#/#--#g')"
-                          [ -d "$d" ] || continue
-                          echo "[preload-wait] blocking warmup: $d"
-                          timeout 5400 /usr/local/bin/juicefs warmup --threads 1 "$d" \
-                            || { echo "[preload-wait] ERROR: warmup timeout/failure for $m -> failing init (kubelet retries; warmup resumes where it stopped)"; exit 1; }
-                          /usr/local/bin/juicefs warmup --check "$d" 2>&1 | tail -1
-                        done
-                      fi
-                    fi
+                command: ["/bin/bash", "/scripts/sglang_preload.sh"]
                 env:
                   # Role from the pod's own label (downward API) so the SAME manifest
                   # branches head=download / worker=wait at runtime (structure stays
@@ -561,6 +485,10 @@
                     valueFrom:
                       fieldRef:
                         fieldPath: "metadata.labels['role']"
+                  # Is the HF hub cache on the shared JuiceFS mount? Template-time
+                  # value the extracted /scripts/sglang_preload.sh reads as an env var.
+                  - name: JFS_CACHE
+                    value: "{{ hf_hub_cache_on_juicefs | bool | ternary('yes', 'no') }}"
                   # HF_HUB_OFFLINE for the DOWNLOAD initContainer: profile knob
                   # hf_hub_offline (default off). When on, the head's snapshot_download
                   # goes straight offline (api.model_info raises OfflineModeIsEnabled ->
@@ -578,6 +506,8 @@
                     value: "{{ hf_token }}"
                   - name: HF_HUB_DISABLE_XET
                     value: "{{ hf_hub_disable_xet | default(0) | string }}"
+                  - name: HF_HUB_DISABLE_TELEMETRY
+                    value: "{{ hf_hub_disable_telemetry | default(1) | string }}"
                   - name: HF_XET_HIGH_PERFORMANCE
                     value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
                   - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
@@ -603,40 +533,24 @@
                 # cold shards from the single spark4 backend mid-startup. Runs in an
                 # initContainer (no liveness/startup probe), gated on hf_hub_cache_on_juicefs.
                 # `juicefs warmup` is cache-aware -> fetches ONLY uncached blocks, so a warm
-                # node is a quick no-op (no wasteful full re-read). Non-fatal. When JuiceFS is
+                # node is a quick no-op (no wasteful full re-read). BLOCKS until 100% cached and
+                # reports live cache-fill % each round; on the ~90min cap it FAILS (exit 1) so
+                # kubelet retries this init while the background warm resumes. When JuiceFS is
                 # off the juicefs-bin volume points at /bin/true and the command exits early.
                 env:
                   - name: HF_PRELOAD_MODELS
                     value: "{{ _sglang_active_model }}{{ ',' + sglang_speculative_draft_model_path if (sglang_speculative_enabled | bool) and sglang_speculative_draft_model_path else '' }}"
-                command: ["/bin/bash", "-c"]
-                args:
-                  - |
-                    if [ "{{ hf_hub_cache_on_juicefs | bool | ternary('yes', 'no') }}" != "yes" ]; then
-                      echo "[jfs-warmup] JuiceFS cache off -> no warmup"; exit 0
-                    fi
-                    if [ ! -x /usr/local/bin/juicefs ]; then
-                      echo "[jfs-warmup] juicefs binary not mounted -> skip"; exit 0
-                    fi
-                    # Warm the SAME comma-list the preload downloads (primary + MTP/draft):
-                    # submit a BACKGROUND warmup, then poll `juicefs warmup --check` and print the
-                    # cache-fill % until fully cached (or a ~40min cap). Non-fatal.
-                    for m in $(printf '%s' "$HF_PRELOAD_MODELS" | tr ',' ' '); do
-                      DIR="/root/.cache/huggingface/hub/models--$(printf '%s' "$m" | sed 's#/#--#g')"
-                      [ -d "$DIR" ] || { echo "[jfs-warmup] ${DIR} absent -> skip"; continue; }
-                      echo "[jfs-warmup] warming ${DIR} (background)"
-                      /usr/local/bin/juicefs warmup --threads 1 --background "${DIR}" || echo "[jfs-warmup] submit rc=$? (non-fatal)"
-                      for i in $(seq 1 80); do
-                        chk=$(/usr/local/bin/juicefs warmup --check "${DIR}" 2>&1)
-                        pct=$(printf '%s' "$chk" | grep -oE '\([0-9.]+%\)' | tail -1)
-                        echo "[jfs-warmup] ${DIR} cached=${pct:-?}"
-                        printf '%s' "$chk" | grep -q '(100.0%)' && { echo "[jfs-warmup] ${DIR} fully cached"; break; }
-                        sleep 30
-                      done
-                    done
+                  # Template-time JuiceFS-on flag the extracted script reads as an env var.
+                  - name: JFS_CACHE
+                    value: "{{ hf_hub_cache_on_juicefs | bool | ternary('yes', 'no') }}"
+                command: ["/bin/bash", "/scripts/sglang_jfs_warmup.sh"]
                 volumeMounts:
                   - name: hf-cache
                     mountPath: /root/.cache/huggingface
                     mountPropagation: "{{ 'HostToContainer' if hf_hub_cache_on_juicefs | bool else 'None' }}"
+                  - name: model-download-script
+                    mountPath: /scripts
+                    readOnly: true
                   - name: juicefs-bin
                     mountPath: /usr/local/bin/juicefs
                     readOnly: true
@@ -685,6 +599,8 @@
                     value: "{{ hf_token }}"
                   - name: HF_HUB_DISABLE_XET
                     value: "{{ hf_hub_disable_xet | default(0) | string }}"
+                  - name: HF_HUB_DISABLE_TELEMETRY
+                    value: "{{ hf_hub_disable_telemetry | default(1) | string }}"
                   - name: HF_XET_HIGH_PERFORMANCE
                     value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
                   - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
@@ -822,6 +738,11 @@
               prometheus.io/port: "{{ inst.port | string }}"
               prometheus.io/path: "/metrics"
               checksum/launch-script: "{{ (lookup('file', role_path ~ '/files/' ~ ('sglang_embed_launch.sh' if (inst.is_embedding | default(false)) else 'sglang_launch.sh')) ~ lookup('file', role_path ~ '/files/dsv4_memprobe.py') ~ _sglang_patches_blob) | hash('sha256') }}"
+              # Rolls pods when any of the ConfigMap-mounted initContainer scripts change
+              # (they run only at container start, so a ConfigMap-only edit would silently
+              # no-op without this). Covers the extracted preload/warmup scripts + the HF
+              # downloader they wrap.
+              checksum/preload-scripts: "{{ (lookup('file', role_path ~ '/files/sglang_preload.sh') ~ lookup('file', role_path ~ '/files/sglang_jfs_warmup.sh') ~ lookup('file', role_path ~ '/files/hf_preload_download.py')) | hash('sha256') }}"
               checksum/config: "{{ _sglang_configmap.result.data | to_json(sort_keys=True) | hash('sha256') }}"  # hash of the WHOLE rendered sglang-config ConfigMap (omit-stripped by k8s, sort_keys-stable) → rolls pods on ANY config/knob change (cuda_graph_max_bs, moe_runner_backend, mamba_*, …), not a hand-picked field subset
           spec:
             serviceAccountName: "{{ inst.prefix }}-head"
@@ -833,94 +754,7 @@
               - name: model-download
                 image: "{{ sglang_image }}"
                 imagePullPolicy: Always
-                command: ["/bin/bash", "-c"]
-                args:
-                  - |
-                    JFS="{{ hf_hub_cache_on_juicefs | bool | ternary('yes', 'no') }}"
-                    MARKDIR=/root/.cache/huggingface/hub/.preload-done
-                    if [ "$JFS" != "yes" ]; then
-                      exec python3 /scripts/download_models.py   # local per-node cache: every pod downloads itself
-                    fi
-                    if [ "${SGLANG_ROLE:-}" = "head" ]; then
-                      # Shared JuiceFS: the HEAD is the single downloader (one writer to the
-                      # shared dir), then drops a per-model done-marker for the workers.
-                      python3 /scripts/download_models.py || exit $?
-                      mkdir -p "$MARKDIR"
-                      for m in $(printf '%s' "$HF_PRELOAD_MODELS" | tr ',' ' '); do
-                        touch "$MARKDIR/$(printf '%s' "$m" | sed 's#/#--#g')"
-                      done
-                      echo "[preload] head download complete; markers written"
-                      # [2026-07-16] BLOCKING cache warmup for the HEAD's own local JuiceFS
-                      # cache. Design intent of this initContainer: it ends only when the
-                      # local cache is actually warm -- previously the head never warmed
-                      # itself at all (only download/presence-check), so its shard reads
-                      # went to the HDD-backed JuiceFS backend on cold local cache.
-                      # Markers are written BEFORE this so the workers warm in parallel.
-                      # On timeout/failure the init FAILS (exit 1): kubelet restarts it
-                      # with backoff and juicefs warmup RESUMES (cached blocks are
-                      # skipped), so each retry makes progress under a bounded timeout.
-                      if [ -x /usr/local/bin/juicefs ]; then
-                        for m in $(printf '%s' "$HF_PRELOAD_MODELS" | tr ',' ' '); do
-                          d="/root/.cache/huggingface/hub/models--$(printf '%s' "$m" | sed 's#/#--#g')"
-                          [ -d "$d" ] || continue
-                          echo "[preload] blocking warmup: $d"
-                          timeout 5400 /usr/local/bin/juicefs warmup --threads 1 "$d" \
-                            || { echo "[preload] ERROR: warmup timeout/failure for $m -> failing init (kubelet retries; warmup resumes where it stopped)"; exit 1; }
-                          /usr/local/bin/juicefs warmup --check "$d" 2>&1 | tail -1
-                        done
-                      fi
-                    else
-                      # Worker on shared JuiceFS: do NOT download (avoids a concurrent-write race
-                      # on the shared dir + redundant work). Wait for the head's per-model markers;
-                      # kick off a BACKGROUND warmup so warming overlaps the wait without blocking
-                      # the poll, and print the cache-fill % (juicefs warmup --check) each round.
-                      # Non-fatal 30min timeout -> sglang then fails loudly on a missing model.
-                      echo "[preload-wait] shared JuiceFS -> waiting for head preload markers (<=30min); background-warming"
-                      start=$(date +%s); deadline=$(( start + 1800 ))
-                      MODELS=$(printf '%s' "$HF_PRELOAD_MODELS" | tr ',' ' ')
-                      HAVE_JFS=no; [ -x /usr/local/bin/juicefs ] && HAVE_JFS=yes
-                      if [ "$HAVE_JFS" = yes ]; then
-                        for m in $MODELS; do
-                          d="/root/.cache/huggingface/hub/models--$(printf '%s' "$m" | sed 's#/#--#g')"
-                          [ -d "$d" ] && /usr/local/bin/juicefs warmup --threads 1 --background "$d" >/dev/null 2>&1 || true
-                        done
-                      fi
-                      while :; do
-                        now=$(date +%s); elapsed=$(( now - start )); pending=
-                        for m in $MODELS; do
-                          [ -e "$MARKDIR/$(printf '%s' "$m" | sed 's#/#--#g')" ] || pending="$pending $m"
-                        done
-                        [ -z "$pending" ] && { echo "[preload-wait] all markers present after ${elapsed}s"; break; }
-                        [ "$now" -ge "$deadline" ] && { echo "[preload-wait] TIMEOUT after ${elapsed}s; still pending:$pending (non-fatal)"; break; }
-                        if [ "$HAVE_JFS" = yes ]; then
-                          for m in $MODELS; do
-                            d="/root/.cache/huggingface/hub/models--$(printf '%s' "$m" | sed 's#/#--#g')"
-                            [ -d "$d" ] || continue
-                            pct=$(/usr/local/bin/juicefs warmup --check "$d" 2>&1 | grep -oE '\([0-9.]+%\)' | tail -1)
-                            echo "[preload-wait] ${elapsed}s; pending:$pending; warming $(basename "$d") cached=${pct:-?}"
-                          done
-                        else
-                          echo "[preload-wait] ${elapsed}s; pending:$pending"
-                        fi
-                        sleep 20
-                      done
-                      # [2026-07-16] Do NOT exit on markers alone: block until the local
-                      # cache is actually warm. Previously the container ended here with
-                      # the warmup still running detached in the background (markers
-                      # persist across deployments, so the wait was often 0s and the
-                      # "warmup" a pure fire-and-forget) -- the warm guarantee is the
-                      # whole point of this initContainer. Timeout -> fail + retry, as above.
-                      if [ "$HAVE_JFS" = yes ]; then
-                        for m in $MODELS; do
-                          d="/root/.cache/huggingface/hub/models--$(printf '%s' "$m" | sed 's#/#--#g')"
-                          [ -d "$d" ] || continue
-                          echo "[preload-wait] blocking warmup: $d"
-                          timeout 5400 /usr/local/bin/juicefs warmup --threads 1 "$d" \
-                            || { echo "[preload-wait] ERROR: warmup timeout/failure for $m -> failing init (kubelet retries; warmup resumes where it stopped)"; exit 1; }
-                          /usr/local/bin/juicefs warmup --check "$d" 2>&1 | tail -1
-                        done
-                      fi
-                    fi
+                command: ["/bin/bash", "/scripts/sglang_preload.sh"]
                 env:
                   # Role from the pod's own label (downward API) so the SAME manifest
                   # branches head=download / worker=wait at runtime (structure stays
@@ -929,6 +763,10 @@
                     valueFrom:
                       fieldRef:
                         fieldPath: "metadata.labels['role']"
+                  # Is the HF hub cache on the shared JuiceFS mount? Template-time
+                  # value the extracted /scripts/sglang_preload.sh reads as an env var.
+                  - name: JFS_CACHE
+                    value: "{{ hf_hub_cache_on_juicefs | bool | ternary('yes', 'no') }}"
                   # HF_HUB_OFFLINE for the DOWNLOAD initContainer: profile knob
                   # hf_hub_offline (default off). When on, the head's snapshot_download
                   # goes straight offline (api.model_info raises OfflineModeIsEnabled ->
@@ -946,6 +784,8 @@
                     value: "{{ hf_token }}"
                   - name: HF_HUB_DISABLE_XET
                     value: "{{ hf_hub_disable_xet | default(0) | string }}"
+                  - name: HF_HUB_DISABLE_TELEMETRY
+                    value: "{{ hf_hub_disable_telemetry | default(1) | string }}"
                   - name: HF_XET_HIGH_PERFORMANCE
                     value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
                   - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
@@ -971,40 +811,24 @@
                 # cold shards from the single spark4 backend mid-startup. Runs in an
                 # initContainer (no liveness/startup probe), gated on hf_hub_cache_on_juicefs.
                 # `juicefs warmup` is cache-aware -> fetches ONLY uncached blocks, so a warm
-                # node is a quick no-op (no wasteful full re-read). Non-fatal. When JuiceFS is
+                # node is a quick no-op (no wasteful full re-read). BLOCKS until 100% cached and
+                # reports live cache-fill % each round; on the ~90min cap it FAILS (exit 1) so
+                # kubelet retries this init while the background warm resumes. When JuiceFS is
                 # off the juicefs-bin volume points at /bin/true and the command exits early.
                 env:
                   - name: HF_PRELOAD_MODELS
                     value: "{{ _sglang_active_model }}{{ ',' + sglang_speculative_draft_model_path if (sglang_speculative_enabled | bool) and sglang_speculative_draft_model_path else '' }}"
-                command: ["/bin/bash", "-c"]
-                args:
-                  - |
-                    if [ "{{ hf_hub_cache_on_juicefs | bool | ternary('yes', 'no') }}" != "yes" ]; then
-                      echo "[jfs-warmup] JuiceFS cache off -> no warmup"; exit 0
-                    fi
-                    if [ ! -x /usr/local/bin/juicefs ]; then
-                      echo "[jfs-warmup] juicefs binary not mounted -> skip"; exit 0
-                    fi
-                    # Warm the SAME comma-list the preload downloads (primary + MTP/draft):
-                    # submit a BACKGROUND warmup, then poll `juicefs warmup --check` and print the
-                    # cache-fill % until fully cached (or a ~40min cap). Non-fatal.
-                    for m in $(printf '%s' "$HF_PRELOAD_MODELS" | tr ',' ' '); do
-                      DIR="/root/.cache/huggingface/hub/models--$(printf '%s' "$m" | sed 's#/#--#g')"
-                      [ -d "$DIR" ] || { echo "[jfs-warmup] ${DIR} absent -> skip"; continue; }
-                      echo "[jfs-warmup] warming ${DIR} (background)"
-                      /usr/local/bin/juicefs warmup --threads 1 --background "${DIR}" || echo "[jfs-warmup] submit rc=$? (non-fatal)"
-                      for i in $(seq 1 80); do
-                        chk=$(/usr/local/bin/juicefs warmup --check "${DIR}" 2>&1)
-                        pct=$(printf '%s' "$chk" | grep -oE '\([0-9.]+%\)' | tail -1)
-                        echo "[jfs-warmup] ${DIR} cached=${pct:-?}"
-                        printf '%s' "$chk" | grep -q '(100.0%)' && { echo "[jfs-warmup] ${DIR} fully cached"; break; }
-                        sleep 30
-                      done
-                    done
+                  # Template-time JuiceFS-on flag the extracted script reads as an env var.
+                  - name: JFS_CACHE
+                    value: "{{ hf_hub_cache_on_juicefs | bool | ternary('yes', 'no') }}"
+                command: ["/bin/bash", "/scripts/sglang_jfs_warmup.sh"]
                 volumeMounts:
                   - name: hf-cache
                     mountPath: /root/.cache/huggingface
                     mountPropagation: "{{ 'HostToContainer' if hf_hub_cache_on_juicefs | bool else 'None' }}"
+                  - name: model-download-script
+                    mountPath: /scripts
+                    readOnly: true
                   - name: juicefs-bin
                     mountPath: /usr/local/bin/juicefs
                     readOnly: true
@@ -1077,6 +901,8 @@
                     value: "{{ hf_token }}"
                   - name: HF_HUB_DISABLE_XET
                     value: "{{ hf_hub_disable_xet | default(0) | string }}"
+                  - name: HF_HUB_DISABLE_TELEMETRY
+                    value: "{{ hf_hub_disable_telemetry | default(1) | string }}"
                   - name: HF_XET_HIGH_PERFORMANCE
                     value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
                   - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
