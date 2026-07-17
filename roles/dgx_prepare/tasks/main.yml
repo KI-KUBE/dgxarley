@@ -15,6 +15,10 @@
   ansible.builtin.import_tasks: ulimits.yml
   tags: ulimits
 
+- name: Configure host-level HuggingFace environment
+  ansible.builtin.import_tasks: hf_env.yml
+  tags: hf_env
+
 - name: Install NVIDIA DGX Spark APT repository package
   ansible.builtin.import_tasks: spark_repo.yml
   tags: spark_repo

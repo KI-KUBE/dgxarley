@@ -1,0 +1,22 @@
+---
+# Host-level HF env for the sparks. The container env lists (k8s_dgx) cover the pods;
+# this covers what they do NOT: root login shells, the bare-metal podman quantizer runs,
+# and `huggingface-cli`/`hf` invoked by hand. Those run with HF_HOME=/mnt/jfs, which is
+# why $HF_HOME/.agent_harnesses.json kept reappearing in the JuiceFS root.
+#
+# /etc/environment (not /etc/profile.d) on purpose: PAM reads it for ssh logins, so the
+# value is inherited by podman and by any child process of that shell. It is a plain
+# KEY=VALUE file — no `export`, no shell expansion, no comments-with-values.
+#
+# NOTE: systemd units do NOT read /etc/environment. If an HF-downloading service ever
+# gets added, it needs its own Environment=/EnvironmentFile= entry.
+- name: Manage kikube HF environment block in /etc/environment
+  ansible.builtin.blockinfile:
+    path: /etc/environment
+    marker: "# {mark} ANSIBLE MANAGED BLOCK: huggingface"
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+    block: |
+      HF_HUB_DISABLE_TELEMETRY={{ hf_hub_disable_telemetry | default(1) | string }}

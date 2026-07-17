@@ -70,6 +70,8 @@
                     value: "{{ hf_token }}"
                   - name: HF_HUB_DISABLE_XET
                     value: "{{ hf_hub_disable_xet | default(0) | string }}"
+                  - name: HF_HUB_DISABLE_TELEMETRY
+                    value: "{{ hf_hub_disable_telemetry | default(1) | string }}"
                   - name: HF_XET_HIGH_PERFORMANCE
                     value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
                   - name: HF_XET_NUM_CONCURRENT_RANGE_GETS

@@ -19,6 +19,19 @@ hf_hub_disable_xet: 0
 # high-bandwidth hosts with >=64GB RAM — the GB10 sparks have 128GB unified, so it
 # fits). NOTE: no-op when HF_HUB_DISABLE_XET=1 turns the whole xet path off.
 hf_hub_xet_disable_high_performance: 0
+# HF_HUB_DISABLE_TELEMETRY — same propagation as hf_hub_disable_xet, plus /etc/environment
+# on the sparks (dgx_prepare, tag hf_env) because the bare-metal podman/quantizer runs are
+# what actually hit the Hub as root. 1 = no telemetry. Not a secret, so the real value lives
+# here and NOT in the vault copy.
+# Two effects, both wanted:
+#   - stops the agent/torch fields being appended to the HF user-agent (utils/_headers.py)
+#   - stops the AI-agent-harness registry being fetched from {ENDPOINT}/api/agent-harnesses
+#     and cached to $HF_HOME/.agent_harnesses.json (utils/_detect_agent.py) — that file
+#     showing up in /mnt/jfs is what prompted this knob.
+# CAVEAT: the `hf`/`huggingface-cli` CLI calls is_agent() ungated (cli/_output.py, only to
+# pick its output format), so a CLI download still fetches+writes the registry file even
+# with this set. Only HF_HUB_OFFLINE=1 blocks the fetch outright — not set globally here.
+hf_hub_disable_telemetry: 1
 # HF_XET_NUM_CONCURRENT_RANGE_GETS — concurrent byte-range GETs from S3 per file on
 # the XET transfer path (a xorb/chunk tunable). XET-ONLY: it does NOT affect plain
 # HTTPS/LFS downloads (the path used when HF_HUB_DISABLE_XET=1) and is a no-op there.
