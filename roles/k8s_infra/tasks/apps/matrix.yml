@@ -776,6 +776,71 @@
       register: matrix_bot_ensure
       changed_when: "'Success!' in matrix_bot_ensure.stdout"
 
+    # --- Email addresses (3PIDs) -------------------------------------------
+    # register_new_matrix_user has no way to attach a third-party ID, so the
+    # optional per-user `email` is applied here, after the accounts exist. Setting
+    # it through the admin API marks it verified immediately — no confirmation mail
+    # (there is no SMTP config), which is exactly why this path is used.
+    - name: Collect accounts that declare an email address
+      ansible.builtin.set_fact:
+        matrix_3pid_accounts: >-
+          {{ ((matrix.users | default([])) + (matrix.bot_users | default([])))
+             | selectattr('email', 'defined')
+             | selectattr('email', 'ne', '')
+             | list }}
+
+    - name: Log in as admin to obtain an admin API token
+      kubernetes.core.k8s_exec:
+        namespace: "{{ matrix.namespace }}"
+        pod: "{{ matrix_synapse_pod_name }}"
+        command: >
+          curl -sS -X POST http://localhost:8008/_matrix/client/v3/login
+          -H Content-Type:application/json
+          -d {{ {'type': 'm.login.password',
+                 'identifier': {'type': 'm.id.user', 'user': matrix.admin.username},
+                 'password': matrix.admin.password} | to_json | quote }}
+      register: matrix_admin_login
+      changed_when: false
+      no_log: true
+      when: matrix_3pid_accounts | length > 0
+
+    # Read first, write only on drift: the admin API replaces the WHOLE threepids
+    # list on PUT, so an unconditional write would silently drop any address a user
+    # added themselves, and would report `changed` on every single run.
+    - name: Read current 3PIDs of those accounts
+      kubernetes.core.k8s_exec:
+        namespace: "{{ matrix.namespace }}"
+        pod: "{{ matrix_synapse_pod_name }}"
+        command: >
+          curl -sS
+          -H {{ ('Authorization: Bearer ' ~ (matrix_admin_login.stdout | from_json).access_token) | quote }}
+          http://localhost:8008/_synapse/admin/v2/users/@{{ item.user }}:matrix.{{ matrix.base_domain }}
+      loop: "{{ matrix_3pid_accounts }}"
+      loop_control:
+        label: "{{ item.user }}"
+      register: matrix_3pid_current
+      changed_when: false
+      no_log: true
+      when: matrix_3pid_accounts | length > 0
+
+    - name: Set email address on synapse accounts
+      kubernetes.core.k8s_exec:
+        namespace: "{{ matrix.namespace }}"
+        pod: "{{ matrix_synapse_pod_name }}"
+        command: >
+          curl -sS -X PUT
+          -H {{ ('Authorization: Bearer ' ~ (matrix_admin_login.stdout | from_json).access_token) | quote }}
+          -H Content-Type:application/json
+          http://localhost:8008/_synapse/admin/v2/users/@{{ item.item.user }}:matrix.{{ matrix.base_domain }}
+          -d {{ {'threepids': [{'medium': 'email', 'address': item.item.email}]} | to_json | quote }}
+      loop: "{{ matrix_3pid_current.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.user }} -> {{ item.item.email }}"
+      when:
+        - matrix_3pid_accounts | length > 0
+        - item.item.email not in ((item.stdout | from_json).threepids | default([]) | map(attribute='address') | list)
+      no_log: true
+
 # ===========================================================================
 # Teardown (opt-in `-e matrix_teardown=true`). Namespace delete cascades all
 # matrix resources (Deployments, Services, ConfigMap, Secrets, Middlewares,

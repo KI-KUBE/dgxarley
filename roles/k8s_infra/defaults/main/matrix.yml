@@ -27,9 +27,14 @@
 #                   restarts (rotating macaroon/form invalidates sessions/CSRF).
 #                   Generate with `openssl rand -hex 32`.
 #   admin.*       — first server admin, bootstrapped once (register_new_matrix_user -a).
-#   users         — regular human accounts, list of {user, password}, each
+#   users         — regular human accounts, list of {user, password, email?}, each
 #                   registered --no-admin (created directly at deploy time).
-#   bot_users     — bot accounts, same {user, password} shape, registered --no-admin.
+#                   email is OPTIONAL and applied AFTER registration via the admin
+#                   API (register_new_matrix_user cannot set 3PIDs) — admin-set
+#                   addresses count as verified, no confirmation mail involved.
+#                   Without an `email:` (SMTP) section it enables login-by-address
+#                   and directory lookup only; no reset/notification mails.
+#   bot_users     — bot accounts, same {user, password, email?} shape, --no-admin.
 #                   (users + bot_users are functionally identical — just a naming
 #                   split for humans vs. bots.) Real passwords belong in vault.
 matrix_enabled: false

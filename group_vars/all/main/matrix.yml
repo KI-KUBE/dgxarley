@@ -39,8 +39,13 @@ matrix:
     password: "changeme"
   # Regular human accounts, created directly at deploy (register_new_matrix_user
   # --no-admin). Examples — real accounts + passwords go in vault (git-crypt).
+  # `email` is OPTIONAL: register_new_matrix_user cannot set third-party IDs, so
+  # it is applied afterwards via the admin API (see the 3PID task in matrix.yml).
+  # Omit it and the account is left untouched. NOTE there is no SMTP config on this
+  # homeserver, so an address buys login-by-email and directory lookup, but NOT
+  # password reset or notification mails — those need an `email:` section too.
   users:
-    - {user: "alice", password: "changeme"}
+    - {user: "alice", password: "changeme", email: "alice@example.eu"}
     - {user: "bob", password: "changeme"}
   # Bot accounts — TECHNICALLY IDENTICAL to `users` (same register --no-admin
   # flow); the split is purely naming (humans vs. automated clients). The jwt
