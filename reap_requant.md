@@ -248,6 +248,39 @@ Das volle Modell passt nicht auf einen Spark → gezielter Loader-Test:
      dense Attention getunt und braucht ggf. Re-Tuning).
 - Rollback ist trivial: Profil zurück aufs Original-Repo (bleibt im Cache).
 
+### Phase 3 — ERGEBNIS 2026-07-17: GO (deployed, gated, Durchsatz bestätigt)
+
+Deploy + Gates gelaufen (4×GB10, TP4, DSA, MTP an). Zwei Requant-**Config-Bugs**
+mussten erst gefixt werden (beide config-only, keine Neuquantisierung — unten),
+danach lädt/serviert das Modell sauber (readyReplicas=1, 0 Restarts):
+
+- **GSM8K-Gate: PASS.** 5-shot, greedy, n=200: **93.0% flexible=strict** (186/200),
+  **0 Fehler / 0 leer**. Der heuristische input_scale hält (kaputter W4A4 → <70%
+  oder Müll). Anderer Harness-Zuschnitt als die 2-shot/n=20-Referenz (85-90%), also
+  standalone Go/No-Go, kein paired A/B.
+- **Decode-Durchsatz: höher, wie beabsichtigt.** Single-stream mit MTP: **~18-29
+  tok/s** (accept len ~3-4, prompt-abhängig) vs. Basis-Referenz ~11.7-12.4 tok/s
+  (accept ~2.1). Requant-attributierbar (tok/s ÷ accept-len = Roh-Forward-Pass-Rate):
+  **~15-18% schnellerer Forward-Pass** (o_proj/q_b-W4A4-GEMV-Gewinn). Der größere
+  End-to-end-Delta enthält höhere MTP-Akzeptanz auf den Testprompts (Basis nicht auf
+  identischen Prompts nachgemessen) → ~15-18% ist die saubere requant-eigene Zahl.
+- **Loop-/Attractor-Gate (#4): noch offen** (recommended_sampling nicht neu gesweept).
+
+**Die zwei Config-Bugs (SGLang-Loader-Fallen; jetzt in `surgical_attn_nvfp4.py`
+gefixt + config.json auf jfs/spark5/HF gepatcht):**
+1. `fused_qkv_a_proj_with_mqa`: SGLang fusioniert q_a_proj+kv_a_proj zur Laufzeit;
+   sein modelopt-Loader (`is_layer_excluded`) matcht die `ignore`-Einträge per
+   **exaktem** Set-Membership aufs letzte Segment. Ein trailing `*` an
+   `kv_a_proj_with_mqa*` verfehlt die fusionierte Schicht → sie bleibt W4A4,
+   Checkpoint ist BF16 → Load-Assertion `[2624,3072]uint8` vs `[2624,6144]bf16`.
+   Fix: Fused-Komponenten OHNE `*` emittieren.
+2. MTP-Layer 78: der Rewrite hat auch den nicht-requantisierten MTP-Layer
+   (`--last-layer 77`) mit-umgeschrieben und o_proj/q_b_proj auf W4A4 gestellt →
+   Assertion `[4096,1024]uint8` vs `[4096,2048]bf16`. Fix: Rewrite auf die
+   Requant-Range gaten (out-of-range Layer behalten den breiten `self_attn*`-Glob).
+   Beide VOR dem Deploy deterministisch gegen `is_layer_excluded` validiert (79
+   Layer, 0 Mismatches).
+
 ## 5. Risiken / offene Punkte
 
 | Risiko | Einschätzung |
