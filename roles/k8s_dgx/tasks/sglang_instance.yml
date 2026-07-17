@@ -534,7 +534,7 @@
                 # initContainer (no liveness/startup probe), gated on hf_hub_cache_on_juicefs.
                 # `juicefs warmup` is cache-aware -> fetches ONLY uncached blocks, so a warm
                 # node is a quick no-op (no wasteful full re-read). BLOCKS until 100% cached and
-                # reports live cache-fill % each round; on the ~90min cap it FAILS (exit 1) so
+                # reports live cache-fill % each round; on the ~120min cap it FAILS (exit 1) so
                 # kubelet retries this init while the background warm resumes. When JuiceFS is
                 # off the juicefs-bin volume points at /bin/true and the command exits early.
                 env:
@@ -812,7 +812,7 @@
                 # initContainer (no liveness/startup probe), gated on hf_hub_cache_on_juicefs.
                 # `juicefs warmup` is cache-aware -> fetches ONLY uncached blocks, so a warm
                 # node is a quick no-op (no wasteful full re-read). BLOCKS until 100% cached and
-                # reports live cache-fill % each round; on the ~90min cap it FAILS (exit 1) so
+                # reports live cache-fill % each round; on the ~120min cap it FAILS (exit 1) so
                 # kubelet retries this init while the background warm resumes. When JuiceFS is
                 # off the juicefs-bin volume points at /bin/true and the command exits early.
                 env:

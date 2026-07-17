@@ -11,7 +11,7 @@
 # WITH live progress: submit a BACKGROUND warmup, then poll `juicefs warmup
 # --check` and print the cache-fill (GiB + %) each round until 100%. The
 # background warmup runs in the host JuiceFS mount process, so it keeps
-# progressing (and RESUMES) across init restarts. On the ~90min cap without 100%
+# progressing (and RESUMES) across init restarts. On the ~120min cap without 100%
 # we exit 1 -> kubelet restarts THIS init only (the head's download + markers
 # already succeeded and are NOT re-run) and the warm resumes where it stopped.
 # rc=0 (init passes) only once actually warm. `juicefs warmup` is cache-aware ->
@@ -35,13 +35,13 @@ for m in $(printf '%s' "$HF_PRELOAD_MODELS" | tr ',' ' '); do
   /usr/local/bin/juicefs warmup --threads 1 --background "${DIR}" \
     || echo "[jfs-warmup] submit rc=$? (non-fatal; poll continues)"
   warm=no
-  for i in $(seq 1 180); do
+  for i in $(seq 1 240); do
     chk=$(/usr/local/bin/juicefs warmup --check "${DIR}" 2>&1)
     prog=$(printf '%s' "$chk" | grep -oE '[0-9.]+ [KMGT]?i?B of [0-9.]+ [KMGT]?i?B \([0-9.]+%\)' | tail -1)
-    echo "[jfs-warmup] ${DIR} ${prog:-cached=?} (poll ${i}/180)"
+    echo "[jfs-warmup] ${DIR} ${prog:-cached=?} (poll ${i}/240)"
     printf '%s' "$chk" | grep -q '(100.0%)' && { echo "[jfs-warmup] ${DIR} fully cached"; warm=yes; break; }
     sleep 30
   done
-  [ "$warm" = yes ] || { echo "[jfs-warmup] ERROR: ${DIR} not fully warm within ~90min cap -> failing init (kubelet retries THIS init; the background warmup keeps resuming)"; rc=1; }
+  [ "$warm" = yes ] || { echo "[jfs-warmup] ERROR: ${DIR} not fully warm within ~120min cap -> failing init (kubelet retries THIS init; the background warmup keeps resuming)"; rc=1; }
 done
 exit $rc
