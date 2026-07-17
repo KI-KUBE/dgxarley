@@ -10,8 +10,8 @@ produced on and for the **dgxarley** DGX Spark cluster: 4× NVIDIA GB10
 SGLang with DSA sparse attention + MTP speculative decoding.
 
 **Status (2026-07-17): deployed and empirically validated** — GSM8K 93.0% (0
-errors), single-stream decode measurably faster; the loop/attractor sweep is in
-progress. This is an **experimental research artifact**, not a production release.
+errors), single-stream decode measurably faster, and no loop/attractor regression.
+This is an **experimental research artifact**, not a production release.
 
 ## Summary
 
@@ -157,15 +157,28 @@ end-to-end delta partly reflects higher MTP acceptance on the test prompts (the
 base was not re-measured on identical prompts), so the clean requant-own number is
 the ~15–18%.
 
-### Loop/attractor gate — in progress
+### Loop/attractor behavior — no regression
 
 The base model documents an elevated loop/attractor (non-termination) rate that
 its `recommended_sampling` (`min_p=0.05`, `repetition_penalty` 1.05→1.10)
 recovers; the concern is whether NVFP4-rounding the KD-LoRA-bearing `o_proj`/`q_b`
 worsens termination. Measured with the cluster's operational streaming
-repetition-detector across three sampling conditions (raw / rec-1.05 / rec-1.10)
-on open-ended prompts. **Result pending** — this section will be filled once the
-sweep completes.
+repetition-detector (n-gram-flood / suffix-loop / stagnation), 250 open-ended
+prompts × 3 sampling conditions, monitoring both the answer and the thinking
+stream — **0 errors across 750 generations**:
+
+| sampling | loop rate | detected as | where |
+|---|---|---|---|
+| raw (no guardrails) | **2.8%** (7/250) | n-gram flood | thinking |
+| `min_p=0.05`, `rep_pen=1.05` | **0.4%** (1/250) | suffix loop | thinking |
+| `min_p=0.05`, `rep_pen=1.10` | **0.8%** (2/250) | n-gram flood | thinking |
+
+Even at raw sampling the rate is low, and `recommended_sampling` drives it to
+near-zero; every rare loop was in the *thinking* stream, none in the final answer.
+So the W4A4 requant does **not** worsen termination. (This uses our harness /
+prompt set / loop definition, not 0xSero's exact n=2000 agent-prompt methodology,
+so the absolute numbers are not a paired A/B against the base's documented
+7.2% / 4.9% / 2.3%.)
 
 ## 5. Reproduce
 
