@@ -72,6 +72,10 @@ KEEL_POLICY_KEY = "keel.sh/policy"
 # "never" like a missing entry, as a NilPolicy. Mirror both here, otherwise the
 # selection silently diverges from the one Keel itself makes.
 KEEL_INACTIVE_POLICIES = frozenset({"", "never"})
+# initContainer tracking is opt-in in Keel and defaults to false. We check them
+# regardless -- a stale initContainer is a fact, and the very information worth
+# having is that Keel will not touch it.
+KEEL_INIT_CONTAINERS_KEY = "keel.sh/initContainers"
 REQUEST_TIMEOUT_SECONDS = 20
 
 # The three resource kinds Keel can update via poll. They share metadata,
@@ -253,6 +257,10 @@ class Finding:
         pull_policy: ``imagePullPolicy`` of the container. Anything but
             ``Always`` renders Keel's force policy useless on an unchanged tag,
             because the kubelet then takes the layer it already has locally.
+        is_init: Whether this is an initContainer rather than a regular one.
+        keel_tracks: Whether Keel would act on this container at all. Always
+            ``True`` for regular containers, and for initContainers only with
+            an explicit ``keel.sh/initContainers`` opt-in.
     """
 
     namespace: str
@@ -265,6 +273,17 @@ class Finding:
     status: DriftStatus
     note: str = ""
     pull_policy: str = "Always"
+    is_init: bool = False
+    keel_tracks: bool = True
+
+    @property
+    def label(self) -> str:
+        """Return the container name with initContainers made recognisable.
+
+        Returns:
+            The name, prefixed with ``init:`` for an initContainer.
+        """
+        return f"init:{self.container}" if self.is_init else self.container
 
     @property
     def restart_helps(self) -> bool:
@@ -606,16 +625,20 @@ def running_digests(core: client.CoreV1Api, namespace: str, selector: str) -> di
         selector: Label selector of the workload.
 
     Returns:
-        A mapping of container name to the digest part of its ``imageID``. Only
-        running pods are considered -- a pod in CrashLoop says nothing about
-        what is being served regularly.
+        A mapping of container name to the digest part of its ``imageID``,
+        covering regular and init containers alike. Only running pods are
+        considered -- a pod in CrashLoop says nothing about what is being served
+        regularly.
     """
     digests: dict[str, str] = {}
     pods = core.list_namespaced_pod(namespace=namespace, label_selector=selector)
     for pod in pods.items:
         if pod.status.phase != "Running":
             continue
-        for status in pod.status.container_statuses or []:
+        # By the time we ask, initContainers have long finished, but their
+        # status still carries the digest they ran with.
+        statuses = list(pod.status.container_statuses or []) + list(pod.status.init_container_statuses or [])
+        for status in statuses:
             image_id = status.image_id or ""
             if "@" in image_id:
                 digests[status.name] = image_id.split("@", 1)[1]
@@ -652,6 +675,27 @@ def collect_workloads(apps: client.AppsV1Api, namespace: str | None) -> list[tup
             if keel_policy(item.metadata) is not None:
                 found.append((kind, item))
     return found
+
+
+def keel_tracks_init_containers(meta: client.V1ObjectMeta) -> bool:
+    """Tell whether Keel follows this workload's initContainers.
+
+    Mirrors ``getInitContainerTrackingFromMeta``: opt-in, default ``false``, key
+    matched case-insensitively, value has to be exactly ``"true"``. Unlike the
+    policy lookup, this one checks **labels first**, then annotations.
+
+    Args:
+        meta: Metadata of the workload.
+
+    Returns:
+        ``True`` only for an explicit ``keel.sh/initContainers: "true"``.
+    """
+    needle = KEEL_INIT_CONTAINERS_KEY.lower()
+    for source in (meta.labels, meta.annotations):
+        for key, value in (source or {}).items():
+            if key.lower() == needle:
+                return bool(value == "true")
+    return False
 
 
 def keel_policy(meta: client.V1ObjectMeta) -> str | None:
@@ -787,6 +831,9 @@ def _examine_containers(
 ) -> None:
     """Check the containers of one workload and append the results.
 
+    Regular containers and initContainers are examined alike; whether Keel would
+    act on the latter is recorded per finding rather than used to skip them.
+
     Args:
         kind: Resource kind of the workload.
         meta: Metadata of the workload.
@@ -801,13 +848,18 @@ def _examine_containers(
         task: ID of the progress task whose description is updated.
         verbose: If set, log every single step.
     """
-    for container in spec.containers:
+    tracks_init = keel_tracks_init_containers(meta)
+    todo: list[tuple[client.V1Container, bool]] = [(container, False) for container in spec.containers]
+    todo += [(container, True) for container in (spec.init_containers or [])]
+
+    for container, is_init in todo:
         image = parse_image(container.image)
         running = actual.get(container.name)
+        name = f"init:{container.name}" if is_init else container.name
 
         if image.digest:
             if verbose:
-                progress.console.print(f"      [dim]{container.name}: {image.display} pinned by digest, skipped[/]")
+                progress.console.print(f"      [dim]{name}: {image.display} pinned by digest, skipped[/]")
             findings.append(
                 Finding(
                     namespace=meta.namespace,
@@ -820,6 +872,8 @@ def _examine_containers(
                     status=DriftStatus.PINNED,
                     note="pinned by digest, Keel has no effect",
                     pull_policy=container.image_pull_policy or "Always",
+                    is_init=is_init,
+                    keel_tracks=tracks_init if is_init else True,
                 )
             )
             continue
@@ -828,7 +882,7 @@ def _examine_containers(
         cached = key in digest_cache
         if verbose:
             source = "cache" if cached else f"querying {image.registry}"
-            progress.console.print(f"      {container.name}: {image.display} [dim]({source})[/]")
+            progress.console.print(f"      {name}: {image.display} [dim]({source})[/]")
         if not cached:
             progress.update(
                 task,
@@ -854,6 +908,13 @@ def _examine_containers(
             status, note = DriftStatus.CURRENT, "different index, same platform manifests"
         else:
             status, note = DriftStatus.STALE, "tag points elsewhere"
+
+        keel_tracks = tracks_init if is_init else True
+        if status is DriftStatus.STALE and not keel_tracks:
+            # Keel only touches initContainers with keel.sh/initContainers set
+            # to "true". Without it such a container can stay stale indefinitely
+            # without anything anywhere drawing attention to it.
+            note = f"{note}; initContainer without {KEEL_INIT_CONTAINERS_KEY}, Keel ignores it"
 
         pull_policy = container.image_pull_policy or "Always"
         if status is DriftStatus.STALE and pull_policy != "Always":
@@ -887,6 +948,8 @@ def _examine_containers(
                 status=status,
                 note=note,
                 pull_policy=pull_policy,
+                is_init=is_init,
+                keel_tracks=keel_tracks,
             )
         )
 
@@ -947,6 +1010,7 @@ def render(findings: Sequence[Finding], drift_only: bool) -> None:
     table = Table(title="Keel drift: running image against registry tag")
     table.add_column("Namespace")
     table.add_column("Workload")
+    table.add_column("Container")
     table.add_column("Image")
     table.add_column("running", justify="right")
     table.add_column("registry", justify="right")
@@ -959,6 +1023,7 @@ def render(findings: Sequence[Finding], drift_only: bool) -> None:
         table.add_row(
             finding.namespace,
             finding.name,
+            f"[dim]{finding.label}[/]" if finding.is_init else finding.label,
             finding.image.display,
             _short(finding.running),
             _short(finding.registry),
@@ -1120,7 +1185,7 @@ def main(
             for item in blocked:
                 console.print(
                     f"  kubectl{context_flag} set image ... [dim]# {item.namespace}/{item.name} "
-                    f"container {item.container}: imagePullPolicy="
+                    f"container {item.label}: imagePullPolicy="
                     f"{item.pull_policy} → Always[/]"
                 )
 

@@ -46,7 +46,8 @@ This script performs exactly the comparison Keel does not: the digest of the run
 ### What it does
 
 - Collects every Deployment, StatefulSet and DaemonSet carrying an active `keel.sh/policy` (annotations beat labels, `never` and empty count as inactive, the same order Keel itself uses)
-- Reads the running digest per container from the `imageID` of the running pods
+- Reads the running digest per container from the `imageID` of the running pods, **including initContainers** (their status still carries the digest they ran with long after they finished)
+- Marks a stale initContainer that Keel would not touch: tracking is opt-in via `keel.sh/initContainers: "true"` (labels first, then annotations), so without it such a container stays stale indefinitely with nothing pointing at it
 - Resolves the tag against the registry, accepting both the index digest and any per-platform manifest digest of a multi-arch tag
 - Authenticates with the workload's `imagePullSecrets`, falling back to the local Docker login (`DOCKER_CONFIG` or `~/.docker/config.json`) so Docker Hub does not count against the anonymous 100/h per-IP limit
 - Distinguishes **index drift from image drift**: if the running digest does not match the tag, it is resolved as an index and its platform manifests are compared against the tag's. A registry that re-pushes an index (changed attestations, say) without moving the manifests underneath leaves the running bits identical, so this counts as current rather than stale
