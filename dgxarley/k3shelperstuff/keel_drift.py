@@ -19,6 +19,7 @@ runnable as ``python -m dgxarley.k3shelperstuff.keel_drift``.
 
 Examples:
     keel-drift                          # every tracked workload
+    keel-drift --context ht@dgxarley    # a specific kubeconfig context
     keel-drift --namespace somestuff    # a single namespace
     keel-drift --drift-only --quiet     # drift only, terse
     keel-drift --fix-command            # print rollout-restart commands
@@ -892,9 +893,70 @@ def render(findings: Sequence[Finding], drift_only: bool) -> None:
     console.print(table)
 
 
+def load_cluster_config(context: str | None) -> str:
+    """Point the Kubernetes client at a cluster.
+
+    With an explicit *context* there is deliberately no in-cluster fallback: a
+    named context cannot be honoured from inside a pod, and silently checking a
+    different cluster than the one asked for is the worst possible outcome for a
+    tool whose whole job is comparing against the right cluster.
+
+    Args:
+        context: Name of the kubeconfig context to use, or ``None`` for the
+            current context (and, failing that, the in-cluster service account).
+
+    Returns:
+        A short description of what was loaded, for display.
+
+    Raises:
+        typer.Exit: With code 2 if no usable configuration was found. For an
+            unknown context name the available ones are listed first.
+    """
+    try:
+        config.load_kube_config(context=context)
+    except config.ConfigException as exc:
+        if context is not None:
+            err_console.print(f"[red]Context {context!r} not usable: {exc}[/]")
+            err_console.print(f"[yellow]Available: {', '.join(available_contexts()) or 'none'}[/]")
+            raise typer.Exit(code=2) from exc
+        try:
+            config.load_incluster_config()
+        except config.ConfigException as incluster_exc:
+            err_console.print(f"[red]Neither a kubeconfig nor an in-cluster context: {incluster_exc}[/]")
+            raise typer.Exit(code=2) from incluster_exc
+        return "in-cluster service account"
+
+    if context is not None:
+        return f"context {context}"
+    _, active = config.list_kube_config_contexts()
+    return f"current context {(active or {}).get('name', '?')}"
+
+
+def available_contexts() -> list[str]:
+    """List the context names the kubeconfig offers.
+
+    Returns:
+        Every context name found, or an empty list if the kubeconfig cannot be
+        read at all -- this only ever feeds an error message, so an unreadable
+        file must not raise on top of the failure being reported.
+    """
+    try:
+        contexts, _ = config.list_kube_config_contexts()
+    except config.ConfigException:
+        return []
+    return [str(entry["name"]) for entry in contexts or []]
+
+
 @app.command(help=CLI_HELP)
 def main(
     namespace: str | None = typer.Option(None, "--namespace", "-n", help="Check only this namespace."),
+    context: str | None = typer.Option(
+        None,
+        "--context",
+        "-c",
+        envvar="KUBE_CONTEXT",
+        help="kubeconfig context to use (default: the current context).",
+    ),
     drift_only: bool = typer.Option(False, "--drift-only", help="Show only stale and unclear workloads."),
     fix_command: bool = typer.Option(False, "--fix-command", help="Print kubectl rollout restart commands."),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress the table, print only the summary."),
@@ -922,6 +984,8 @@ def main(
 
     Args:
         namespace: Restrict the check to this namespace.
+        context: kubeconfig context to check against, ``None`` for the current
+            one. Also readable from ``KUBE_CONTEXT``.
         drift_only: Show only stale and unclear workloads.
         fix_command: Print the kubectl commands that would straighten things out.
         quiet: Suppress the table and print only the summary line.
@@ -933,14 +997,7 @@ def main(
             loaded, 1 when at least one workload is stale, 0 otherwise.
     """
     print_banner(module=Path(__file__).stem)
-    try:
-        config.load_kube_config()
-    except config.ConfigException:
-        try:
-            config.load_incluster_config()
-        except config.ConfigException as exc:
-            err_console.print(f"[red]Neither a kubeconfig nor an in-cluster context: {exc}[/]")
-            raise typer.Exit(code=2) from exc
+    err_console.print(f"[cyan]Checking against {load_cluster_config(context)}.[/]")
 
     findings = analyse(namespace, verbose, not no_local_credentials)
     if not findings:
@@ -962,6 +1019,9 @@ def main(
     if fix_command and stale:
         restartable = [item for item in stale if item.restart_helps]
         blocked = [item for item in stale if not item.restart_helps]
+        # The printed commands must target the same cluster that was checked --
+        # without this the user would paste them against their current context.
+        context_flag = f" --context={context}" if context else ""
 
         if restartable:
             console.print("\n[bold]To straighten out:[/]")
@@ -971,7 +1031,9 @@ def main(
                 if key in seen:
                     continue
                 seen.add(key)
-                console.print(f"  kubectl rollout restart -n {item.namespace} {item.kind.lower()}/{item.name}")
+                console.print(
+                    f"  kubectl{context_flag} rollout restart -n {item.namespace} {item.kind.lower()}/{item.name}"
+                )
 
         if blocked:
             console.print(
@@ -981,7 +1043,7 @@ def main(
             )
             for item in blocked:
                 console.print(
-                    f"  kubectl set image ... [dim]# {item.namespace}/{item.name} "
+                    f"  kubectl{context_flag} set image ... [dim]# {item.namespace}/{item.name} "
                     f"container {item.container}: imagePullPolicy="
                     f"{item.pull_policy} → Always[/]"
                 )

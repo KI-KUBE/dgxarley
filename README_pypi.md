@@ -53,12 +53,13 @@ On every poll, [Keel](https://keel.sh) compares the registry digest of right now
 pip install 'dgxarley[k3s]'
 
 keel-drift                          # every tracked workload
+keel-drift --context ht@dgxarley    # a specific kubeconfig context
 keel-drift --namespace somestuff    # a single namespace
 keel-drift --drift-only --quiet     # drift only, terse
 keel-drift --fix-command            # print rollout-restart commands
 ```
 
-The table goes to stdout and progress to stderr, so the output stays pipe-friendly. The exit code is `1` as soon as at least one workload is stale (`2` if no Kubernetes context could be loaded), which makes it usable as a pipeline gate.
+The table goes to stdout and progress to stderr, so the output stays pipe-friendly. It checks the current kubeconfig context unless `--context` (or `KUBE_CONTEXT`) names another one; with an explicit context there is no in-cluster fallback, and the printed fix commands carry the same `--context`. The exit code is `1` as soon as at least one workload is stale (`2` if the context could not be loaded), which makes it usable as a pipeline gate.
 
 ### `kceve-kvm-web` — KCEVE KVM1001A Web UI
 
@@ -102,6 +103,20 @@ Then open `http://localhost:8080` in a browser.
 ```bash
 pip install dgxarley
 ```
+
+Some CLIs need optional dependencies:
+
+| Extra | Installs | Needed for |
+|-------|----------|------------|
+| `k3s` | `kubernetes`, `typer` | `keel-drift` |
+| `web` | `fastapi`, `uvicorn[standard]` | `kceve-kvm-web` |
+| `sglang-bench` | `sglang`, `transformers`, `pybase64`, `typer` | `sglang-bench` |
+
+```bash
+pip install 'dgxarley[k3s]'
+```
+
+Everything else — `sglang-raw`, `sglang-test`, `openwebui-test`, `ollama-test`, `comfyui-test`, `kceve-kvm`, `kceve-kvm-web-plain`, `k3s-keys-sync` and both libraries — runs on the base install.
 
 ## Quick start
 

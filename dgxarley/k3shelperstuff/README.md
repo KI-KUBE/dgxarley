@@ -63,6 +63,7 @@ Needs the optional dependencies: `pip install 'dgxarley[k3s]'`.
 | Option                   | Description                                                   |
 |--------------------------|---------------------------------------------------------------|
 | `-n`, `--namespace NS`   | Check only this namespace (default: all)                      |
+| `-c`, `--context CTX`    | kubeconfig context to check (default: current, env `KUBE_CONTEXT`) |
 | `--drift-only`           | Show only stale and unclear workloads                         |
 | `--fix-command`          | Print the `kubectl rollout restart` commands to straighten out |
 | `-q`, `--quiet`          | Suppress the table, print only the summary                    |
@@ -77,12 +78,13 @@ The table goes to stdout, progress and diagnostics to stderr, so the output stay
 |------|--------------------------------------------------------------|
 | `0`  | No workload is stale (or none is tracked by Keel at all)      |
 | `1`  | At least one workload is stale, usable as a pipeline gate     |
-| `2`  | Neither a kubeconfig nor an in-cluster context could be used  |
+| `2`  | The named context is unknown, or no kubeconfig / in-cluster context could be used |
 
 ### Examples
 
 ```bash
 keel-drift                          # every tracked workload
+keel-drift --context ht@dgxarley    # a specific kubeconfig context
 keel-drift --namespace somestuff    # a single namespace
 keel-drift --drift-only --quiet     # drift only, terse
 keel-drift --fix-command            # print rollout-restart commands
