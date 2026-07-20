@@ -202,6 +202,7 @@
                   # root-owned hostPath. Same fix-perms pattern as the hermes pods.
                   - name: fix-perms
                     image: busybox:stable
+                    imagePullPolicy: Always
                     command: ["sh", "-c", "chown -R 991:991 /data && chmod 0750 /data"]
                     securityContext:
                       runAsUser: 0

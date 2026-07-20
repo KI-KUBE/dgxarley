@@ -166,6 +166,7 @@
                     mountPath: /scripts
               - name: gen-tls-cert
                 image: ollama/ollama:latest
+                imagePullPolicy: Always
                 command: ["/bin/sh", "/scripts-tls/gen-cert.sh"]
                 volumeMounts:
                   - name: tls-haproxy-config

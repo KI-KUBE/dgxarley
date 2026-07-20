@@ -125,6 +125,7 @@ spec:
         # hostPath DirectoryOrCreate creates 0755 root:root; reset to <uid>:<gid> 0700.
         - name: fix-perms
           image: busybox:latest
+          imagePullPolicy: Always
           env:
             - name: TZ
               value: "{{ hermes.timezone }}"
@@ -159,6 +160,7 @@ spec:
         # is guaranteed cached on the node (used by the main container too).
         - name: merge-config
           image: "nousresearch/hermes-agent:{{ item.image_tag | default(hermes.image_tag) }}"
+          imagePullPolicy: Always
           command:
             - /opt/hermes/.venv/bin/python
             - /opt/merge-config/hermes_merge_config.py

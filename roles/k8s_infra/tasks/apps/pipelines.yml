@@ -72,7 +72,7 @@
             initContainers:
               - name: seed-pipelines
                 image: busybox:latest
-                imagePullPolicy: IfNotPresent
+                imagePullPolicy: Always
                 command:
                   - /bin/sh
                   - -c

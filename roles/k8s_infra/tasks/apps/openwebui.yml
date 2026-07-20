@@ -263,7 +263,7 @@
             initContainers:
               - name: seed-config
                 image: busybox:latest
-                imagePullPolicy: IfNotPresent
+                imagePullPolicy: Always
                 command: ["/bin/sh", "-c", "cp -v /config-seed/config.json /app/backend/data/config.json"]
                 volumeMounts:
                   - name: openwebui-seed-config

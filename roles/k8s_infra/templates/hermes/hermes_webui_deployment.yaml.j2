@@ -151,6 +151,7 @@ spec:
         # same thing; whichever runs first wins, the other is a no-op.
         - name: fix-perms
           image: busybox:latest
+          imagePullPolicy: Always
           env:
             - name: TZ
               value: "{{ hermes.timezone }}"
