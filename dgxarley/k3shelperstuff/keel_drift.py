@@ -12,7 +12,9 @@ without ever touching the corresponding Deployment, so the change stays
 invisible forever, until the next push.
 
 This script performs exactly the comparison Keel does not: the digest of the
-running pod against the digest the tag currently points at.
+running pod against the digest the tag currently points at. A mismatch alone is
+not proof of staleness, so index drift is separated from image drift -- see
+:func:`child_digests`.
 
 Installed as the ``keel-drift`` entry point (extra ``dgxarley[k3s]``), also
 runnable as ``python -m dgxarley.k3shelperstuff.keel_drift``.
@@ -79,6 +81,9 @@ type Workload = client.V1Deployment | client.V1StatefulSet | client.V1DaemonSet
 
 # Identity of one registry lookup: registry host, repository path, tag.
 type DigestCacheKey = tuple[str, str, str]
+
+# Identity of one index resolution: registry host, repository path, digest.
+type ChildCacheKey = tuple[str, str, str]
 
 # Without these Accept headers the registry returns the old v1 manifest type,
 # and with it a different digest than the one containerd carries in the imageID.
@@ -455,6 +460,42 @@ def registry_digests(image: ImageRef, credentials: tuple[str, str] | None) -> Re
     return RegistryLookup(index_digest, frozenset(acceptable), "")
 
 
+def child_digests(image: ImageRef, digest: str, credentials: tuple[str, str] | None) -> frozenset[str]:
+    """Resolve a concrete digest and return the platform manifests below it.
+
+    Needed when the running digest does not match the current tag. Registries
+    occasionally re-push the index of a tag -- because attestation entries
+    changed, for instance -- without the platform manifests underneath moving at
+    all. The index digest is new then, but the bits actually running are
+    identical. Without this resolution the tool would report such a case as
+    stale, which is index drift misread as image drift.
+
+    Args:
+        image: The image reference, for registry and repository.
+        digest: The digest to resolve, typically taken from an ``imageID``.
+        credentials: Optional ``(username, password)`` pair.
+
+    Returns:
+        The platform manifests the digest references. Empty if the digest is not
+        an index or cannot be fetched -- both mean "no evidence of equivalence",
+        which the caller treats as drift.
+    """
+    host = DOCKER_HUB_API_HOST if image.registry == DOCKER_HUB_REGISTRY else image.registry
+    try:
+        response = _authenticated_get(f"https://{host}/v2/{image.repository}/manifests/{digest}", credentials)
+    except requests.exceptions.RequestException:
+        return frozenset()
+    if not response.ok:
+        return frozenset()
+
+    try:
+        manifest = cast(ManifestIndex, response.json())
+    except ValueError:
+        return frozenset()
+
+    return frozenset(child["digest"] for child in manifest.get("manifests", []) if child.get("digest"))
+
+
 def load_pull_credentials(core: client.CoreV1Api, namespace: str, secret_names: Sequence[str]) -> RegistryAuth:
     """Read ``imagePullSecrets`` and build a registry mapping from them.
 
@@ -663,6 +704,7 @@ def analyse(namespace: str | None, verbose: bool, use_local_credentials: bool = 
 
     findings: list[Finding] = []
     digest_cache: dict[DigestCacheKey, RegistryLookup] = {}
+    child_cache: dict[ChildCacheKey, frozenset[str]] = {}
 
     with err_console.status("[cyan]Looking for workloads with keel.sh/policy…[/]"):
         workloads = collect_workloads(apps, namespace)
@@ -717,6 +759,7 @@ def analyse(namespace: str | None, verbose: bool, use_local_credentials: bool = 
                 actual=actual,
                 auth=auth,
                 digest_cache=digest_cache,
+                child_cache=child_cache,
                 findings=findings,
                 progress=progress,
                 task=task,
@@ -736,6 +779,7 @@ def _examine_containers(
     actual: dict[str, str],
     auth: RegistryAuth,
     digest_cache: dict[DigestCacheKey, RegistryLookup],
+    child_cache: dict[ChildCacheKey, frozenset[str]],
     findings: list[Finding],
     progress: Progress,
     task: TaskID,
@@ -749,7 +793,9 @@ def _examine_containers(
         spec: Pod spec of the workload.
         actual: Running digests per container name.
         auth: Credentials for private registries.
-        digest_cache: Shared cache for registry lookups.
+        digest_cache: Shared cache for tag lookups.
+        child_cache: Shared cache for resolving a running digest to its platform
+            manifests.
         findings: List the results are appended to.
         progress: Progress display whose console is logged through.
         task: ID of the progress task whose description is updated.
@@ -801,6 +847,11 @@ def _examine_containers(
             status, note = DriftStatus.UNKNOWN, "no running pod"
         elif running in lookup.acceptable:
             status, note = DriftStatus.CURRENT, ""
+        elif _resolve_children(image, running, auth, child_cache) & lookup.acceptable:
+            # The running digest is an older index pointing at the same platform
+            # manifests as the current tag. Content-wise it is up to date, only
+            # the index shell was re-pushed -- index drift, not image drift.
+            status, note = DriftStatus.CURRENT, "different index, same platform manifests"
         else:
             status, note = DriftStatus.STALE, "tag points elsewhere"
 
@@ -838,6 +889,31 @@ def _examine_containers(
                 pull_policy=pull_policy,
             )
         )
+
+
+def _resolve_children(
+    image: ImageRef,
+    running: str,
+    auth: RegistryAuth,
+    child_cache: dict[ChildCacheKey, frozenset[str]],
+) -> frozenset[str]:
+    """Resolve a running digest to its platform manifests, memoised.
+
+    Args:
+        image: The image reference, for registry and repository.
+        running: The digest the pod actually runs.
+        auth: Credentials for private registries.
+        child_cache: Shared cache across the whole run, so that several
+            workloads running the same stale digest cost one request, not one
+            each.
+
+    Returns:
+        The platform manifests below *running*, empty if it is not an index.
+    """
+    key: ChildCacheKey = (image.registry, image.repository, running)
+    if key not in child_cache:
+        child_cache[key] = child_digests(image, running, auth.for_registry(image.registry))
+    return child_cache[key]
 
 
 def _short(digest: str | None) -> str:

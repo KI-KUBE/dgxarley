@@ -49,6 +49,7 @@ This script performs exactly the comparison Keel does not: the digest of the run
 - Reads the running digest per container from the `imageID` of the running pods
 - Resolves the tag against the registry, accepting both the index digest and any per-platform manifest digest of a multi-arch tag
 - Authenticates with the workload's `imagePullSecrets`, falling back to the local Docker login (`DOCKER_CONFIG` or `~/.docker/config.json`) so Docker Hub does not count against the anonymous 100/h per-IP limit
+- Distinguishes **index drift from image drift**: if the running digest does not match the tag, it is resolved as an index and its platform manifests are compared against the tag's. A registry that re-pushes an index (changed attestations, say) without moving the manifests underneath leaves the running bits identical, so this counts as current rather than stale
 - Flags containers with `imagePullPolicy != Always`, since a restart cannot renew an unchanged tag there
 
 ### Usage
