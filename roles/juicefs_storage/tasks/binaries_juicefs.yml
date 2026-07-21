@@ -36,6 +36,12 @@
         include:
           - juicefs
         mode: "0755"
+        owner: root
+        group: root
+        # tar keeps the archive's numeric UID/GID when run as root. Upstream
+        # release tarballs carry the CI runner's UID (1001), which would make
+        # root-executed binaries writable by a local account with that UID.
+        extra_opts: ['--no-same-owner']
 
     - name: Record juicefs version marker
       ansible.builtin.copy:
