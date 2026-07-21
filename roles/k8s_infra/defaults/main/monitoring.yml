@@ -13,6 +13,15 @@ alertmanager_smtp_mailfrom: "alertmanager@example.com"
 alertmanager_alert_email: "admin@example.com"
 alertmanager_gotify_token: "CHANGEME_GOTIFY_TOKEN"
 alertmanager_gotify_url: "https://gotify.example.com"
+# Loki ingress NetworkPolicy (ported from the sister repo). Loki runs with
+# auth_enabled=false on a ClusterIP, so without this policy ANY pod in the
+# cluster can read the complete cluster logs via loki:3100.
+# `false` DELETES the policy again (state: absent), it does not just skip it.
+loki_networkpolicy_enabled: true
+# Extra namespaces (besides `loki` itself) allowed to reach the loki pods,
+# e.g. ["monitoring"] once Grafana gets a Loki datasource. Plain name strings —
+# matched on the automatic `kubernetes.io/metadata.name` namespace label.
+loki_networkpolicy_extra_namespaces: []
 # Enable-gate (import-level). ON by default. Teardown opt-in:
 # `-e nut_exporter_teardown=true` removes the exporter Deployment/Service/Secret
 # from the shared `monitoring` namespace (the namespace itself is NOT deleted).

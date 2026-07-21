@@ -31,6 +31,48 @@
 
 
 
+# Loki runs with auth_enabled=false behind a ClusterIP -- without this policy
+# ANY pod in the cluster could query the complete cluster logs via loki:3100.
+# The policy makes the loki pods ingress-isolated and only lets traffic from
+# its own namespace (plus loki_networkpolicy_extra_namespaces) through.
+#
+# IMPORTANT: this only takes effect because K3s does NOT run with
+# `disable-network-policy: true` (see roles/k3sserver/defaults/main.yml,
+# k3s_disable_network_policy). While that flag is true, every NetworkPolicy
+# in the cluster is a no-op.
+- name: Create loki ingress networkpolicy
+  kubernetes.core.k8s:
+    state: "{{ 'present' if (loki_networkpolicy_enabled | default(true) | bool) else 'absent' }}"
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: loki-ingress-allow-namespace
+        namespace: loki
+        labels:
+          app: loki
+      spec:
+        # Targets the loki pods -- only their ingress is restricted.
+        podSelector:
+          matchLabels:
+            app: loki
+        policyTypes:
+          - Ingress
+        ingress:
+          # Catch-all: everything from namespace loki is allowed. That covers
+          # the promtail DaemonSet (push path, :3100) without pinning it
+          # individually. Everything outside is implicitly denied (an empty
+          # ingress list = deny). Note: ad-hoc log queries from a debug pod in
+          # another namespace are blocked too -- run such a pod in ns loki, or
+          # add the namespace to loki_networkpolicy_extra_namespaces.
+          # Builds one {namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: <ns>}}}
+          # entry per namespace name via three nested dict_kv wraps.
+          - from: "{{ (['loki'] + (loki_networkpolicy_extra_namespaces | default([])))
+                      | map('community.general.dict_kv', 'kubernetes.io/metadata.name')
+                      | map('community.general.dict_kv', 'matchLabels')
+                      | map('community.general.dict_kv', 'namespaceSelector') | list }}"
+
+
 - name: Create loki configmap
   kubernetes.core.k8s:
     state: present
