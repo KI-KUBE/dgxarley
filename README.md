@@ -12,13 +12,13 @@ built around four NVIDIA DGX Spark (ARM64) GPU nodes managed by an x86 control-p
 
 ## Cluster Nodes
 
-| Node | Hardware | Arch | Role |
-|------|----------|------|------|
-| **k3smaster** | HP EliteDesk 800 G4 | x86_64 | K3s Master, Control-Plane, Frontend Services, NUT UPS monitoring |
-| **spark1** | DGX Spark / ASUS Ascent GX10 | ARM64 | SGLang Head, Ollama Embedding |
-| **spark2** | DGX Spark / ASUS Ascent GX10 | ARM64 | SGLang Worker, docling-serve |
-| **spark3** | DGX Spark / ASUS Ascent GX10 | ARM64 | SGLang Worker |
-| **spark4** | DGX Spark / ASUS Ascent GX10 | ARM64 | SGLang Worker |
+| Node          | Hardware                     | Arch   | Role                                                             |
+|---------------|------------------------------|--------|------------------------------------------------------------------|
+| **k3smaster** | HP EliteDesk 800 G4          | x86_64 | K3s Master, Control-Plane, Frontend Services, NUT UPS monitoring |
+| **spark1**    | DGX Spark / ASUS Ascent GX10 | ARM64  | SGLang Head, Ollama Embedding                                    |
+| **spark2**    | DGX Spark / ASUS Ascent GX10 | ARM64  | SGLang Worker, docling-serve                                     |
+| **spark3**    | DGX Spark / ASUS Ascent GX10 | ARM64  | SGLang Worker                                                    |
+| **spark4**    | DGX Spark / ASUS Ascent GX10 | ARM64  | SGLang Worker                                                    |
 
 ### Cluster Overview (K9s — all namespaces)
 
@@ -64,18 +64,18 @@ built around four NVIDIA DGX Spark (ARM64) GPU nodes managed by an x86 control-p
 
 ### VLANs and Subnets
 
-| VLAN | Subnet | Purpose | Nodes |
-|------|--------|---------|-------|
-| 10 | 192.168.10.0/24 | Primary LAN, Management, DNS, GW | k3smaster |
-| 20 | 192.168.20.0/24 | K3s cluster network (API, Flannel, inter-node) | all five nodes |
-| 30 | 192.168.30.0/24 | Home network (Fritz!Box), see VLAN translation below | k3smaster |
-| 40 | 192.168.40.0/24 | Passthrough | k3smaster |
-| 50 | 192.168.50.0/24 | Passthrough | k3smaster |
-| 60 | 192.168.60.0/24 | Passthrough | k3smaster |
-| 70 | 192.168.70.0/24 | Passthrough | k3smaster |
-| -- | 10.10.10.0/24 | QSFP mesh (NCCL, MTU 9000) via MikroTik CRS812 | spark1, spark2, spark3, spark4 |
-| -- | 10.68.0.0/16 | K3s Pod CIDR | internal |
-| -- | 10.69.0.0/16 | K3s Service CIDR | internal |
+| VLAN | Subnet          | Purpose                                              | Nodes                          |
+|------|-----------------|------------------------------------------------------|--------------------------------|
+| 10   | 192.168.10.0/24 | Primary LAN, Management, DNS, GW                     | k3smaster                      |
+| 20   | 192.168.20.0/24 | K3s cluster network (API, Flannel, inter-node)       | all five nodes                 |
+| 30   | 192.168.30.0/24 | Home network (Fritz!Box), see VLAN translation below | k3smaster                      |
+| 40   | 192.168.40.0/24 | Passthrough                                          | k3smaster                      |
+| 50   | 192.168.50.0/24 | Passthrough                                          | k3smaster                      |
+| 60   | 192.168.60.0/24 | Passthrough                                          | k3smaster                      |
+| 70   | 192.168.70.0/24 | Passthrough                                          | k3smaster                      |
+| --   | 10.10.10.0/24   | QSFP mesh (NCCL, MTU 9000) via MikroTik CRS812       | spark1, spark2, spark3, spark4 |
+| --   | 10.68.0.0/16    | K3s Pod CIDR                                         | internal                       |
+| --   | 10.69.0.0/16    | K3s Service CIDR                                     | internal                       |
 
 > **Note:** VLAN IDs and subnets shown here are examples. Real values are in the encrypted vault files.
 
@@ -152,39 +152,39 @@ via the primary gateway.
 
 ## Ansible Roles
 
-| Role | Target Hosts | Description |
-|------|-------------|-------------|
-| `common` | all | Base packages, SSH hardening, Fail2ban, Postfix relay, iptables/ipset, Netplan + OVS, Avahi, sysstat, smartd, locale |
-| `dgx_prepare` | dgxsparks | QSFP netplan (4x ConnectX-7, MTU 9000), ulimits (memlock=unlimited), NVIDIA CDI, cpupower idle disable, kernel tuning (net buffers, vm.overcommit), boot console UX (Plymouth removal, GRUB countdown, `nvidia-drm.modeset=1` with forced 1920x1080 via CVT, tty1 noclear) |
-| `k3sserver` | k3sserver | K3s install (server on master, agent on sparks), kubeconfig merge to control node, HAProxy, Traefik, CoreDNS, rsyslog, NFS (optional) |
-| `k8s_dgx` | k3smaster | K8s workloads: Multus, NVIDIA device plugin, SGLang (distributed), Ollama, Open WebUI, SearXNG, docling-serve |
-| `k8s_infra` | k3smaster | K8s infrastructure: cert-manager, ESO/Kyverno, Keel, Tang, NFD, Sealed Secrets, PostgreSQL, Redis, Prometheus/Grafana/Alertmanager, Loki, Uptime Kuma |
-| `clevis` | k3smaster | LUKS auto-unlock via Tang/NBDE |
-| `nut` | k3smaster | NUT UPS monitoring (dual Green Cell UPS, `blazer_usb` driver, netserver mode) |
+| Role          | Target Hosts | Description                                                                                                                                                                                                                                                                |
+|---------------|--------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `common`      | all          | Base packages, SSH hardening, Fail2ban, Postfix relay, iptables/ipset, Netplan + OVS, Avahi, sysstat, smartd, locale                                                                                                                                                       |
+| `dgx_prepare` | dgxsparks    | QSFP netplan (4x ConnectX-7, MTU 9000), ulimits (memlock=unlimited), NVIDIA CDI, cpupower idle disable, kernel tuning (net buffers, vm.overcommit), boot console UX (Plymouth removal, GRUB countdown, `nvidia-drm.modeset=1` with forced 1920x1080 via CVT, tty1 noclear) |
+| `k3sserver`   | k3sserver    | K3s install (server on master, agent on sparks), kubeconfig merge to control node, HAProxy, Traefik, CoreDNS, rsyslog, NFS (optional)                                                                                                                                      |
+| `k8s_dgx`     | k3smaster    | K8s workloads: Multus, NVIDIA device plugin, SGLang (distributed), Ollama, Open WebUI, SearXNG, docling-serve                                                                                                                                                              |
+| `k8s_infra`   | k3smaster    | K8s infrastructure: cert-manager, ESO/Kyverno, Keel, Tang, NFD, Sealed Secrets, PostgreSQL, Redis, Prometheus/Grafana/Alertmanager, Loki, Uptime Kuma                                                                                                                      |
+| `clevis`      | k3smaster    | LUKS auto-unlock via Tang/NBDE                                                                                                                                                                                                                                             |
+| `nut`         | k3smaster    | NUT UPS monitoring (dual Green Cell UPS, `blazer_usb` driver, netserver mode)                                                                                                                                                                                              |
 
 ## K8s Infrastructure (`k8s_infra` role)
 
 Cluster-level services deployed via `k8s_infra.yml` (runs locally, applies manifests via `kubernetes.core.k8s`).
 All persistent data uses hostPath volumes under `/var/lib/k8s-data/` on k3smaster (no NFS, no Ceph) — exception: Seafile's content-addressed file storage lives under `/mnt/nfs/seafile-data` (NFS-safe blobs), only its MariaDB datadir is local under `/var/lib/k8s-data/seafile-mariadb`.
 
-| Component | Namespace | Description |
-|-----------|-----------|-------------|
-| cert-manager | cert-manager | TLS certificates via Let's Encrypt (DNS-01 / RFC2136) |
-| ESO + Kyverno | external-secrets, kyverno | External Secrets Operator with namespace-based secret isolation via Kyverno policies |
-| Keel | keel | Automated container image updates (webhook to external cluster) |
-| Tang | tang | NBDE key server for Clevis LUKS auto-unlock |
-| Sealed Secrets | kube-system | Encrypted secrets for GitOps |
-| NFD | node-feature-discovery | Auto-labels nodes with hardware capabilities |
-| Smarter Device Manager | smarter-device-manager | Exposes `/dev` devices as K8s extended resources |
-| PostgreSQL | postgresql | Single instance (openwebui + openwebui_vectors DBs with pgvector) |
-| Redis | redis | Key-value store |
-| Seafile (CE) | seafile | Self-hosted file sync (server + MariaDB + Memcached). `/shared` on NFS, MariaDB datadir local. Used as backing store for Hermes per-user `/workspace`. |
-| Prometheus | monitoring | Metrics collection (scrapes kubelets, cAdvisor, CoreDNS, Traefik, KSM, node-exporter) |
-| Grafana | monitoring | Dashboards (local auth, auto-provisioned Kubernetes dashboards from dotdc) |
-| Alertmanager | monitoring | Alert routing (email + Gotify bridge via external cluster) |
-| Loki + Promtail | loki | Log aggregation (filesystem backend, DaemonSet log collector) |
-| NUT Exporter | monitoring | Prometheus exporter for NUT UPS metrics (`druggeri/nut_exporter:3.2.5`, per-UPS scrape jobs) |
-| Uptime Kuma | uptimekuma | Uptime monitoring |
+| Component              | Namespace                 | Description                                                                                                                                            |
+|------------------------|---------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| cert-manager           | cert-manager              | TLS certificates via Let's Encrypt (DNS-01 / RFC2136)                                                                                                  |
+| ESO + Kyverno          | external-secrets, kyverno | External Secrets Operator with namespace-based secret isolation via Kyverno policies                                                                   |
+| Keel                   | keel                      | Automated container image updates (webhook to external cluster)                                                                                        |
+| Tang                   | tang                      | NBDE key server for Clevis LUKS auto-unlock                                                                                                            |
+| Sealed Secrets         | kube-system               | Encrypted secrets for GitOps                                                                                                                           |
+| NFD                    | node-feature-discovery    | Auto-labels nodes with hardware capabilities                                                                                                           |
+| Smarter Device Manager | smarter-device-manager    | Exposes `/dev` devices as K8s extended resources                                                                                                       |
+| PostgreSQL             | postgresql                | Single instance (openwebui + openwebui_vectors DBs with pgvector)                                                                                      |
+| Redis                  | redis                     | Key-value store                                                                                                                                        |
+| Seafile (CE)           | seafile                   | Self-hosted file sync (server + MariaDB + Memcached). `/shared` on NFS, MariaDB datadir local. Used as backing store for Hermes per-user `/workspace`. |
+| Prometheus             | monitoring                | Metrics collection (scrapes kubelets, cAdvisor, CoreDNS, Traefik, KSM, node-exporter)                                                                  |
+| Grafana                | monitoring                | Dashboards (local auth, auto-provisioned Kubernetes dashboards from dotdc)                                                                             |
+| Alertmanager           | monitoring                | Alert routing (email + Gotify bridge via external cluster)                                                                                             |
+| Loki + Promtail        | loki                      | Log aggregation (filesystem backend, DaemonSet log collector)                                                                                          |
+| NUT Exporter           | monitoring                | Prometheus exporter for NUT UPS metrics (`druggeri/nut_exporter:3.2.5`, per-UPS scrape jobs)                                                           |
+| Uptime Kuma            | uptimekuma                | Uptime monitoring                                                                                                                                      |
 
 FQDNs follow the pattern `<service>.<domain-suffix>` (configured via `dns_external_domain_suffix` in vault).
 
@@ -196,12 +196,12 @@ FQDNs follow the pattern `<service>.<domain-suffix>` (configured via `dns_extern
 
 Multi-node pipeline-parallel setup across up to 4 DGX Sparks:
 
-| | spark1 (head) | spark2 (worker) | spark3 (worker) | spark4 (worker) |
-|--|---------------|-----------------|-----------------|-----------------|
-| Pod | `sglang-head` | `sglang-worker-1` | `sglang-worker-2` | `sglang-worker-3` |
-| node-rank | 0 | 1 | 2 | 3 |
+|                | spark1 (head)         | spark2 (worker)       | spark3 (worker)       | spark4 (worker)       |
+|----------------|-----------------------|-----------------------|-----------------------|-----------------------|
+| Pod            | `sglang-head`         | `sglang-worker-1`     | `sglang-worker-2`     | `sglang-worker-3`     |
+| node-rank      | 0                     | 1                     | 2                     | 3                     |
 | NCCL interface | `net1` (Multus, QSFP) | `net1` (Multus, QSFP) | `net1` (Multus, QSFP) | `net1` (Multus, QSFP) |
-| GPU | 1x (CDI) | 1x (CDI) | 1x (CDI) | 1x (CDI) |
+| GPU            | 1x (CDI)              | 1x (CDI)              | 1x (CDI)              | 1x (CDI)              |
 
 - **Model**: configurable via `sglang_model` (default: `nvidia/MiniMax-M2.5-NVFP4`), with per-model profiles in `sglang_model_profiles`
 - **Image**: `scitrera/dgx-spark-sglang:0.5.10rc0`
@@ -275,15 +275,15 @@ Multi-node pipeline-parallel setup across up to 4 DGX Sparks:
 
 ### Other Services
 
-| Service | Node | Port | Notes |
-|---------|------|------|-------|
-| Open WebUI | k3smaster | 30000 (NodePort) | Frontend, connects to SGLang via ClusterIP |
-| Pipelines | k3smaster | 9099 (ClusterIP) | Open WebUI function pipelines |
-| Ollama | spark1 | 11434 (ClusterIP) | Embedding model `bge-m3` |
-| docling-serve | spark2 | 5001 (ClusterIP) | Document processing (GPU, privileged) |
-| SearXNG | k3smaster | 8080 (ClusterIP) | Metasearch engine |
-| HAProxy | k3smaster | 80, 443 | TCP passthrough to Traefik (PROXY Protocol v2) |
-| Traefik | k3smaster | 30080, 30443 (NodePort) | Ingress controller |
+| Service       | Node      | Port                    | Notes                                          |
+|---------------|-----------|-------------------------|------------------------------------------------|
+| Open WebUI    | k3smaster | 30000 (NodePort)        | Frontend, connects to SGLang via ClusterIP     |
+| Pipelines     | k3smaster | 9099 (ClusterIP)        | Open WebUI function pipelines                  |
+| Ollama        | spark1    | 11434 (ClusterIP)       | Embedding model `bge-m3`                       |
+| docling-serve | spark2    | 5001 (ClusterIP)        | Document processing (GPU, privileged)          |
+| SearXNG       | k3smaster | 8080 (ClusterIP)        | Metasearch engine                              |
+| HAProxy       | k3smaster | 80, 443                 | TCP passthrough to Traefik (PROXY Protocol v2) |
+| Traefik       | k3smaster | 30080, 30443 (NodePort) | Ingress controller                             |
 
 ### NVIDIA Device Plugin
 
@@ -453,29 +453,29 @@ add dst-address=0.0.0.0/0 gateway=192.168.10.x
 
 ### Bridge VLAN Summary (per-VLAN view)
 
-| VLAN | Comment | Tagged | Untagged |
-|------|---------|--------|----------|
-| 10 | LAN / Management | bridge, ether1 | ether3 |
-| 20 | K3s Cluster | bridge, ether1, ether3 | ether5, ether6, ether7, ether8 |
-| 30 | Home network ↔ k3smaster tagged | ether3 | ether1 |
-| 40 | passthrough | ether1, ether3 | — |
-| 50 | passthrough | ether1, ether3 | — |
-| 60 | passthrough | ether1, ether3 | — |
-| 70 | passthrough | ether1, ether3 | — |
-| 1 | passthrough | ether1, ether3 | — |
-| 1 (D) | added by pvid | — | bridge |
+| VLAN  | Comment                         | Tagged                 | Untagged                       |
+|-------|---------------------------------|------------------------|--------------------------------|
+| 10    | LAN / Management                | bridge, ether1         | ether3                         |
+| 20    | K3s Cluster                     | bridge, ether1, ether3 | ether5, ether6, ether7, ether8 |
+| 30    | Home network ↔ k3smaster tagged | ether3                 | ether1                         |
+| 40    | passthrough                     | ether1, ether3         | —                              |
+| 50    | passthrough                     | ether1, ether3         | —                              |
+| 60    | passthrough                     | ether1, ether3         | —                              |
+| 70    | passthrough                     | ether1, ether3         | —                              |
+| 1     | passthrough                     | ether1, ether3         | —                              |
+| 1 (D) | added by pvid                   | —                      | bridge                         |
 
 ### Per-Port View
 
-| Port | Tagged VLANs | Untagged VLAN | Connected To |
-|------|-------------|---------------|--------------|
-| bridge (CPU) | 10, 20 | 1 (pvid) | MikroTik itself (mgmt interfaces) |
-| ether1 | 10, 20, 40, 50, 60, 70, 1 | 30 (pvid) | Netgear S3300 uplink |
-| ether3 | 20, 30, 40, 50, 60, 70, 1 | 10 (pvid) | k3smaster OVS trunk |
-| ether5 | — | 20 (pvid) | spark1 (eth0) |
-| ether6 | — | 20 (pvid) | spark3 (eth0) |
-| ether7 | — | 20 (pvid) | spark2 (eth0) |
-| ether8 | — | 20 (pvid) | spark4 (eth0) |
+| Port         | Tagged VLANs              | Untagged VLAN | Connected To                      |
+|--------------|---------------------------|---------------|-----------------------------------|
+| bridge (CPU) | 10, 20                    | 1 (pvid)      | MikroTik itself (mgmt interfaces) |
+| ether1       | 10, 20, 40, 50, 60, 70, 1 | 30 (pvid)     | Netgear S3300 uplink              |
+| ether3       | 20, 30, 40, 50, 60, 70, 1 | 10 (pvid)     | k3smaster OVS trunk               |
+| ether5       | —                         | 20 (pvid)     | spark1 (eth0)                     |
+| ether6       | —                         | 20 (pvid)     | spark3 (eth0)                     |
+| ether7       | —                         | 20 (pvid)     | spark2 (eth0)                     |
+| ether8       | —                         | 20 (pvid)     | spark4 (eth0)                     |
 
 ### Why `bridge` Appears as Tagged
 

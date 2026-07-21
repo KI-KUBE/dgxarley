@@ -29,19 +29,19 @@ Token-level stream inspection with per-chunk breakdown in a structured table. Co
 
 ### CLI tools
 
-| Command | Description |
-|---------|-------------|
-| `sglang-raw` | Interactive SSE stream viewer with dual-panel Rich display (interpreted output + raw JSON chunks) |
-| `sglang-test` | Direct SGLang client with sequential and parallel load testing (live Rich TUI) |
-| `sglang-bench` | Benchmark launcher for SGLang with persistent dataset caching and concurrency-sweep mode |
-| `openwebui-test` | OpenWebUI / LLM client with preset management and streaming |
-| `ollama-test` | Ollama API health, model, embedding, and chat completions tests |
-| `comfyui-test` | ComfyUI integration tests for the local image-generation playground |
-| `kceve-kvm` | RS232 serial control for KCEVE KVM1001A KVM switches — 4-port and 10-port variants, `--ports`/`KCEVE_KVM_PORTS` (switch ports, query state, sniff) |
-| `kceve-kvm-web` | Web UI for KCEVE KVM control (FastAPI, requires `dgxarley[web]`) |
-| `kceve-kvm-web-plain` | Lightweight web UI for KCEVE KVM control (stdlib `http.server`, no extra dependencies) |
-| `keel-drift` | Finds Keel-tracked K8s workloads whose running image lags behind its tag (requires `dgxarley[k3s]`) |
-| `k3s-keys-sync` | Syncs the local `~/.kube/config` with the kubeconfig of a remote K3s server |
+| Command               | Description                                                                                                                                        |
+|-----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------|
+| `sglang-raw`          | Interactive SSE stream viewer with dual-panel Rich display (interpreted output + raw JSON chunks)                                                  |
+| `sglang-test`         | Direct SGLang client with sequential and parallel load testing (live Rich TUI)                                                                     |
+| `sglang-bench`        | Benchmark launcher for SGLang with persistent dataset caching and concurrency-sweep mode                                                           |
+| `openwebui-test`      | OpenWebUI / LLM client with preset management and streaming                                                                                        |
+| `ollama-test`         | Ollama API health, model, embedding, and chat completions tests                                                                                    |
+| `comfyui-test`        | ComfyUI integration tests for the local image-generation playground                                                                                |
+| `kceve-kvm`           | RS232 serial control for KCEVE KVM1001A KVM switches — 4-port and 10-port variants, `--ports`/`KCEVE_KVM_PORTS` (switch ports, query state, sniff) |
+| `kceve-kvm-web`       | Web UI for KCEVE KVM control (FastAPI, requires `dgxarley[web]`)                                                                                   |
+| `kceve-kvm-web-plain` | Lightweight web UI for KCEVE KVM control (stdlib `http.server`, no extra dependencies)                                                             |
+| `keel-drift`          | Finds Keel-tracked K8s workloads whose running image lags behind its tag (requires `dgxarley[k3s]`)                                                |
+| `k3s-keys-sync`       | Syncs the local `~/.kube/config` with the kubeconfig of a remote K3s server                                                                        |
 
 ### `keel-drift` — Keel drift check
 
@@ -93,10 +93,10 @@ Then open `http://localhost:8080` in a browser.
 
 ### Libraries
 
-| Module | Description |
-|--------|-------------|
-| `dgxarley.integration.repetition_detector` | Offline n-gram, sentence, and loop repetition analysis for completed LLM outputs |
-| `dgxarley.integration.streaming_repetition_guard` | Real-time repetition detection for token streams with configurable thresholds |
+| Module                                            | Description                                                                      |
+|---------------------------------------------------|----------------------------------------------------------------------------------|
+| `dgxarley.integration.repetition_detector`        | Offline n-gram, sentence, and loop repetition analysis for completed LLM outputs |
+| `dgxarley.integration.streaming_repetition_guard` | Real-time repetition detection for token streams with configurable thresholds    |
 
 ## Installation
 
@@ -106,11 +106,11 @@ pip install dgxarley
 
 Some CLIs need optional dependencies:
 
-| Extra | Installs | Needed for |
-|-------|----------|------------|
-| `k3s` | `kubernetes`, `typer` | `keel-drift` |
-| `web` | `fastapi`, `uvicorn[standard]` | `kceve-kvm-web` |
-| `sglang-bench` | `sglang`, `transformers`, `pybase64`, `typer` | `sglang-bench` |
+| Extra          | Installs                                      | Needed for      |
+|----------------|-----------------------------------------------|-----------------|
+| `k3s`          | `kubernetes`, `typer`                         | `keel-drift`    |
+| `web`          | `fastapi`, `uvicorn[standard]`                | `kceve-kvm-web` |
+| `sglang-bench` | `sglang`, `transformers`, `pybase64`, `typer` | `sglang-bench`  |
 
 ```bash
 pip install 'dgxarley[k3s]'
