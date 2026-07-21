@@ -7,6 +7,10 @@ k3s_version: "v1.36.2+k3s1"
 
 k3s_node_ip: "{{ ansible_facts.default_ipv4.address }}"
 
+# false = kube-router NetworkPolicy controller runs (NetworkPolicies are enforced).
+# Changing this requires a restart of ALL nodes (k3s + k3s-agent).
+k3s_disable_network_policy: false
+
 kubeconfig_context_name: "admin@cluster"
 
 # Kubelet image garbage collection
