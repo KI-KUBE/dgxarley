@@ -1,0 +1,95 @@
+---
+# file: roles/common/tasks/ulogd.yml
+#
+# Persistent logging of the kube-router NetworkPolicy drops (NFLOG group 100)
+# to journald, via ulogd2 as a host service. Only useful on k3s nodes -- only
+# there does kube-router create the NFLOG rules. See ulogd.conf.j2 for the
+# mechanism and its limitation (no pod names, only IPs).
+#
+# Deliberate exception to "no installs on hosts": an NFLOG consumer has to run
+# in the host netfilter namespace and be able to write to journald.
+
+- name: install ulogd2 (NFLOG consumer)
+  ansible.builtin.apt:
+    pkg:
+      - ulogd2
+    state: present
+  tags:
+    - ulogd
+
+# The plugin path is multiarch-dependent (/usr/lib/<triplet>/ulogd/). Instead of
+# guessing it, determine the actually installed path -- robust across
+# amd64 (k3smaster) and arm64 (sparks).
+- name: locate ulogd NFLOG input plugin
+  ansible.builtin.find:
+    paths:
+      - /usr/lib
+    patterns: "ulogd_inppkt_NFLOG.so"
+    recurse: true
+    file_type: file
+  register: ulogd_nflog_plugin
+  check_mode: false
+  tags:
+    - ulogd
+
+- name: fail if ulogd plugins were not found
+  ansible.builtin.assert:
+    that:
+      - ulogd_nflog_plugin.files | length > 0
+    fail_msg: "ulogd_inppkt_NFLOG.so not found -- package ulogd2 without the NFLOG plugin?"
+  tags:
+    - ulogd
+
+- name: derive ulogd plugin directory
+  ansible.builtin.set_fact:
+    ulogd_plugin_dir: "{{ ulogd_nflog_plugin.files[0].path | dirname }}"
+  tags:
+    - ulogd
+
+# The unit name varies by package version (ulogd.service vs ulogd2.service) --
+# derive it from the installed unit file instead of hardcoding it.
+- name: locate ulogd systemd unit
+  ansible.builtin.find:
+    paths:
+      - /lib/systemd/system
+      - /usr/lib/systemd/system
+      - /etc/systemd/system
+    patterns: "ulogd*.service"
+    file_type: any
+  register: ulogd_unit
+  check_mode: false
+  tags:
+    - ulogd
+
+- name: fail if ulogd systemd unit was not found
+  ansible.builtin.assert:
+    that:
+      - ulogd_unit.files | length > 0
+    fail_msg: "No ulogd*.service unit found."
+  tags:
+    - ulogd
+
+- name: derive ulogd service name
+  ansible.builtin.set_fact:
+    ulogd_service_name: "{{ ulogd_unit.files[0].path | basename }}"
+  tags:
+    - ulogd
+
+- name: deploy ulogd config for NFLOG group 100
+  ansible.builtin.template:
+    src: ulogd.conf.j2
+    dest: /etc/ulogd.conf
+    owner: root
+    group: root
+    mode: "0644"
+  register: ulogd_config
+  tags:
+    - ulogd
+
+- name: enable and (re)start ulogd
+  ansible.builtin.systemd_service:
+    name: "{{ ulogd_service_name }}"
+    enabled: true
+    state: "{{ 'restarted' if ulogd_config is changed else 'started' }}"
+  tags:
+    - ulogd

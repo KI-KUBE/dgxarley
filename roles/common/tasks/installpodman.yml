@@ -81,8 +81,17 @@
       # existing target dir), replicating the upstream install script; -a preserves
       # the executable bits on the static binaries. Idempotency is handled at the
       # block level by the version gate above, so an unconditional copy here is fine.
+      #
+      # --no-preserve=ownership is NOT optional: the upstream tarball carries the
+      # GitHub CI runner's NUMERIC uid/gid (1001 in v5.8.4, shown as "runner/runner"
+      # by `tar tv`). Plain `cp -a` hands /usr/local, /usr/local/bin and the
+      # podman/crun binaries to whatever local account holds that uid. Measured on
+      # spark1-4 (2026-07-21): those paths ended up owned by an orphan 1001 with no
+      # passwd entry — harmless only for as long as no user gets that uid, at which
+      # point they could replace binaries that root executes. Without preserving
+      # ownership everything lands root-owned and existing directories keep theirs.
       ansible.builtin.command:
-        cmd: "cp -a {{ _podman_static_tmp.path }}/podman-linux-{{ _podman_static_arch }}/usr {{ _podman_static_tmp.path }}/podman-linux-{{ _podman_static_arch }}/etc /"
+        cmd: "cp -a --no-preserve=ownership {{ _podman_static_tmp.path }}/podman-linux-{{ _podman_static_arch }}/usr {{ _podman_static_tmp.path }}/podman-linux-{{ _podman_static_arch }}/etc /"
       changed_when: true
 
     - name: reload systemd to pick up static podman units

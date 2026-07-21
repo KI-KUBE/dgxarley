@@ -1,0 +1,43 @@
+# {{ ansible_managed }}
+#
+# ulogd2 -- reads the kube-router NetworkPolicy drops from NFLOG group 100 and
+# writes them to journald via the SYSLOG plugin. View with:
+#     journalctl -t ulogd -f
+#
+# Context: K3s runs without `disable-network-policy` (kube-router enforces the
+# policies, see k3s_disable_network_policy in roles/k3sserver/defaults/main.yml).
+# In front of every default-deny REJECT, kube-router places a
+# `-j NFLOG --nflog-group 100` rule (rate-limited to 10/min per pod). Without a
+# consumer like this one, those netlink packets are simply dropped on the floor.
+#
+# What a line contains (verified on the sister cluster): kube-router sets an
+# --nflog-prefix "DROP by policy <namespace>/<policyname>", plus SRC (blocked
+# client), DST (protected pod) and ports. Example:
+#   DROP by policy loki/loki-ingress-allow-namespace ... SRC=10.68.6.151 \
+#     DST=10.68.4.129 PROTO=TCP DPT=3100 SYN
+# NOT included is the target *pod name* (only the DST IP) -> if needed:
+# `kubectl --context=ht@dgxarley get pod -A -o wide | grep <DST-IP>`.
+
+[global]
+# ulogd's own operational messages also go to syslog/journald.
+logfile="syslog"
+loglevel=5
+
+# The plugin directory is determined per host (multiarch: x86_64 vs aarch64).
+plugin="{{ ulogd_plugin_dir }}/ulogd_inppkt_NFLOG.so"
+plugin="{{ ulogd_plugin_dir }}/ulogd_raw2packet_BASE.so"
+plugin="{{ ulogd_plugin_dir }}/ulogd_filter_IFINDEX.so"
+plugin="{{ ulogd_plugin_dir }}/ulogd_filter_IP2STR.so"
+plugin="{{ ulogd_plugin_dir }}/ulogd_filter_PRINTPKT.so"
+plugin="{{ ulogd_plugin_dir }}/ulogd_output_SYSLOG.so"
+
+# One stack: NFLOG(100) -> make readable -> SYSLOG.
+stack=netpol100:NFLOG,base1:BASE,ifi1:IFINDEX,ip2str1:IP2STR,print1:PRINTPKT,sys1:SYSLOG
+
+[netpol100]
+# Must match the --nflog-group in the kube-router rules.
+group=100
+
+[sys1]
+facility=LOG_LOCAL5
+level=LOG_NOTICE

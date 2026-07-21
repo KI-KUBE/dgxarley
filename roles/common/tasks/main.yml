@@ -79,6 +79,12 @@
   when:
     - inventory_hostname != "krennstor101"
 
+- name: deploy ulogd2 to log kube-router networkpolicy drops to journald
+  import_tasks: ulogd.yml
+  tags:
+    - ulogd
+  when: "'k3sserver' in group_names"
+
 - name: crontab
   tags:
     - crontab
