@@ -522,6 +522,14 @@
     #     (widgets/bots/bridges dialog, sticker packs). Both empty = none, since
     #     IntegrationManagers.setupConfiguredManager() registers one only
     #     `if (apiUrl && uiUrl)`.
+    #   setting_defaults `UIFeature.voip` / `UIFeature.widgets` — the blunt
+    #     instruments: UI features are CONFIG-ONLY settings, applied "regardless
+    #     of the user's preferences", so these cannot be turned back on in-app.
+    #     voip=false hides every call button (useRoomCall.ts line ~346 bails on
+    #     !voipFeatureEnabled) but per upstream docs leaves EXISTING Jitsi widgets
+    #     working; widgets=false stops widgets being shown at all, Jitsi included.
+    #     Neither binds another client talking to the same homeserver — that
+    #     needs a Synapse spam-checker module on user_may_send_state_event.
     #
     # One expression per group on purpose: a single Jinja expression returns a
     # real dict with real booleans, whereas "{{ }}" per value would hand JSON
@@ -550,10 +558,13 @@
                                       if (matrix_element_integrations_enabled | default(true) | bool) else ''),
               'integrations_rest_url': (matrix_element_integrations_rest_url
                                         if (matrix_element_integrations_enabled | default(true) | bool) else '')} }}
+        _element_cfg_ui: >-
+          {{ {'setting_defaults': {'UIFeature.voip': (matrix_element_voip_enabled | default(true) | bool),
+                                   'UIFeature.widgets': (matrix_element_widgets_enabled | default(true) | bool)}} }}
       ansible.builtin.set_fact:
         _matrix_element_config_json: >-
           {{ _element_cfg_base
-             | combine(_element_cfg_calls, _element_cfg_integrations)
+             | combine(_element_cfg_calls, _element_cfg_integrations, _element_cfg_ui)
              | to_nice_json }}
       when: _matrix_element_install | bool
 

@@ -165,12 +165,33 @@ matrix_element_teardown: false
 #     (setupHomeserverManagers); only the configured one. True writes the two
 #     upstream scalar.vector.im URLs from the mirrored defaults below, which is
 #     also where to point a SELF-HOSTED manager (e.g. Dimension) instead.
-#     What false costs, all of it manager-only: the Extensions dialog
+#     What false costs, all of it manager-only: the Extensions dialog (see
+#     matrix_element_voip_enabled below for the blunt instruments)
 #     (widgets/bots/bridges), sticker packs, the scalar token exchange for
 #     widgets hosted ON the manager, and the "add integration" links in
 #     messages. Jitsi calls are NOT affected — WidgetUtils.addJitsiWidget()
 #     builds that widget itself from jitsi.preferred_domain — and `/addwidget
 #     <url>` still works for adding one by hand.
+#   matrix_element_voip_enabled / matrix_element_widgets_enabled — the two blunt
+#     instruments, rendered into config.json `setting_defaults` as the UI feature
+#     flags `UIFeature.voip` / `UIFeature.widgets`. UI features are CONFIG-ONLY
+#     settings that apply "regardless of the user's preferences" (upstream
+#     docs/config.md), so a user cannot switch them back on in-app.
+#       voip=false     — hides EVERY call button (useRoomCall.ts bails early on
+#                        !voipFeatureEnabled), Jitsi and Element Call alike.
+#                        Upstream docs are explicit that EXISTING Jitsi widgets
+#                        keep working, they just cannot easily be added anymore.
+#       widgets=false  — widgets are not shown at all. This is the actual "no
+#                        Jitsi, period" switch for this Element, at the price of
+#                        every other widget type (incl. a future Element Call
+#                        widget) going with it.
+#     Scope: both only bind OUR Element deployment. Someone pointing another
+#     client (app.element.io, FluffyChat, …) at this homeserver is unaffected;
+#     that would need a Synapse spam-checker module rejecting
+#     im.vector.modular.widgets in user_may_send_state_event.
+#     Note the pin above is the softer answer to the same worry: with a fixed
+#     jitsi domain AND the integration manager off, no Jitsi other than ours can
+#     be reached from this client anyway.
 # The three URL/host values below carry Element's upstream value AS THE STARTING
 # POINT, not as something reserved for upstream: edit them (or override in vault)
 # to point at your own Jitsi / integration manager. matrix_element_integrations_*
@@ -182,6 +203,8 @@ matrix_element_call_enabled: false
 matrix_element_integrations_enabled: true
 matrix_element_integrations_ui_url: "https://scalar.vector.im/"
 matrix_element_integrations_rest_url: "https://scalar.vector.im/api"
+matrix_element_voip_enabled: true
+matrix_element_widgets_enabled: true
 
 matrix:
   namespace: "matrix"
