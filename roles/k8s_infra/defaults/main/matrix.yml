@@ -105,17 +105,26 @@ matrix_cinny_teardown: false
 matrix_element_enabled: true
 matrix_element_teardown: false
 
-# --- Element call stack (Jitsi widget + Element Call) ------------------------
-# Element ships TWO independent group-call paths, both pointed at Element's own
-# hosted services by default. These three scalars are the only place we deviate;
-# an unset knob emits NO key at all, so upstream's default stays in force. All
-# three land in element-config's config.json, which is hashed into the pod
-# annotation, so changing one rolls the Element pod on the next run.
+# --- Element call stack (Jitsi widget + Element Call) + integration manager ---
+# Element ships two independent group-call paths plus an integration manager, all
+# three pointed at Element's own hosted services by default. These knobs are
+# where we deviate. They land in element-config's config.json, which is hashed
+# into the pod annotation, so changing one rolls the Element pod on the next run.
+#
+# The rendered config.json spells out EVERY key these knobs control, including
+# the ones that only restate Element's default. Reason: element-web merges our
+# file over its hardcoded DEFAULTS (apps/web/src/SdkConfig.ts), so an omitted key
+# quietly means "Element's hosted service" rather than "nothing". Consequence:
+# the value-carrying vars below START at Element's upstream value and are meant
+# to be edited, there is no separate "upstream" variable and no magic empty
+# string. RE-CHECK SdkConfig.ts WHEN BUMPING THE IMAGE, an upstream change is
+# masked by our copy of it.
 #
 #   matrix_element_jitsi_domain — config.json `jitsi.preferred_domain`: the Jitsi
-#     instance the room CONFERENCE WIDGET dials. Empty = upstream default
-#     (meet.element.io). Point it at an external/self-hosted Jitsi, hostname
-#     only, no scheme: "jitsi.example.eu". Caveat from upstream docs: the value
+#     instance the room CONFERENCE WIDGET dials. Defaults to Element's own
+#     meet.element.io; point it at an external/self-hosted Jitsi, hostname only,
+#     no scheme: "jitsi.example.eu". Do NOT set it empty, that would write an
+#     empty preferred_domain and break the widget. Caveat from upstream docs: the value
 #     is IGNORED when the widget was created by an integration manager or when
 #     the homeserver advertises jitsi in /.well-known/matrix/client. Ours does
 #     neither, so the client config wins — and the first of those two cases can
@@ -153,12 +162,26 @@ matrix_element_teardown: false
 #     is ignored — so switching it off is what makes that pin airtight.
 #     Does not cover managers a homeserver advertises via
 #     /.well-known/matrix/client `m.integrations.managers`
-#     (setupHomeserverManagers); only the configured one. True keeps upstream
-#     behaviour and emits no key at all.
-matrix_element_jitsi_domain: ""
+#     (setupHomeserverManagers); only the configured one. True writes the two
+#     upstream scalar.vector.im URLs from the mirrored defaults below, which is
+#     also where to point a SELF-HOSTED manager (e.g. Dimension) instead.
+#     What false costs, all of it manager-only: the Extensions dialog
+#     (widgets/bots/bridges), sticker packs, the scalar token exchange for
+#     widgets hosted ON the manager, and the "add integration" links in
+#     messages. Jitsi calls are NOT affected — WidgetUtils.addJitsiWidget()
+#     builds that widget itself from jitsi.preferred_domain — and `/addwidget
+#     <url>` still works for adding one by hand.
+# The three URL/host values below carry Element's upstream value AS THE STARTING
+# POINT, not as something reserved for upstream: edit them (or override in vault)
+# to point at your own Jitsi / integration manager. matrix_element_integrations_*
+# only matter while matrix_element_integrations_enabled is true; false blanks
+# both regardless of what they contain.
+matrix_element_jitsi_domain: "meet.element.io"
 matrix_element_jitsi_skip_welcome: false
 matrix_element_call_enabled: false
 matrix_element_integrations_enabled: true
+matrix_element_integrations_ui_url: "https://scalar.vector.im/"
+matrix_element_integrations_rest_url: "https://scalar.vector.im/api"
 
 matrix:
   namespace: "matrix"

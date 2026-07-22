@@ -101,8 +101,12 @@ matrix:
 # matrix_element_teardown: false
 #
 # Element's group-call paths plus the integration manager, all on Element-hosted
-# services by default.
-# An unset knob emits no config.json key at all, so upstream's default applies.
+# services by default. The rendered config.json states every one of these keys
+# explicitly, also when a knob is left neutral: element-web merges our file over
+# its own hardcoded defaults, so an omitted key would silently mean "Element's
+# hosted service". The host/URL vars therefore START at Element's upstream values
+# (meet.element.io, scalar.vector.im) and are meant to be edited; there is no
+# separate "upstream" variable and no magic empty string.
 # The real jitsi hostname lives in vault (this cluster points at a Jitsi that is
 # operated elsewhere), the dummy below only shows the shape.
 # matrix_element_jitsi_domain: ""          # "" = meet.element.io; else e.g. "jitsi.example.eu"

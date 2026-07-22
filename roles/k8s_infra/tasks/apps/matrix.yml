@@ -490,18 +490,27 @@
     # disable_custom_urls pins the client to OUR homeserver, matching cinny's
     # single-entry homeserverList; set it false to let users type another server.
     #
-    # Built as a dict and serialised with to_nice_json instead of a JSON literal:
-    # the three call-related keys below are OPTIONAL, and stitching optional
-    # members into hand-written JSON means getting the commas right in Jinja. The
-    # dict merge cannot produce invalid JSON. Only the keys we actually want to
-    # deviate on are emitted, so Element keeps its upstream defaults everywhere
-    # else (that is also why an unset knob adds NO key at all).
+    # Built as a dict and serialised with to_nice_json instead of a JSON literal,
+    # so no Jinja has to get commas right around conditional members.
     #
-    # Call stack, the two independent halves:
+    # EVERY call/integration key is written out, including the ones that merely
+    # restate Element's own default. Omitting a key is NOT neutral in an obvious
+    # way: element-web merges our file over the hardcoded DEFAULTS in
+    # apps/web/src/SdkConfig.ts (jitsi.preferred_domain meet.element.io,
+    # integrations_* scalar.vector.im), so a missing key silently means "Element's
+    # hosted service". Spelling them out makes the deployed config.json state what
+    # actually applies. Price: the vars in defaults/main/matrix.yml start at
+    # Element's upstream values and must be re-checked when the image is bumped.
+    # (Merge detail: mergeWith keeps our value for scalars, so an empty string
+    # really does clear a default; it only refuses to null out whole objects.)
+    #
+    # The knobs, all four independent:
     #   jitsi.preferred_domain  — which Jitsi the room-widget conferences use.
-    #     Unset => Element's own meet.element.io. NOTE it is ignored if the widget
-    #     came from an integration manager or if the homeserver advertises jitsi in
-    #     /.well-known/matrix/client; ours does neither, so this wins.
+    #     NOTE it is ignored if the widget came from an integration manager or if
+    #     the homeserver advertises jitsi in /.well-known/matrix/client; ours does
+    #     neither, so this wins.
+    #   jitsi_widget.skip_built_in_welcome_screen — skip Element's "Join
+    #     Conference" interstitial.
     #   element_call.disable    — kills Element Call, the LIVEKIT-based native
     #     group-call stack (MatrixRTC), which is a separate thing from the Jitsi
     #     widget and on by default, pointed at Element's hosted instance.
@@ -509,6 +518,14 @@
     #     the schema (packages/shared-types/lib/config.json.d.ts) and the reader
     #     (hooks/room/useRoomCall.ts) both say `disable`, docs/config.md has it
     #     wrong in one bullet.
+    #   integrations_ui_url / integrations_rest_url — the integration manager
+    #     (widgets/bots/bridges dialog, sticker packs). Both empty = none, since
+    #     IntegrationManagers.setupConfiguredManager() registers one only
+    #     `if (apiUrl && uiUrl)`.
+    #
+    # One expression per group on purpose: a single Jinja expression returns a
+    # real dict with real booleans, whereas "{{ }}" per value would hand JSON
+    # strings like "false" to to_nice_json.
     - name: Render element config.json
       vars:
         _element_cfg_base:
@@ -522,23 +539,21 @@
           disable_guests: true
           room_directory:
             servers: ["matrix.{{ matrix.base_domain }}"]
-        _element_cfg_jitsi: >-
-          {{ {'jitsi': {'preferred_domain': matrix_element_jitsi_domain}}
-             if (matrix_element_jitsi_domain | default('') | length > 0) else {} }}
-        _element_cfg_jitsi_widget: >-
-          {{ {'jitsi_widget': {'skip_built_in_welcome_screen': true}}
-             if (matrix_element_jitsi_skip_welcome | default(false) | bool) else {} }}
-        _element_cfg_call: >-
-          {{ {'element_call': {'disable': true}}
-             if not (matrix_element_call_enabled | default(false) | bool) else {} }}
+        _element_cfg_calls: >-
+          {{ {'jitsi': {'preferred_domain': matrix_element_jitsi_domain},
+              'jitsi_widget': {'skip_built_in_welcome_screen':
+                               (matrix_element_jitsi_skip_welcome | default(false) | bool)},
+              'element_call': {'disable':
+                               (not (matrix_element_call_enabled | default(false) | bool))}} }}
         _element_cfg_integrations: >-
-          {{ {'integrations_ui_url': '', 'integrations_rest_url': ''}
-             if not (matrix_element_integrations_enabled | default(true) | bool) else {} }}
+          {{ {'integrations_ui_url': (matrix_element_integrations_ui_url
+                                      if (matrix_element_integrations_enabled | default(true) | bool) else ''),
+              'integrations_rest_url': (matrix_element_integrations_rest_url
+                                        if (matrix_element_integrations_enabled | default(true) | bool) else '')} }}
       ansible.builtin.set_fact:
         _matrix_element_config_json: >-
           {{ _element_cfg_base
-             | combine(_element_cfg_jitsi, _element_cfg_jitsi_widget,
-                       _element_cfg_call, _element_cfg_integrations)
+             | combine(_element_cfg_calls, _element_cfg_integrations)
              | to_nice_json }}
       when: _matrix_element_install | bool
 
