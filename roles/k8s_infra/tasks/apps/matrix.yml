@@ -531,10 +531,14 @@
         _element_cfg_call: >-
           {{ {'element_call': {'disable': true}}
              if not (matrix_element_call_enabled | default(false) | bool) else {} }}
+        _element_cfg_integrations: >-
+          {{ {'integrations_ui_url': '', 'integrations_rest_url': ''}
+             if not (matrix_element_integrations_enabled | default(true) | bool) else {} }}
       ansible.builtin.set_fact:
         _matrix_element_config_json: >-
           {{ _element_cfg_base
-             | combine(_element_cfg_jitsi, _element_cfg_jitsi_widget, _element_cfg_call)
+             | combine(_element_cfg_jitsi, _element_cfg_jitsi_widget,
+                       _element_cfg_call, _element_cfg_integrations)
              | to_nice_json }}
       when: _matrix_element_install | bool
 

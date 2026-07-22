@@ -100,7 +100,8 @@ matrix:
 # matrix_element_enabled: true
 # matrix_element_teardown: false
 #
-# Element's two group-call paths, both on Element-hosted services by default.
+# Element's group-call paths plus the integration manager, all on Element-hosted
+# services by default.
 # An unset knob emits no config.json key at all, so upstream's default applies.
 # The real jitsi hostname lives in vault (this cluster points at a Jitsi that is
 # operated elsewhere), the dummy below only shows the shape.
@@ -110,3 +111,8 @@ matrix:
 # Element stack (Element Call / MatrixRTC), NOT the Jitsi widget above. Disabling
 # it leaves Jitsi calls untouched.
 # matrix_element_call_enabled: false
+# false => blanks integrations_ui_url/integrations_rest_url, which otherwise point
+# at scalar.vector.im (Element's hosted integration manager: widgets/bots/bridges
+# dialog and stickers). It receives a Matrix OpenID token when opened, and a widget
+# built through it ignores matrix_element_jitsi_domain above.
+# matrix_element_integrations_enabled: true

@@ -118,8 +118,10 @@ matrix_element_teardown: false
 #     only, no scheme: "jitsi.example.eu". Caveat from upstream docs: the value
 #     is IGNORED when the widget was created by an integration manager or when
 #     the homeserver advertises jitsi in /.well-known/matrix/client. Ours does
-#     neither, so the client config wins. Nothing to deploy on our side, this is
-#     purely which third party the browser talks to.
+#     neither, so the client config wins — and the first of those two cases can
+#     be closed outright with matrix_element_integrations_enabled below.
+#     Nothing to deploy on our side, this is purely which third party the
+#     browser talks to.
 #   matrix_element_jitsi_skip_welcome — config.json
 #     `jitsi_widget.skip_built_in_welcome_screen`: true drops Element's "Join
 #     Conference" intermediate screen and joins straight away. Only sensible if
@@ -139,9 +141,24 @@ matrix_element_teardown: false
 #     The key really is `disable`, not `disabled` — upstream's schema
 #     (packages/shared-types/lib/config.json.d.ts) and the reader
 #     (apps/web/src/hooks/room/useRoomCall.ts) agree, docs/config.md does not.
+#   matrix_element_integrations_enabled — false emits empty integrations_ui_url
+#     and integrations_rest_url, which otherwise default to scalar.vector.im,
+#     Element's HOSTED integration manager (the widgets/bots/bridges dialog and
+#     sticker packs). Empty strings genuinely switch it off rather than falling
+#     back: IntegrationManagers.setupConfiguredManager() only registers one
+#     `if (apiUrl && uiUrl)`, and mergeConfig lets a plain string override the
+#     default. Two reasons beyond taste: ScalarAuthClient exchanges a MATRIX
+#     OPENID TOKEN with that manager, and a widget created THROUGH an
+#     integration manager is one of the two cases where the jitsi domain above
+#     is ignored — so switching it off is what makes that pin airtight.
+#     Does not cover managers a homeserver advertises via
+#     /.well-known/matrix/client `m.integrations.managers`
+#     (setupHomeserverManagers); only the configured one. True keeps upstream
+#     behaviour and emits no key at all.
 matrix_element_jitsi_domain: ""
 matrix_element_jitsi_skip_welcome: false
 matrix_element_call_enabled: false
+matrix_element_integrations_enabled: true
 
 matrix:
   namespace: "matrix"
