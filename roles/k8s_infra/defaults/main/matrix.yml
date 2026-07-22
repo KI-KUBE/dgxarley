@@ -1,5 +1,5 @@
 ---
-# === Matrix (Synapse homeserver + Cinny web client) ===
+# === Matrix (Synapse homeserver + Cinny and Element web clients) ===
 # Ported from the sister repo's Keycloak-OIDC deployment
 # (../ansible/roles/k8s_workloads/tasks/communication/kubectlstuff_matrix.yml)
 # down to LOCAL Synapse auth (dgxarley has no Keycloak). Same Traefik +
@@ -11,8 +11,9 @@
 #
 #   base_domain   — the Matrix identity/server domain. server_name and every
 #                   hostname derive from it: server_name/public_baseurl =
-#                   matrix.<base_domain>, Cinny = cinny.<base_domain>. The REAL
-#                   value (kikube.eu) lives ONLY in vault; dummy here.
+#                   matrix.<base_domain>, Cinny = cinny.<base_domain>, Element =
+#                   element.<base_domain>. The REAL value (kikube.eu) lives ONLY
+#                   in vault; dummy here.
 #   data_base     — /data (signing.key, media_store, homeserver.pid), hostPath.
 #                   Matrix media is content-addressed → NFS-safe (DB is on PG).
 #   manage_dns    — true = auto-register A records via nsupdate. Requires the
@@ -37,6 +38,14 @@
 #   bot_users     — bot accounts, same {user, password, email?} shape, --no-admin.
 #                   (users + bot_users are functionally identical — just a naming
 #                   split for humans vs. bots.) Real passwords belong in vault.
+# matrix_enabled is the MASTER switch for this whole stack and the precondition
+# for everything below it: the install block it gates is what contains Synapse AND
+# both web clients, so with matrix_enabled false the per-client matrix_cinny_* /
+# matrix_element_* enable flags have NO effect whatsoever — nothing is installed,
+# no matter what they say. Enable matrix first, then pick the clients.
+# The per-client TEARDOWN flags are the exception: those blocks sit outside the
+# install block, so they still run with matrix_enabled false (that is deliberate,
+# it keeps cleanup reachable after the stack has been switched off).
 matrix_enabled: false
 matrix_teardown: false
 
@@ -65,6 +74,36 @@ matrix_teardown: false
 # dns_zones cover <base_domain>. A standalone scalar (not inside the matrix dict,
 # which is hash_behaviour=replace) so it needs no vault duplication.
 matrix_tls_issuer: "letsencrypt-secondary"
+
+# --- Web clients (Cinny, Element) -------------------------------------------
+# Two interchangeable clients against the SAME homeserver and the same local
+# password auth, each on its own host (cinny./element.<base_domain>) behind the
+# same allowlist. Both can run together, either alone, or neither (Synapse
+# serves any external Matrix client just as well).
+#
+# Standalone scalars, deliberately NOT inside the hash_behaviour=replace `matrix`
+# dict, so flipping one needs no vault duplication.
+#
+# SUBORDINATE TO matrix_enabled: these four only refine what the matrix install
+# does, they cannot switch it on. matrix_enabled false => no client is deployed
+# regardless of the two _enabled flags here (the teardowns still run, see there).
+#
+# Same semantics as every other gate pair in this role:
+#   <x>_enabled: false   only SKIPS the install, it deletes NOTHING.
+#   <x>_teardown: true   is the opt-in removal, and it works regardless of
+#                        <x>_enabled (the teardown blocks sit outside the install
+#                        block). It drops the Deployment, Service, ConfigMap,
+#                        both IngressRoutes, the Certificate WITH its TLS secret
+#                        (cert-manager leaves that behind on its own) and the A
+#                        record, but never the namespace or Synapse.
+#   ansible-playbook k8s_infra.yml --tags matrix -e matrix_cinny_teardown=true
+#
+# The full matrix_teardown deletes the whole namespace, so it removes both
+# clients no matter how these four flags are set.
+matrix_cinny_enabled: true
+matrix_cinny_teardown: false
+matrix_element_enabled: true
+matrix_element_teardown: false
 
 matrix:
   namespace: "matrix"
@@ -117,6 +156,12 @@ matrix:
   images:
     synapse: {repo: "matrixdotorg/synapse", tag: "latest"}
     cinny: {repo: "ghcr.io/cinnyapp/cinny", tag: "latest"}
+    # GHCR half of the official element-web release (same manifest as Docker Hub
+    # vectorim/element-web, multi-arch), picked to stay off Docker Hub's rate
+    # limit. Base image is nginx-unprivileged, so the pod runs as uid 101 and the
+    # listen port comes from ELEMENT_WEB_PORT (see the Deployment).
+    element: {repo: "ghcr.io/element-hq/element-web", tag: "latest"}
   resources:
     synapse: {cpu_request: "500m", memory_request: "1Gi", cpu_limit: "2000m", memory_limit: "2Gi"}
     cinny: {cpu_request: "50m", memory_request: "64Mi", cpu_limit: "500m", memory_limit: "256Mi"}
+    element: {cpu_request: "50m", memory_request: "64Mi", cpu_limit: "500m", memory_limit: "256Mi"}

@@ -1,11 +1,20 @@
 ---
-# Matrix Synapse homeserver + Cinny web client in the `matrix` namespace.
+# Matrix Synapse homeserver + Cinny and Element web clients in the `matrix`
+# namespace.
 #
 # Ported from the sister repo's Keycloak-OIDC deployment
 # (../ansible/roles/k8s_workloads/tasks/communication/kubectlstuff_matrix.yml)
 # down to LOCAL Synapse auth — dgxarley has no Keycloak. All OIDC bits
 # (oidc_providers, the modules oidc/oauth sub-blocks, the Keycloak realm/client
-# provisioning, the matrix-admin-sync Job, Element Web) are intentionally dropped.
+# provisioning, the matrix-admin-sync Job) are intentionally dropped. Element Web
+# was dropped with them at first and came back later as an OIDC-free client.
+#
+# Three gate pairs (all in defaults/main/matrix.yml): matrix_enabled /
+# matrix_teardown for the whole stack, plus matrix_cinny_* and matrix_element_*
+# for the two web clients, so either client can be added or removed without
+# touching Synapse. The client gates are SUBORDINATE: they live inside the
+# matrix_enabled install block, so with matrix_enabled false they change nothing.
+# Only the two client TEARDOWN blocks are outside it and thus always reachable.
 #
 # Design decisions:
 #   - server_name == the public ingress host (matrix.<base_domain>): no split
@@ -26,11 +35,14 @@
 #     via register_new_matrix_user. Optional synapse-token-authenticator jwt
 #     module (HS512, symmetric secret) for Hermes-agent Matrix bots — no OIDC.
 #   - Federation needs matrix.<base> reachable publicly on 443, so the matrix
-#     IngressRoute carries NO ip-allowlist. Cinny (a convenience web client) is
-#     behind the internal allowlist — flip by removing its middleware line.
+#     IngressRoute carries NO ip-allowlist. Cinny and Element (convenience web
+#     clients) are behind the internal allowlist — flip by removing the middleware
+#     line from the respective route.
 #   - Gated install + in-file teardown (matrix_enabled / matrix_teardown), same
 #     pattern as honcho/hindsight. teardown deletes the namespace but PRESERVES
 #     the synapse Postgres DB (holds rooms/messages) — drop it by hand to abandon.
+#     Cinny and Element carry the same pattern one level down (own enable +
+#     teardown flags, teardown blocks at the END of this file).
 
 - name: Matrix — install
   when:
@@ -306,8 +318,29 @@
                       medium: Memory
 
     # =======================================================================
-    # Cinny web client — static SPA, config points straight at matrix.<base>.
+    # Web clients (Cinny + Element). Both are static SPAs pointed straight at
+    # matrix.<base>, both optional and independently gated.
+    #
+    # These tasks are inside the matrix_enabled block, so the client gates only
+    # ever narrow an install that is already happening; they cannot trigger one.
+    #
+    # The gates are resolved into two facts rather than repeated per task,
+    # because each client's objects live in TWO places in this file (workload
+    # here, IngressRoutes down in the ingress section) — a single `block:` per
+    # client would only cover one of them. `not <x>_teardown` is part of the
+    # install gate so a teardown run cannot re-create what it is about to
+    # delete. The teardown blocks themselves are at the END of this file,
+    # outside the install block, so they stay reachable with <x>_enabled false.
     # =======================================================================
+
+    - name: Resolve web client install gates
+      ansible.builtin.set_fact:
+        _matrix_cinny_install: >-
+          {{ (matrix_cinny_enabled | default(true) | bool)
+             and not (matrix_cinny_teardown | default(false) | bool) }}
+        _matrix_element_install: >-
+          {{ (matrix_element_enabled | default(true) | bool)
+             and not (matrix_element_teardown | default(false) | bool) }}
 
     # Rendered once into a fact so the ConfigMap and the Deployment's rollout
     # checksum are driven by the exact same string. Hashing the INPUTS instead
@@ -316,9 +349,9 @@
     # no new pod template would be produced, and the ConfigMap edit would sit
     # there unused behind a subPath mount that never refreshes.
     # Rationale for the file's contents is in the template's header.
-    - name: Render cinny nginx realip snippet
+    - name: Render web client nginx realip snippet
       ansible.builtin.set_fact:
-        _cinny_realip_conf: "{{ lookup('template', 'matrix/cinny_realip.conf.j2') }}"
+        _matrix_client_realip_conf: "{{ lookup('template', 'matrix/matrix_client_realip.conf.j2') }}"
 
     - name: Create cinny-config ConfigMap
       kubernetes.core.k8s:
@@ -337,7 +370,8 @@
                   "https://matrix.{{ matrix.base_domain }}"
                 ]
               }
-            realip.conf: "{{ _cinny_realip_conf }}"
+            realip.conf: "{{ _matrix_client_realip_conf }}"
+      when: _matrix_cinny_install | bool
 
     - name: Create cinny Service
       kubernetes.core.k8s:
@@ -357,6 +391,7 @@
               - port: 80
                 name: http
                 targetPort: 80
+      when: _matrix_cinny_install | bool
 
     - name: Create cinny Deployment
       kubernetes.core.k8s:
@@ -391,7 +426,7 @@
                   # to realip.conf would update the ConfigMap and silently do nothing
                   # until something else happened to roll the pod. Hashes the rendered
                   # content, not its inputs — see the fact above for why.
-                  checksum/realip-conf: "{{ _cinny_realip_conf | hash('sha1') }}"
+                  checksum/realip-conf: "{{ _matrix_client_realip_conf | hash('sha1') }}"
               spec:
                 restartPolicy: Always
                 enableServiceLinks: false
@@ -436,9 +471,175 @@
                   - name: cinny-config
                     configMap:
                       name: cinny-config
+      when: _matrix_cinny_install | bool
 
     # =======================================================================
-    # DNS (nsupdate) — register A records for matrix + cinny under base_domain.
+    # Element Web — the second (optional) client, gated by matrix_element_enabled.
+    # Same homeserver, same allowlist, own host element.<base_domain>. Everything
+    # is static SPA + nginx, so it shares cinny's realip snippet.
+    # =======================================================================
+
+    # Same reasoning as for realip.conf above: rendered once into a fact so the
+    # ConfigMap and the Deployment's rollout checksum are driven by the identical
+    # string. config.json is a subPath mount too, so without a checksum an edit
+    # here would update the ConfigMap and silently do nothing until the pod
+    # happened to roll for some unrelated reason.
+    #
+    # Trimmed against the sister repo's config: no logout_redirect_url (that one
+    # ends a Keycloak SSO session, this homeserver has local password auth) and no
+    # jitsi.preferred_domain (no jitsi in this cluster, so Element keeps its
+    # built-in meet.jit.si default for the call widget).
+    # disable_custom_urls pins the client to OUR homeserver, matching cinny's
+    # single-entry homeserverList; set it false to let users type another server.
+    - name: Render element config.json
+      ansible.builtin.set_fact:
+        _matrix_element_config_json: |
+          {
+            "default_server_config": {
+              "m.homeserver": {
+                "base_url": "https://matrix.{{ matrix.base_domain }}",
+                "server_name": "matrix.{{ matrix.base_domain }}"
+              }
+            },
+            "brand": "Element",
+            "default_theme": "dark",
+            "disable_custom_urls": true,
+            "disable_guests": true,
+            "room_directory": {
+              "servers": ["matrix.{{ matrix.base_domain }}"]
+            }
+          }
+      when: _matrix_element_install | bool
+
+    - name: Create element-config ConfigMap
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: element-config
+            namespace: "{{ matrix.namespace }}"
+          data:
+            config.json: "{{ _matrix_element_config_json }}"
+            realip.conf: "{{ _matrix_client_realip_conf }}"
+      when: _matrix_element_install | bool
+
+    - name: Create element-web Service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: element-web
+            namespace: "{{ matrix.namespace }}"
+            labels:
+              app: element-web
+          spec:
+            selector:
+              app: element-web
+            ports:
+              - port: 80
+                name: http
+                targetPort: http
+      when: _matrix_element_install | bool
+
+    - name: Create element-web Deployment
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: element-web
+            namespace: "{{ matrix.namespace }}"
+            labels:
+              app: element-web
+            annotations:
+              keel.sh/policy: force
+              keel.sh/match-tag: "true"
+              keel.sh/pollSchedule: "@every 24h"
+              keel.sh/trigger: poll
+          spec:
+            replicas: 1
+            strategy:
+              type: RollingUpdate
+            selector:
+              matchLabels:
+                app: element-web
+            template:
+              metadata:
+                labels:
+                  app: element-web
+                annotations:
+                  # Both files are subPath mounts, which never refresh in place,
+                  # and nginx would not re-read its config anyway. Hashes the
+                  # rendered content, not its inputs — see the facts above for why.
+                  checksum/realip-conf: "{{ _matrix_client_realip_conf | hash('sha1') }}"
+                  checksum/element-config: "{{ _matrix_element_config_json | hash('sha1') }}"
+              spec:
+                restartPolicy: Always
+                enableServiceLinks: false
+                nodeSelector:
+                  kubernetes.io/arch: "amd64"
+                containers:
+                  - name: element-web
+                    image: "{{ matrix.images.element.repo }}:{{ matrix.images.element.tag }}"
+                    imagePullPolicy: Always
+                    # The image is nginx-unprivileged (runs as uid 101) but ships
+                    # ELEMENT_WEB_PORT=80 as its default, which only binds because
+                    # the container runtime happens to set
+                    # net.ipv4.ip_unprivileged_port_start=0. Moving it to 8080
+                    # takes that assumption out of the picture; the Service still
+                    # publishes 80, so nothing downstream changes.
+                    env:
+                      - name: ELEMENT_WEB_PORT
+                        value: "8080"
+                    ports:
+                      - containerPort: 8080
+                        name: http
+                    readinessProbe:
+                      httpGet:
+                        path: /
+                        port: http
+                      periodSeconds: 10
+                    livenessProbe:
+                      httpGet:
+                        path: /
+                        port: http
+                      periodSeconds: 30
+                    resources:
+                      requests:
+                        cpu: "{{ matrix.resources.element.cpu_request }}"
+                        memory: "{{ matrix.resources.element.memory_request }}"
+                      limits:
+                        cpu: "{{ matrix.resources.element.cpu_limit }}"
+                        memory: "{{ matrix.resources.element.memory_limit }}"
+                    volumeMounts:
+                      # /app is where the entrypoint reads config*.json from before
+                      # copying it to the /tmp dir nginx actually serves /config
+                      # out of, so the mount belongs here and not in /tmp.
+                      - name: element-config
+                        mountPath: /app/config.json
+                        subPath: config.json
+                        readOnly: true
+                      # subPath, so the default.conf that the image's entrypoint
+                      # renders into this directory survives instead of being
+                      # shadowed by the ConfigMap.
+                      - name: element-config
+                        mountPath: /etc/nginx/conf.d/realip.conf
+                        subPath: realip.conf
+                        readOnly: true
+                volumes:
+                  - name: element-config
+                    configMap:
+                      name: element-config
+      when: _matrix_element_install | bool
+
+    # =======================================================================
+    # DNS (nsupdate) — register A records for matrix + cinny (+ element) under
+    # base_domain.
     # Every nsupdate parameter is overridable per-matrix via the OPTIONAL
     # matrix.dns.* sub-dict (server / zone / tsig_key_name / tsig_key_secret /
     # tsig_algorithm / ttl / ingress_ip); each key falls back to the cluster-wide
@@ -452,7 +653,18 @@
     # manage DNS externally. record MUST be the full FQDN with a trailing dot.
     # =======================================================================
 
-    - name: Register DNS A records for matrix + cinny
+    # Hosts that get an A record AND a certificate. A client only joins the list
+    # while it is being installed — a disabled client must not leave a record
+    # pointing at an ingress route that 404s, nor burn an ACME order on a host
+    # nobody serves. matrix. is unconditional, it is Synapse itself.
+    - name: Build matrix host list
+      ansible.builtin.set_fact:
+        _matrix_hosts: >-
+          {{ ['matrix']
+             + (['cinny'] if _matrix_cinny_install | bool else [])
+             + (['element'] if _matrix_element_install | bool else []) }}
+
+    - name: Register DNS A records for the matrix hosts
       community.general.nsupdate:
         server: "{{ matrix.dns.server | default(nsupdate_server) }}"
         zone: "{{ matrix.dns.zone | default(nsupdate_zone) }}"
@@ -464,9 +676,7 @@
         ttl: "{{ matrix.dns.ttl | default(nsupdate_ttl) }}"
         value: "{{ matrix.dns.ingress_ip | default(nsupdate_ingress_ip) }}"
         state: present
-      loop:
-        - matrix
-        - cinny
+      loop: "{{ _matrix_hosts }}"
       when: matrix.manage_dns | bool
 
     # =======================================================================
@@ -508,7 +718,7 @@
               # at, hence the shared ingress_ip stanza rather than a second literal.
               sourceRange: "{{ traefik_internal_allowlist + [matrix.dns.ingress_ip | default(nsupdate_ingress_ip) ~ '/32'] }}"
 
-    - name: Create matrix + cinny TLS certificates
+    - name: Create TLS certificates for the matrix hosts
       kubernetes.core.k8s:
         state: present
         definition:
@@ -528,9 +738,7 @@
               # solver (scoped to dns_external_domain_suffix) cannot solve.
               name: "{{ matrix_tls_issuer }}"
               kind: ClusterIssuer
-      loop:
-        - matrix
-        - cinny
+      loop: "{{ _matrix_hosts }}"
 
     # --- Synapse (public) ---
     - name: Create synapse http IngressRoute (redirect to https)
@@ -617,6 +825,7 @@
                 middlewares:
                   - name: redirect-myhttps
                   - name: matrix-ip-allowlist
+      when: _matrix_cinny_install | bool
 
     - name: Create cinny https IngressRoute
       kubernetes.core.k8s:
@@ -644,6 +853,63 @@
                     port: 80
             tls:
               secretName: "cinny.{{ matrix.base_domain }}"
+      when: _matrix_cinny_install | bool
+
+    # --- Element (internal allowlist, same as cinny) ---
+    - name: Create element http IngressRoute (redirect to https)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
+          metadata:
+            name: element-ingress
+            namespace: "{{ matrix.namespace }}"
+          spec:
+            entryPoints:
+              - web
+            routes:
+              - kind: Rule
+                match: "Host(`element.{{ matrix.base_domain }}`)"
+                priority: 10
+                services:
+                  - kind: Service
+                    name: element-web
+                    namespace: "{{ matrix.namespace }}"
+                    passHostHeader: true
+                    port: 80
+                middlewares:
+                  - name: redirect-myhttps
+                  - name: matrix-ip-allowlist
+      when: _matrix_element_install | bool
+
+    - name: Create element https IngressRoute
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
+          metadata:
+            name: element-https-ingress
+            namespace: "{{ matrix.namespace }}"
+          spec:
+            entryPoints:
+              - websecure
+            routes:
+              - kind: Rule
+                match: "Host(`element.{{ matrix.base_domain }}`)"
+                priority: 10
+                middlewares:
+                  - name: matrix-ip-allowlist
+                services:
+                  - kind: Service
+                    name: element-web
+                    namespace: "{{ matrix.namespace }}"
+                    passHostHeader: true
+                    port: 80
+            tls:
+              secretName: "element.{{ matrix.base_domain }}"
+      when: _matrix_element_install | bool
 
     # =======================================================================
     # Admin + bot bootstrap (idempotent). register_new_matrix_user authenticates
@@ -820,7 +1086,10 @@
         kind: Namespace
         name: "{{ matrix.namespace }}"
 
-    - name: Remove matrix + cinny DNS A records
+    # The client hosts are listed unconditionally, NOT via _matrix_hosts: teardown
+    # has to clean up after a run that had them enabled, and nsupdate state=absent
+    # on a record that was never created is a no-op.
+    - name: Remove matrix + cinny + element DNS A records
       community.general.nsupdate:
         server: "{{ matrix.dns.server | default(nsupdate_server) }}"
         zone: "{{ matrix.dns.zone | default(nsupdate_zone) }}"
@@ -833,4 +1102,88 @@
       loop:
         - matrix
         - cinny
+        - element
+      when: matrix.manage_dns | bool
+
+# ===========================================================================
+# Per-client teardown (opt-in `-e matrix_cinny_teardown=true` /
+# `-e matrix_element_teardown=true`). Removes ONE web client and leaves Synapse,
+# the namespace, the DB and the other client alone — the surgical counterpart to
+# matrix_teardown, which nukes the whole namespace.
+#
+# Both blocks sit OUTSIDE the install block on purpose, so they stay reachable
+# with <x>_enabled false (that flag only skips the install, it deletes nothing).
+#
+# Deleted per client: Deployment, Service, ConfigMap, both IngressRoutes, the
+# Certificate AND its TLS secret (cert-manager does NOT garbage-collect the
+# secret when the Certificate goes), plus the A record.
+# NOT deleted: the shared middlewares redirect-myhttps / matrix-ip-allowlist
+# (Synapse's own routes reference them) and the namespace.
+# Uses only kubernetes.core.k8s / nsupdate (no bare kubectl — dgxarley rule).
+# ===========================================================================
+
+- name: Cinny — teardown (opt-in `-e matrix_cinny_teardown=true`)
+  when: matrix_cinny_teardown | default(false) | bool
+  block:
+    - name: Delete cinny resources
+      kubernetes.core.k8s:
+        state: absent
+        api_version: "{{ item.api_version }}"
+        kind: "{{ item.kind }}"
+        name: "{{ item.name }}"
+        namespace: "{{ matrix.namespace }}"
+      loop:
+        - {api_version: "apps/v1", kind: "Deployment", name: "cinny"}
+        - {api_version: "v1", kind: "Service", name: "cinny"}
+        - {api_version: "v1", kind: "ConfigMap", name: "cinny-config"}
+        - {api_version: "traefik.io/v1alpha1", kind: "IngressRoute", name: "cinny-ingress"}
+        - {api_version: "traefik.io/v1alpha1", kind: "IngressRoute", name: "cinny-https-ingress"}
+        - {api_version: "cert-manager.io/v1", kind: "Certificate", name: "cinny.{{ matrix.base_domain }}"}
+        - {api_version: "v1", kind: "Secret", name: "cinny.{{ matrix.base_domain }}"}
+      loop_control:
+        label: "{{ item.kind }}/{{ item.name }}"
+
+    - name: Remove cinny DNS A record
+      community.general.nsupdate:
+        server: "{{ matrix.dns.server | default(nsupdate_server) }}"
+        zone: "{{ matrix.dns.zone | default(nsupdate_zone) }}"
+        key_name: "{{ matrix.dns.tsig_key_name | default(nsupdate_tsig_key_name) }}"
+        key_secret: "{{ matrix.dns.tsig_key_secret | default(nsupdate_tsig_key_secret) }}"
+        key_algorithm: "{{ matrix.dns.tsig_algorithm | default(nsupdate_tsig_algorithm) }}"
+        record: "cinny.{{ matrix.base_domain }}."
+        type: A
+        state: absent
+      when: matrix.manage_dns | bool
+
+- name: Element — teardown (opt-in `-e matrix_element_teardown=true`)
+  when: matrix_element_teardown | default(false) | bool
+  block:
+    - name: Delete element resources
+      kubernetes.core.k8s:
+        state: absent
+        api_version: "{{ item.api_version }}"
+        kind: "{{ item.kind }}"
+        name: "{{ item.name }}"
+        namespace: "{{ matrix.namespace }}"
+      loop:
+        - {api_version: "apps/v1", kind: "Deployment", name: "element-web"}
+        - {api_version: "v1", kind: "Service", name: "element-web"}
+        - {api_version: "v1", kind: "ConfigMap", name: "element-config"}
+        - {api_version: "traefik.io/v1alpha1", kind: "IngressRoute", name: "element-ingress"}
+        - {api_version: "traefik.io/v1alpha1", kind: "IngressRoute", name: "element-https-ingress"}
+        - {api_version: "cert-manager.io/v1", kind: "Certificate", name: "element.{{ matrix.base_domain }}"}
+        - {api_version: "v1", kind: "Secret", name: "element.{{ matrix.base_domain }}"}
+      loop_control:
+        label: "{{ item.kind }}/{{ item.name }}"
+
+    - name: Remove element DNS A record
+      community.general.nsupdate:
+        server: "{{ matrix.dns.server | default(nsupdate_server) }}"
+        zone: "{{ matrix.dns.zone | default(nsupdate_zone) }}"
+        key_name: "{{ matrix.dns.tsig_key_name | default(nsupdate_tsig_key_name) }}"
+        key_secret: "{{ matrix.dns.tsig_key_secret | default(nsupdate_tsig_key_secret) }}"
+        key_algorithm: "{{ matrix.dns.tsig_algorithm | default(nsupdate_tsig_algorithm) }}"
+        record: "element.{{ matrix.base_domain }}."
+        type: A
+        state: absent
       when: matrix.manage_dns | bool

@@ -8,7 +8,8 @@
 # The DB password is postgresql_synapse_password (in group_vars/all/{main,vault}/postgresql.yml).
 # *_secret / jwt_secret: generate with `openssl rand -hex 32`; keep stable across
 # restarts. Enable/teardown gates (matrix_enabled / matrix_teardown) are in the
-# role defaults.
+# role defaults. matrix_enabled is the master switch: the per-client gates below
+# (matrix_cinny_* / matrix_element_*) only take effect while it is true.
 matrix:
   namespace: "matrix"
   base_domain: "example.eu"
@@ -78,9 +79,23 @@ matrix:
   images:
     synapse: {repo: "matrixdotorg/synapse", tag: "latest"}
     cinny: {repo: "ghcr.io/cinnyapp/cinny", tag: "latest"}
+    # GHCR half of the official element-web release (same manifest as Docker Hub
+    # vectorim/element-web), multi-arch, nginx-unprivileged base.
+    element: {repo: "ghcr.io/element-hq/element-web", tag: "latest"}
   resources:
     synapse: {cpu_request: "500m", memory_request: "1Gi", cpu_limit: "2000m", memory_limit: "2Gi"}
     cinny: {cpu_request: "50m", memory_request: "64Mi", cpu_limit: "500m", memory_limit: "256Mi"}
+    element: {cpu_request: "50m", memory_request: "64Mi", cpu_limit: "500m", memory_limit: "256Mi"}
 
 
+# Standalone scalars (outside the hash_behaviour=replace `matrix` dict, so they
+# need no vault copy). Values shown are the role defaults; the per-client gates
+# behave like every other *_enabled/*_teardown pair (enabled: false skips the
+# install and deletes nothing, teardown: true is the opt-in removal) and are
+# SUBORDINATE to matrix_enabled — with the stack off, the two _enabled flags do
+# nothing at all, only the teardowns still run.
 # matrix_tls_issuer: "letsencrypt-secondary"
+# matrix_cinny_enabled: true
+# matrix_cinny_teardown: false
+# matrix_element_enabled: true
+# matrix_element_teardown: false

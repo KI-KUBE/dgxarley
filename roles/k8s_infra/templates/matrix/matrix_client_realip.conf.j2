@@ -1,7 +1,7 @@
 {#
-  nginx realip snippet for the cinny pod, mounted (subPath) into conf.d/ and thus
-  included inside the image's http{} block. The stock nginx.conf and default.conf
-  stay untouched.
+  nginx realip snippet for the web-client pods (cinny AND element-web, both nginx
+  images), mounted (subPath) into conf.d/ and thus included inside the image's
+  http{} block. The stock nginx.conf and default.conf stay untouched.
 
   Why: without realip, $remote_addr is the Traefik POD ip, so every access-log line
   reads 10.68.x.y and the real client only appears in the trailing
@@ -12,7 +12,7 @@
   (real_ip_recursive) and stops at the first UNtrusted entry. Trusting only the pod
   CIDR would stop at the edge ip and report that. Trusting the edge too lets it walk
   one more step, to the actual client.
-  Chain: <client> -> nginx edge -> HAProxy -> Traefik pod -> cinny.
+  Chain: <client> -> nginx edge -> HAProxy -> Traefik pod -> cinny/element-web.
 
   This lives in a .j2 rather than inline in the task: a column-0 {% %} tag inside a
   ConfigMap data block breaks the YAML parse, and the inline join workarounds hit
