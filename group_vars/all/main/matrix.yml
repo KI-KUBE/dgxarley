@@ -102,6 +102,11 @@ matrix:
 #
 # Element's two group-call paths, both on Element-hosted services by default.
 # An unset knob emits no config.json key at all, so upstream's default applies.
+# The real jitsi hostname lives in vault (this cluster points at a Jitsi that is
+# operated elsewhere), the dummy below only shows the shape.
 # matrix_element_jitsi_domain: ""          # "" = meet.element.io; else e.g. "jitsi.example.eu"
 # matrix_element_jitsi_skip_welcome: false # true = skip Element's "Join Conference" screen
-# matrix_element_call_enabled: true        # false = element_call.disable, kills native Element Call
+# false => element_call.disable: true. Means the LIVEKIT-based native call of the
+# Element stack (Element Call / MatrixRTC), NOT the Jitsi widget above. Disabling
+# it leaves Jitsi calls untouched.
+# matrix_element_call_enabled: false
