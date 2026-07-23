@@ -1,6 +1,25 @@
 # SGLang Upstream Bugs / Gaps: DeepSeek-V4-Flash on SM121 (DGX Spark)
 
-## Status (verified 2026-05-31, upstream re-checked 2026-06-08, re-verified 2026-06-11, re-verifiziert 2026-06-14, 2026-06-22, 2026-06-29)
+## Status (verified 2026-05-31, upstream re-checked 2026-06-08, re-verified 2026-06-11, re-verifiziert 2026-06-14, 2026-06-22, 2026-06-29, 2026-07-23)
+
+> **Update 2026-07-23 — v0.5.15 + v0.5.15.post1 released; #25165/#23743 auto-closed (stale, unresolved).**
+> SGLang **v0.5.15** (released 2026-07-10) and **v0.5.15.post1** (released
+> 2026-07-14, now the latest release) shipped since the 2026-06-29 check.
+> Both contain DeepSeek-V4/DSA work — `[DeepSeek V4] Enable FlashMLA sparse
+> prefill by default` (#29775), `Add an opt-in non-paged indexer for
+> long-context prefill` (#29619), and DSA top-k/page-table fusion (#26788,
+> #30274, #27705) — plausibly relevant to **Wall 5** (`paged_mqa_logits` torch
+> fallback) and **Wall 7** (`topk_transform_512` TVM crash), matching the
+> 2026-06-19 "noch nicht geprüft" note below. **Unvalidated on our cluster —
+> no v0.5.15-based image has been built/tested yet; Walls 5/7 workarounds
+> stay in place until verified.** Issues **#25165** and **#23743** (listed
+> below as "open") are now **CLOSED (auto stale-bot 2026-07-13 / 2026-07-14,
+> NOT resolved** — closed by the `github-actions` inactivity bot, no fix
+> landed). **#26324** (`flashinfer_trtllm` MoE runner asserts on DSV4-Flash
+> NVFP4/B200) remains **open, unchanged** since 2026-06-15. The local
+> kv_lora_rank workaround was relocated 2026-07-16 (commit `a760767`) from
+> `sglang_launch.sh` to `roles/k8s_dgx/files/sglang_patches/p56_deepseek_v3_kv_lora.py`
+> (see `SGLANG_DEEPSEEK_V4_FLASH_KV_LORA_RANK_UPSTREAM_BUG.md`).
 
 > **Update 2026-06-29 — PR #25820 ist im offiziellen v0.5.14-Release enthalten (2026-06-26).**
 > SGLang **v0.5.14** wurde am **2026-06-26T22:57Z** veröffentlicht und enthält
@@ -163,10 +182,12 @@ field 'kv_lora_rank':
 and the DSA indexer/compressor — it is **NOT** the class that parses `config.json`
 for `model_type=deepseek_v4`. Editing it has no effect on this crash.
 
-**Workaround (ours):** a launch-time source patch in
-`roles/k8s_dgx/files/sglang_launch.sh` widens the annotation to `int | None`
-**before** `python3 -m sglang.launch_server` (so `@strict` rebuilds a Union
-validator that accepts None; pyc is timestamp-invalidated so the edit takes):
+**Workaround (ours):** a launch-time source patch — since 2026-07-16 (commit
+`a760767`) its own gated file `roles/k8s_dgx/files/sglang_patches/p56_deepseek_v3_kv_lora.py`
+(previously inline in `sglang_launch.sh`, block `PATCH_DSV4_KVLORA_EOF`) —
+widens the annotation to `int | None` **before** `python3 -m sglang.launch_server`
+(so `@strict` rebuilds a Union validator that accepts None; pyc is
+timestamp-invalidated so the edit takes):
 ```
 transformers/models/deepseek_v3/configuration_deepseek_v3.py:
     kv_lora_rank: int = 512   →   kv_lora_rank: int | None = 512
@@ -499,8 +520,8 @@ PD-disagg) may surface new walls if turned on.
 | #26209 | Add FP4 Indexer for DeepSeek V4 | **merged 2026-06-02; im offiziellen v0.5.13-GitHub-Release seit 2026-06-13** |
 | #26324 | flashinfer_trtllm MoE runner asserts on DeepSeek-V4-Flash NVFP4 (B200) | open |
 | #25704 | V4-Pro NVFP4 B200: NaN/garbage except EAGLE | closed |
-| #25165 | main branch broke with deepseek v4 flash deployment | open |
-| #23743 | [Tracking] DeepSeek V4 Flash GB200 serving fixes | open |
+| #25165 | main branch broke with deepseek v4 flash deployment | **closed (stale, unresolved)** — auto-closed by stale-bot 2026-07-13, no fix landed |
+| #23743 | [Tracking] DeepSeek V4 Flash GB200 serving fixes | **closed (stale, unresolved)** — auto-closed by stale-bot 2026-07-14, no fix landed |
 | #25526 | DSv4 Flash + HiCache breakable piecewise CUDA graph | open |
 | #26647 | Mooncake HiCache fails with DeepSeek-V4-Flash hybrid cache | open |
 | #24111 | About pre-converted FP8 checkpoints (sgl-project/DeepSeek-V4-Flash-FP8) | open |
@@ -564,7 +585,7 @@ einem v0.5.13-Image ändert.
 
 ## Local artifacts
 
-- Launch patch: `roles/k8s_dgx/files/sglang_launch.sh` (DeepseekV3Config kv_lora_rank block)
+- Launch patch: `roles/k8s_dgx/files/sglang_patches/p56_deepseek_v3_kv_lora.py` (DeepseekV3Config kv_lora_rank block; relocated 2026-07-16 from `sglang_launch.sh`, commit `a760767`)
 - Model profile: `roles/k8s_dgx/model_profiles/sgl-project-deepseek-v4-flash-fp8.yml`
   — SM121 flags (§6): `opt_fp8_wo_a_gemm: false`, `opt_deepgemm_hc_prenorm: false`,
   `fp8_paged_mqa_logits_torch: true`, `mem_fraction_static: "0.90"`
