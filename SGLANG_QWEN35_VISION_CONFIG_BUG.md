@@ -49,6 +49,15 @@
 > access on the still-dict `text_config`; our monkey-patch converts all dict
 > sub-configs generically and already covers this case. No further cluster
 > action required.
+>
+> **Re-verified 2026-07-23:** SGLang **v0.5.15** (released 2026-07-10) and
+> **v0.5.15.post1** (2026-07-14) checked — `qwen3_5.py` unchanged on both
+> `main` and the `v0.5.15` tag (still no `from_dict`/`__post_init__`, same
+> auto-generated-`__init__` bypass). PR **#22839** still **OPEN**, no
+> activity since 2026-06-11 (now 6+ weeks); PR **#22618** still **OPEN**, no
+> activity since 2026-04-14. Issue #20973 remains **CLOSED** (unrelated
+> checkpoint-specific bug, not this one). Monkey-patch (`PATCH_GET_CONFIG_EOF`)
+> in `sglang_launch.sh` still required.
 
 
 ## Summary
