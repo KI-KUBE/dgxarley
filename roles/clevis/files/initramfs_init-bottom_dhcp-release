@@ -61,9 +61,12 @@ release_lease() {
     # Re-up the NIC (clevis local-bottom flushed + downed it) so dhcpcd can talk.
     ip link set dev "$dev" up 2>/dev/null || return 0
 
-    # Re-acquire in the background, nameless, without touching resolv.conf or the
-    # system hostname. -t 8 bounds the attempt; -L disables IPv4LL fallback.
-    dhcpcd -4 -q -b -t 8 -L -C resolv.conf -C 30-hostname "$dev" 2>/dev/null || true
+    # Re-acquire in the background, nameless. -t 8 bounds the attempt; -L disables
+    # IPv4LL fallback; -C 30-hostname skips dhcpcd's hostname hook so no option-12
+    # is (re-)sent. NOTE: the resolv.conf hook (-C resolv.conf) was dropped — this
+    # initramfs ships no 20-resolv.conf hook (only 10-mtu/30-hostname/70-net-conf),
+    # so it matched nothing. Re-add "-C resolv.conf" if a future image bundles it.
+    dhcpcd -4 -q -b -t 8 -L -C 30-hostname "$dev" 2>/dev/null || true
 
     # Wait (max ~8s) for a lease to actually land before releasing it.
     i=0
