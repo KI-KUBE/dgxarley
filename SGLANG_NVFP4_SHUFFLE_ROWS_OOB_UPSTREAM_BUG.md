@@ -88,6 +88,24 @@ work is in progress — see "Open: semantic fix" below.
 
 **Re-verified 2026-06-29:** SGLang **v0.5.14** released 2026-06-26. The v0.5.14 release notes contain no fix for the `_shuffle_rows_torch` `a_map`/`c_map` `torch.empty` OOB under EP — no mention of `_shuffle_rows_torch`, `a_map`, `c_map`, or any `cutlass_moe_fp4` EP OOB fix. PR #27588 ("[quantization] NVFP4 MoE: split fused w13 gate/up global scales", merged 2026-06-15, included in v0.5.14) is a separate correctness fix for checkpoints with per-half gate/up quantization and does **not** address the `a_map` OOB. The `flashinfer_cutlass` workaround remains required and unchanged.
 
+**Re-verified 2026-07-23 — upstream is DELETING this code path, not fixing it (not
+yet released):** SGLang **v0.5.15** (2026-07-10) and **v0.5.15.post1** (2026-07-14)
+still ship the unmodified buggy file — confirmed via the GitHub contents API that
+`python/sglang/jit_kernel/nvfp4.py` is byte-identical (19594 bytes) between v0.5.15
+and v0.5.15.post1, so the `_shuffle_rows_torch` OOB is unaddressed in the latest
+release. However, PR [#30448](https://github.com/sgl-project/sglang/pull/30448)
+("Refactor FP4 quantization and remove deprecated JIT kernels"), merged to `main`
+2026-07-14, **deletes `python/sglang/jit_kernel/nvfp4.py` in its entirety** — the file
+containing both `_shuffle_rows_torch` and `scaled_fp4_experts_quant` — and removes
+`cutlass_moe_fp4` from `cutlass_moe.py`; `ModelOptNvFp4FusedMoEMethod.create_moe_runner`
+now raises `NotImplementedError` for `moe_runner_backend=cutlass` (forcing
+`flashinfer_cutlass`/trtllm-gen instead). Confirmed via `gh api .../contents/...`: the
+file is 404 on `main` but still present in v0.5.15.post1 — i.e. **not in any tagged
+release yet**. Once a release ships this commit, this entire bug doc becomes
+historical: the buggy function will no longer exist to patch, rather than being fixed
+in place. The `flashinfer_cutlass` workaround (already our default for NVFP4+EP) is
+unaffected either way. Re-verify against the next release tag after v0.5.15.post1.
+
 Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, v0.5.13, and **v0.5.14** (released 2026-06-26 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
 
 The final root cause (uninitialized `torch.empty` on `a_map`) was identified
