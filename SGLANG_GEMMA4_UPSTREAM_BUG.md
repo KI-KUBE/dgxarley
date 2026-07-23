@@ -105,6 +105,38 @@ naming) are no longer relevant for our deployment because we build the image
 from SGLang main, not from the v0.5.10 release — and they are also fixed in
 v0.5.11 as noted above. The remaining issues are NVFP4-MoE-on-SM121-specific.
 
+**Re-verified 2026-07-23:** SGLang **v0.5.15** (released 2026-07-10) and
+**v0.5.15.post1** (2026-07-14) checked — PRs #22929/#22928/#22927 (SM121
+NaN-clamp) still **OPEN**, unchanged since 2026-04-16 (now 14+ weeks); #22615
+(fp8 KV cache + KV-shared layers) still **OPEN**, `REVIEW_REQUIRED`, no
+activity since 2026-06-20. Neither release contains any of these fixes.
+
+**Outstanding revert — now DONE (2026-07-23):** the two BF16 profiles
+(`google-gemma-4-26b-a4b-it.yml`, `google-gemma-4-31b-it.yml`) are confirmed
+back on `attention_backend: "triton"` with a breadcrumb comment explaining the
+reverted 2026-06-24 flashinfer flip. Note: commit `f77a355` (2026-06-29) had
+only updated this doc's text — the profile YAMLs themselves were not touched
+until today. Both files are now consistent with the "triton permanently
+mandatory" framing.
+
+**New independent NVFP4 unblock path (flashinfer-side, unvalidated):**
+flashinfer PR [#3744](https://github.com/flashinfer-ai/flashinfer/pull/3744)
+("feat(moe): add gelu_tanh and swiglu_oai activations to b12x NVFP4 MoE for
+SM12x", merged 2026-07-01, ships in **flashinfer v0.6.15**, released
+2026-07-17) adds gated-GEGLU NVFP4 MoE activation support specifically for
+SM12x (DGX Spark/GB10), addressing flashinfer issue #3683, plus transparent
+zero-padding for non-128-aligned `intermediate_size` — the PR body names
+"Gemma-4's 704" explicitly. This targets the same GEGLU-activation gap this
+doc attributes to stalled SGLang PR #22928, via a different (flashinfer
+kernel-level) vehicle that does not depend on #22928/#22929/#22927 merging.
+**Unvalidated on our cluster:** our current Gemma image
+(`xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121`) pins flashinfer
+**0.6.13** (`scripts/patches/sglang-0.5.14-gemma4-diffusion-sm121.recipe:60`),
+not 0.6.15, and it's unconfirmed whether SGLang's MoE runner actually routes
+Gemma-4 NVFP4 through the flashinfer path that gained this activation. See
+`FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md` (Status 2026-07-23) for the
+flashinfer-side detail.
+
 ## Affected models
 
 | Model                                         | Type                               | Quantization | Current status (`0.5.11-gemma4-sm121` image)                                                                                                |
@@ -235,14 +267,16 @@ the BF16 profiles point at). Both `google/gemma-4-31B-it` (dense) and
 - `disable_piecewise_cuda_graph: false` (BF16 is unaffected by the fp4-quantize
   dynamo bug; piecewise gives ~6.5% over fixed-BS graphs at n=8)
 
-> **Outstanding revert (2026-06-30):** The live BF16 profiles
-> (`google-gemma-4-26b-a4b-it.yml`, `google-gemma-4-31b-it.yml`) currently carry
-> `attention_backend: flashinfer` (set 2026-06-24 as a test). This is
-> **INCOMPATIBLE** with SGLang's allowlist (which hard-rejects `flashinfer` for
-> `Gemma4ForConditionalGeneration` with an `AssertionError`) and will cause a
-> crash on the next deploy. Reverting to `attention_backend: triton` is an
-> **outstanding action** — tracked in `FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md`.
-> Do NOT deploy BF16 Gemma4 profiles until this is reverted.
+> **Revert DONE (2026-07-23):** The live BF16 profiles
+> (`google-gemma-4-26b-a4b-it.yml`, `google-gemma-4-31b-it.yml`) had briefly
+> carried `attention_backend: flashinfer` (set 2026-06-24 as a test) — this
+> was **INCOMPATIBLE** with SGLang's allowlist (hard-rejects `flashinfer` for
+> `Gemma4ForConditionalGeneration` with an `AssertionError`) and would have
+> crashed on deploy. Note: commit `f77a355` (2026-06-29) only updated this
+> doc's text; the profile YAMLs themselves were reverted to
+> `attention_backend: "triton"` (with a breadcrumb comment on the reverted
+> flip) on **2026-07-23**. Both BF16 profiles are confirmed back on `triton`
+> as of today — safe to deploy.
 
 To activate: set `sglang_active_model` in your inventory and run
 `ansible-playbook k8s_dgx.yml --tags sglang -e sglang_enabled=true`.
