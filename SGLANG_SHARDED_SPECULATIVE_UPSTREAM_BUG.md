@@ -58,6 +58,27 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 i
 > in `sgl-project/sglang` returns no issues or PRs). The `--speculative-draft-load-format auto`
 > workaround in `sglang_launch.sh` remains required and unchanged.
 
+> **Re-verified 2026-07-23:** Bug confirmed **still present verbatim** in
+> **v0.5.15** (2026-07-10) and **v0.5.15.post1** (2026-07-14) — source-checked
+> both tags: `maybe_init_draft_worker` still only sets
+> `self.server_args.load_format = self.server_args.speculative_draft_load_format`
+> when that field `is not None`; unset (the default), the draft still
+> silently inherits the main model's `load_format`. Still unreported upstream
+> (no matching issue/PR). **Heads-up:** on `main` only (not yet in any
+> release), a `RuntimeContext` config-namespace refactor (PRs #31813–#31818,
+> merged/closed 2026-07-22) replaces the direct attribute mutation with
+> `self.server_args.override("scheduler.draft_load_format", load_format=...)`.
+> Same conditional, same root cause, just a different mechanism — the
+> `scheduler.py:669–675` line references below will drift once this refactor
+> ships in a release; re-check line numbers at that point. Also filed today
+> and **related but distinct**: issue
+> [#32202](https://github.com/sgl-project/sglang/issues/32202) ("Speculative
+> draft auto load format does not resolve object-storage paths", opened
+> 2026-07-23) — a different bug in the same draft-load-format area (S3 path
+> resolution for `--speculative-draft-load-format auto`), not the
+> sharded_state issue this doc tracks. The `--speculative-draft-load-format auto`
+> + explicit `--speculative-draft-model-path` workaround remains required and unchanged.
+
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`
 
