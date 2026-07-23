@@ -24,15 +24,15 @@
 # build_sm121_image.sh. From the x86 control host with a registered podman
 # connection to the arm64 build host (e.g. spark4):
 #   podman --connection spark4 build \
-#     --build-arg BASE_IMAGE=xomoxcc/dgx-spark-sglang:0.5.15-sm121 \
+#     --build-arg BASE_IMAGE=xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121 \
 #     -f scripts/patches/dgx-spark-quant-sm121.Dockerfile \
-#     -t xomoxcc/dgx-spark-quant:0.5.15-sm121 .
-#   podman image scp spark4::xomoxcc/dgx-spark-quant:0.5.15-sm121
-#   podman push xomoxcc/dgx-spark-quant:0.5.15-sm121
+#     -t xomoxcc/dgx-spark-quant:0.5.15.post1-sm121 .
+#   podman image scp spark4::xomoxcc/dgx-spark-quant:0.5.15.post1-sm121
+#   podman push xomoxcc/dgx-spark-quant:0.5.15.post1-sm121
 # (Nothing here is built/pushed automatically -- this is a reviewable draft.)
 # ============================================================================
 
-ARG BASE_IMAGE=xomoxcc/dgx-spark-sglang:0.5.15-sm121
+ARG BASE_IMAGE=xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121
 FROM ${BASE_IMAGE}
 
 # WHAT THE BASE ALREADY SHIPS (verified on 0.5.14-sm121): nvidia-modelopt 0.45.0,
@@ -40,6 +40,9 @@ FROM ${BASE_IMAGE}
 # the `hf` CLI, ninja, typer. So this image only has to add the two pieces the quant
 # scripts need that are genuinely MISSING: `accelerate` (device_map) and
 # `hf_transfer` (fast download). Everything else is reused as-is.
+# NB: on the 0.5.15+ base transformers is 5.12.1 (not 5.8.1); the freeze constraint
+# below reuses whatever the base ships, so this layer is unaffected by that drift.
+# The >=0.45 modelopt assert (step 3) is the real build-time gate.
 #
 # WHY NOT reinstall the rest: the base has an internally-inconsistent pin
 # (datasets 5.0.0 requires fsspec<=2026.4.0 but the image ships fsspec 2026.6.0). It
