@@ -162,17 +162,27 @@ BRANCH_NAME="sm121"
 # patch fails the in-container dry-run). The rebased sglang-dsv4-nvfp4-pr25820
 # .patch stays on disk for the 0.5.13 recipe + git history. Ref: UPSTREAM_DSV4_BUGS.md.
 #
-# ACTIVE (2026-07-12): bumped to the v0.5.15 TAG (released 2026-07-10). Delta vs
-# 0.5.14: Qwen3.6 mixed-NVFP4 (#27906) now MERGED upstream → APPLY_QWEN36_MIXED_
-# NVFP4_PR27906=0 (re-applying a merged patch fails the dry-run); transformers
-# pinned 5.8.1→5.12.1. DSV4-MTP-marlin/TileLang + all SM121 sgl-kernel patches
-# were VERIFIED to apply clean against v0.5.15 in a non-GPU container 2026-07-12
-# (recipe header for details). flashinfer 0.6.14 + cutlass-dsl 4.6.0 overrides
-# unchanged. Ref: UPSTREAM_DSV4_BUGS.md, sglang-0.5.15-sm121.recipe.
-RECIPE_NAME="sglang-0.5.15-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.15-sm121"
+# ACTIVE (2026-07-23): bumped to the v0.5.15.post1 TAG (released 2026-07-14).
+# Delta vs 0.5.15: the DRIVER is flashinfer 0.6.14→0.6.15.post1 (native Gemma-4 +
+# MiniMax-M3 NVFP4-MoE on SM12x via new gelu_tanh/swiglu_oai activations, SM120 CP
+# GDN, TRTLLM-GEN DeepSeek-V4 hash_topk); cutlass-dsl 4.6.0→4.6.1 (in-order
+# release-mate — MUST GPU-verify the rmsnorm smoke test before deploy). SGLang
+# post1 is source-only (deps byte-identical to v0.5.15: transformers 5.12.1 /
+# kernels 0.14.1 UNCHANGED); mostly GLM-5.2 fixes + #31001 flashinfer-trtllm-FP4-
+# MoE-NaN-on-long-input. Both active source patches (DSV4-MTP-marlin, TileLang-018)
+# re-VERIFIED clean against post1 via non-GPU dry-run 2026-07-23 (identical offsets
+# -61/-16 → target files byte-identical v0.5.15); sgl-kernel + Dockerfile patch
+# targets unchanged v0.5.15...post1. Ref: sglang-0.5.15.post1-sm121.recipe.
+RECIPE_NAME="sglang-0.5.15.post1-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121"
 
-# Rollback: previous production line (v0.5.14). Qwen3.6 mixed-NVFP4 (#27906) was
+# Rollback: previous production line (v0.5.15). flashinfer 0.6.14 + cutlass-dsl
+# 4.6.0; SGLang deps identical to post1. The 0.5.15.post1 recipe only bumps
+# flashinfer/cutlass/SGLang-ref on top of this.
+#RECIPE_NAME="sglang-0.5.15-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.15-sm121"
+
+# Rollback: production line before that (v0.5.14). Qwen3.6 mixed-NVFP4 (#27906) was
 # still patched there (APPLY_QWEN36_MIXED_NVFP4_PR27906=1); it is native in v0.5.15
 # and the patch is OFF in the 0.5.15 recipe.
 #RECIPE_NAME="sglang-0.5.14-sm121"
