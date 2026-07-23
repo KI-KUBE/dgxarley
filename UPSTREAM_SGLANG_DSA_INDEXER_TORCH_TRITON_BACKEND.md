@@ -10,6 +10,14 @@ Upstream state (checked 2026-07-16): `DSAPagedMQALogitsBackend` on `main` has
 only DEEPGEMM / CUTEDSL / AITER; no arch-independent fallback exists. Companion
 draft: UPSTREAM_SGLANG_DSA_SM12X_NATIVE_SPARSE_MLA.md (the attention side).
 
+Re-checked 2026-07-23: PR #31480 still **OPEN**, `reviewDecision:
+REVIEW_REQUIRED`, `mergeStateStatus: UNKNOWN` — no review activity since
+filing. `DSAPagedMQALogitsBackend` on `main` is unchanged (still only
+DEEPGEMM / CUTEDSL / AITER). SGLang released v0.5.15 (2026-07-10) and
+v0.5.15.post1 (2026-07-14) since the PR was filed; both contain DSA
+top-k/indexer-fusion work (#26788, #30274, #27705) but no arch-independent
+`torch` backend.
+
 ## Proposed PR title
 
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
