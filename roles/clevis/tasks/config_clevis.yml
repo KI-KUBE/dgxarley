@@ -274,6 +274,49 @@
     - clevis_has_luks | bool
     - wantsclevis_initramfs | default(true)
 
+# --- Ensure dhcpcd is bundled into the initramfs ---
+# The dhcp-release script below needs a release-capable DHCP client in the
+# initramfs. Ubuntu's dhcpcd-base ships its own hook
+# (/usr/share/initramfs-tools/hooks/dhcpcd); Raspberry Pi (dhcpcd5) and Debian
+# Trixie (dhcpcd-base) do NOT. We therefore deploy our own hook ONLY when the
+# packaged one is absent, so we never shadow/duplicate the vendor hook.
+
+- name: check for a package-supplied dhcpcd initramfs hook
+  stat:
+    path: /usr/share/initramfs-tools/hooks/dhcpcd
+  register: clevis_vendor_dhcpcd_hook
+  check_mode: false
+  when:
+    - clevis_has_luks | bool
+    - wantsclevis_initramfs | default(true)
+    - clevis_dhcp_release_enabled | default(true) | bool
+
+- name: deploy fallback initramfs hook to bundle dhcpcd (no vendor hook present)
+  copy:
+    src: initramfs_hooks_dhcpcd
+    dest: /etc/initramfs-tools/hooks/dhcpcd
+    owner: root
+    group: root
+    mode: '0755'
+  register: clevis_dhcpcd_hook_changed
+  when:
+    - clevis_has_luks | bool
+    - wantsclevis_initramfs | default(true)
+    - clevis_dhcp_release_enabled | default(true) | bool
+    - not (clevis_vendor_dhcpcd_hook.stat.exists | default(false))
+
+- name: remove fallback dhcpcd initramfs hook (vendor hook present or release disabled)
+  file:
+    path: /etc/initramfs-tools/hooks/dhcpcd
+    state: absent
+  register: clevis_dhcpcd_hook_removed
+  when:
+    - clevis_has_luks | bool
+    - wantsclevis_initramfs | default(true)
+    - >-
+      (not (clevis_dhcp_release_enabled | default(true) | bool)) or
+      (clevis_vendor_dhcpcd_hook.stat.exists | default(false))
+
 # --- Release the boot-time DHCP lease before switch_root ---
 # klibc ipconfig obtains but never releases the clevis/tang lease, so the
 # upstream DHCP server keeps reflecting the host under the stale boot IP via
@@ -303,28 +346,6 @@
     - wantsclevis_initramfs | default(true)
     - not (clevis_dhcp_release_enabled | default(true) | bool)
 
-- name: verify dhcpcd is present in initramfs (required for dhcp-release)
-  shell: lsinitramfs /boot/initrd.img-$(uname -r) 2>/dev/null | grep -cE 'sbin/dhcpcd$' || echo "0"
-  register: clevis_dhcpcd_check
-  changed_when: false
-  check_mode: false
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
-    - clevis_dhcp_release_enabled | default(true) | bool
-
-- name: warn if dhcpcd missing from initramfs (dhcp-release will no-op)
-  debug:
-    msg: >-
-      WARNING — dhcpcd not found in the initramfs. The dhcp-release script needs
-      it to send a DHCPRELEASE (klibc ipconfig cannot); the release will silently
-      no-op. Ensure dhcpcd is installed so update-initramfs bundles it.
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
-    - clevis_dhcp_release_enabled | default(true) | bool
-    - (clevis_dhcpcd_check.stdout | default('0') | trim | int) == 0
-
 # --- Rebuild initramfs ---
 
 - name: rebuild initramfs for all kernels
@@ -340,7 +361,34 @@
       (clevis_cleanup_netplan_changed is changed) or
       (clevis_cleanup_old_removed is changed) or
       (clevis_dhcp_release_changed is changed) or
-      (clevis_dhcp_release_removed is changed)
+      (clevis_dhcp_release_removed is changed) or
+      (clevis_dhcpcd_hook_changed is changed) or
+      (clevis_dhcpcd_hook_removed is changed)
+
+# Verify AFTER the rebuild, so the check reflects the freshly-built initramfs
+# (the fallback hook above only takes effect once update-initramfs has run).
+- name: verify dhcpcd is present in initramfs (required for dhcp-release)
+  shell: lsinitramfs /boot/initrd.img-$(uname -r) 2>/dev/null | grep -cE 'sbin/dhcpcd$' || echo "0"
+  register: clevis_dhcpcd_check
+  changed_when: false
+  check_mode: false
+  when:
+    - clevis_has_luks | bool
+    - wantsclevis_initramfs | default(true)
+    - clevis_dhcp_release_enabled | default(true) | bool
+
+- name: warn if dhcpcd missing from initramfs (dhcp-release will no-op)
+  debug:
+    msg: >-
+      WARNING — dhcpcd not found in the initramfs even after rebuild. The
+      dhcp-release script needs it to send a DHCPRELEASE (klibc ipconfig cannot);
+      the release will silently no-op. Check that dhcpcd is installed on the host
+      so the fallback hook can copy it in.
+  when:
+    - clevis_has_luks | bool
+    - wantsclevis_initramfs | default(true)
+    - clevis_dhcp_release_enabled | default(true) | bool
+    - (clevis_dhcpcd_check.stdout | default('0') | trim | int) == 0
 
 # --- Deploy scripts ---
 

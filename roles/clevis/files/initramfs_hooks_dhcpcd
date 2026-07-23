@@ -1,0 +1,44 @@
+#!/bin/sh
+# Managed by Ansible (clevis role)
+#
+# Bundle the on-host dhcpcd binary into the initramfs.
+#
+# Why this exists
+# ---------------
+# The init-bottom `dhcp-release` script needs a release-capable DHCP client in
+# the initramfs to send a DHCPRELEASE for the clevis/tang boot lease (klibc
+# ipconfig cannot release). On Ubuntu the `dhcpcd-base` package ships its own
+# hook at /usr/share/initramfs-tools/hooks/dhcpcd, so dhcpcd is bundled for
+# free. On Raspberry Pi (`dhcpcd5`) and Debian Trixie (`dhcpcd-base`) that hook
+# is NOT shipped, so dhcpcd never lands in the initramfs and the release
+# silently no-ops.
+#
+# This hook is therefore deployed by the clevis role ONLY when the packaged
+# hook is absent (see config_clevis.yml). It uses copy_exec so the dynamic
+# loader and any shared libs dhcpcd needs are pulled in automatically.
+
+PREREQ=""
+
+prereqs() {
+    echo "$PREREQ"
+}
+
+case "$1" in
+    prereqs)
+        prereqs
+        exit 0
+    ;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+# Locate dhcpcd on the host (path differs: /sbin vs /usr/sbin).
+DHCPCD="$(command -v dhcpcd 2>/dev/null)"
+if [ -z "$DHCPCD" ]; then
+    echo "clevis dhcpcd hook: dhcpcd not found on host, skipping" >&2
+    exit 0
+fi
+
+copy_exec "$DHCPCD" /sbin
+
+exit 0
