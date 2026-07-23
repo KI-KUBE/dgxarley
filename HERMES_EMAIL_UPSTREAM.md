@@ -321,6 +321,29 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 >   `/opt/hermes/plugins/platforms/email/adapter.py`, exactly as described there.
 > - **Pinned deployment (`hermes.image_tag: v2026.6.19`) is unaffected** — no action forced yet.
 
+> **2026-07-23 check — ✅ RE-SYNC ALREADY DONE (visible in patch header, not yet logged here);
+> new security fix folded in; tag bumped past v2026.7.1:**
+> - `hermes.image_tag` is now pinned to **v2026.7.7.2** (two releases past v2026.7.1). The
+>   header of `roles/k8s_dgx/files/hermes_email_gateway_patched.py` shows the re-sync
+>   anticipated by the 2026-07-06 entry has already been carried out: the adapter is synced
+>   to upstream tag **v2026.7.7.2** (`plugins/platforms/email/adapter.py`, md5
+>   `39ed5d135762806451a944a9b279b8ad`, 50848 bytes), superseding the v2026.7.1 baseline. The
+>   subPath mount was re-targeted to `/opt/hermes/plugins/platforms/email/adapter.py` as
+>   described in the "NEXT bump" note above — this log entry is catching the doc up to a
+>   change already applied in-repo, not announcing a new one.
+> - **New upstream security fix folded in during that re-sync:** **GHSA-rxqh-5572-8m77**
+>   (sender-authentication hardening) — new module-level `_domain_of` / `_domains_aligned` /
+>   `_verify_sender_authentication` helpers plus `_AUTH_METHOD_RE` / `_AUTH_PROP_RE` and an
+>   `EmailAdapter._require_authenticated_sender` field (env `EMAIL_TRUST_FROM_HEADER` /
+>   config). This advisory and its fix were not previously mentioned anywhere in this doc's
+>   re-sync log.
+> - **No further re-sync needed for the newer release:** `plugins/platforms/email/adapter.py`
+>   is byte-identical between `v2026.7.7.2` and the newer `v2026.7.20` (2026-07-20) — same
+>   blob SHA `572b5c11455d396e3d23d44b7bf724130ebce385`, 50848 bytes. The pinned patch stays
+>   clean at the current tag.
+> - **PRs #28697 / #28699 / #28702** remain open/unmerged; all three show `updated_at:
+>   2026-07-13` — later than the 2026-06-29 activity previously logged, but no merge/close.
+
 1. Download the new upstream file:
 
    ```bash
