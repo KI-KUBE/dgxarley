@@ -334,6 +334,24 @@ small (~50 MB) and the node has fast local storage.
   All previously-tracked merges (#33045, #38591, #19520, #21267) and the
   closure of #18800 still hold (they predate this tag). Action Items §1–5
   remain pending/unexecuted.
+- **Re-verified 2026-07-23:** three newer releases have shipped since the
+  2026-07-06 check — **v2026.7.7 / v0.18.1** (2026-07-08, infra patch tag),
+  **v2026.7.7.2 / v0.18.2** (2026-07-08, WhatsApp Baileys dependency fix,
+  PR #60643), and **v2026.7.20 / v0.19.0** ("The Quicksilver Release",
+  2026-07-20, large perf/feature release). None of the three touch the TUI
+  npm/lockfile bug. `hermes.image_tag` in this repo is now pinned to
+  **v2026.7.7.2**. Issue **#45657 is still OPEN**, unchanged since 2026-06-23
+  (no new comments). All previously-tracked merges/closures still hold.
+  **Action Items reconciliation:** the wording above ("Action Items §1–5
+  remain pending/unexecuted") is inconsistent with the repo's actual state —
+  `roles/k8s_infra/templates/hermes/hermes_agent_deployment.yaml.j2` shows
+  the `copy-ui-tui` initContainer (plus its volume/mount) already
+  commented out/disabled, per an in-template comment dated 2026-06-11
+  ("copy-ui-tui disabled for a test deploy"). This doc has not been updated
+  to reflect that the initContainer removal (Action Item §4) was already
+  applied in-repo. Whether the underlying test (§3: verify no EACCES with a
+  non-10000 UID) was confirmed successful is NOT re-validated by this
+  check — flagging the discrepancy only, not claiming a pass.
 
 ## Action Items
 
