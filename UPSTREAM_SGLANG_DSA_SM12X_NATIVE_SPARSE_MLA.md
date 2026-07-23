@@ -10,6 +10,13 @@ Upstream state (checked 2026-07-16): `sglang/srt/layers/attention/dsa_backend.py
 on `main` still hardcodes `backend="trtllm-gen"` in `_forward_trtllm`; no cc-12x
 branch exists anywhere in the DSA path.
 
+Re-checked 2026-07-23: PR #31481 still **OPEN**, `reviewDecision:
+REVIEW_REQUIRED`, `mergeStateStatus: DIRTY` — no human review yet (only a
+2026-07-16 gemini-code-assist bot comment reporting its own quota limit).
+`dsa_backend.py` on `main` is unchanged (still hardcodes `backend="trtllm-gen"`).
+SGLang released v0.5.15 (2026-07-10) and v0.5.15.post1 (2026-07-14) since the
+PR was filed; neither touches this code path.
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
