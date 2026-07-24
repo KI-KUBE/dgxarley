@@ -1,0 +1,124 @@
+---
+# Model profile: vroomfondel/Ornith-1.0-9B-NVFP4-ModelOpt
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# vroomfondel's NVIDIA-ModelOpt (0.45.0) NVFP4 export of
+# deepreinforce-ai/Ornith-1.0-9B — the DENSE (non-MoE) sibling of the 35B MoE
+# Ornith. Qwen3.5 dense, Gated-DeltaNet hybrid-mamba. License MIT (base_model MIT).
+#
+# ── ⚠️ DENSE, and UNIFORM W4A4 with ATTENTION QUANTIZED ──────────────────────
+# Unlike every other in-repo qwen3_5* profile (all MoE), this is a DENSE model —
+# NO experts, no ep_size/num_experts/moe_runner_backend keys (a dense NVFP4 profile
+# omits them; cf. nvidia-gemma-4-31b-it-nvfp4.yml). Recipe is UNIFORM W4A4: the
+# dense FFN AND the (linear + full) attention are all W4A4 (weights + activations
+# FP4); FP8 KV cache is BAKED; only lm_head + vision tower stay BF16. Same
+# "aggressive, attention-quantized" recipe as the 35B vroomfondel Ornith sibling.
+#
+# ── PATCH DEPENDENCY (already in repo, self-inert, auto-mounted) ──────────────
+# This checkpoint only loads coherently because of THREE runtime source patches in
+# roles/k8s_dgx/files/sglang_patches/ (ConfigMap-mounted at /patches, run for EVERY
+# sglang instance — no per-profile knob):
+#   * p24_linear_nvfp4_scale.py (upstream PR #29151, main-only, NOT in the 0.5.15
+#     image) — THE critical one for THIS model, named in its docstring: the fused
+#     Gated-DeltaNet in_proj_qkv loads its scalar NVFP4 scale into only slot 0,
+#     leaving the other logical slots garbage, which then wins the .max() global
+#     alpha → catastrophic dequant → WORD-SALAD. Worst here because the 24 GDN
+#     layers dominate the dense model. Fix fills every logical slot.
+#   * p50_qwen35_attn_quant.py — lets the quantized attention actually load (qwen3_5.py
+#     otherwise forces BF16 attention params for any modelopt_fp4 ckpt → shape assert).
+#   * p51_qwen35_kvscale.py — loads the baked per-layer FP8 KV scales (else FP8-KV
+#     scaling defaults to 1.0, ~25–80× off; precision, not a load-blocker).
+# All three are INERT for non-attention-quantized / non-NVFP4 checkpoints. If a
+# future image drops/moves qwen3_5.py or linear.py, re-check them before deploying.
+#
+# ── ARCHITECTURE (Qwen3_5ForConditionalGeneration, model_type qwen3_5) ────────
+#   * MULTIMODAL (text + vision), DENSE. ~9B total / ~6B "active" (dense).
+#   * text: 32 layers, hidden 4096, head_dim 256, num_attention_heads 16,
+#     num_key_value_heads 4, vocab 248320.
+#   * Hybrid: layer_types = 3×linear_attention then 1×full_attention
+#     (full_attention_interval 4) → 8 full-attn layers, 24 Gated-DeltaNet layers.
+#     SGLang routes GDN through the mamba scheduler path (linear-attn recurrent
+#     state, not KV) — only the 8 full-attn layers populate the KV pool.
+#   * linear_conv_kernel_dim 4, linear_key_head_dim 128, linear_num_key_heads 16,
+#     linear_value_head_dim 128, linear_num_value_heads 32.
+#   * mrope (mrope_interleaved, section [11,11,10]), rope_theta 1e7,
+#     partial_rotary_factor 0.25, max_position_embeddings 262144 (native, no YaRN).
+#   * Vision: qwen3_5 ViT (depth 27, hidden 1152, out 4096), kept BF16.
+#   * ⚠ mtp_num_hidden_layers: 1 declared, but MTP weights come from the base — the
+#     card documents no working MTP head → speculative_enabled: false (see below).
+#   NVFP4 weights are small (~5-6 GB total) → ~1.5 GB/GPU at TP=4, huge KV headroom
+#   on GB10.
+#
+# ── ✅ VALIDATION STATUS (per model card) ────────────────────────────────────
+# GSM8K 94.0% (strict==flexible, 376/400; 11/400 empty from a generation-length cap)
+# on DGX Spark GB10 WITH the three patches above applied. NOT independently re-run on
+# this stack — throughput UNMEASURED. Backend knobs below match the card's SGLang flags.
+#
+# ── TP note ──────────────────────────────────────────────────────────────────
+# tp_size: 4 keeps this profile deployable on the standard 4-spark head/worker layout
+# and is arithmetically valid (num_key_value_heads 4 / 4 = 1 per GPU; heads 16, GDN
+# key-heads 16, value-heads 32 all divide by 4). BUT a ~9B dense model fits on ONE
+# GB10 with room to spare — a single-node TP=1 instance would avoid per-layer QSFP
+# all-reduce and is the efficient way to serve it (likely how the card measured).
+# Switching to TP=1 needs a single-node instance definition (see
+# [[reference_sglang_singlenode_sriov_key]] / [[reference_sglang_multi_instance]]).
+_model_profile:
+  "vroomfondel/Ornith-1.0-9B-NVFP4-ModelOpt":
+    knowledge_cutoff: null       # base deepreinforce-ai/Ornith-1.0-9B — not disclosed
+    release_date: null           # base Ornith-1.0-9B date unconfirmed; NVFP4 export by vroomfondel (modelopt 0.45.0)
+    info_url: "https://huggingface.co/vroomfondel/Ornith-1.0-9B-NVFP4-ModelOpt"
+    # ALTERNATIVE (BF16 source): https://huggingface.co/deepreinforce-ai/Ornith-1.0-9B
+    #
+    # SM121 sgl-kernel build required for NVFP4 on GB10. Pinned to the current
+    # siblings' image (carries the p50/p51/p24 patches this checkpoint needs).
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.15-sm121"
+    # DENSE UNIFORM W4A4 unified ModelOpt checkpoint (dense FFN + linear/full attn all
+    # FP4; lm_head + vision EXCLUDED) → standard modelopt_fp4 loader. Boots coherently
+    # only WITH p24 + p50 + p51 (see PATCH DEPENDENCY in header).
+    quantization: "modelopt_fp4"
+    trust_remote_code: true
+    # 262K native (mrope, no YaRN). Only the 8 full-attn layers use KV.
+    context_length: 262144
+    # FP8 KV BAKED into this checkpoint → fp8_e4m3 matches, p51_qwen35_kvscale loads
+    # the baked per-layer scales.
+    kv_cache_dtype: "fp8_e4m3"
+    # 0.7 conservative first-contact (matches the dense NVFP4 gemma sibling); dense
+    # 9B NVFP4 weights are tiny (~1.5 GB/GPU) so there is huge slack — raise if more
+    # KV is wanted (mem_fraction_static = post-weight reserve; higher = more KV).
+    mem_fraction_static: "0.7"
+    nccl_transport: roce
+    tp_size: 4  # dense; valid but oversized for 9B — see TP note in header
+    # Backend = the card's recommended SGLang flags. DENSE → no moe_runner_backend.
+    # flashinfer attn + flashinfer_cutlass FP4 GEMM (cutlass is the only working FP4
+    # GEMM path on SM121; flashinfer_cudnn is broken there).
+    attention_backend: flashinfer
+    fp4_gemm_backend: flashinfer_cutlass
+    disable_deep_gemm: true
+    # eager (disable_cuda_graph) is broken on cutlass fp4 paths (TURBOQUANT.md);
+    # piecewise graphs crash at startup (fp4_quantize has no fake-tensor impl →
+    # dynamo trace fails, same as the dense gemma-4 NVFP4 sibling) → start safe.
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    pp_async_batch_depth: 0
+    cuda_graph_max_bs: 32
+    jit_max_jobs: 4
+    # Multimodal (vision) attention backend. Empty → SGLang default. Bisect
+    # (sdpa / fa3 / triton_attn / flashinfer_cudnn) if image requests crash; the
+    # vision path is UNTESTED on this cluster.
+    mm_attention_backend: ""
+    reasoning_parser: "qwen3"
+    # Card recommends --tool-call-parser qwen3_coder (Qwen3.5 XML tool-call format).
+    tool_call_parser: "qwen3_coder"
+    # Base Ornith generation defaults (temp 1.0 / top_p 0.95 / top_k 20); card ran
+    # GSM8K without stating a temperature.
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+    sampling_overrides: {}
+    # ⚠ NO speculative decoding: config declares mtp_num_hidden_layers 1 but the card
+    # documents no usable MTP head for this export; MTP weights come from the base and
+    # are unverified here. Enabling NEXTN would risk a crash on missing/mismatched
+    # draft weights. Leave off unless a weight-index check of THIS export shows mtp
+    # tensors.
+    speculative_enabled: false
