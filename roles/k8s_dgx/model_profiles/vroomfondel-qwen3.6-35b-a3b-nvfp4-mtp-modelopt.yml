@@ -1,0 +1,113 @@
+---
+# Model profile: vroomfondel/Qwen3.6-35B-A3B-NVFP4-MTP-ModelOpt
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# ✅ SERVES (validated 2026-07-24, image xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121,
+#   GB10/sm121). Loads register-free on one Spark, NEXTN speculation active, coherent
+#   output, and the MTP draft attention loads its baked FP8 KV scales (k_scale 0.0398,
+#   byte-identical to the last main-model full-attn layer — the requant borrow source).
+#   Requires the SGLang runtime patches listed below; on stock SGLang it crashes.
+#
+# WHAT THIS CHECKPOINT IS:
+#   vroomfondel's NVIDIA-ModelOpt export of Qwen/Qwen3.6-35B-A3B, `qformat: nvfp4` =
+#   UNIFORM W4A4 (weights + activations FP4, E2M1, group 16, FP8 block scales) + FP8 KV
+#   cache, AND — unlike every NVIDIA/RedHatAI Qwen3.6 NVFP4 upload — a QUANTIZED MTP/NEXTN
+#   draft head. The main-model MoE experts, the full-attn layers AND the Gated-DeltaNet
+#   linear-attn are NVFP4; the 27-layer vision tower stays BF16 (text-only calibration).
+#   Unified HF checkpoint → hf_quant_config.json quant_algo: NVFP4 → SGLang
+#   quantization: modelopt_fp4 (NOT modelopt_mixed). This is the MTP sibling of
+#   vroomfondel-qwen3.6-35b-a3b-nvfp4-modelopt.yml (same base + quant, that one keeps a
+#   BF16 MTP and is a documented negative result; THIS one quantizes + serves the MTP).
+#
+# ── HOW THE MTP HEAD WAS QUANTIZED (kikube/quantizer/requant_mtp_nvfp4.py) ──
+#   transformers drops mtp.* at load and the multinode FSDP2 export carries no mtp.* at
+#   all, so ModelOpt never quantizes the draft head. A post-export surgical pass sources
+#   the raw BF16 mtp.* from the base checkpoint and NVFP4-packs them PER-EXPERT (mirroring
+#   the main model's per-expert export layout: attn q/k/v/o + shared_expert + 256 routed
+#   experts NVFP4; router / *_norm / mtp.fc kept BF16), and borrows k/v_scale from the
+#   last full-attn layer. FIDELITY: NVFP4 weights are data-free (bit-identical to a
+#   calibrated run); only input_scale + the borrowed KV scales are heuristic. Correctness
+#   is preserved (spec-decoding verifies every draft token); a poor draft only lowers
+#   acceptance/throughput. Compare acceptance vs a BF16-MTP build before relying on the
+#   speedup — this is a research probe, not yet GSM8K/acceptance-gated.
+#
+# ── ⚠ REQUIRED SGLang RUNTIME PATCHES (sglang_patches/, applied by sglang_launch.sh) ──
+#   Stock SGLang 0.5.15 crashes; this checkpoint needs FIVE launch-time source patches:
+#     p50_qwen35_attn_quant   — allow QUANTIZED attention for modelopt_fp4 (uniform W4A4
+#                               quantizes attn + linear-attn, which the shortcut forced BF16).
+#     p51_qwen35_kvscale      — load the MAIN model's baked FP8 KV scales onto RadixAttention
+#                               (remap ...self_attn.k_proj.k_scale → ...attn.k_scale).
+#     p43_qwen35_mtp_quant    — keep quant_config for the QUANTIZED MTP draft head, else
+#                               SGLang assumes a BF16 MTP, builds it unquantized, and the
+#                               fused-MoE loader narrows the unpacked dim over the NVFP4-packed
+#                               expert ("start(0)+length(512) exceeds dimension size(256)").
+#     p44_qwen35_mtp_kvscale  — apply the same KV-scale mapper in the MTP's own load_weights
+#                               so the draft attention loads its baked FP8 scales, not 1.0.
+#     (p29) sm121 CUTLASS-FP4  — arch-independent GB10/sm121 mma patch (applied for all NVFP4).
+#   p43/p44 are specific to a quantized MTP and are INERT for a BF16-MTP checkpoint (so they
+#   are safe to ship globally). Independently, the checkpoint's config.json pins
+#   torch_dtype: bfloat16 (the Qwen3.6 source config omits it) so `--dtype auto` resolves
+#   bf16 — without it the unquantized Gated-DeltaNet in_proj_ba loads as fp16 and crashes at
+#   CUDA-graph capture ("mat1 and mat2 ... BFloat16 != Half").
+#
+#   architectures Qwen3_5MoeForConditionalGeneration, 40 layers, 256 experts / 8 routed +
+#   1 shared per token, max_position_embeddings 262144, mtp_num_hidden_layers 1 (native MTP
+#   head → NEXTN speculative). 35B total / ~3B active, Gated-DeltaNet hybrid-mamba MoE →
+#   SGLang routes it through the mamba scheduler path (hence the extra_buffer + spec_v2 knobs).
+_model_profile:
+  "vroomfondel/Qwen3.6-35B-A3B-NVFP4-MTP-ModelOpt":
+    knowledge_cutoff: null  # not officially disclosed for the Qwen3.6-35B-A3B base
+    release_date: "2026-04-16"  # Qwen3.6-35B-A3B base (QwenLM changelog); this NVFP4+MTP export 2026-07-24
+    info_url: "https://huggingface.co/vroomfondel/Qwen3.6-35B-A3B-NVFP4-MTP-ModelOpt"
+    # SM121 sgl-kernel build required for NVFP4 on GB10; pinned to the validated image so
+    # the required qwen3_5 / MTP patches (p43/p44/p50/p51) are present.
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121"
+    # 35B/3B MoE (Gated DeltaNet hybrid), UNIFORM W4A4 nvfp4 + quantized MTP head. 256
+    # experts, 8 routed + 1 shared per token. Native 262K context (YaRN-extensible, off here).
+    context_length: 262144
+    # Uniform-NVFP4 unified ModelOpt checkpoint → standard modelopt_fp4 loader (NOT
+    # modelopt_mixed — that is the nvidia MIXED_PRECISION upload's path).
+    quantization: "modelopt_fp4"
+    trust_remote_code: true
+    # FP8 KV baked into the checkpoint (main-model full-attn AND the MTP draft attn).
+    kv_cache_dtype: "fp8_e4m3"
+    mem_fraction_static: "0.6"
+    nccl_transport: roce
+    # Backend = the quantizer serving block (dgxarley NVFP4 winner for this arch):
+    # flashinfer_cutlass MoE + flashinfer attn + flashinfer_cutlass FP4 GEMM.
+    moe_runner_backend: flashinfer_cutlass
+    attention_backend: flashinfer
+    fp4_gemm_backend: flashinfer_cutlass
+    disable_deep_gemm: true
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    pp_async_batch_depth: 0
+    cuda_graph_max_bs: 32
+    jit_max_jobs: 4
+    ep_size: 1
+    tp_size: 4
+    num_experts: 256
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
+    reasoning_parser: "qwen3"
+    tool_call_parser: "qwen3_coder"
+    # thinking (default) + non-thinking via chat_template_kwargs={"enable_thinking":false}.
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      presence_penalty: 1.5
+    # MTP / speculative (NEXTN) — native 1-layer MTP head. s=2 / draft=3 is the validated
+    # sweet spot (RedHatAI matrix, monotonic decay s=3/4/5). The two hybrid-mamba knobs
+    # (extra_buffer + spec_v2) avoid the spec-v2-vs-radix-cache boot crash on this arch.
+    speculative_enabled: true
+    speculative_algo: NEXTN
+    speculative_num_steps: 2
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 3
+    mamba_scheduler_strategy: extra_buffer
+    enable_spec_v2: true
+    # ⚠ KEY DIFFERENCE vs the BF16-MTP sibling: this checkpoint's MTP head IS NVFP4, so the
+    # draft MUST inherit modelopt_fp4 (NOT "unquant"). Requires p43 (keep quant_config) +
+    # p44 (MTP KV-scale mapper); without p43 the quantized draft weights fail to load.
+    speculative_draft_model_quantization: "modelopt_fp4"
