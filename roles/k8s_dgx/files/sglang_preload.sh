@@ -53,12 +53,27 @@ for m in $MODELS; do
 done
 start=$(date +%s); deadline=$(( start + 1800 ))
 HAVE_JFS=no; [ -x /usr/local/bin/juicefs ] && HAVE_JFS=yes
-if [ "$HAVE_JFS" = yes ]; then
+
+model_dir() { printf '/root/.cache/huggingface/hub/models--%s' "$(printf '%s' "$1" | sed 's#/#--#g')"; }
+
+# Kick the background warm the FIRST time a model dir shows up. Must be re-tried
+# INSIDE the wait loop: on a genuinely new model the head creates the dir on the
+# shared JuiceFS only after we already started, so a one-shot kick before the loop
+# would leave the worker warming NOTHING for the whole wait (all of it then lands
+# in jfs-warmup instead of overlapping the head's download).
+WARMED=" "
+kick_warm() {
+  local m d
   for m in $MODELS; do
-    d="/root/.cache/huggingface/hub/models--$(printf '%s' "$m" | sed 's#/#--#g')"
-    [ -d "$d" ] && /usr/local/bin/juicefs warmup --threads 1 --background "$d" >/dev/null 2>&1 || true
+    d="$(model_dir "$m")"
+    [ -d "$d" ] || continue
+    case "$WARMED" in *" $m "*) continue ;; esac
+    /usr/local/bin/juicefs warmup --threads 1 --background "$d" >/dev/null 2>&1 || true
+    WARMED="$WARMED$m "
+    echo "[preload-wait] background warm started for $(basename "$d")"
   done
-fi
+}
+[ "$HAVE_JFS" = yes ] && kick_warm
 while :; do
   now=$(date +%s); elapsed=$(( now - start )); pending=
   for m in $MODELS; do
@@ -68,11 +83,18 @@ while :; do
   [ -z "$pending" ] && { echo "[preload-wait] all markers present after ${elapsed}s"; break; }
   [ "$now" -ge "$deadline" ] && { echo "[preload-wait] TIMEOUT after ${elapsed}s; still missing marker(s):$pending (non-fatal)"; break; }
   if [ "$HAVE_JFS" = yes ]; then
+    kick_warm
+    # EVERY round prints for EVERY model, including the "dir not there yet" case:
+    # a silent `continue` here used to make the worker look hung for up to 30min
+    # while the head was still creating the dir for a fresh model.
     for m in $MODELS; do
-      d="/root/.cache/huggingface/hub/models--$(printf '%s' "$m" | sed 's#/#--#g')"
-      [ -d "$d" ] || continue
-      pct=$(/usr/local/bin/juicefs warmup --check "$d" 2>&1 | grep -oE '\([0-9.]+%\)' | tail -1)
-      echo "[preload-wait] ${elapsed}s; missing marker(s):$pending; warming $(basename "$d") cached=${pct:-?}"
+      d="$(model_dir "$m")"
+      if [ -d "$d" ]; then
+        pct=$(/usr/local/bin/juicefs warmup --check "$d" 2>&1 | grep -oE '\([0-9.]+%\)' | tail -1)
+        echo "[preload-wait] ${elapsed}s; missing marker(s):$pending; warming $(basename "$d") cached=${pct:-?}"
+      else
+        echo "[preload-wait] ${elapsed}s; missing marker(s):$pending; $(basename "$d") not on the shared cache yet (head still downloading)"
+      fi
     done
   else
     echo "[preload-wait] ${elapsed}s; missing marker(s):$pending"
