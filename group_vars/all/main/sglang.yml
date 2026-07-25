@@ -44,9 +44,10 @@ sglang_port: 8000
 # sglang_model: "nvidia/GLM-4.7-NVFP4"
 # sglang_model: "nvidia/GLM-5-NVFP4"
 # sglang_model: "nvidia/GLM-5.2-NVFP4"                          # 753B/40B MoE (256 exp/8 active +1 shared), GlmMoeDsa (MLA+DSA), NVFP4 (modelopt, official NVIDIA) → PP=4/TP=1 (EP4/TP4 OOMs); 1M ctx; needs transformers>=5.3.0. UNVALIDATED first-contact
-# sglang_model: "0xSero/GLM-5.2-504B"                           # ~504B GLM-5.2 REAP keep-168 (256→168 exp, 34% pruned) + Router-KD, NVFP4 (modelopt) → PP=4/TP=1; MTP/NEXTN on; min_p=0.05+rep_pen anti-loop guardrail. UNVALIDATED first-contact
+# sglang_model: "0xSero/GLM-5.2-504B"                           # ⛔ NO PROFILE IN REPO (the v1 keep-168 profile was deleted as untested in dcb65b5, superseded by the v2 re-cut below) — selecting this line fails at render on sglang_model_profiles[...]. Kept as a pointer only; use the v2 below
+
 # sglang_model: "0xSero/glm-5.2-reap-504B-v2"                   # ~504B GLM-5.2 REAP keep-168 v2 re-cut (256→168 exp, UNIFORM prune), NVFP4 (modelopt) → TP4/EP1, 16K ctx, MTP/NEXTN; glm45/glm47 parsers. UNVALIDATED first-contact
-sglang_model: "vroomfondel/glm-5.2-reap-504B-v2-W4A4"        # ⚗️ EXPERIMENTAL: OUR surgical NVFP4 W4A4 requant of the v2 above — o_proj+q_b_proj BF16→W4A4 (data-free, ~80% of attn weight bytes; quantizer/surgical_attn_nvfp4.py), rest byte-identical. hf_hub_offline (rsynced into the JuiceFS cache; PRIVATE HF mirror). Heuristic input_scale (no calib) → MUST pass GSM8K gate vs the base before trusting. Same DSA/MTP config as v2.
+# sglang_model: "vroomfondel/glm-5.2-reap-504B-v2-W4A4"        # ⚗️ EXPERIMENTAL: OUR surgical NVFP4 W4A4 requant of the v2 above — o_proj+q_b_proj BF16→W4A4 (data-free, ~80% of attn weight bytes; quantizer/surgical_attn_nvfp4.py), rest byte-identical. hf_hub_offline (rsynced into the JuiceFS cache; PRIVATE HF mirror). Heuristic input_scale (no calib) → MUST pass GSM8K gate vs the base before trusting. Same DSA/MTP config as v2.
 # sglang_model: "0xSero/GLM-5.2-REAP-NU176-526B"               # ⛔ PLACEHOLDER/metadata only — NON-UNIFORM REAP (per-layer expert count, 216 max/~176 mean); stock SGLang+vLLM mis-load the renumbered gate rows, needs author's patched vLLM fork. NOT deployable as-is; prefer the uniform keep-168 v2 above
 #
 # --- Hermes (Nous Research) ---
@@ -56,6 +57,9 @@ sglang_model: "vroomfondel/glm-5.2-reap-504B-v2-W4A4"        # ⚗️ EXPERIMENT
 # --- Hunyuan-3 (Tencent; hy_v3 arch) ---
 # sglang_model: "vroomfondel/Hy3-NVFP4-W4A4"                     # ✅ VALIDATED WORKING on GB10/sm121 (2026-07-10) — full W4A4, 295B/21B-active Hunyuan-3 MoE (192 exp/top-8 +1 shared), modelopt NVFP4 + FP8 KV, 256K ctx → ~40 GB/GPU TP4/EP1; hunyuan tool/reasoning parser; BF16 MTP head (EAGLE staged). Serves coherently once the sglang_launch.sh shared_experts→shared_mlp loader remap is applied (see profile). The long "W4A4 garbles/NaNs" story was a weight-name-load gap, now fixed.
 # sglang_model: "kodelow/Hy3-NVFP4-W4A16"                      # SAME hy_v3 295B MoE, WEIGHT-ONLY NVFP4 (compressed-tensors nvfp4-pack-quantized; experts-only, attn/dense/KV BF16). DEAD END in SGLang: no weight-only-NVFP4 MoE scheme → crashes at load (Blocker A in QUANT_HY3_GOTCHAS.md). Use the W4A4 build above (now working); kodelow only serves via vLLM+MARLIN.
+#
+# --- Llama-4 ---
+# sglang_model: "nvidia/Llama-4-Scout-17B-16E-Instruct-NVFP4"    # ⛔ NOT DEPLOYABLE YET — 109B/17B MoE (16 exp +1 shared, top-1), multimodal, iRoPE/chunked-SWA, uniform modelopt NVFP4 + baked FP8 KV → ~14 GB/GPU TP4; HF-GATED (Llama license). Backends validated TP=1, but needs 3 mllama4.py loader patches + a `--chat-template` flag in sglang_launch.sh, neither done
 #
 # --- MiniMax ---
 # sglang_model: "nvidia/MiniMax-M2.5-NVFP4"
@@ -77,6 +81,11 @@ sglang_model: "vroomfondel/glm-5.2-reap-504B-v2-W4A4"        # ⚗️ EXPERIMENT
 # --- Nex-N2 ---
 # sglang_model: "RazielXYZ/Nex-N2-Pro-NVFP4"                     # Qwen3.5-MoE class (512 exp/10 active), multimodal reasoning, modelopt-NVFP4 ~237 GB → ~59 GB/GPU TP4. UNVALIDATED first-contact; MTP staged-off
 # sglang_model: "r0b0tlab/nex-n2-mini-nvfp4"                     # Qwen3.5-MoE class (256 exp/8 active, 35B/A3B), multimodal reasoning, modelopt-NVFP4 ~24.8 GB → ~6.2 GB/GPU TP4 (tiny). UNVALIDATED first-contact; MTP staged-off
+#
+# --- Ornith (deepreinforce-ai code models; Qwen3.5 class, hybrid Gated-DeltaNet) ---
+# sglang_model: "ressl/Ornith-1.0-35B-NVFP4"                     # 34.7B/3B MoE (256 exp/8 +1 shared), multimodal, modelopt NVFP4 EXPERTS-ONLY (attn/linear_attn/shared/vision BF16, no baked KV quant) → ~6 GB/GPU TP4; 262K ctx, NO MTP head (NEXTN off). UNVALIDATED seed — knobs inherited from the 3.6-35B sibling
+# sglang_model: "vroomfondel/Ornith-1.0-35B-NVFP4-ModelOpt"      # SAME base, DELIBERATELY AGGRESSIVE recipe: UNIFORM W4A4 incl. full-attn AND Gated-DeltaNet + baked FP8 KV (only lm_head/vision BF16). Needs p50_qwen35_attn_quant + p51_qwen35_kvscale (both in-repo, self-inert). Card reports coherent serving on GB10; not re-run here
+# sglang_model: "vroomfondel/Ornith-1.0-9B-NVFP4-ModelOpt"       # DENSE 9B sibling (no experts), Qwen3.5 hybrid (8 full-attn + 24 GDN), UNIFORM W4A4 + baked FP8 KV → ~1.5 GB/GPU TP4. Needs p24_linear_nvfp4_scale (else WORD-SALAD) + p50 + p51. Card: GSM8K 94.0% on GB10; throughput unmeasured here
 #
 # --- Qwen2.5 ---
 # sglang_model: "Qwen/Qwen2.5-Coder-32B-Instruct-AWQ"           # 32B dense, AWQ 4-bit, coder, 32K ctx — ~9.7 GB/GPU TP2
@@ -104,6 +113,7 @@ sglang_model: "vroomfondel/glm-5.2-reap-504B-v2-W4A4"        # ⚗️ EXPERIMENT
 # sglang_model: "nvidia/Qwen3.6-35B-A3B-NVFP4"                  # 35B/3B MoE NVFP4 (modelopt MIXED_PRECISION → needs sglang_launch.sh _sgl_mixed_nvfp4_* patch)
 # sglang_model: "vroomfondel/Qwen3.6-35B-A3B-NVFP4-ModelOpt"    # ⛔ DOES NOT BOOT (2026-07-10): UNIFORM W4A4 NVFP4 (our kikube/quantizer export) — full-model weight-load AssertionError at linear_attn.in_proj_qkvz. Root cause UNPINNED: in_proj_qkvz IS quantized NVFP4 & loads in isolation (TP1/TP4) — full-model name-map suspect, NOT unquantizable. Recommended fix = re-quant nvfp4_mlp_only (see profile). Documented negative result
 # sglang_model: "vroomfondel/Qwen3.6-35B-A3B-NVFP4-MLP-Only-ModelOpt"  # ✅ RECOMMENDED re-quant (fix #1) for the ⛔ uniform-W4A4 sibling above — MLP-ONLY NVFP4 (experts FP4; linear_attn/dense/attn EXCLUDED, kept high-precision) → clears the in_proj_qkvz boot wall. 256 exp, TP4/EP1, 262K ctx, MTP/NEXTN. NOT YET VALIDATED
+sglang_model: "vroomfondel/Qwen3.6-35B-A3B-NVFP4-MTP-ModelOpt"  # ✅ SERVES (2026-07-24, 0.5.15.post1-sm121) — UNIFORM W4A4 + baked FP8 KV AND a surgically NVFP4-QUANTIZED MTP/NEXTN draft head (unique among the Qwen3.6 NVFP4 uploads); vision tower BF16. Needs FIVE patches (p50/p51/p43/p44 + p29); stock SGLang crashes. Acceptance/GSM8K not yet gated — research probe
 
 #
 # --- Qwen3-VL (multimodal companion) ---
@@ -111,6 +121,10 @@ sglang_model: "vroomfondel/glm-5.2-reap-504B-v2-W4A4"        # ⚗️ EXPERIMENT
 #
 # --- Qwen3-Embedding (embedding companion; run via sglang_instances `embed`, NOT as the main selector) ---
 # sglang_model: "chroma-core/Qwen3-Embedding-4B-FP8-Dynamic"     # 4B Qwen3 embedding decoder (last-token pooling), FP8-dynamic, 2560-dim, 32K ctx — the TEXT-EMBEDDING backend (replaces Ollama qwen3-embed). Runs as its OWN tp=1 embed instance (is_embedding), NOT a chat model; gated by enable_embedding_model
+#
+# --- Soofi-S (German "sovereign AI", Soofi-Project / Deutsche Telekom + ellamind) ---
+# sglang_model: "Soofi-Project/Soofi-S-Instruct-Preview"         # ⚠️ SCAFFOLD, NOT SERVABLE — ~31.6B/3.2B NemotronH hybrid (23 Mamba-2 + 23 MoE + 6 GQA, 128 exp/6 active), BF16, DE/EN. Repo is HF `gated: manual` → config.json returns 403 with our token; every profile knob is a TODO(config) placeholder until the gate is accepted
+# sglang_model: "Soofi-Project/Soofi-S-Isar-Preview"             # ⚠️ SCAFFOLD, NOT SERVABLE — REASONING ("Isar") variant of the same base/arch. Same HF gate + same TODO(config) placeholders; reasoning parser unverified
 #
 # --- Tilde (European multilingual foundation) ---
 # sglang_model: "TildeAI/TildeOpen-30b-64k"                     # 30B DENSE BF16 (Llama arch), BASE/foundation — NOT instruct, no chat template, completion-only; 33+ EU languages, 64K via YaRN → ~15.3 GB/GPU TP4. UNVALIDATED first-contact

@@ -19,7 +19,7 @@
 #   vroomfondel-qwen3.6-35b-a3b-nvfp4-modelopt.yml (same base + quant, that one keeps a
 #   BF16 MTP and is a documented negative result; THIS one quantizes + serves the MTP).
 #
-# ── HOW THE MTP HEAD WAS QUANTIZED (kikube/quantizer/requant_mtp_nvfp4.py) ──
+# ── HOW THE MTP HEAD WAS QUANTIZED (post-export surgical requant) ──
 #   transformers drops mtp.* at load and the multinode FSDP2 export carries no mtp.* at
 #   all, so ModelOpt never quantizes the draft head. A post-export surgical pass sources
 #   the raw BF16 mtp.* from the base checkpoint and NVFP4-packs them PER-EXPERT (mirroring
