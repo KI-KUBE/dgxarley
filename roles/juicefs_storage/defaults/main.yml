@@ -215,7 +215,7 @@ juicefs_backup_meta_interval: "24h"
 #             NOTE: every rustfs release is flagged Pre-release, so the usual
 #             releases/latest endpoint returns 404 — hence the list query.
 juicefs_version: "1.4.0"                 # juicedata/juicefs release (arm64+amd64, LTS)
-juicefs_rustfs_version: "1.0.0-beta.8"   # rustfs/rustfs release
+juicefs_rustfs_version: "1.0.0-beta.11"   # rustfs/rustfs release
 juicefs_rustfs_libc: musl                # musl (static) or gnu
 juicefs_valkey_apt_package: valkey-server  # noble: 7.2.x — sufficient for JuiceFS
 
