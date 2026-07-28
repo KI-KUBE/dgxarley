@@ -83,31 +83,17 @@ curl -fsSL "${base_url}/common_utils.py" -o "${workdir}/common_utils.py"
 # Create __init__.py so common_utils can be imported
 touch "${workdir}/__init__.py"
 
-# Patch: upstream get_model_config() calls config.get_text_config() which loses
-# top-level attributes (architectures, quantization_config) that only exist on
-# the multimodal config, not on the text sub-config.
-# This breaks Qwen3.5 MoE: architectures=None crash + block_shape not detected.
-# Fix: preserve both across the unwrap.
+# REMOVED 2026-07-28: "Patch 1" (preserve architectures + quantization_config across
+# the get_text_config() unwrap in get_model_config()). Fixed upstream by PR #20232
+# (merged 2026-03-27, shipped in v0.5.10): upstream now reads architectures and
+# block_shape BEFORE unwrapping text_config, and the patch anchor
+# ("config = config.get_text_config()") no longer exists on main, so the block had
+# been dead code since then. Re-verified against upstream main on 2026-07-28.
+# Background: FIXED_SGLANG_MOE_TUNE_UPSTREAM_BUG.md. The numbering below keeps
+# "Patch 2" so old tuning logs stay greppable.
 python3 -c "
 import pathlib
 p = pathlib.Path('${workdir}/common_utils.py')
-src = p.read_text()
-old = '''    if hasattr(config, \"text_config\"):
-        config = config.get_text_config()'''
-new = '''    if hasattr(config, \"text_config\"):
-        _architectures = config.architectures
-        _quant_config = getattr(config, \"quantization_config\", None)
-        config = config.get_text_config()
-        if config.architectures is None:
-            config.architectures = _architectures
-        if not hasattr(config, \"quantization_config\") and _quant_config is not None:
-            config.quantization_config = _quant_config'''
-if old in src:
-    src = src.replace(old, new, 1)
-    p.write_text(src)
-    print('Patched common_utils.py: preserve architectures + quantization_config across text_config unwrap')
-else:
-    print('WARNING: patch target not found in common_utils.py — upstream may have fixed this')
 
 # Patch 2: config_groups with group_size=None (channel-wise FP8) sets block_shape=[0, None]
 # instead of block_shape=None. This makes the tuning script crash with 'NoneType % int'.
