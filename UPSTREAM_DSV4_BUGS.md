@@ -1,6 +1,41 @@
 # SGLang Upstream Bugs / Gaps: DeepSeek-V4-Flash on SM121 (DGX Spark)
 
-## Status (verified 2026-05-31, upstream re-checked 2026-06-08, re-verified 2026-06-11, re-verifiziert 2026-06-14, 2026-06-22, 2026-06-29, 2026-07-23)
+## Status (verified 2026-05-31, upstream re-checked 2026-06-08, re-verified 2026-06-11, re-verifiziert 2026-06-14, 2026-06-22, 2026-06-29, 2026-07-23, 2026-07-28)
+
+> **Update 2026-07-28 (drei Issue-States korrigiert, v0.5.16 released 2026-07-25).**
+> Re-Check der 2026-07-23-Rechercheergebnisse deckte drei veraltete Issue-States
+> auf:
+> - **#23724** (compressed-tensors W4A16 für V4, §2) ist **CLOSED 2026-07-17**,
+>   aufgelöst durch den gemergten PR **#25763** ("Support DeepSeek-V4 Wint4Abf16
+>   and Win4Afp8", merged 2026-07-16T21:24Z, enthalten in v0.5.16). Wichtig,
+>   damit der Unterschied nicht verlorengeht: #25763 liefert einen **nativen**
+>   SGLang-Quant-Pfad (eigenes Checkpoint-Format und eigene Gewichtsnamen,
+>   getestet gegen ein internes `.../DeepSeek-V4-Flash-FP8-W4ABF16-GS128`),
+>   **keinen Fix des `wqkv_a`-vs-`fused_wqa_wkv`-Namensmatchers** aus §2. Ob
+>   RedHatAI-, kylesayrs- oder canada-quant-NVFP4-Checkpoints damit laden, ist
+>   NICHT verifiziert, der Matcher-Bug selbst ist unangetastet.
+> - **#24111** ("About pre-converted FP8 checkpoints") ist **CLOSED 2026-07-11**
+>   per Stale-Bot ("automatically closed due to inactivity"), NICHT gelöst
+>   (gleiches Muster wie #25165 / #23743).
+> - **#25526** (DSv4 Flash + HiCache breakable piecewise CUDA graph) ist
+>   **CLOSED 2026-07-17**, ebenfalls per Stale-Bot, NICHT gelöst.
+>
+> **v0.5.16 released 2026-07-25** (aktuell neuestes Release). Im Abschnitt
+> "DeepSeek V4" der Release Notes für uns relevant: **#30272** "Implement SM120
+> DeepSeek V4 flashinfer_mxfp4 moe runner backend + TP2", explizit SM120 und
+> damit **prüfenswert für GB10/SM121** (siehe §3, Notiz unten), **#30140** (non-
+> paged indexer default für große Prefill-Chunks), **#30012** (BF16 statt FP32
+> für die Indexer-Score-Berechnung), **#30645** (Fix Top-k-v2 invalide Indizes
+> unter Tie-Overflow, IMA in FA3 sparse decode), **#31705** (Fix idle-rank
+> dummy-extend sparse-prefill Crash unter DP breakable CUDA graph), **#32246**
+> (Fix nvfp4 online scale mit pcg), **#32288** (Fix stale flashinfer-MLA-
+> Fallback vergiftet spec-verify capture, trtllm_mla + tc_piecewise). Neues
+> **Known Issue #31125**: Temp-0-Nondeterminismus unter DP-Attention mit
+> breakable prefill CUDA graph auf der DSV4-Flash-**FP4**-Recipe (unser
+> Checkpoint ist FP8, trifft uns also nur bei einem Wechsel), upstream nur per
+> deaktiviertem Determinismus-Test entschärft, kein echter Fix. **Unvalidiert
+> auf unserem Cluster, kein v0.5.16-Image gebaut, keine der obigen Walls
+> praktisch getestet.**
 
 > **Update 2026-07-23 — v0.5.15 + v0.5.15.post1 released; #25165/#23743 auto-closed (stale, unresolved).**
 > SGLang **v0.5.15** (released 2026-07-10) and **v0.5.15.post1** (released
@@ -136,7 +171,7 @@ Flash serving is still being stabilized upstream.
 | # | Issue | State | Impact for us |
 |---|-------|-------|---------------|
 | 1 | `kv_lora_rank=None` strict-dataclass crash at config parse | **Worked around** (launch patch) | Blocks ANY V4-Flash checkpoint until patched |
-| 2 | compressed-tensors `wqkv_a` vs `fused_wqa_wkv` target mismatch | **Open upstream** (#23724) | Makes RedHatAI / kylesayrs / canada-quant NVFP4 unloadable |
+| 2 | compressed-tensors `wqkv_a` vs `fused_wqa_wkv` target mismatch | **Tracking issue #23724 closed 2026-07-17** (via merged PR #25763, a native Wint4A16/Wint4AFP8 quant path, NOT a fix of the `wqkv_a`/`fused_wqa_wkv` matcher, see 2026-07-28 update above) | Makes RedHatAI / kylesayrs / canada-quant NVFP4 unloadable |
 | 3 | NVFP4 MoE / FP4 indexer for V4 not implemented | **Partial** — FP4 indexer #26209 merged 2026-06-02 (main, in v0.5.13-Tag); NVFP4 MoE #25820 **merged 2026-06-22 (main, im offiziellen v0.5.14-Release seit 2026-06-26; default `flashinfer_trtllm_routed`, B200-only)** | NVFP4-Pfad in v0.5.14 verfügbar; `flashinfer_cutlass`-Pin für SM121 weiterhin nötig (vgl. #26324); `APPLY_DSV4_NVFP4_PR25820=1` bei Wechsel auf v0.5.14+-Image obsolet |
 | 4 | NVFP4 runner instability on V4-Flash/Pro | **Open / partly closed** (#26324, #25704) | Even where NVFP4 loads, output is NaN/garbage except EAGLE |
 | 5 | `nvidia/DeepSeek-V4-Pro-NVFP4` does not fit; `nvidia/DeepSeek-V4-Flash-NVFP4` needs verification | N/A (capacity) | Pro: 913 GB vs 512 GB — does not fit. Flash NVFP4 (~162B params) may fit TP=4 — unverified, see §5 |
@@ -231,10 +266,18 @@ vLLM/transformers naming instead.
 - None ship `hf_quant_config.json` → **none are ModelOpt format** (which would
   bypass the compressed-tensors matcher entirely).
 
-**Upstream status:** compressed-tensors W4A16 support for V4 is an open feature —
-[#23724](https://github.com/sgl-project/sglang/issues/23724). Not launch-patchable
-in a robust way (matcher + weight-name remap + an NVFP4 scheme that doesn't exist
-yet — see §3). **Fix = use a SGLang-native checkpoint**, not a patch.
+**Upstream status:** the tracking issue
+[#23724](https://github.com/sgl-project/sglang/issues/23724) is **closed since
+2026-07-17**, resolved by merged PR #25763 ("Support DeepSeek-V4 Wint4Abf16 and
+Win4Afp8", in v0.5.16). That PR ships a **native SGLang** Wint4A16/Wint4AFP8
+quant path with its own checkpoint naming, it does NOT touch the
+compressed-tensors matcher or the `wqkv_a`/`fused_wqa_wkv` mismatch itself. The
+RedHatAI/kylesayrs/canada-quant checkpoints named in this section are still
+unverified against current main and the mismatch described above is expected to
+still reproduce. Not launch-patchable in a robust way (matcher + weight-name
+remap + an NVFP4 scheme that doesn't exist yet — see §3). **Fix = use a
+SGLang-native checkpoint**, not a patch (update 2026-07-28: #25763 is now a
+concrete example of such a native path, though not NVFP4).
 
 ---
 
@@ -253,6 +296,14 @@ support:
   Der DSA/Index-Attention-Pfad ist damit upstream verfügbar.
 - Roadmap: [#23602](https://github.com/sgl-project/sglang/issues/23602) DeepSeek V4
   Roadmap.
+- **Update 2026-07-28:** [PR #30272](https://github.com/sgl-project/sglang/pull/30272)
+  "Implement SM120 DeepSeek V4 flashinfer_mxfp4 moe runner backend + TP2" ist im
+  v0.5.16-Release (2026-07-25) enthalten und explizit SM120-adressiert (der
+  Cluster-`major==12`-Check deckt SM121/GB10 sonst mit ab, siehe §6/§7/§8),
+  **prüfenswert** als potenzieller Ersatz oder Ergänzung für den
+  `flashinfer_cutlass`-Pin auf SM121, aber MXFP4 ist eine andere Quant-Familie
+  als NVFP4 und die Kompatibilität zum `nvidia/DeepSeek-V4-Flash-NVFP4`-Checkpoint
+  (§5) ist unverifiziert. Noch nicht getestet auf diesem Cluster.
 
 ---
 
@@ -504,7 +555,10 @@ V4-Flash, [#23743](https://github.com/sgl-project/sglang/issues/23743) GB200
 serving tracker, [#25526](https://github.com/sgl-project/sglang/issues/25526)
 HiCache piecewise CUDA graph, [#26647](https://github.com/sgl-project/sglang/issues/26647)
 Mooncake HiCache hybrid cache) — features we don't enable (HiCache, MTP/EAGLE,
-PD-disagg) may surface new walls if turned on.
+PD-disagg) may surface new walls if turned on. **Update 2026-07-28:** #25165,
+#23743 and #25526 are all now closed by the stale-bot (unresolved, no fix
+landed, see the 2026-07-28 status block); only #26647 is still genuinely open.
+Stale-bot closure here does not mean the underlying gap is fixed.
 
 ---
 
@@ -515,16 +569,19 @@ PD-disagg) may surface new walls if turned on.
 | PR #23882 | DeepSeek-V4 day-0 support (`DeepseekV4ForCausalLM`) | merged (v0.5.12) |
 | PR #24692 | feat: SM120 (Blackwell Desktop) support for DeepSeek-V4 inference | **merged 2026-06-01; im offiziellen v0.5.13-GitHub-Release seit 2026-06-13** |
 | #23602 | DeepSeek V4 Roadmap | open |
-| #23724 | Support DeepSeek-V4 Compressed-tensor W4A16 | open |
+| #23724 | Support DeepSeek-V4 Compressed-tensor W4A16 | **closed 2026-07-17**, resolved by merged PR #25763, a native Wint4A16/Wint4AFP8 path, NOT a fix of the `wqkv_a`/`fused_wqa_wkv` matcher in §2 (see 2026-07-28 update) |
+| PR #25763 | [Feature] Support DeepSeek-V4 Wint4Abf16 and Win4Afp8 | **merged 2026-07-16T21:24Z; in v0.5.16 (2026-07-25)**; closes #23724 tracking issue, not the §2 matcher bug |
 | #25820 | [NVIDIA] Support NVFP4 MoE for DeepSeek-V4 | **merged 2026-06-22 (main); im offiziellen v0.5.14-Release seit 2026-06-26; default `flashinfer_trtllm_routed`, B200-only, kein SM120/121-Test; `APPLY_DSV4_NVFP4_PR25820=1` bei v0.5.14+-Image obsolet** |
 | #26209 | Add FP4 Indexer for DeepSeek V4 | **merged 2026-06-02; im offiziellen v0.5.13-GitHub-Release seit 2026-06-13** |
-| #26324 | flashinfer_trtllm MoE runner asserts on DeepSeek-V4-Flash NVFP4 (B200) | open |
+| PR #30272 | Implement SM120 DeepSeek V4 flashinfer_mxfp4 moe runner backend + TP2 | **merged, in v0.5.16 (2026-07-25)**; SM120-specific, prüfenswert für SM121/GB10, see §3, not yet tested here |
+| #26324 | flashinfer_trtllm MoE runner asserts on DeepSeek-V4-Flash NVFP4 (B200) | open (unchanged, last activity 2026-06-15) |
 | #25704 | V4-Pro NVFP4 B200: NaN/garbage except EAGLE | closed |
 | #25165 | main branch broke with deepseek v4 flash deployment | **closed (stale, unresolved)** — auto-closed by stale-bot 2026-07-13, no fix landed |
 | #23743 | [Tracking] DeepSeek V4 Flash GB200 serving fixes | **closed (stale, unresolved)** — auto-closed by stale-bot 2026-07-14, no fix landed |
-| #25526 | DSv4 Flash + HiCache breakable piecewise CUDA graph | open |
-| #26647 | Mooncake HiCache fails with DeepSeek-V4-Flash hybrid cache | open |
-| #24111 | About pre-converted FP8 checkpoints (sgl-project/DeepSeek-V4-Flash-FP8) | open |
+| #25526 | DSv4 Flash + HiCache breakable piecewise CUDA graph | **closed 2026-07-17 (stale-bot, unresolved)**, no fix landed |
+| #26647 | Mooncake HiCache fails with DeepSeek-V4-Flash hybrid cache | open (unchanged, last activity 2026-05-29) |
+| #24111 | About pre-converted FP8 checkpoints (sgl-project/DeepSeek-V4-Flash-FP8) | **closed 2026-07-11 (stale-bot, unresolved)**, no fix landed |
+| #31125 | Known Issue (v0.5.16): temp-0 nondeterminism under DP attention + breakable prefill CUDA graph on the DSV4-Flash FP4 recipe | **open**, determinism test disabled as a stopgap, not fixed |
 | DeepGEMM #317 | DeepSeek-V4 on SM120: `tf32_hc_prenorm_gemm` + `paged_mqa_logits` kernels missing | **closed 2026-04-30 (declined, no SM120 HW; community PR #318 open)** |
 | #23657 | DSv4 compressed attention: no SM120 fallback for Lightning Indexer | **closed 2026-06-16** |
 | #25181 | `SGLANG_OPT_FP8_WO_A_GEMM` default-on | merged (v0.5.12) |
@@ -596,4 +653,4 @@ einem v0.5.13-Image ändert.
   (`failSwapOn: false`, `swapBehavior: LimitedSwap`)
 - Active model: `group_vars/all/main/sglang.yml` (`sglang_model`)
 - Image: `xomoxcc/dgx-spark-sglang:0.5.14-sm121` — recipe `scripts/patches/sglang-0.5.14-sm121.recipe`
-- Release notes: see the 2026-06-29 block at the top of this file
+- Release notes: see the 2026-06-29 block at the top of this file; v0.5.16 (2026-07-25) release notes summarized in the 2026-07-28 block
