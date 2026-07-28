@@ -18,6 +18,18 @@ v0.5.15.post1 (2026-07-14) since the PR was filed; both contain DSA
 top-k/indexer-fusion work (#26788, #30274, #27705) but no arch-independent
 `torch` backend.
 
+Re-checked 2026-07-28: PR #31480 still **OPEN**, no new commits or comments
+since 2026-07-16 (`updatedAt` unchanged). `mergeStateStatus` now reads
+`BLOCKED` via the API instead of `UNKNOWN`, that is GitHub's lazy merge-state
+computation catching up, not a real event. `DSAPagedMQALogitsBackend` on
+`main` fetched again and confirmed unchanged (still only DEEPGEMM / CUTEDSL /
+AITER, no `torch` value). SGLang released v0.5.16 on 2026-07-25 since the last
+check, its "DeepSeek V4" section ships DSA-adjacent work (#30514 Q8KV8 FP8
+Sparse MLA Prefill integration, #30140 non-paged indexer default, #30012 BF16
+instead of FP32 for indexer score, #30645 top-k v2 fix) but none of it adds an
+arch-independent `torch` paged-MQA-logits backend. No change to this doc's
+conclusions.
+
 ## Proposed PR title
 
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
