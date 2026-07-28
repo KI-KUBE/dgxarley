@@ -71,17 +71,38 @@
           echo "  Upload complete."
 
           # 4. Prune old backups
+          #
+          # Remote first, local only on success: if the remote delete fails the
+          # local dir stays and `find` offers it again on the next run, so the
+          # pair cannot drift apart. Dropping the local dir first orphaned the
+          # remote prefix permanently (10 such prefixes accumulated before the
+          # `rc rm` flags below were fixed).
+          #
+          # `rc rm` (rc 0.1.25) has NO --continue-on-error (that flag is `rc cp`
+          # only) and needs -r for a prefix, else it deletes nothing. A prune
+          # failure is a warning, not a job failure -- the dumps are already
+          # written and uploaded at this point.
           echo "Pruning backups older than ${KEEP_DAYS} days..."
-          find "${BACKUP_ROOT}" -maxdepth 1 -mindepth 1 -type d -mtime +${KEEP_DAYS} | while read -r OLD_DIR; do
-            echo "  Removing: ${OLD_DIR}"
-            rm -rf "${OLD_DIR}"
+          PRUNE_FAILED=""
+          while read -r OLD_DIR; do
+            [ -n "${OLD_DIR}" ] || continue
             OLD_NAME=$(basename "${OLD_DIR}")
             echo "  Removing from {{ rustfs_rc_alias }}: {{ rustfs_rc_backup_bucket }}/pgbackup/${OLD_NAME}/"
-            rc rm -q --continue-on-error --force {{ rustfs_rc_alias }}/{{ rustfs_rc_backup_bucket }}/pgbackup/${OLD_NAME}/
-          done
+            if rc rm -q --force --recursive {{ rustfs_rc_alias }}/{{ rustfs_rc_backup_bucket }}/pgbackup/${OLD_NAME}/; then
+              echo "  Removing: ${OLD_DIR}"
+              rm -rf "${OLD_DIR}"
+            else
+              echo "  WARNING: remote prune failed for ${OLD_NAME}, keeping ${OLD_DIR} for retry"
+              PRUNE_FAILED="${PRUNE_FAILED} ${OLD_NAME}"
+            fi
+          done < <(find "${BACKUP_ROOT}" -maxdepth 1 -mindepth 1 -type d -mtime +${KEEP_DAYS})
 
           TOTAL_SIZE=$(du -sh "${BACKUP_ROOT}" | cut -f1)
           echo "=== Backup Complete: ${BACKUP_DIR} (total backup storage: ${TOTAL_SIZE}) ==="
+
+          if [ -n "${PRUNE_FAILED}" ]; then
+            echo "WARNING: Failed remote prunes:${PRUNE_FAILED}"
+          fi
 
           if [ -n "${FAILED}" ]; then
             echo "WARNING: Failed databases:${FAILED}"
