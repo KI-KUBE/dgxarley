@@ -356,6 +356,17 @@ small (~50 MB) and the node has fast local storage.
   applied in-repo. Whether the underlying test (§3: verify no EACCES with a
   non-10000 UID) was confirmed successful is NOT re-validated by this
   check — flagging the discrepancy only, not claiming a pass.
+- **Re-verified 2026-07-28:** no new hermes-agent release since v2026.7.20 (2026-07-20). Issue
+  #45657 (Trigger 2) is still open and still unfixed, but it saw two rounds of activity not
+  previously logged here. On 2026-06-23 a second reporter posted an independent reproduction,
+  with a one-character fix note (a `_NON_TUI_WORKSPACE_PREFIXES` frozenset does not work with
+  `str.startswith()`, needs a tuple instead) for one of the candidate patches, and flagged that
+  approach as fragile compared to a dependency-closure fix. Then on 2026-07-27 (after this doc's
+  2026-07-23 check) an automated triage bot comment surveyed three competing fix PRs for the
+  issue: #45732 (closed, unmerged, marked by the bot as the best fix), #45671 (still open,
+  unmerged, last updated 2026-07-14), and #45660 (closed, unmerged). None of the three is merged,
+  so upstream still has no landed fix for Trigger 2, and this doc's conclusion is unchanged: the
+  `copy-ui-tui` workaround status and the rest of the tracked merges/closures all still hold.
 
 ## Action Items
 
