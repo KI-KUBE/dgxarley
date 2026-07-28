@@ -4,6 +4,16 @@
 memlock_limit: "unlimited"
 stack_limit: 67108864
 
+# Purge the apt podman once the static bundle is verified working (see
+# roles/common/tasks/installpodman.yml, last task). The sparks run pure-static
+# podman under /usr/local; keeping apt podman 4.9.3 installed alongside is not
+# merely dead weight, it actively breaks the static 5.8.4: the apt package ships
+# podman-clean-transient.service, which wins the boot race against podman.service
+# and creates /dev/shm/libpod_lock in the 4.x layout (98880 B). The 5.8.4 binary
+# expects 82488 B and then fails EVERY call with "failed to open 2048 locks in
+# /libpod_lock: numerical result out of range" (measured on spark5, 2026-07-28).
+podman_apt_purge: true
+
 # Node swap (KEP-2400) — lets a spark use a disk-backed swapfile to absorb the
 # transient weight-load peak of borderline models (DeepSeek-V4-Flash-FP8 on
 # 4×GB10). Renders kubelet failSwapOn:false + swapBehavior:LimitedSwap (see

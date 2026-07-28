@@ -98,19 +98,11 @@
       ansible.builtin.systemd:
         daemon_reload: true
 
-    - name: clear stale libpod SHM lock left by a different podman version
-      # apt podman 4.9.3 leaves /dev/shm/libpod_lock sized for ITS lock count; the
-      # static 5.8.4 then fails every call with "failed to open 2048 locks in
-      # /libpod_lock: numerical result out of range". Measured: `podman system
-      # renumber` can't fix it (it must open the broken lock first) and PATH/hash
-      # tricks are irrelevant — only removing the SHM file works; podman recreates it
-      # correctly-sized on the next call. tmpfs, so this only bites on a live
-      # apt->static migration without a reboot. Runs only in this block (i.e. only
-      # when the bundle was just (re)installed); safe as no podman containers run here
-      # (podman is build-only on these nodes — k8s workloads use containerd).
-      ansible.builtin.file:
-        path: /dev/shm/libpod_lock
-        state: absent
+    # The stale-SHM-lock cleanup used to live HERE, inside this version-gated block.
+    # Moved out (below, before the verify step) because gating it on "the bundle was
+    # just (re)installed" made it unreachable on exactly the hosts that need it: an
+    # already-current 5.8.4 skips this block entirely while the apt podman keeps
+    # re-creating the bad lock on every boot. See the probe pair below.
 
   always:
     - name: clean up static podman temp dir
@@ -167,16 +159,37 @@
     label: "{{ item.opt }}"
   when: containers_storage_conf.stat.exists
 
-- name: enable and start podman socket (system-level)
-  systemd:
-    name: podman.socket
-    enabled: true
-    state: started
-    scope: system
-
 - name: enable linger for root
   command: loginctl enable-linger root
   changed_when: false
+
+- name: probe podman for a stale libpod SHM lock
+  # Non-fatal pre-flight for the verify step below. apt podman 4.9.3 and the static
+  # 5.8.4 disagree on the layout of the /dev/shm/libpod_lock segment (98880 vs 82488
+  # bytes for the same num_locks=2048), and libpod rejects a size mismatch with
+  # ERANGE, so whichever version creates the segment first locks the other one out
+  # for the rest of the uptime. On a host with BOTH installed the apt-shipped
+  # podman-clean-transient.service wins that race at every boot (measured on spark5,
+  # 2026-07-28), so this is not just a one-off apt->static migration artifact.
+  ansible.builtin.command: podman info
+  register: _podman_lock_probe
+  changed_when: false
+  failed_when: false
+  when: podman_static_enabled | default(false) | bool
+
+- name: clear stale libpod SHM lock left by a different podman version
+  # Removal is the ONLY working fix: `podman system renumber` must open the broken
+  # segment first and fails identically, and PATH/hash tricks are irrelevant. podman
+  # recreates the file correctly-sized on the next call (tmpfs, nothing persists).
+  # Narrowly conditioned on the probe having failed with THIS error so a healthy host
+  # never has its lock segment yanked out from under a running podman.
+  ansible.builtin.file:
+    path: /dev/shm/libpod_lock
+    state: absent
+  when:
+    - podman_static_enabled | default(false) | bool
+    - _podman_lock_probe.rc | default(0) != 0
+    - "'libpod_lock' in (_podman_lock_probe.stderr | default(''))"
 
 - name: verify podman is working
   command: podman info
@@ -209,6 +222,22 @@
   when:
     - podman_static_enabled | default(false) | bool
     - podman_apt_purge | default(false) | bool
+
+- name: enable and start podman socket (system-level)
+  # Deliberately AFTER the purge, not before it: `apt purge podman` runs
+  # deb-systemd-helper, which removes the enablement symlinks for the unit names the
+  # package owns (podman.socket among them). Enabling first and purging second left
+  # the socket Loaded-from-/usr/local but `disabled`, i.e. gone after the next boot
+  # (observed on spark5, 2026-07-28). Nothing between here and the install needs the
+  # socket (`podman info` talks to libpod directly), so running it last is free.
+  # daemon_reload so the static unit under /usr/local/lib/systemd/system is the one
+  # being enabled once dpkg has withdrawn the /lib/systemd/system copy.
+  systemd:
+    name: podman.socket
+    enabled: true
+    state: started
+    scope: system
+    daemon_reload: true
 
 - name: podman system prune cron job
   cron:
