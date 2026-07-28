@@ -51,6 +51,9 @@ RuntimeError: Task error: Unable to parse string as hex hash value
 | `hf_xet` | `1.5.2` (stable, released 2026-07-16) | **confirmed still broken** — reported on `xet-core#895` 2026-07-23 (not yet tested in-cluster) |
 | `huggingface_hub` | `1.23.0` | both images |
 | `huggingface_hub` | `1.24.0` (released 2026-07-17) | **confirmed still broken** alongside `hf_xet 1.5.2` — same `xet-core#895` report, 2026-07-23 |
+| `hf_xet` | `1.5.3.dev0` (diagnostic pre-release, 2026-07-24) | released by maintainer `@seanses` on `xet-core#895`, embeds the failing hash value in the error message, not a fix. Confirmed still broken by two independent reporters, 2026-07-25 and 2026-07-27 |
+| `huggingface_hub` | `1.25.0` (released 2026-07-27) | **confirmed still broken**, tested alongside `hf_xet 1.5.3.dev0` in the same `xet-core#895` thread, 2026-07-27 |
+| `huggingface_hub` | `1.25.1` (released 2026-07-27) | **confirmed still broken**, same test combination (huggingface_hub 1.25.1 plus hf_xet 1.5.3.dev0), reported on `xet-core#895`, 2026-07-27 |
 
 Neither `hf_xet` nor `huggingface_hub` is pinned in the SGLang build recipes
 (`scripts/patches/sglang-0.5.1{4,5}-sm121.recipe`), so a rebuild pulls whatever pip
@@ -143,6 +146,20 @@ are apples-to-oranges (they take the `hf_hub_download` path, which works).
   need to file our own issue; instead consider adding our reproduction
   details (faithful `snapshot_download` vs `hf_hub_download` split, see
   above) as a comment on #895 if it stays unresolved.
+- **Update 2026-07-28: real movement on #895, still no fix shipped.**
+  Maintainer `@seanses` released `hf_xet 1.5.3.dev0` on 2026-07-24 (a
+  diagnostic build that embeds the failing hash value in the error
+  message, not a fix). Two independent reporters reproduced the
+  failure on that build, on 2026-07-25 and again on 2026-07-27 (the
+  2026-07-27 report also used `huggingface_hub 1.25.1`, confirming that
+  release is broken too). On 2026-07-27, `@seanses` posted a full root
+  cause investigation summary on the issue, the first concrete
+  explanation of how the hash gets corrupted. On 2026-07-28 (today),
+  `@Wauplin` replied thanking `@seanses` for the investigation and said
+  he would check the `huggingface_hub` side for a fix. Bottom line
+  unchanged: nothing merged, nothing released, `HF_HUB_DISABLE_XET=1`
+  remains mandatory, but for the first time a fix looks plausible in
+  the near term, worth checking back again soon.
 - Related closed reports (symptom cluster, same 1.5.x era, resolved
   independently of this bug):
   - huggingface/xet-core #358 — "errors became very common" with snapshot_download (closed)
@@ -183,3 +200,14 @@ download-group fix) is out:
   (2026-07-16 stable) and **huggingface_hub 1.24.0** (2026-07-17) on
   2026-07-23, so the newer stable releases do not fix it either.
   `HF_HUB_DISABLE_XET=1` workaround unchanged and still required.
+- **2026-07-28**: checked `xet-core#895` again, still open, but real
+  movement this time. `@seanses` shipped `hf_xet 1.5.3.dev0`
+  (2026-07-24), a diagnostic-only release that embeds the failing hash
+  in the error message. Reproductions on that build were reported on
+  2026-07-25 and 2026-07-27, the latter also on `huggingface_hub 1.25.1`
+  (released 2026-07-27, confirmed still broken, not previously listed
+  in this doc). `@seanses` posted a root cause investigation on
+  2026-07-27, and `@Wauplin` responded on 2026-07-28 saying he would
+  check the `huggingface_hub` fix. Nothing merged or released yet.
+  `HF_HUB_DISABLE_XET=1` remains required, but a fix now looks close,
+  recheck again soon.
