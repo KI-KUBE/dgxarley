@@ -17,6 +17,20 @@ REVIEW_REQUIRED`, `mergeStateStatus: DIRTY` — no human review yet (only a
 SGLang released v0.5.15 (2026-07-10) and v0.5.15.post1 (2026-07-14) since the
 PR was filed; neither touches this code path.
 
+Re-checked 2026-07-28: PR #31481 still **OPEN**, no new commits or comments
+since 2026-07-16 (`updatedAt` unchanged). GitHub now reports `mergeable:
+CONFLICTING` alongside `mergeStateStatus: DIRTY`, meaning the branch needs a
+**rebase against current main** before it can be submitted, main has moved on
+since the `1f34911de7` base. `dsa_backend.py::_forward_trtllm` fetched again
+from `main` and confirmed unchanged (still hardcodes `backend="trtllm-gen"`,
+line ~2967). `calculate_mla_kv_cache_dim` (now in
+`mem_cache/kv_cache_configurator.py`, matching this doc's own port note) still
+gates the plain-layout early return purely on `dsa_prefill_backend` /
+`dsa_decode_backend == "trtllm"`, no SM12x branch. SGLang v0.5.16 (released
+2026-07-25) reviewed, its DeepSeek-V4/DSA/GLM-5.2 changelog entries do not
+touch either file's SM12x gating logic. No change to this doc's conclusions,
+rebase is a submission-mechanics item, not a content one.
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
