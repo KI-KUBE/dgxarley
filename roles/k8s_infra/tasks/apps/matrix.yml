@@ -241,6 +241,15 @@
                     args:
                       - |
                         set -e
+                        # rm before the redirect, NOT optional: the chmod below
+                        # leaves the file 0400, and the container runs as uid 991
+                        # (image USER), so it owns the file but has no write bit.
+                        # A `>` truncates rather than creates, so on any in-place
+                        # container restart — where the tmpfs survives, unlike a
+                        # node reboot or pod delete — the sed dies with EACCES and
+                        # the pod crash-loops forever on its own leftover. Seen
+                        # 2026-07-28 after the elite800 reboot.
+                        rm -f /run/synapse/homeserver.yaml
                         sed "s|__NODE_IP__|${NODE_IP}|g" /config/homeserver.yaml > /run/synapse/homeserver.yaml
                         chown 991:991 /run/synapse/homeserver.yaml
                         chmod 0400 /run/synapse/homeserver.yaml
