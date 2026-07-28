@@ -106,6 +106,30 @@ historical: the buggy function will no longer exist to patch, rather than being 
 in place. The `flashinfer_cutlass` workaround (already our default for NVFP4+EP) is
 unaffected either way. Re-verify against the next release tag after v0.5.15.post1.
 
+**Re-verified 2026-07-28: RESOLVED BY REMOVAL in v0.5.16 (released 2026-07-25).**
+The threshold from the entry above is now met. Source-confirmed via the GitHub
+contents API: `python/sglang/jit_kernel/nvfp4.py` returns 404 on the `v0.5.16` tag
+(the file is gone, not just changed), and `sglang/srt/layers/moe/cutlass_moe.py` on
+`v0.5.16` no longer defines `cutlass_moe_fp4` (only the unrelated `cutlass_fused_experts_fp8`
+remains). `ModelOptNvFp4FusedMoEMethod.create_moe_runner` in `modelopt_quant.py` now
+raises `NotImplementedError` for `moe_runner_backend=cutlass` on NVFP4 MoE, directing
+callers to `flashinfer_cutlass` instead. This confirms the whole bug chain documented
+in this file (`_shuffle_rows_torch`, `scaled_fp4_experts_quant`, `cutlass_moe_fp4`, the
+`a_map`/`c_map` uninitialized-memory OOB, and the still-open semantic-fix investigation
+below) is now historical for any SGLang image built from v0.5.16 onward, resolved by
+the buggy code being deleted, not by an in-place fix.
+
+**Practical consequence for our cluster.** Our default SGLang image is currently pinned
+to `xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121` (`roles/k8s_dgx/defaults/main/sglang.yml`),
+which still contains the buggy `jit_kernel/nvfp4.py`. Our `torch.empty` to `torch.zeros`
+monkey patch (`roles/k8s_dgx/files/sglang_patches/p26_cutlass_moe_zeroinit.py`) is
+therefore **still required as long as the image stays on 0.5.15.post1 or earlier**. Once
+the cluster image is bumped to 0.5.16 or later, `p26_cutlass_moe_zeroinit.py` becomes a
+no-op patch target (the anchor it greps for no longer exists in the file, since the file
+itself is gone) and can be dropped from the patch chain. Do not remove the patch before
+the image bump actually happens, and do not change the pinned image as part of this doc
+update, an image bump is a separate deploy decision.
+
 Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, v0.5.13, and **v0.5.14** (released 2026-06-26 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
 
 The final root cause (uninitialized `torch.empty` on `a_map`) was identified
