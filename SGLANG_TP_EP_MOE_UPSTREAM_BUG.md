@@ -85,6 +85,38 @@ place) and our documented `cutlass`-backend fallback will hard-error — `triton
 `flashinfer_cutlass` are unaffected, and the `else`-branch input-scale bug (PR #23531)
 is untouched by #30448 and remains required.
 
+**Re-verified 2026-07-28:** SGLang **v0.5.16 released 2026-07-25** (tag created
+2026-07-24). Source-confirmed on the v0.5.16 tag that the 2026-07-23
+forward-looking note above has now materialized: `python/sglang/jit_kernel/nvfp4.py`
+returns 404 via the GitHub contents API (file deleted, not just modified), and
+`sglang/srt/layers/moe/cutlass_moe.py` no longer contains a `cutlass_moe_fp4`
+function (only `cutlass_fused_experts_fp8` remains). `ModelOptNvFp4FusedMoEMethod.create_moe_runner`
+in `modelopt_quant.py` (~line 2452 on v0.5.16) now reads:
+`if moe_runner_backend.is_cutlass(): raise NotImplementedError("moe_runner_backend=cutlass
+is not supported for NVFP4 MoE. Use --moe-runner-backend flashinfer_cutlass instead.")`.
+**This means the two sections below, "Deeper Issue: cutlass_fp4_group_mm CUDA kernel
+assert with EP" and "CutlassMoEParams uses global num_experts with EP", are historical
+as of v0.5.16: the buggy code path was deleted, not fixed in place.** Any image built
+from v0.5.16+ cannot select `moe_runner_backend=cutlass` for NVFP4 MoE at all; it hard-errors
+with a clear `NotImplementedError` instead of the silent assertion/crash documented below.
+`triton` and `flashinfer_cutlass` remain the only viable NVFP4 MoE backends, `flashinfer_cutlass`
+is already the cluster default and is unaffected either way.
+
+The **`else`-branch input-scale EP-slicing bug is NOT touched by v0.5.16**: source-confirmed
+`modelopt_quant.py` still reads `layer.w13_input_scale.max(dim=-1).values.to(torch.float32)`
+with no EP slicing (same line as in v0.5.15.post1), so that monkey-patch remains required.
+PR #23531, PR #21612, and PR #20963 are all still OPEN with no new activity since the
+2026-07-23 check. Issue #24502 is still OPEN.
+
+The **`moe_wna16` qzeros EP bug is confirmed unchanged on both sides**: source-inspected
+SGLang v0.5.16 `moe_wna16.py` (still `tp_rank = get_parallel().tp_rank` and direct
+`param.data[expert_id, ...]` indexing, no EP remap) and vLLM **v0.26.0** (released
+2026-07-27, `vllm/model_executor/layers/quantization/moe_wna16.py` still `tp_rank =
+get_tensor_model_parallel_rank()` and the same unguarded `param.data[expert_id, ...]`
+pattern, byte-for-byte the same bug as documented). vLLM v0.26.0 release notes contain
+no `moe_wna16`/qzeros/`expert_parallel` fix. vLLM PR #35598 is still OPEN, no activity
+since 2026-05-23. Bug (a) remains unpatched through vLLM v0.26.0.
+
 - vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, not merged. Author rebased onto `main` on 2026-04-13 (commit `c56eae0e`, merge-from-main only, no code changes); prior rebase 2026-03-05. Still only the initial Gemini bot review from 2026-02-28 — no human reviewer has engaged (mergify[bot] flagged a merge conflict 2026-05-23; 5 reviewers requested, none engaged; re-verified 2026-06-11)
 - vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch. **Closed without merge 2026-04-25** by author (`weiguangli-io`) citing 8+ weeks with no maintainer review; offered to reopen if it becomes relevant. The sub-bug it fixed (kernel dispatch num_experts) remains unaddressed in vLLM `main`
 - SGLang: no upstream issue or PR filed
@@ -375,6 +407,13 @@ if model_config._is_already_quantized():
 
 ## Additional Bug: CutlassMoEParams uses global num_experts with EP
 
+**Historical as of v0.5.16 (2026-07-25): the code path this section describes
+(`_maybe_init_cutlass_moe_params()` and `cutlass_moe_fp4()`) no longer exists in
+released SGLang. It was removed by PR #30448, not fixed in place. `moe_runner_backend=cutlass`
+for NVFP4 MoE now raises a clean `NotImplementedError` instead. Kept below for
+archaeological reference and because it explains why our `flashinfer_cutlass` default
+was chosen. See the 2026-07-28 status entry above.**
+
 ### Status
 
 **Unreported** as of 2026-04-09. Bug exists in SGLang v0.5.10rc0, v0.5.10, and v0.5.10.post1
@@ -440,6 +479,12 @@ Note: PR #20869 (open, 2026-03-18) already includes this fix as part of a broade
 EP-awareness patch for `modelopt_quant.py`, but has not been merged.
 
 ### Deeper Issue: cutlass_fp4_group_mm CUDA kernel assert with EP
+
+**Historical as of v0.5.16 (2026-07-25): PR #30448 deleted `python/sglang/jit_kernel/nvfp4.py`
+(the file containing the kernel this section discusses) entirely, so the assert below
+cannot fire anymore on a v0.5.16+ image, not because it was fixed, but because the code
+it lived in is gone. See the 2026-07-28 status entry above and the full analysis in
+`SGLANG_NVFP4_SHUFFLE_ROWS_OOB_UPSTREAM_BUG.md`.**
 
 > **Update 2026-04-11:** Re-running with `CUDA_LAUNCH_BLOCKING=1` (commit `bdc069e`)
 > showed that `nvfp4_blockwise_moe.cuh:78` is **not** the origin of the fault — it is
