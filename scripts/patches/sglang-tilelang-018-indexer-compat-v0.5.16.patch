@@ -1,0 +1,48 @@
+# TileLang 0.1.8+ compat fix for SGLang's DSA paged-MQA indexer kernel,
+# v0.5.16 VARIANT of sglang-tilelang-018-indexer-compat.patch.
+#
+# Two things changed upstream in v0.5.16 and forced this separate file:
+#
+#   1. PATH. The kernel moved in the RFC #29630 namespace migration:
+#        v0.5.15.post1: python/sglang/srt/layers/attention/dsa/tilelang_kernel.py
+#        v0.5.16:       python/sglang/kernels/ops/attention/dsa/tilelang_kernel.py
+#      (its fp8_kernel import moved to sglang.kernels.ops.quantization too).
+#
+#   2. HUNK 1 IS NOW NATIVE. Upstream adopted the 2D shared-buffer fix that
+#      the canonical patch carried, and went further: k_smem_u8 / k_s_smem_u8
+#      are allocated as T.alloc_shared((1, ...), UINT8) and fed from a SLICED
+#      kvcache_u8[page : page + 1, ...] copy. Re-applying our version would
+#      conflict, so this variant drops it and keeps ONLY the second hunk.
+#
+# What remains (unchanged rationale, still absent upstream in v0.5.16): the
+# wrapper hands the FP8 KV cache to a kernel whose arg dtype is uint8. TileLang
+# 0.1.8 strict-typechecks kernel arg dtypes, so the tensor must be re-viewed as
+# uint8 before the shape view. Without it the kernel refuses to compile.
+#
+# The alloc_shared >=2D assert (the reason hunk 1 existed) came from TileLang
+# 0.1.8's inject_permuted_layout LowerTileOp pass; 0.1.6/0.1.7 were permissive.
+# SGLang v0.5.16 still pins tilelang==0.1.11, so the strictness applies.
+#
+# Validated on GB10/SM121 (2026-06-20, live GPU) in its canonical form: compiles
+# (4.2s JIT), bit-correct vs fp8_paged_mqa_logits_torch_sm120 (100% top-k
+# agreement), CUDA-graph-capturable, 8-16x faster than the torch fallback per
+# indexer step. THIS variant is dry-run verified against v0.5.16 only, NOT yet
+# GPU-verified on that ref.
+#
+# Selected by the recipe knob TILELANG_PATCH_VARIANT="-v0.5.16"; apply_patches()
+# in scripts/build_sm121_image.sh installs it into the build context under the
+# canonical name sglang-tilelang-018-indexer-compat.patch, so the Dockerfile
+# step (dockerfile-dsv4-mtp-marlin-tilelang.patch) is variant-agnostic.
+#
+# Apply with `patch -p1` in /data/sglang (before the sglang install), same as
+# sglang-dsv4-mtp-marlin-v0.5.14.patch.
+--- a/python/sglang/kernels/ops/attention/dsa/tilelang_kernel.py
++++ b/python/sglang/kernels/ops/attention/dsa/tilelang_kernel.py
+@@ -1513,7 +1513,7 @@
+         split_kv=split_kv,
+     )
+     q_fp8 = q_fp8.view(batch_size, num_heads, head_dim)
+-    kvcache_u8 = kvcache_fp8.view(-1, block_size * (head_dim + 4))
++    kvcache_u8 = kvcache_fp8.view(torch.uint8).view(-1, block_size * (head_dim + 4))  # TL0.1.8: must be uint8
+     kernel(q_fp8, kvcache_u8, weight, seq_lens, page_table, logits)
+     return logits

@@ -1,0 +1,261 @@
+#
+# DEV recipe: SGLang v0.5.16 + our SM121 build patches.
+#
+# NOT a production image. Created 2026-07-28 to evaluate the v0.5.16 line
+# (released 2026-07-25, 574 PRs / 169 contributors). Production stays on
+# sglang-0.5.15.post1-sm121.recipe until this one is GPU-validated.
+#
+# THE HEADLINE: this is the first ref where our CORE SM121 kernel patch is
+# GONE, not merged. SGLang PR #30448 ("Refactor FP4 quantization and remove
+# deprecated JIT kernels", 2026-07-14) DELETED
+#   python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh
+# together with cutlass_moe_fp4() in srt/layers/moe/cutlass_moe.py. That .cuh
+# is the file sgl-kernel-sm121.patch has patched since the 0.5.10 line (the
+# StageCount<1> / non-pingpong fix for the 101 KB SM121 shared-memory budget,
+# CUTLASS_NVFP4_SM121_PRD.md). Upstream now dispatches NVFP4 MoE to
+# FlashInfer-CUTLASS on SM100 AND SM120/121, which is exactly the backend our
+# model profiles already pin (moe_runner_backend: flashinfer_cutlass), so the
+# fix is not needed, it is unreachable. Hence APPLY_SGL_KERNEL_SM121=0 below,
+# a new gate added to dockerfile-sm121.patch for this recipe.
+#
+# ── DELTA gegenüber sglang-0.5.15.post1-sm121.recipe ────────────────────────
+#   1. SGLANG_VERSION 0.5.15.post1 → 0.5.16, SGLANG_REF → v0.5.16.
+#   2. APPLY_SGL_KERNEL_SM121=0 (NEW KNOB, default 1 everywhere else). See
+#      above. Its dry-run would abort the build on this ref.
+#   3. TILELANG_PATCH_VARIANT="-v0.5.16" (NEW KNOB). RFC #29630 moved the DSA
+#      tilelang kernel to python/sglang/kernels/ops/attention/dsa/ AND upstream
+#      adopted the 2D-shared-buffer half of our compat fix, so the canonical
+#      patch neither finds its file nor applies. The variant carries only the
+#      remaining uint8-view hunk at the new path.
+#   4. FLASHINFER_VERSION 0.6.15.post1 → 0.6.16rc3 (2026-07-28). The SECOND
+#      driver of this recipe, see the FLASHINFER_VERSION block below for the
+#      GB10-specific content and the RC caveat.
+#   5. CUTLASS_DSL / TRANSFORMERS / KERNELS: UNCHANGED pins (4.6.1 / 5.12.1 /
+#      0.14.1). v0.5.16's own pyproject moved flashinfer 0.6.12 → 0.6.14 and
+#      cutlass-dsl 4.5.2 → 4.6.0, i.e. upstream caught up to roughly where we
+#      already were; our overrides stay ahead and stay necessary. transformers
+#      (==5.12.1) and kernels (>=0.14.1,<0.15) are byte-identical to
+#      v0.5.15.post1, so do NOT bump them (PyPI has transformers 5.14.1 /
+#      kernels 0.16.0; both are irrelevant here, kernels 0.16 would even violate
+#      the upstream constraint).
+#      v0.5.16 also DROPPED the flashinfer_cubin pin from its own pyproject, but
+#      the scitrera Dockerfile installs flashinfer-python + flashinfer-cubin +
+#      flashinfer-jit-cache all at ${FLASHINFER_VERSION} from flashinfer.ai, so
+#      cubin stays version-locked to our pin either way.
+#   6. BASE_IMAGE unchanged (torch 2.12/cu132). v0.5.16 still pins torch==2.11.0
+#      upstream, same relationship as before. NO pytorch-base rebuild needed.
+#   7. New transitive deps pulled by v0.5.16: helion==0.2.6,
+#      humming-kernels[cu13]==0.1.10, numba==0.65.1, quack-kernels>=0.6.1,
+#      llguidance>=1.7.6 (was 0.7.x), sgl-deep-gemm 0.1.4.post1, sglang-kernel
+#      0.4.5, tokenspeed_mla 0.1.8, flash-attn-4>=4.0.0b18. All of these publish
+#      aarch64 or py3-none-any wheels (checked on PyPI 2026-07-28), so none is a
+#      known arm64 build blocker. AUDIO_DEPS still installs librosa, which now
+#      overlaps with the upstream numba pin.
+#
+# ── PATCH VERIFY (2026-07-28, non-GPU, dry-run vs raw v0.5.16 source) ───────
+#   ✅ sgl-kernel-arch-prune.patch              hunks at 124/206 (offset -12/-11)
+#   ✅ sgl-kernel-disable-fa3-mainahead.patch   clean
+#   ✅ sgl-kernel-skip-sm90-target-mainahead.patch  hunks at 319/338/370 (-4)
+#   ✅ sgl-kernel-skip-flashmla.patch           hunk at 550 (offset +36)
+#   ✅ sglang-dsv4-mtp-marlin-v0.5.14.patch     hunk at 1369 (offset -77)
+#   ✅ sglang-tilelang-018-indexer-compat-v0.5.16.patch  clean (new variant)
+#   ❌ sgl-kernel-sm121.patch                   target file deleted → GATED OFF
+#   sgl-kernel/CMakeLists.txt survived the namespace migration, so all four
+#   CMake patches keep working; SGL_KERNEL_MAINAHEAD stays 1 (the mscclpp link
+#   refactor is still in the tree).
+#
+# ── OPEN RISKS, validate before this recipe is promoted ──────────────────────
+#   A. moe_runner_backend cutlass / triton for NVFP4 is GONE with #30448. Two
+#      model profiles opt out of flashinfer_cutlass and must be re-tested or
+#      re-pinned: nvidia/Qwen3.5-397B-A17B-NVFP4 (cutlass) and Minimax-M2.5 at
+#      PP=4 (triton). See TURBOQUANT.md for why they diverged.
+#   B. compressed-tensors NVFP4 MoE with apply_router_weight_on_input=True now
+#      ASSERTS instead of running (also #30448).
+#   C. RUNTIME patches (roles/k8s_dgx/files/sglang_patches/): 31 of 34 target
+#      paths are unchanged, 3 are gone with the namespace migration:
+#        srt/layers/attention/dsa/torch_paged_mqa_logits.py   (p30)
+#        srt/layers/attention/dsa/triton_paged_mqa_logits.py  (p35)
+#        srt/model_executor/model_runner_kv_cache_mixin.py
+#      p30/p35 are the LIVE-PROVEN GLM-5.2 DSA indexer stack
+#      (reference_glm52_dsa_indexer_deepgemm_sm121), so GLM-5.2 must not be
+#      deployed off this image before they are re-pathed. Note the possible
+#      upside: v0.5.16 ships a vectorized, CUDA-graph-safe
+#      fp8_paged_mqa_logits_torch_sm120 in srt/layers/attention/dsv4/indexer.py
+#      plus a registered SM120 test, i.e. upstream may have absorbed what p30
+#      does by hand. Diff before re-porting.
+#   D. Flag renames in v0.5.16: --enable-deepep-waterfill → --enable-waterfill,
+#      --optimistic-prefill-retries → --optimistic-prefill-attempts. Grep the
+#      model profiles and sglang_launch.sh before serving.
+#   E. UnifiedRadixTree is now the DEFAULT for SWA / Mamba / DSA models, and
+#      QServe + FBGEMM FP8 quantization were removed. Behaviour change, not a
+#      build break.
+#   F. flashinfer is a 0.6.16 RELEASE CANDIDATE here, two minor steps over
+#      SGLang's own 0.6.14 pin. Re-run the rmsnorm smoke test on the built image
+#      (reference_cutlass_dsl_wheel_swap) AND check nvidia-cudnn-frontend >= 1.25
+#      (0.6.16 raised that floor and the Dockerfile installs flashinfer with
+#      --no-deps). Details + rollback order in the FLASHINFER_VERSION block.
+#   G. NVFP4 attention is NEW on SM121 with flashinfer #3897, it never ran on
+#      this hardware before. Validate it deliberately rather than assuming it
+#      just works: a uniform-NVFP4 model (attention included) end-to-end, output
+#      quality checked by pattern-grep + token distribution + tail, not by
+#      finish_reason. The companion correctness fix #3838 (SM120 NVFP4
+#      qk_correction / row-sum / lse) makes this the natural moment to re-test
+#      the still-open Hy3/HYV3 W4A4 NaN as well.
+#
+# Voraussetzungen: xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132 Base auf dem
+# Build-Host (scripts/build_pytorch_base_image.sh, siehe
+# ensure_base_image_present in build_sm121_image.sh).
+#
+DOCKERFILE=Dockerfile.sglang-nightly
+TARGET=runtime
+
+BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
+
+# Override über den v0.5.16-Upstream-Pin (flashinfer_python[cu13]==0.6.14) hinaus
+# auf 0.6.16rc3 (2026-07-28, 113 Commits über 0.6.15.post1). ⚠️ RELEASE CANDIDATE,
+# am Tag seiner Veröffentlichung eingepinnt — bewusst gewählt, weil in diesem
+# Fenster ungewöhnlich viel GB10-spezifische Arbeit gelandet ist. Mit SGLang
+# PR #30448 hängt der NVFP4-MoE-Pfad auf SM120/121 ohnehin KOMPLETT an flashinfer
+# (der eigene cutlass_moe_fp4-Pfad ist weg), der Pin wiegt also schwerer als je.
+#
+# Was 0.6.16 für SM121/GB10 bringt (Commit-Range v0.5.15.post1...v0.6.16rc3):
+#   • #3897 feat(attention): enable SM121 (GB10/DGX Spark) for NVFP4 attention.
+#     DER Grund für diesen Bump. Der SM120-NVFP4-Attention-Kernel kompiliert und
+#     läuft laut PR unverändert als sm_121a; es fehlten nur die
+#     Capability-Checks / AOT- und JIT-Arch-Gates. Vorher war NVFP4-Attention auf
+#     SM121 schlicht nicht verfügbar. Benchmark im PR: 2.3-2.4x gegenüber FA2-BF16
+#     bei head_dim 128 (bei head_dim 64 nur noch 1.5-1.6x). Das ist genau der
+#     Pfad, den der bevorzugte uniform-NVFP4-Quant-Weg (inkl. Attention) braucht.
+#   • #3838 fix(attention): correct SM120 NVFP4 qk_correction layout, row-sum
+#     reduction and lse. KORREKTHEITS-Fix im NVFP4-Attention-Pfad. Beim
+#     Validieren gegen den offenen W4A4-NaN auf Hy3/HYV3 gegenprüfen: anderer
+#     Kernel, aber dieselbe Familie.
+#   • #3960 fix(gdn): compile SM12x CuteDSL kernels as sm_121a on DGX Spark.
+#     Explizit DGX Spark, betrifft GDN/linear-attention (Qwen3.5MoE-Familie).
+#   • #3655 feat(attn): MiniMax Sparse Attention (MSA) für Consumer-Blackwell
+#     (SM120/121). #3016 fmha_v2 HMMA attention für SM120 standard shapes.
+#   • #3891 FP8 groupwise MoE GEMM entry (cute SM120 backend), #3947 dead
+#     SM12x-gencode aus SM10x-Modulen entfernt (kleinere JIT-Last).
+#   • #3922 fix(cute_dsl): migrate off APIs removed in nvidia-cutlass-dsl 4.6
+#     (behält 4.5.x-Kompatibilität). Macht die Paarung mit unserem 4.6.1-Pin
+#     unten EXPLIZIT unterstützt — 0.6.15 ist älter als diese API-Entfernung.
+#   • Viel MoE-Arbeit ohne direkten SM121-Bezug (MegaMoE, unified MoE API,
+#     NVFP4-Finalize, mm_fp4-Autotune-Cache).
+#
+# RC-RISIKO und was zu prüfen ist:
+#   • rc3 ist der einzige 0.6.16-Prerelease auf PyPI. Der Dockerfile-Schritt
+#     installiert mit `uv pip install --pre` aus dem flashinfer-eigenen Index,
+#     eine RC-Version ist also installierbar. Alle DREI Pakete existieren dort
+#     in 0.6.16rc3, inklusive des aarch64/cu130-Rades:
+#       flashinfer-python  0.6.16rc3  (py3-none-any)
+#       flashinfer-cubin   0.6.16rc3  (py3-none-any)
+#       flashinfer-jit-cache 0.6.16rc3+cu130 manylinux_2_28_aarch64 (1.6 GB;
+#         0.6.15.post1 war 1.7 GB, konsistent mit dem gencode-Pruning aus #3947)
+#     Geprüft 2026-07-28 gegen https://flashinfer.ai/whl.
+#   • flashinfer 0.6.16 verlangt nvidia-cudnn-frontend>=1.25.0 (0.6.15: >=1.13.0).
+#     Der Dockerfile installiert flashinfer mit --no-deps, die Anforderung wird
+#     also NICHT automatisch erfüllt. Auf dem gebauten Image gegenprüfen:
+#       python3 -c "import importlib.metadata as m; print(m.version('nvidia-cudnn-frontend'))"
+#     Falls < 1.25: entweder nachinstallieren oder auf 0.6.15.post1 zurück.
+#   • Wir liegen mit diesem Pin ZWEI Minor-Schritte über SGLangs eigenem
+#     0.6.14-Pin und auf einem RC. Bei jedem unerklärlichen Kernel-Fehler ist
+#     dieser Pin der erste Rollback-Kandidat.
+# Roll-back-Reihenfolge: 0.6.15.post1 (live-validiert auf 0.5.15.post1-sm121),
+# dann 0.6.14 (= Upstream-Pin von v0.5.16).
+# FLASHINFER_VERSION=0.6.14
+# FLASHINFER_VERSION=0.6.15.post1
+FLASHINFER_VERSION=0.6.16rc3
+
+# transformers 5.12.1 — exakt v0.5.16s pyproject-Pin (==5.12.1, unverändert ggü.
+# v0.5.15/post1). NICHT isoliert über die SGLang-Ref hinaus bumpen (kein
+# Perf-Nutzen, transformers ist nicht im Inferenz-Hot-Path; PyPI-latest 5.14.1
+# ist irrelevant).
+TRANSFORMERS_VERSION=5.12.1
+
+# kernels 0.14.1 — exakt v0.5.16s pyproject-Constraint (kernels>=0.14.1,<0.15,
+# unverändert). PyPI-latest 0.16.0 verletzt das Constraint. PERF-NEUTRAL für
+# SM121: der einzige hub-geladene Kernel (sgl-flash-attn3) ist auf GB10 hart
+# deaktiviert und hat keine sm_121/ARM64-Builds.
+KERNELS_VERSION=0.14.1
+
+# nvidia-cutlass-dsl 4.6.1 — explicit pin, force-reinstalled late in the build.
+# v0.5.16 pinnt upstream 4.6.0; flashinfer 0.6.16rc3 verlangt weiterhin nur
+# >=4.5.0 (open-ended, unverändert seit 0.6.14), und NVIDIA hat schon einmal
+# unterschiedlichen Wheel-Inhalt unter derselben Versionsnummer ausgeliefert
+# (4.5.2-Vorfall, mlir_global_dtors-'data' ICE, reference_cutlass_dsl_wheel_swap)
+# — der explizite Pin bleibt Pflicht.
+# NEU mit 0.6.16: PR #3922 migriert flashinfer weg von den in cutlass-dsl 4.6
+# entfernten APIs (bei erhaltener 4.5.x-Kompatibilität). Die Paarung 4.6.1 +
+# flashinfer ist damit erstmals explizit upstream-unterstützt statt nur
+# empirisch getestet — ein Argument FÜR den 0.6.16-Bump, nicht dagegen.
+# ⚠️  MUST GPU-verify auf dem gebauten Image vor Deploy (rmsnorm smoke test):
+#   python -c "import flashinfer, torch; \
+#     from flashinfer.norm import rmsnorm; \
+#     x=torch.randn(4,512,device='cuda',dtype=torch.bfloat16); \
+#     w=torch.randn(512,device='cuda',dtype=torch.bfloat16); \
+#     print(rmsnorm(x,w).shape)"
+# Fallback: 4.6.0 (jetzt der Upstream-Pin), dann 4.5.1 (letztes pre-swap release).
+# CUTLASS_DSL_VERSION=4.6.0
+CUTLASS_DSL_VERSION=4.6.1
+
+# Audio multimodal deps — siehe 0.5.15.post1-Recipe. v0.5.16 zieht numba jetzt
+# selbst (numba==0.65.1), librosa bleibt trotzdem nötig (soundfile/audioread).
+AUDIO_DEPS="librosa"
+
+# accelerate — baked into the image (ModelOptModelLoader importiert es).
+ACCELERATE_DEPS="accelerate"
+
+SGLANG_VERSION=0.5.16
+SGLANG_REF="v0.5.16"
+
+# main-ahead sgl-kernel patch variant. Der mscclpp-Link-Refactor ist in v0.5.16
+# weiterhin präsent, also bleibt SGL_KERNEL_MAINAHEAD=1 (installiert die
+# "-mainahead"-Geschwister für skip-sm90-target + disable-fa3 unter dem
+# kanonischen Namen). Alle vier CMakeLists-Patches wurden gegen v0.5.16
+# dry-run-verifiziert (siehe PATCH VERIFY oben).
+SGL_KERNEL_MAINAHEAD=1
+
+# ── CORE SM121 JIT-Header-Patch: TARGET WEG (PR #30448) → OFF ────────────────
+# python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh existiert in v0.5.16
+# nicht mehr; cutlass_moe_fp4() ist ebenfalls raus. NVFP4-MoE läuft auf
+# SM100/SM120/SM121 jetzt über FlashInfer-CUTLASS, also über den Backend, den
+# unsere Profile ohnehin pinnen. Bei 1 würde der in-container dry-run den Build
+# abbrechen. Gate lebt in dockerfile-sm121.patch (ARG APPLY_SGL_KERNEL_SM121,
+# default 1 → alle älteren Recipes bleiben unverändert).
+# Konsequenz für die Profile: siehe OPEN RISK A oben.
+APPLY_SGL_KERNEL_SM121=0
+
+# ── DeepSeek-V4 FlashMLA kernel: DROPPED (nativ seit v0.5.13) ────────────────
+FLASH_MLA_REPO=
+FLASH_MLA_REF=
+DSV4_KERNEL_REPO=
+DSV4_KERNEL_REF=
+DSV4_KERNEL_ARCH=
+
+# ── DeepSeek-V4 NVFP4 MoE: NATIV seit v0.5.14 (PR #25820) → OFF ─────────────
+APPLY_DSV4_NVFP4_PR25820=0
+
+# ── DeepSeek-V4 EAGLE-MTP marlin branch + TileLang-Indexer-Compat → ON ───────
+# Unveränderte Begründung ggü. 0.5.15.post1: HybridFp8NvFp4Config.get_quant_method
+# hat weiterhin keinen marlin-Zweig für die MTP/nextn-Draft-MoE-Layer, und der
+# TileLang-uint8-Arg-Check greift weiterhin. Beide Source-Patches am 2026-07-28
+# gegen v0.5.16 dry-run-verifiziert (marlin: Hunk bei 1369, offset -77; tilelang:
+# neue Variante, clean). Der tilelang-Patch kommt hier aus der v0.5.16-Variante,
+# siehe TILELANG_PATCH_VARIANT unten.
+APPLY_DSV4_MTP_MARLIN_TILELANG=1
+
+# Variante des tilelang-Compat-Patches. Leer/fehlend = kanonische Datei
+# (sglang-tilelang-018-indexer-compat.patch, Pfad srt/layers/attention/dsa/).
+# "-v0.5.16" wählt sglang-tilelang-018-indexer-compat-v0.5.16.patch: neuer Pfad
+# (kernels/ops/attention/dsa/) und nur noch der uint8-View-Hunk, weil upstream
+# den 2D-alloc_shared-Fix übernommen hat. apply_patches() installiert die
+# gewählte Datei unter dem kanonischen Namen in den Build-Context, der
+# Dockerfile-Schritt bleibt also unverändert.
+TILELANG_PATCH_VARIANT="-v0.5.16"
+
+# ── Qwen3.6 ModelOpt mixed NVFP4: MERGED (PR #27906) → OFF ───────────────────
+# ⚠️  Der OPEN dispatch fix #28099 ist ein RUNTIME-Patch in sglang_launch.sh und
+#     von diesem Flag unberührt (p21/p22) — Qwen3.6 live gegenprüfen.
+APPLY_QWEN36_MIXED_NVFP4_PR27906=0
+
+IMAGE_TAG=xomoxcc/dgx-spark-sglang:0.5.16-dev-sm121

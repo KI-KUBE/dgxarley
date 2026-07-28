@@ -2,15 +2,17 @@ Dockerfile integration for all dgxarley sgl-kernel patches.
 
 Structural changes to container-build/Dockerfile.sglang-nightly:
 
-1. Five new ARGs near the top of the builder stage:
+1. Six new ARGs near the top of the builder stage:
      APPLY_SGL_KERNEL_ARCH_PRUNE       default 1 — arch list prune
      APPLY_SGL_KERNEL_DISABLE_FA3      default 1 — FA3 disable
      APPLY_SGL_KERNEL_SKIP_SM90_TARGET default 1 — sm90 target skip
      APPLY_SGL_KERNEL_SKIP_FLASHMLA    default 1 — flashmla_ops target skip
+     APPLY_SGL_KERNEL_SM121            default 1 — CORE sm121 JIT-header fix
      APPLY_SGL_KERNEL_SM121_DEBUG      default 0 — sm121 gemm_op.run
                                                    post-launch error check
    The first four are every-build optimizations and default to ON. The
-   fifth is a diagnostic for CUTLASS sm120 GEMM template iteration work
+   fifth gates the core SM121 shared-memory fix (see point 5). The
+   sixth is a diagnostic for CUTLASS sm120 GEMM template iteration work
    and stays OFF by default.
 
 2. Add `patch` to the builder apt install list (the base image
@@ -34,6 +36,18 @@ Structural changes to container-build/Dockerfile.sglang-nightly:
    these late keeps iteration fast — changing either patch only
    invalidates the final layers, not the expensive sgl-kernel wheel
    build.
+
+   Both are wrapped in APPLY_SGL_KERNEL_SM121 (default 1, so every
+   pre-v0.5.16 recipe behaves exactly as before). Set the recipe knob
+   APPLY_SGL_KERNEL_SM121=0 on SGLang >= v0.5.16: PR #30448 ("Refactor
+   FP4 quantization and remove deprecated JIT kernels", 2026-07-14)
+   DELETED python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh
+   together with cutlass_moe_fp4(), so the dry-run inside this RUN would
+   abort the build. On those refs NVFP4 MoE dispatches to
+   FlashInfer-CUTLASS on SM100/SM120/SM121, which is what our model
+   profiles already select (moe_runner_backend: flashinfer_cutlass).
+   The two COPY steps stay unconditional so the build context (and
+   therefore the layer cache key) does not depend on the toggle.
 
 6. Add runtime debug/init tooling to the RUNTIME stage apt list (the
    one that lands in the final serving image, NOT the builder stage):
@@ -88,7 +102,7 @@ carries this patch; see scripts/build_sm121_image.sh.
 
 --- a/container-build/Dockerfile.sglang-nightly
 +++ b/container-build/Dockerfile.sglang-nightly
-@@ -12,6 +12,20 @@
+@@ -12,6 +12,26 @@
  ARG SGLANG_VERSION=""
  ARG SGLANG_REF="main"
  ARG BUILD_JOBS=2
@@ -99,17 +113,23 @@ carries this patch; see scripts/build_sm121_image.sh.
 +#   --keep-sm90-target       sets APPLY_SGL_KERNEL_SKIP_SM90_TARGET=0
 +#   --keep-flashmla          sets APPLY_SGL_KERNEL_SKIP_FLASHMLA=0
 +#   --sm121-debug            sets APPLY_SGL_KERNEL_SM121_DEBUG=1
++#   --no-sm121-core          sets APPLY_SGL_KERNEL_SM121=0
 +# sm121-debug is OPT-IN (default 0); all four optimization patches default
 +# to ON. Runtime-toggled via SGL_SM121_DEBUG_CUTLASS env var on the pod.
++# APPLY_SGL_KERNEL_SM121 gates the CORE JIT-header fix and defaults to ON;
++# set it to 0 on SGLang >= v0.5.16, where PR #30448 deleted the patch target
++# (jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh) and NVFP4 MoE routes through
++# FlashInfer-CUTLASS on SM120/SM121 instead. Recipe knob: APPLY_SGL_KERNEL_SM121.
 +ARG APPLY_SGL_KERNEL_ARCH_PRUNE=1
 +ARG APPLY_SGL_KERNEL_DISABLE_FA3=1
 +ARG APPLY_SGL_KERNEL_SKIP_SM90_TARGET=1
 +ARG APPLY_SGL_KERNEL_SKIP_FLASHMLA=1
++ARG APPLY_SGL_KERNEL_SM121=1
 +ARG APPLY_SGL_KERNEL_SM121_DEBUG=0
  ARG CUDA_ARCHITECTURES=121
  ARG TORCH_CUDA_ARCH_LIST="12.1a"
  ARG NVCC_GENCODE="-gencode=arch=compute_121,code=sm_121"
-@@ -25,19 +39,40 @@
+@@ -25,19 +45,40 @@
  ENV PIP_CONSTRAINT=/tmp/torch-constraints.txt \
      UV_CONSTRAINT=/tmp/torch-constraints.txt
  
@@ -163,7 +183,7 @@ carries this patch; see scripts/build_sm121_image.sh.
      ln -s /usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)/openmpi /opt/openmpi && \
      rm -rf /var/lib/apt/lists/*
  
-@@ -95,9 +130,53 @@
+@@ -95,9 +136,53 @@
  ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_SGLANG=${SGLANG_VERSION} \
      SETUPTOOLS_SCM_PRETEND_VERSION=${SGLANG_VERSION}
  
@@ -220,7 +240,7 @@ carries this patch; see scripts/build_sm121_image.sh.
  
  # Copy any pre-built sgl-kernel wheels from build context (may be empty)
  COPY wheel-cache/ /data/wheel-cache/
-@@ -185,6 +264,46 @@
+@@ -185,6 +270,59 @@
          uv pip install -U transformers --pre; \
      fi
  
@@ -240,22 +260,35 @@ carries this patch; see scripts/build_sm121_image.sh.
 +# Optional sm121-debug patch (APPLY_SGL_KERNEL_SM121_DEBUG=1) stacks on
 +# top of the primary patch and inserts a post-gemm_op.run() error check
 +# gated by the SGL_SM121_DEBUG_CUTLASS runtime env var.
++#
++# BOTH are gated by APPLY_SGL_KERNEL_SM121 (default 1). On SGLang >= v0.5.16
++# the patch target no longer exists: PR #30448 ("Refactor FP4 quantization and
++# remove deprecated JIT kernels", 2026-07-14) deleted nvfp4_blockwise_moe.cuh
++# together with cutlass_moe_fp4(), and NVFP4 MoE on SM100/SM120 now dispatches
++# to FlashInfer-CUTLASS. Recipes for those refs set APPLY_SGL_KERNEL_SM121=0;
++# the COPY steps stay unconditional so the build context is deterministic.
 +COPY patches/sgl-kernel-sm121.patch /tmp/sgl-kernel-sm121.patch
 +COPY patches/sgl-kernel-sm121-debug.patch /tmp/sgl-kernel-sm121-debug.patch
-+RUN set -e; cd /data/sglang && \
-+    patch --dry-run -p1 < /tmp/sgl-kernel-sm121.patch && \
-+    patch -p1 < /tmp/sgl-kernel-sm121.patch && \
-+    grep -q 'KernelPtrArrayTmaWarpSpecializedCooperative' python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh && \
-+    grep -q 'collective::StageCount<2>' python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh && \
-+    echo 'SM121 sgl-kernel patch applied successfully'; \
-+    if [ "${APPLY_SGL_KERNEL_SM121_DEBUG}" = "1" ]; then \
-+        echo "=== Applying sgl-kernel-sm121-debug.patch ==="; \
-+        patch --dry-run -p1 < /tmp/sgl-kernel-sm121-debug.patch; \
-+        patch -p1 < /tmp/sgl-kernel-sm121-debug.patch; \
-+        grep -q 'dgxarley sgl-kernel-sm121-debug.patch' python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh; \
-+        echo 'SM121 debug patch applied successfully'; \
++RUN set -e; cd /data/sglang; \
++    if [ "${APPLY_SGL_KERNEL_SM121}" = "1" ]; then \
++        echo "=== Applying sgl-kernel-sm121.patch ==="; \
++        patch --dry-run -p1 < /tmp/sgl-kernel-sm121.patch; \
++        patch -p1 < /tmp/sgl-kernel-sm121.patch; \
++        grep -q 'KernelPtrArrayTmaWarpSpecializedCooperative' python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh; \
++        grep -q 'collective::StageCount<2>' python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh; \
++        echo 'SM121 sgl-kernel patch applied successfully'; \
++        if [ "${APPLY_SGL_KERNEL_SM121_DEBUG}" = "1" ]; then \
++            echo "=== Applying sgl-kernel-sm121-debug.patch ==="; \
++            patch --dry-run -p1 < /tmp/sgl-kernel-sm121-debug.patch; \
++            patch -p1 < /tmp/sgl-kernel-sm121-debug.patch; \
++            grep -q 'dgxarley sgl-kernel-sm121-debug.patch' python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh; \
++            echo 'SM121 debug patch applied successfully'; \
++        else \
++            echo "=== Skipping sgl-kernel-sm121-debug.patch (APPLY_SGL_KERNEL_SM121_DEBUG=${APPLY_SGL_KERNEL_SM121_DEBUG}) ==="; \
++        fi; \
 +    else \
-+        echo "=== Skipping sgl-kernel-sm121-debug.patch (APPLY_SGL_KERNEL_SM121_DEBUG=${APPLY_SGL_KERNEL_SM121_DEBUG}) ==="; \
++        echo "=== Skipping sgl-kernel-sm121.patch (APPLY_SGL_KERNEL_SM121=${APPLY_SGL_KERNEL_SM121}) ==="; \
++        echo "=== target nvfp4_blockwise_moe.cuh removed upstream by PR #30448 (SGLang >= v0.5.16) ==="; \
 +    fi
 +
 +# Install sglang package (no deps, no build isolation since base has torch).
@@ -267,7 +300,7 @@ carries this patch; see scripts/build_sm121_image.sh.
  # Break up dist-packages into smaller layers to avoid hitting Docker layer size limits
  COPY stages/directory_split2.sh /opt/directory_split2.sh
  RUN chmod +x /opt/directory_split2.sh && \
-@@ -203,25 +322,50 @@
+@@ -203,25 +341,50 @@
      TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas
  
  # runtime base installs
@@ -335,7 +368,7 @@ carries this patch; see scripts/build_sm121_image.sh.
  # Copy Python dependencies from builder (split into 4 layers for size management)
  COPY --from=builder /usr/local/lib/python3.12/dist-packages-1/ /usr/local/lib/python3.12/dist-packages/
  COPY --from=builder /usr/local/lib/python3.12/dist-packages-2/ /usr/local/lib/python3.12/dist-packages/
-@@ -235,6 +379,12 @@
+@@ -235,6 +398,12 @@
  WORKDIR /data/sglang
  RUN apt-get clean && rm -rf /var/lib/apt/lists/*
  

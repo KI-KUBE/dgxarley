@@ -79,6 +79,36 @@ BRANCH_NAME="sm121"
 # source patches (PRs #22929/#22928) are also applied — the underlying
 # build steps and SM121 sgl-kernel patches are identical.
 #
+# Dev set (v0.5.16 line — NOT production, needs GPU validation):
+#   sglang-0.5.16-dev-sm121.recipe     — SGLang v0.5.16 (released 2026-07-25).
+#                                        FIRST ref where the CORE sm121 patch is
+#                                        OFF: PR #30448 deleted its target
+#                                        (jit_kernel/csrc/moe/nvfp4_blockwise_moe
+#                                        .cuh) plus cutlass_moe_fp4(), and NVFP4
+#                                        MoE now dispatches to FlashInfer-CUTLASS
+#                                        on SM120/121 (APPLY_SGL_KERNEL_SM121=0).
+#                                        Also picks the "-v0.5.16" tilelang-compat
+#                                        variant (RFC #29630 moved the file and
+#                                        upstream absorbed one of its two hunks).
+#                                        SECOND driver: flashinfer 0.6.15.post1 →
+#                                        0.6.16rc3 — an RC, taken deliberately for
+#                                        #3897 (NVFP4 ATTENTION now enabled on
+#                                        SM121/GB10, 2.3-2.4x vs FA2-BF16 @ head_dim
+#                                        128) + #3838 (SM120 NVFP4 qk_correction/lse
+#                                        correctness) + #3960 (GDN CuteDSL as
+#                                        sm_121a on DGX Spark) + #3922 (cutlass-dsl
+#                                        4.6 API migration, so our 4.6.1 pin is now
+#                                        explicitly supported). cutlass-dsl 4.6.1 /
+#                                        transformers 5.12.1 / kernels 0.14.1
+#                                        unchanged. All other build patches dry-run
+#                                        clean vs v0.5.16 (2026-07-28). Read the
+#                                        recipe's OPEN RISKS block before serving:
+#                                        moe_runner_backend cutlass/triton is gone,
+#                                        runtime patches p30/p35 lost their paths,
+#                                        two server-arg flags were renamed, and the
+#                                        flashinfer RC needs cudnn-frontend >=1.25.
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.16-dev-sm121
+#
 # Current set (v0.5.15 line — DEFAULT):
 #   sglang-0.5.15-sm121.recipe         — THE production image. SGLang v0.5.15 +
 #                                        SM121 sgl-kernel patches (mainahead) +
@@ -173,8 +203,15 @@ BRANCH_NAME="sm121"
 # re-VERIFIED clean against post1 via non-GPU dry-run 2026-07-23 (identical offsets
 # -61/-16 → target files byte-identical v0.5.15); sgl-kernel + Dockerfile patch
 # targets unchanged v0.5.15...post1. Ref: sglang-0.5.15.post1-sm121.recipe.
-RECIPE_NAME="sglang-0.5.15.post1-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121"
+#RECIPE_NAME="sglang-0.5.15.post1-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121"
+
+# DEV (2026-07-28): v0.5.16 evaluation build. Uncomment BOTH lines to build it.
+# Deliberately not the default — the ref removes the NVFP4 cutlass/triton MoE
+# runners and moves three runtime-patch targets, so it needs a GPU validation
+# pass first. Full delta + open risks in the recipe header.
+RECIPE_NAME="sglang-0.5.16-dev-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.16-dev-sm121"
 
 # Rollback: previous production line (v0.5.15). flashinfer 0.6.14 + cutlass-dsl
 # 4.6.0; SGLang deps identical to post1. The 0.5.15.post1 recipe only bumps
@@ -334,6 +371,20 @@ APPLY_SKIP_FLASHMLA=1
 # --sm121-debug below). Default OFF.
 APPLY_SM121_DEBUG=0
 
+# CORE sm121 JIT-header patch (sgl-kernel-sm121.patch). Empty means "take the
+# recipe's APPLY_SGL_KERNEL_SM121, defaulting to 1"; --no-sm121-core forces 0.
+# Resolved in run_build() into APPLY_SM121_CORE.
+#
+# Why this became a toggle: SGLang PR #30448 (2026-07-14, in v0.5.16) deleted
+# python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh together with
+# cutlass_moe_fp4(). On such a ref the in-container dry-run would abort the
+# build, and there is nothing to fix anyway: NVFP4 MoE dispatches to
+# FlashInfer-CUTLASS on SM100/SM120/SM121, the backend our model profiles
+# already pin (moe_runner_backend: flashinfer_cutlass). Every pre-v0.5.16
+# recipe leaves the knob unset and keeps the historical behaviour.
+APPLY_SM121_CORE_OVERRIDE=""
+APPLY_SM121_CORE=1
+
 # ============================================================================
 # Helpers
 # ============================================================================
@@ -342,12 +393,35 @@ log()  { printf '\n\033[1;34m=== %s ===\033[0m\n' "$*"; }
 warn() { printf '\033[1;33mWARN: %s\033[0m\n' "$*" >&2; }
 die()  { printf '\033[1;31mERROR: %s\033[0m\n' "$*" >&2; exit 1; }
 
+# Reads a scalar assignment out of the active recipe without sourcing it.
+# Prints the value (quotes stripped) or nothing when the key is absent.
+# The `|| true` is load-bearing: the script runs under `set -euo pipefail`,
+# so an absent key would otherwise make grep fail the pipeline and abort
+# every caller (an unset knob is the normal case for older recipes).
+recipe_value() {
+    local key="$1" recipe_file="${PATCHES_DIR}/${RECIPE_NAME}.recipe"
+    [[ -f "${recipe_file}" ]] || return 0
+    grep -E "^${key}=" "${recipe_file}" | head -1 | cut -d= -f2- | tr -d '"' || true
+}
+
+# Suffix of the tilelang-compat source patch this recipe wants, e.g. "-v0.5.16".
+# Empty (the default for every pre-v0.5.16 recipe) selects the canonical file.
+#
+# The patch had to be forked per SGLang line: RFC #29630 moved
+# dsa/tilelang_kernel.py to sglang/kernels/ops/attention/dsa/ in v0.5.16, and
+# upstream adopted the 2D-shared-buffer half of the fix there, leaving only the
+# uint8-view hunk to carry. apply_patches() installs whichever variant is
+# selected under the CANONICAL name, so the Dockerfile step never changes.
+recipe_tilelang_variant() {
+    recipe_value TILELANG_PATCH_VARIANT
+}
+
 usage() {
     cat <<EOF
 Usage: $(basename "$0") [--base xomoxcc|scitrera|<image>]
                         [--remote-host user@host] [--podman-connection NAME]
                         [--no-arch-prune] [--keep-fa3] [--keep-sm90-target]
-                        [--keep-flashmla] [--sm121-debug]
+                        [--keep-flashmla] [--sm121-debug] [--no-sm121-core]
                         [--no-local-copy] [--no-push] [--help]
 
 Builds ${IMAGE_TAG} on the remote build host via podman socket, copies
@@ -396,6 +470,16 @@ Options:
                gated at runtime by the SGL_SM121_DEBUG_CUTLASS env var.
                Set that env var on the sglang pod to turn the diagnostic
                on at runtime without any additional rebuild.
+  --no-sm121-core
+               Skip the CORE sgl-kernel-sm121.patch (the JIT-header
+               shared-memory fix for cutlass_moe_fp4). Overrides the
+               recipe's APPLY_SGL_KERNEL_SM121, which itself defaults
+               to 1. Required on SGLang >= v0.5.16, where PR #30448
+               deleted the target file (nvfp4_blockwise_moe.cuh) and
+               NVFP4 MoE routes through FlashInfer-CUTLASS instead;
+               the 0.5.16 recipe sets APPLY_SGL_KERNEL_SM121=0 itself,
+               so this flag is only for ad-hoc builds. Implies no
+               sm121-debug patch (it stacks on the core patch).
   --no-local-copy
                Skip the 'podman save | podman load' transfer of the built
                image from the remote build host back to this control host.
@@ -493,6 +577,10 @@ while [[ $# -gt 0 ]]; do
             APPLY_SM121_DEBUG=1
             shift
             ;;
+        --no-sm121-core)
+            APPLY_SM121_CORE_OVERRIDE=0
+            shift
+            ;;
         --help|-h) usage; exit 0 ;;
         *)         die "Unknown argument: $1 (use --help)" ;;
     esac
@@ -574,7 +662,7 @@ preflight() {
         required_files+=(
             dockerfile-dsv4-mtp-marlin-tilelang.patch
             sglang-dsv4-mtp-marlin-v0.5.14.patch
-            sglang-tilelang-018-indexer-compat.patch
+            "sglang-tilelang-018-indexer-compat$(recipe_tilelang_variant).patch"
         )
     fi
     # DiffusionGemma patches (PR #28054) — only when the recipe opts in via
@@ -1036,11 +1124,26 @@ apply_patches() {
         && grep -qE '^SGL_KERNEL_MAINAHEAD=1' "${PATCHES_DIR}/${RECIPE_NAME}.recipe"; then
         sgl_kernel_variant="-mainahead"
     fi
+    # tilelang-compat variant: same install-under-canonical-name indirection as
+    # the sgl-kernel -mainahead siblings above, but keyed on the recipe's
+    # TILELANG_PATCH_VARIANT and scoped to that ONE patch (the -mainahead
+    # mechanism is a blanket suffix and would wrongly claim other files).
+    local tilelang_variant
+    tilelang_variant="$(recipe_tilelang_variant)"
+    if [[ -n "${tilelang_variant}" ]]; then
+        [[ -f "${PATCHES_DIR}/sglang-tilelang-018-indexer-compat${tilelang_variant}.patch" ]] \
+            || die "Recipe sets TILELANG_PATCH_VARIANT='${tilelang_variant}' but sglang-tilelang-018-indexer-compat${tilelang_variant}.patch does not exist"
+    fi
+
     for p in "${patches_to_copy[@]}"; do
         local src="${PATCHES_DIR}/${p}"
         if [[ -n "${sgl_kernel_variant}" \
             && -f "${PATCHES_DIR}/${p%.patch}${sgl_kernel_variant}.patch" ]]; then
             src="${PATCHES_DIR}/${p%.patch}${sgl_kernel_variant}.patch"
+        fi
+        if [[ -n "${tilelang_variant}" \
+            && "${p}" == "sglang-tilelang-018-indexer-compat.patch" ]]; then
+            src="${PATCHES_DIR}/sglang-tilelang-018-indexer-compat${tilelang_variant}.patch"
         fi
         if [[ -f "${src}" ]]; then
             install -m 0644 "${src}" "container-build/patches/${p}"
@@ -1345,6 +1448,19 @@ run_build() {
         die "Recipe IMAGE_TAG (${R_IMAGE_TAG}) does not match script IMAGE_TAG (${IMAGE_TAG})"
     fi
 
+    # CORE sm121 JIT-header patch: recipe knob (default 1) unless --no-sm121-core
+    # forced it off. The sm121-debug patch stacks on it, so it cannot survive
+    # alone; downgrade it with a warning rather than failing the build.
+    APPLY_SM121_CORE="$(recipe_value APPLY_SGL_KERNEL_SM121)"
+    APPLY_SM121_CORE="${APPLY_SM121_CORE:-1}"
+    if [[ -n "${APPLY_SM121_CORE_OVERRIDE}" ]]; then
+        APPLY_SM121_CORE="${APPLY_SM121_CORE_OVERRIDE}"
+    fi
+    if [[ "${APPLY_SM121_CORE}" != "1" ]] && (( APPLY_SM121_DEBUG )); then
+        warn "sm121-debug patch stacks on the core sm121 patch, which is disabled — skipping the debug patch too"
+        APPLY_SM121_DEBUG=0
+    fi
+
     # Resolve the effective BASE_IMAGE once (may already be populated from
     # ensure_base_image_present). If nothing overrode the recipe, fall back
     # to the recipe's BASE_IMAGE value so the --build-arg is always set.
@@ -1373,7 +1489,7 @@ run_build() {
     echo "  IMAGE_TAG            = ${IMAGE_TAG}"
     echo "  BUILD_JOBS           = ${BUILD_JOBS} (overrides Dockerfile ARG default of 2)"
     echo "  sgl-kernel patches:"
-    echo "    sm121 JIT kernel   = ALWAYS (late stage, cheap to re-apply)"
+    echo "    sm121 JIT kernel   = $([ "${APPLY_SM121_CORE}" = "1" ] && echo APPLY || echo 'skip  (target removed upstream by PR #30448 on SGLang >= v0.5.16)')  (recipe APPLY_SGL_KERNEL_SM121 / --no-sm121-core)"
     echo "    sm121-debug        = $([ ${APPLY_SM121_DEBUG} -eq 1 ] && echo APPLY || echo skip)  (--sm121-debug opts in; runtime-gated by SGL_SM121_DEBUG_CUTLASS env)"
     echo "    arch-prune         = $([ ${APPLY_ARCH_PRUNE} -eq 1 ] && echo APPLY || echo skip)  (--no-arch-prune opts out)"
     echo "    disable-fa3        = $([ ${APPLY_DISABLE_FA3} -eq 1 ] && echo APPLY || echo skip)  (--keep-fa3 opts out)"
@@ -1383,6 +1499,7 @@ run_build() {
     echo "    gemma4-mtp PR24436 = (handled in apply_patches() — version-gated, see log above)"
     echo "    dsv4-nvfp4 PR25820 = (handled in apply_patches() — recipe-gated via APPLY_DSV4_NVFP4_PR25820, see log above)"
     echo "    tilelang-018-compat= (handled in apply_patches() — folded into APPLY_DSV4_NVFP4_PR25820 gate, see log above)"
+    echo "    tilelang variant   = $(recipe_tilelang_variant || true)  (empty = canonical file; recipe TILELANG_PATCH_VARIANT)"
 
     # The build context is container-build/ (contains Dockerfile + patches/
     # subdir). Podman streams it to the remote build host over the socket;
@@ -1410,6 +1527,7 @@ run_build() {
         --build-arg "APPLY_SGL_KERNEL_DISABLE_FA3=${APPLY_DISABLE_FA3}" \
         --build-arg "APPLY_SGL_KERNEL_SKIP_SM90_TARGET=${APPLY_SKIP_SM90_TARGET}" \
         --build-arg "APPLY_SGL_KERNEL_SKIP_FLASHMLA=${APPLY_SKIP_FLASHMLA}" \
+        --build-arg "APPLY_SGL_KERNEL_SM121=${APPLY_SM121_CORE}" \
         --build-arg "APPLY_SGL_KERNEL_SM121_DEBUG=${APPLY_SM121_DEBUG}" \
         -t "${IMAGE_TAG}" \
         -t "docker.io/${IMAGE_TAG}" \
