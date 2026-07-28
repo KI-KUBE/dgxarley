@@ -58,6 +58,14 @@
 > activity since 2026-04-14. Issue #20973 remains **CLOSED** (unrelated
 > checkpoint-specific bug, not this one). Monkey-patch (`PATCH_GET_CONFIG_EOF`)
 > in `sglang_launch.sh` still required.
+>
+> **Re-verified 2026-07-28:** Checked against SGLang **v0.5.16** (released
+> 2026-07-25, now the latest release). `qwen3_5.py`'s last content-changing
+> commit on `main` is still the 2026-04-16 transformers 5.5.3 upgrade, so
+> v0.5.16 does not touch it. PR #22839 still **OPEN**, no activity since
+> 2026-06-11. PR #22618 still **OPEN**, no activity since 2026-04-14. No
+> change to this doc's conclusions. Monkey-patch (`PATCH_GET_CONFIG_EOF`) in
+> `sglang_launch.sh` still required.
 
 
 ## Summary
