@@ -31,6 +31,14 @@
 #    breaking all CNI plugin resolution cluster-wide. HostToContainer is sufficient —
 #    the initContainer only writes files, it doesn't create mounts.
 #
+# 5. kube-multus memory: request 50Mi → 100Mi, limit 50Mi → 512Mi.
+#    Upstream's request == limit == 50Mi survives steady state but not a cold node
+#    boot: multus-daemon forks one delegate CNI process per pending ADD, and ~20
+#    pods starting at once exceed the cgroup limit. The daemon is OOMKilled (137),
+#    all ADDs fail, pods stay Unknown, multus CrashLoopBackOffs and meets the same
+#    herd again — a deadlock that does not clear by itself (seen 2026-07-28 on
+#    elite800 after a reboot). CPU stays at 100m.
+#
 # Extra CNI plugins (host-device, static) not bundled with K3s are installed by the
 # dgx_prepare role (tag: cni) — see roles/dgx_prepare/tasks/cni_plugins.yml.
 #
@@ -196,10 +204,10 @@ spec:
           resources:
             requests:
               cpu: "100m"
-              memory: "50Mi"
+              memory: "100Mi"
             limits:
               cpu: "100m"
-              memory: "50Mi"
+              memory: "512Mi"
           securityContext:
             privileged: true
           terminationMessagePolicy: FallbackToLogsOnError

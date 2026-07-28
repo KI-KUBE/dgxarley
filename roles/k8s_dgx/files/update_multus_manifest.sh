@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Downloads the upstream Multus thick DaemonSet manifest and applies 4 K3s-specific
+# Downloads the upstream Multus thick DaemonSet manifest and applies 5 K3s-specific
 # patches. Stores the SHA256 of the unpatched upstream in the output header so that
 # subsequent runs can detect whether the upstream actually changed.
 #
@@ -123,6 +123,42 @@ fi
 echo "  Patch 4 applied: mountPropagation HostToContainer"
 
 # ============================================================================
+# Patch 5: kube-multus memory request/limit 50Mi → 100Mi / 512Mi
+#   Upstream sets request == limit == 50Mi. That holds in steady state but not
+#   on a cold node boot: multus-daemon forks one delegate CNI process (flannel,
+#   bridge, host-device) per pending CNI ADD, and ~20 pods coming up at once
+#   blow the cgroup limit. The daemon is OOMKilled (exit 137), every ADD fails,
+#   the pods stay in Unknown, multus goes CrashLoopBackOff and the same herd
+#   hits it again on the next start — a self-sustaining deadlock that does not
+#   resolve on its own. Observed 2026-07-28 on elite800 after a reboot.
+#   Request stays low (scheduling), only the burst headroom is widened.
+# ============================================================================
+python3 - "$TMP" <<'PYEOF'
+import re
+import sys
+
+f = sys.argv[1]
+content = open(f).read()
+
+# Both 50Mi occurrences belong to the kube-multus container (the initContainer
+# has requests-only with 15Mi), so a positional replace is unambiguous:
+# first = requests, second = limits.
+patched, n = re.subn(r'memory: "50Mi"', 'memory: "100Mi"', content, count=1)
+if n != 1:
+    print("PATCH 5 FAILED: requests memory 50Mi not found", file=sys.stderr)
+    sys.exit(1)
+patched, n = re.subn(r'memory: "50Mi"', 'memory: "512Mi"', patched, count=1)
+if n != 1:
+    print("PATCH 5 FAILED: limits memory 50Mi not found", file=sys.stderr)
+    sys.exit(1)
+
+open(f, "w").write(patched)
+PYEOF
+grep -q 'memory: "512Mi"' "$TMP" \
+    || { echo "PATCH 5 FAILED: 512Mi limit not in result" >&2; exit 1; }
+echo "  Patch 5 applied: kube-multus memory headroom"
+
+# ============================================================================
 # Prepend header with upstream SHA256 and patch documentation
 # ============================================================================
 cat > "$DEST" <<EOF
@@ -158,6 +194,14 @@ cat > "$DEST" <<EOF
 #    on each DaemonSet restart, burying K3s's original bind mount (from <hash>/bin) and
 #    breaking all CNI plugin resolution cluster-wide. HostToContainer is sufficient —
 #    the initContainer only writes files, it doesn't create mounts.
+#
+# 5. kube-multus memory: request 50Mi → 100Mi, limit 50Mi → 512Mi.
+#    Upstream's request == limit == 50Mi survives steady state but not a cold node
+#    boot: multus-daemon forks one delegate CNI process per pending ADD, and ~20
+#    pods starting at once exceed the cgroup limit. The daemon is OOMKilled (137),
+#    all ADDs fail, pods stay Unknown, multus CrashLoopBackOffs and meets the same
+#    herd again — a deadlock that does not clear by itself (seen 2026-07-28 on
+#    elite800 after a reboot). CPU stays at 100m.
 #
 # Extra CNI plugins (host-device, static) not bundled with K3s are installed by the
 # dgx_prepare role (tag: cni) — see roles/dgx_prepare/tasks/cni_plugins.yml.
