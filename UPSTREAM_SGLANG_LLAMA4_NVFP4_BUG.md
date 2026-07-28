@@ -118,3 +118,15 @@ anchors, and update the two heredoc blocks in `sglang_launch.sh`. Verify with th
   `sglang_launch.sh` (ungated); `--chat-template` wired from the profile; Scout
   profile set to triton/triton backends. Load + coherent text confirmed at TP=1;
   4-node throughput still unmeasured.
+- **2026-07-28** - Re-verified against SGLang **v0.5.16** (released
+  2026-07-25, now the latest release). Source-diffed `mllama4.py` and
+  `llama4.py` between v0.5.15 and v0.5.16: all five patched anchors
+  (`_handle_expert_scale_params`, both `permute_qk_weight_for_rotary` fixes,
+  the `RadixAttention` missing `quant_config`, `_handle_scale_remapping`) are
+  byte-identical across the two tags. The only diffs in either file are
+  unrelated renames from an upstream `RuntimeContext` refactor
+  (`get_global_server_args` to `get_server_args` in `mllama4.py`; a
+  `use_reduce_scatter` parameter replaced by `get_forward().scoped(...)` in
+  `llama4.py`), neither touching the patched code. No upstream issue or PR
+  matching these five fixes found since 2026-07-13. All five patches remain
+  required, unchanged.
