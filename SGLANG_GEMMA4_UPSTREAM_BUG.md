@@ -137,6 +137,27 @@ Gemma-4 NVFP4 through the flashinfer path that gained this activation. See
 `FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md` (Status 2026-07-23) for the
 flashinfer-side detail.
 
+**Re-verified 2026-07-28:** SGLang **v0.5.16** (released 2026-07-25) is now
+the latest release, and it contains none of the four tracked PRs. PRs
+#22929/#22928/#22927 (SM121 NaN-clamp) and #22615 (fp8 KV cache) all remain
+**open**, unchanged since the dates already logged above. Three of the four,
+#22929, #22928 and #22927, now show `mergeable_state: dirty` on GitHub (a
+rebase is needed before merge), which was not yet the case at the last
+check. Source-verified on the v0.5.16 tag: `modelopt_quant.py`'s
+`_SUPPORTED_ACT_STRS` is still `("silu", "relu2", "gelu")` (no `gelu_tanh`),
+and the `assert not layer.moe_runner_config.is_gated` "intermediate size
+required padding" guard is unchanged, so the GEGLU/gated-MoE blocker this
+doc attributes to #22928 is still live upstream, byte-identical to v0.5.15.
+
+New structural fact from v0.5.16: `--fp4-gemm-backend cutlass` is removed
+(PRs #31109, #30448), so upstream NVFP4 GEMM now goes through FlashInfer
+only. Separately, SGLang's own bump to flashinfer 0.6.15 was landed and then
+reverted this cycle (PR #31502, reverted by #31625, performance regression),
+so stock v0.5.16 stays pinned to flashinfer 0.6.14. The flashinfer-side
+GEGLU unblock path (PR #3744, shipped in flashinfer 0.6.15) is therefore
+still reachable only via our own custom pin, same as noted above, not via a
+stock SGLang dependency bump.
+
 ## Affected models
 
 | Model                                         | Type                               | Quantization | Current status (`0.5.11-gemma4-sm121` image)                                                                                                |
