@@ -38,6 +38,12 @@
 > (commit `a760767`, SGLang patches Phase 2) from `sglang_launch.sh`
 > (`PATCH_DSV4_KVLORA_EOF`) to its own gated file
 > `roles/k8s_dgx/files/sglang_patches/p56_deepseek_v3_kv_lora.py`.
+>
+> **Re-verified 2026-07-28:** checked against v0.5.16 (released 2026-07-25,
+> now the latest release). Release notes contain no `kv_lora_rank` /
+> DSV4-Flash config-parse fix. `transformers` main still declares
+> `kv_lora_rank: int = 512` in `configuration_deepseek_v3.py`, unchanged.
+> Monkey-patch still required, no location change.
 
 
 ## Summary
