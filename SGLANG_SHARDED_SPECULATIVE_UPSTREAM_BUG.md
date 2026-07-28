@@ -79,6 +79,31 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 i
 > sharded_state issue this doc tracks. The `--speculative-draft-load-format auto`
 > + explicit `--speculative-draft-model-path` workaround remains required and unchanged.
 
+> **Re-verified 2026-07-28:** SGLang **v0.5.16** (released 2026-07-25) is now
+> the latest release, and it ships the `RuntimeContext` refactor that was
+> flagged above as main-only on 2026-07-23. Source-diffed `scheduler.py` on
+> the v0.5.16 tag against `main`, both identical: `maybe_init_draft_worker()`
+> now calls `self.server_args.override("scheduler.draft_load_format",
+> load_format=self.server_args.speculative_draft_load_format)` instead of the
+> old direct assignment. The method moved from `scheduler.py:669-675` (the
+> v0.5.11 line numbers quoted at the top of this doc) to roughly
+> `scheduler.py:773-795` in v0.5.16 and on `main`. Root cause and our
+> workaround are unchanged: the `override()` call is still reached only
+> `if self.server_args.speculative_draft_load_format is not None`, so an
+> unset value (the default) still leaves the draft silently inheriting the
+> main model's `load_format`. **Upstream churn note:** PR
+> [#32100](https://github.com/sgl-project/sglang/pull/32100) reverted part of
+> this same refactor (#31813 through #31817), about 10.5 hours after they
+> merged (2026-07-22, 08:17 to 18:52 UTC), citing three defects, one of them
+> named "Draft load format ignored" (a bag-only write that never reached
+> `LoadConfig.load_format`). The code that actually shipped in v0.5.16 is the
+> correct, setattr-based variant (`ServerArgs.override()` does a real
+> `setattr` on the field, confirmed by reading its implementation in
+> `server_args.py`), so this near-miss regression did not make it into the
+> release. Issue #32202 is still open with no new comments. The
+> `--speculative-draft-load-format auto` and `--speculative-draft-model-path`
+> workaround remains required and unchanged.
+
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`
 
