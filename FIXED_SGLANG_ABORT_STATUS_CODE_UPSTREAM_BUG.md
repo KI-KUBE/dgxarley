@@ -6,6 +6,8 @@
 commit [`f639425f`](https://github.com/sgl-project/sglang/commit/f639425ff06db7b5d379d749b6954eeb38d56972)).
 Re-verified 2026-05-09, 2026-05-31, and 2026-06-26 (PR #22535 merged 2026-04-16, in v0.5.11/v0.5.12 — the current default image `xomoxcc/dgx-spark-sglang:0.5.14-sm121` includes it; no in-repo workaround ever existed. Latest upstream release is now v0.5.14 (released 2026-06-26), which also carries the fix):
 
+**2026-07-28:** Re-verified. Current default image bumped to `xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121` (2026-07-24). PR #22535 remains merged and an ancestor of this image, fix still present, no regression found, no in-repo workaround exists (unchanged).
+
 - **Still present** in legacy images `scitrera/dgx-spark-sglang:0.5.10` and
   `:0.5.10.post1` — both predate the fix commit.
 - **Fixed** in **SGLang v0.5.11** (released 2026-05-05) and in our **dev1 image**

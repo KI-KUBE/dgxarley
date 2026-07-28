@@ -29,6 +29,20 @@
 > lagged behind. Current pinned image `xomoxcc/dgx-spark-sglang:0.5.15-sm121` contains
 > the fix (PR #23467, ancestor of v0.5.11+) — no runtime patch exists anymore, and
 > none is needed.
+>
+> **2026-07-28:** Re-verified. Current default image bumped again to
+> `xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121` (2026-07-24). PR #23467 remains merged
+> and an ancestor of this image (confirmed via `gh api repos/sgl-project/sglang/compare`:
+> commit `4323fce` is 341 commits behind `v0.5.11`, `v0.5.11` is 341 commits ahead of
+> `4323fce`, consistent ancestry both directions), fix still present, no regression
+> found, no runtime patch reintroduced. For the record: a commenter on upstream issue
+> [#23687](https://github.com/sgl-project/sglang/issues/23687) (`elviswf`, 2026-05-09)
+> claimed "this commit is not included in 0.5.11 release which is strange". The
+> git-ancestry check above contradicts that comment, `4323fce` is a genuine ancestor of
+> the `v0.5.11` tag. Our own empirical sentinel checks against the real installed image
+> (2026-05-31, 2026-06-14, 2026-06-30, and the 2026-07-12 patch removal) are stronger
+> ground truth than the tag-ancestry dispute and agree the fix has been present since
+> v0.5.11.
 
 - **`Qwen/Qwen3.6-27B-FP8` — BROKEN** on `scitrera/dgx-spark-sglang:0.5.10`. Model
   loads and decode runs, but every request produces multilingual token salad with

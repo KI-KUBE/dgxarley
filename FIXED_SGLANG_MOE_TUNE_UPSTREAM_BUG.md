@@ -2,7 +2,9 @@
 
 ## Status
 
-**Fixed upstream** as of 2026-03-27. Re-verified 2026-04-16: no regressions reported; fix remains in current `main`. Re-verified 2026-05-31 and 2026-06-26: PR #20232 shipped in v0.5.10 and is present in the current default image `xomoxcc/dgx-spark-sglang:0.5.14-sm121` (and in the latest upstream release v0.5.14 (released 2026-06-26)). NOTE: the `common_utils.py` patch in `roles/k8s_dgx/files/sglang_tune_moe.sh` is now dead code (target gone post-fix; the script's guard prints "patch target not found" and continues) — removable as cleanup.
+**Fixed upstream** as of 2026-03-27. Re-verified 2026-04-16: no regressions reported; fix remains in current `main`. Re-verified 2026-05-31 and 2026-06-26: PR #20232 shipped in v0.5.10 and is present in the current default image `xomoxcc/dgx-spark-sglang:0.5.14-sm121` (and in the latest upstream release v0.5.14 (released 2026-06-26)). NOTE: the `common_utils.py` patch in `roles/k8s_dgx/files/sglang_tune_moe.sh` is now dead code (target gone post-fix; the script's guard prints "patch target not found" and continues), removable as cleanup.
+
+**2026-07-28:** Re-verified. Current default image bumped to `xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121` (2026-07-24); PR #20232 remains an ancestor, fix still present, no regression found. The cleanup noted above is now DONE: the dead "Patch 1" block (preserve `architectures`/`quantization_config` across the `get_text_config()` unwrap) has been removed from `roles/k8s_dgx/files/sglang_tune_moe.sh` and replaced with a breadcrumb comment pointing at PR #20232 and this doc. Verified against upstream `main` before removal: `get_model_config()` now reads `architectures` and `block_shape` BEFORE the `text_config` unwrap, and the old patch anchor (`config = config.get_text_config()`) no longer exists, confirming the block had been dead since 2026-03-27. IMPORTANT: the OTHER patch in the same script, the `group_size=None` / channel-wise-FP8 `block_shape` fix (kept under the label "Patch 2" so old tuning logs stay greppable), is UNRELATED to PR #20232, is NOT dead, and stays in place. Its anchor (`group_size = weights_config.get("group_size")` / `block_shape = [0, group_size]` / `assert len(block_shape) == 2`) still exists on upstream `main` at the same lines. Do not remove it in a future cleanup pass.
 
 - Fix PR: [#20232](https://github.com/sgl-project/sglang/pull/20232) — "[fix] qwen3.5 fuse_moe_triton_tune bug", merged 2026-03-27 (commit `e2b8463c`)
 - File: `benchmark/kernels/fused_moe_triton/common_utils.py`, function `get_model_config()`
@@ -91,9 +93,14 @@ if hasattr(config, "text_config"):
 
 ## Our Workaround
 
-`roles/k8s_dgx/files/sglang_tune_moe.sh` patches `common_utils.py` after downloading it from GitHub. The patch is idempotent — if upstream fixes the code and the patch target is no longer found, it prints a warning and continues.
+`roles/k8s_dgx/files/sglang_tune_moe.sh` patched `common_utils.py` after downloading it from GitHub. The patch was idempotent, if upstream fixed the code and the patch target was no longer found, it printed a warning and continued.
 
-Since the upstream fix (PR #20232) landed 2026-03-27, the patch target will no longer be found when
-downloading from current `main`. The script handles this gracefully (warns and proceeds with the
-unpatched upstream file, which now works correctly). The workaround can be removed on the next
-image rebuild that includes the fix.
+Since the upstream fix (PR #20232) landed 2026-03-27, the patch target was no longer found when
+downloading from current `main`. The script handled this gracefully (warned and proceeded with the
+unpatched upstream file, which worked correctly).
+
+**Update 2026-07-28:** the dead patch block for this bug (formerly "Patch 1" in the script) has now
+been removed from `roles/k8s_dgx/files/sglang_tune_moe.sh` and replaced with a breadcrumb comment
+referencing PR #20232 and this doc, per the note in Status above. The script's second patch
+(channel-wise FP8 `group_size=None` / `block_shape` fix, kept as "Patch 2" for greppability of old
+tuning logs) addresses a separate, still-open upstream gap and remains in the script unchanged.

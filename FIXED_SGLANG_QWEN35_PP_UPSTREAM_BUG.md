@@ -2,7 +2,7 @@
 
 ## Status
 
-**Fixed upstream** as of 2026-04-06 (re-verified 2026-04-16: all three PRs still merged, our v0.5.10 image includes them; re-verified 2026-05-31: all three predate v0.5.10 and are in the current default image `0.5.14-sm121` — no monkey-patch was ever needed; re-verified 2026-06-30: all three PRs still merged, present in `xomoxcc/dgx-spark-sglang:0.5.14-sm121`, status unchanged). Three PRs fixed three cascading bugs:
+**Fixed upstream** as of 2026-04-06 (re-verified 2026-04-16: all three PRs still merged, our v0.5.10 image includes them; re-verified 2026-05-31: all three predate v0.5.10 and are in the current default image `0.5.14-sm121` — no monkey-patch was ever needed; re-verified 2026-06-30: all three PRs still merged, present in `xomoxcc/dgx-spark-sglang:0.5.14-sm121`, status unchanged; re-verified 2026-07-28: all three PRs still merged, current default image is now `xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121` (bumped 2026-07-24), fixes still present, no regression found). Three PRs fixed three cascading bugs:
 
 | PR | What it fixed | Merged | In v0.5.10 |
 |----|--------------|--------|-----------|
@@ -12,7 +12,22 @@
 
 Related issues: [#19500](https://github.com/sgl-project/sglang/issues/19500) (initial report), [#21184](https://github.com/sgl-project/sglang/issues/21184), [#21185](https://github.com/sgl-project/sglang/issues/21185). Superseded alternative: [PR #21217](https://github.com/sgl-project/sglang/pull/21217) (closed without merge 2026-06-10, not needed).
 
-**Our image `xomoxcc/dgx-spark-sglang:0.5.14-sm121` includes all three fixes.** PP support is available.
+**Our image `xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121` includes all three fixes.** PP support is available.
+
+## Addendum 2026-07-28: residual open PP + MoE gap, EPLB only
+
+A related but distinct upstream gap remains open: [PR #32022](https://github.com/sgl-project/sglang/pull/32022)
+("fix(qwen3.5): restrict MoE weights to local PP layers"), opened 2026-07-22, still unmerged as of
+2026-07-28, CI red. It touches a different code path than the three PRs above: the `LazyValue` behind
+`_routed_experts_weights_of_layer` (used for expert-relocation / EPLB weight collection), which still
+iterates `self.model.layers` unconditionally instead of restricting to `[self.model.start_layer,
+self.model.end_layer)`. It crashes accessing `.mlp` on `PPMissingLayer` stubs that belong to other PP
+ranks, the same class of bug as Bug 2/Bug 3 below, just in a spot the three merged PRs did not cover.
+
+Practical relevance for us: this LazyValue is only exercised by expert-relocation / EPLB. Our default
+is `sglang_enable_eplb: false` (`roles/k8s_dgx/defaults/main/sglang.yml`), so ordinary PP inference is
+unaffected and there is no action needed today. Check PR #32022's merge status before combining
+`--enable-eplb` with `pp_size > 1` on a Qwen3.5 MoE profile.
 
 Files: `sglang/srt/models/qwen3_5.py`, `sglang/srt/models/qwen3_vl.py`, `sglang/srt/model_executor/model_runner_kv_cache_mixin.py`
 
@@ -126,7 +141,7 @@ Qwen3.5 uses a repeating pattern: 3× GatedDeltaNet (linear attention/SSM) + 1×
 
 ## Our Situation
 
-- **Current image:** `xomoxcc/dgx-spark-sglang:0.5.14-sm121` — all three PP fixes included. PP is available.
+- **Current image:** `xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121` (bumped 2026-07-24) — all three PP fixes included. PP is available. See the 2026-07-28 addendum above for the one residual, EPLB-only gap.
 - **No monkey-patch was needed:** All fixes predate v0.5.10 and remain in v0.5.12.
 - **Previous workaround (no longer needed):** TP=4 EP=4 PP=1 (no pipeline parallelism).
 
