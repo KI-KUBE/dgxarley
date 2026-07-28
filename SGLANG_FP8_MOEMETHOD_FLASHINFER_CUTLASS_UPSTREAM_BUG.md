@@ -72,6 +72,15 @@ activity since 2026-06-11; Issue #27951 still OPEN, no activity since 2026-06-19
 #21872 still OPEN, stagnant since 2026-04-01. Workaround (`moe_runner_backend: triton`)
 unchanged.
 
+**Re-verified 2026-07-28:** SGLang **v0.5.16 released 2026-07-25** (tag created
+2026-07-24). Source-confirmed on the v0.5.16 tag: `Fp8MoEMethod.create_moe_runner` in
+`fp8.py` (around line 2098) is unchanged, it still ends with `# TODO(cwan): refactor
+other backends`, so vanilla `Fp8MoEMethod` still never sets `self.runner` for
+`flashinfer_cutlass`/`flashinfer_cutedsl`, and the `AttributeError` at first forward
+pass remains reproducible on this release. PR #27968 and Issue #27951 are still OPEN
+with no comments since 2026-06-15. PR #21872 remains OPEN and stagnant. Workaround
+(`moe_runner_backend: triton`) unchanged and still the correct cluster configuration.
+
 Adjacent open work:
 
 - [PR #21872](https://github.com/sgl-project/sglang/pull/21872)
@@ -88,11 +97,19 @@ Adjacent open work:
   `Fp8MoEMethod`; the bug documented here is unaffected.
 - [Issue #20719](https://github.com/sgl-project/sglang/issues/20719)
   ("CompressedTensorsW4A4Nvfp4MoE bypasses MoeRunner, hardcodes kernel
-  dispatch in apply_weights") — open since 2026-03-16, **auto-closed by the
-  stale bot 2026-07-16 (not resolved — no fix merged, routine bot housekeeping)**.
-  Diagnostic write-up of the same anti-pattern (quant method bypassing
-  `MoeRunner`); names `Fp8MoEMethod` as the *correct* reference path, not as
-  bug. No fix.
+  dispatch in apply_weights") — open since 2026-03-16. **Correction (re-verified
+  2026-07-28): this was NOT routine stale-bot housekeeping.** The issue was
+  auto-closed by the stale bot twice (2026-05-16, then again 2026-07-16 after a
+  reopen), but was subsequently reopened by `alexnails` and **genuinely closed as
+  completed on 2026-07-25** via merged PR
+  [#32248](https://github.com/sgl-project/sglang/pull/32248) ("Migrate
+  CompressedTensorsW4A4Nvfp4MoE TRT-LLM path onto MoeRunner", merged
+  2026-07-25T03:57:39Z). That PR migrates `CompressedTensorsW4A4Nvfp4MoE` onto the
+  shared `MoeRunner(FLASHINFER_TRTLLM)` path, so the anti-pattern IS now fixed for
+  that class. This does **not** touch `Fp8MoEMethod` (a different class in a
+  different file), so the core claim of this doc is unaffected: names `Fp8MoEMethod`
+  as the *correct* reference path, not as the bug, and remains true. No fix for the
+  bug documented here.
 
 None of these touch `quantization/fp8.py::Fp8MoEMethod`, which is the path
 Qwen3.6-35B-A3B-FP8 (and every plain `--quantization fp8` MoE model) takes.
