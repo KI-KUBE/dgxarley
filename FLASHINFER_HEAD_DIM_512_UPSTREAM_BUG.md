@@ -1,5 +1,19 @@
 # FlashInfer Upstream Bug: head_dim=512 not supported (Gemma-4 global attention)
 
+## Status 2026-07-28 (re-verify only, no change)
+
+All items referenced below re-checked against live upstream state. Issue
+#3297 still closed (2026-06-15), PR #3576 still merged (2026-06-15), PR
+#2959/#3501/#3744/#3737 all still merged, matching every claim already in
+this document. The only new flashinfer artifact since the 2026-07-23 status
+below is a pre-release, **v0.6.16rc3** (2026-07-28), a single cubin-checksum
+and Sm107a build fix with nothing touching attention dispatch. The SGLang
+`Gemma4ForConditionalGeneration` attention-backend allowlist was re-verified
+against source on the newest SGLang release, **v0.5.16** (2026-07-25,
+newer than the v0.5.15 tag checked below): still `("trtllm_mha", "triton",
+"ascend", "intel_xpu")`, flashinfer still not accepted. `triton` remains
+permanently mandatory for all four Gemma-4 profiles.
+
 ## Status 2026-07-23 — flashinfer v0.6.14/v0.6.15/v0.6.15.post1 released; new SM12x NVFP4 MoE GEGLU progress (unvalidated); triton still mandatory
 
 Three flashinfer releases postdate the 2026-06-29 status below: **v0.6.14**

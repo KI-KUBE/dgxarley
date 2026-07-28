@@ -35,7 +35,16 @@ changelog. See "Upstream status" for details. **BUT** neither SGLang
 version; the structural bug is present on every image that pins
 flashinfer < v0.6.12, and our runtime patches + the
 `disable_piecewise_cuda_graph: true` profiles stay required until an
-image bumps flashinfer to ≥ v0.6.12.** 2026-04-15 morning session outcome:
+image bumps flashinfer to ≥ v0.6.12.**
+
+**Update 2026-07-28:** the "removal still pending" item above is now done.
+The dead `PATCH_FI_FP4_ALLOW_EOF` block (by then relocated to
+`roles/k8s_dgx/files/sglang_patches/p61_flashinfer_fp4_allow.py`, see the
+2026-07-28 entry under "Upstream status") was deleted via `git rm`. See that
+entry for the full verification and the reason removal was a correction,
+not just cleanup.
+
+2026-04-15 morning session outcome:
 
 - **Issue 1 root cause**: `flashinfer.jit.cpp_ext.get_cuda_version()` calls
   `subprocess.check_output([nvcc, "--version"])` on its first invocation (it's
@@ -439,6 +448,40 @@ are one bump stale: production has moved to
 the 2026-06-26 entry. Upstream SGLang itself is now at release
 `v0.5.15.post1` (2026-07-14).
 
+**Status 2026-07-28:** Re-verified once more against flashinfer's current
+`main` source. `flashinfer/jit/cpp_ext.py:get_cuda_version()` **still**
+calls `subprocess.check_output([nvcc, "--version"])` unconditionally on the
+happy path, no change from the 2026-07-23 finding. **Patch 1 remains
+mandatory.** One new pre-release exists since the 2026-07-23 check,
+**v0.6.16rc3** (2026-07-28), but its release notes are a single item, a
+cubin checksum collision and an unguarded Sm107a build fix; nothing touches
+`get_cuda_version()` or subprocess handling, so it changes nothing here.
+
+**File locations updated (repo housekeeping, not an upstream change):** the
+runtime patches described throughout this document as living inside
+`sglang_launch.sh` (heredoc blocks `PATCH_FI_CUDA_VER_EOF` and
+`PATCH_FI_FP4_PREWARM_EOF` / `PATCH_FI_FP4_ALLOW_EOF`) were moved out of that
+file on 2026-07-16 (commit `12bb560`, "SGLang patches: Phase 3, launch.sh
+now holds ZERO source patches"). Patch 1 now lives at
+`roles/k8s_dgx/files/sglang_patches/p60_flashinfer_cuda_version.py`, same
+content and same marker `_fi_cuda_ver_subprocess_bypass_`, ConfigMap-mounted
+and run by the patch runner in `sglang_launch.sh` instead of being inlined
+there. Patch 2 (the `allow_in_graph` revision, formerly
+`roles/k8s_dgx/files/sglang_patches/p61_flashinfer_fp4_allow.py`) was
+**removed on 2026-07-28** after source-level verification that flashinfer
+0.6.14 and 0.6.15.post1 (our pinned version) both already contain the real
+PR #3081 fix (`torch.library.custom_op("flashinfer::fp4_quantize", ...)`
+plus `register_fake`). Removing it was not a plain cleanup: its append
+anchor (`def fp4_quantize(`) still matched on 0.6.15.post1, so left in place
+it would have kept wrapping the now custom-op-backed function with
+`allow_in_graph`, defeating the fake registration, exactly the "strictly
+worse than a no-op" state this document already diagnosed below. See
+`roles/k8s_dgx/files/sglang_patches/RETIRED.md` for the breadcrumb and
+`FLASHINFER_0.6.12_TODO.local.md` for the full checklist closeout. All
+"Files" and in-body references to `sglang_launch.sh` for these two patches
+below are historical as of 2026-07-16 / 2026-07-28 and are kept for
+narrative continuity, not as current file pointers.
+
 Background:
 
 - **flashinfer `get_cuda_version` history**: the subprocess-based implementation
@@ -498,18 +541,27 @@ the patched `sglang_launch.sh` on all 4 sparks (re-deploy via
 
 ## Files
 
-- `roles/k8s_dgx/files/sglang_launch.sh` — both runtime monkey-patches
-  (`PATCH_FI_CUDA_VER_EOF` for Issue 1, `PATCH_FI_FP4_PREWARM_EOF` for
-  Issue 2). Both live in the flashinfer-patch block around line ~175.
+- `roles/k8s_dgx/files/sglang_launch.sh` (historical location, until
+  2026-07-16, of both runtime monkey-patches, `PATCH_FI_CUDA_VER_EOF` for
+  Issue 1 and `PATCH_FI_FP4_PREWARM_EOF` for Issue 2, both formerly in the
+  flashinfer-patch block around line ~175). The file now only holds the
+  patch runner, not the patches themselves; see the 2026-07-28 entry under
+  "Upstream status" for the migration.
+- `roles/k8s_dgx/files/sglang_patches/p60_flashinfer_cuda_version.py`,
+  the **current** location of the Issue 1 patch (Patch 1, marker
+  `_fi_cuda_ver_subprocess_bypass_`). Still required as of 2026-07-28.
+- `roles/k8s_dgx/files/sglang_patches/RETIRED.md`, the breadcrumb for the
+  Issue 2 patch (`p61_flashinfer_fp4_allow.py`), removed 2026-07-28.
 - `/usr/local/lib/python3.12/dist-packages/flashinfer/jit/cpp_ext.py` —
   Issue 1 patch target (`get_cuda_version` function body).
 - `/usr/local/lib/python3.12/dist-packages/flashinfer/quantization/fp4_quantization.py`
-  — Issue 2 patch target (append block at end-of-file). Also the call site
-  where `fp4_quantize` / `get_fp4_quantization_module` are defined.
+  — Issue 2 patch target (append block at end-of-file, no longer applied
+  since the patch was removed 2026-07-28). Also the call site where
+  `fp4_quantize` / `get_fp4_quantization_module` are defined.
 - `/usr/local/lib/python3.12/dist-packages/flashinfer/jit/core.py` — where
   `JitSpec.build_and_load` and `JitSpec.is_aot` live. Not directly patched,
   but their behavior is neutralized by Patch 2's cache (they never run again
-  after the pre-warm).
+  after the pre-warm). Historical, Patch 2 no longer applied.
 
 ---
 
