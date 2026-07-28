@@ -112,8 +112,16 @@ second, related bug (the `AsyncHTTPHandler` retry path on `ConnectError`/`Remote
 also drops `ssl_verify`), and cross-references #6499, #17636, #9340, #26053, #21947. This
 issue is now a better upstream reference than the closed #6499 for tracking a fix. Related
 issue [#26053](https://github.com/BerriAI/litellm/issues/26053) (ssl_verify=false ignored for
-streaming text completions) remains open (last updated 2026-07-19). No fix has landed for any
-of these paths — the HAProxy TLS sidecar workaround remains required.
+streaming text completions) was closed on 2026-07-26 with `state_reason: not_planned`, auto-closed
+by the stale-bot after no maintainer fix. Closed here does not mean fixed, the underlying bug
+in that path is still unaddressed. No fix has landed for any of these paths — the HAProxy TLS
+sidecar workaround remains required.
+
+**2026-07-28 re-verify:** `litellm/llms/ollama/completion/handler.py` on `main` still calls
+`litellm.module_level_aclient.post(...)` with no `ssl_verify` argument, the only commit touching
+that file since 2026-06-27 is a pure ruff-format-width change, no functional edit. Issue #30778
+remains open and uncommented since it was filed. The HAProxy TLS sidecar workaround remains
+required.
 
 **Partial mitigation**: Setting `litellm.ssl_verify = False` **globally before the first embedding call** may work, because the singleton `HTTPHandler` picks up `litellm.ssl_verify` at creation time via `get_ssl_configuration()`. However, this is fragile — it depends on initialization order, and per-request `ssl_verify=false` (as used in our model config) is still silently dropped for the ollama embedding path.
 

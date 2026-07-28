@@ -29,17 +29,19 @@ fixes back.
 
 A patched copy of the upstream file lives at:
 
-- `roles/k8s_dgx/files/hermes_email_gateway_patched.py` — synced to upstream
+- `roles/k8s_infra/files/hermes_email_gateway_patched.py` — synced to upstream
   tag `v2026.6.19` (blob `d2f7e64a`, md5 `a3f7dc61f40388bf806481b189b48e00`,
   32908 bytes of `gateway/platforms/email.py`) with seven `[PATCH-N]` sections
-  applied.
+  applied. (Note, 2026-07-28: this path was corrected. Earlier text in this
+  section named `roles/k8s_dgx/...`, but the file, its ConfigMap task and its
+  mount all live under `roles/k8s_infra/`, see the paths below.)
 
 It is delivered to the running container without a fork+rebuild:
 
-- `roles/k8s_dgx/tasks/hermes.yml` creates a cluster-wide ConfigMap
+- `roles/k8s_infra/tasks/apps/hermes.yml` creates a cluster-wide ConfigMap
   `hermes-email-patch` in the `hermes` namespace, with the file content under
   key `email.py`.
-- `roles/k8s_dgx/templates/hermes/hermes_webui_deployment.yaml.j2`
+- `roles/k8s_infra/templates/hermes/hermes_webui_deployment.yaml.j2`
   subPath-mounts that key over `/opt/hermes/gateway/platforms/email.py` in
   the `hermes-email` sidecar (gated on `email.enabled`). The rest of
   `/opt/hermes` (venv, ui-tui, hooks, etc.) remains the image-baked tree.
@@ -105,14 +107,22 @@ can merge them independently; if one stalls the others are not blocked.
 
 | PR                                                                | Branch                          | Diff       | What it adds                                                                                                            |
 |-------------------------------------------------------------------|---------------------------------|------------|-------------------------------------------------------------------------------------------------------------------------|
-| [#28697](https://github.com/NousResearch/hermes-agent/pull/28697) | `feat/email-sent-folder`        | +148 / −0  | `EMAIL_SENT_FOLDER` env, `_append_to_sent()` helper, `IMAP APPEND` call site in all three `_send_email*` functions.     |
-| [#28699](https://github.com/NousResearch/hermes-agent/pull/28699) | `feat/email-process-existing`   | +154 / −16 | `EMAIL_PROCESS_EXISTING` env; wraps the pre-fill loop in `connect()` in a conditional. Default keeps upstream behaviour. |
-| [#28702](https://github.com/NousResearch/hermes-agent/pull/28702) | `feat/email-folder-lifecycle`   | +580 / −9  | `EMAIL_WORKING_FOLDER` + `EMAIL_DONE_FOLDER` envs, `_open_imap` / `_ensure_folder` / `_imap_move` / `_search_message_id` / `_finalize_message` helpers, `try/finally` around `handle_message()`. |
+| [#28697](https://github.com/NousResearch/hermes-agent/pull/28697) | `feat/email-sent-folder`        | +371 / −1  | `platforms.email.sent_folder` config.yaml key (moved off the original `EMAIL_SENT_FOLDER` env in a 2026-06-15 rebase), a shared module-level `_imap_append_to_sent()` helper, `IMAP APPEND` call sites in all three `_send_email*` functions AND, since 2026-07-13, in the standalone SMTP path `_standalone_send` (used by `hermes send` and cron), added after a hermes-sweeper bot review flagged that path as missing coverage. |
+| [#28699](https://github.com/NousResearch/hermes-agent/pull/28699) | `feat/email-process-existing`   | +146 / −10 | `platforms.email.process_existing` config.yaml key (moved off the original `EMAIL_PROCESS_EXISTING` env in a 2026-06-15 rebase); wraps the pre-fill loop in `connect()` in a conditional. Default keeps upstream behaviour. |
+| [#28702](https://github.com/NousResearch/hermes-agent/pull/28702) | `feat/email-folder-lifecycle`   | +864 / −101 | `platforms.email.working_folder` + `platforms.email.done_folder` config.yaml keys (moved off the original envs in a 2026-06-15 rebase), `_open_imap` / `_ensure_folder` / `_imap_move` / `_search_message_id` / `_finalize_message` helpers, `try/finally` around `handle_message()`. Rebased again on 2026-06-21 across the plugin-migration conflict (commit `56001054`), moving the implementation from `gateway/platforms/email.py` to `plugins/platforms/email/adapter.py`. |
 
-All three PRs pass the existing `tests/gateway/test_email.py` suite
-unchanged and add new tests of their own (60 → 64 / 64 / 74 tests
-respectively). Conventional Commits format, MIT license inherited (no
-CLA required).
+Note, 2026-07-28: the table above reflects the PRs' current state, not their
+original submission. All three were substantially reshaped by review
+feedback and rebases since first opened, see the diff sizes and the
+per-PR notes above plus the re-verify log entries below. The original
+diff sizes were `+148/-0`, `+154/-16` and `+580/-9`, and the original test
+counts (`60 to 64/64/74`) are stale and no longer tracked here, since the
+env-to-config.yaml rebases and, for #28702, the plugin-path move changed
+the test layout each time. Author-reported counts from the review threads:
+#28697 at 99 passing (2026-07-13), #28702 at 106/106 passing (2026-07-06,
+up from 86 passing right after the 2026-06-21 plugin-migration rebase).
+#28699's exact count was not restated in its review comments. Conventional
+Commits format, MIT license inherited (no CLA required).
 
 ### Local worktrees (for follow-up review feedback)
 
@@ -145,7 +155,7 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
    patch-header lists the seven sections by ID.
 3. If all three PRs land, retire the local patch entirely: drop the
    `hermes-email-patch` ConfigMap task, drop the subPath mount, drop the
-   `checksum/email-patch` annotation, drop `roles/k8s_dgx/files/hermes_email_gateway_patched.py`,
+   `checksum/email-patch` annotation, drop `roles/k8s_infra/files/hermes_email_gateway_patched.py`,
    trim the `email.*_folder` / `email.process_existing` fields back to
    plain env values in the secret.
 
@@ -345,6 +355,31 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 >   base); the patch-file header now records v2026.7.20 as the checked tag.
 > - **PRs #28697 / #28699 / #28702** remain open/unmerged; all three show `updated_at:
 >   2026-07-13` — later than the 2026-06-29 activity previously logged, but no merge/close.
+
+> **2026-07-28 check, no new release, adapter.py unchanged, no merge, PR table above corrected
+> to match current PR content:**
+> - **Latest release:** still `v2026.7.20` (2026-07-20), no new tag published since the 2026-07-23
+>   check.
+> - **`plugins/platforms/email/adapter.py` unchanged** on both `main` and the pinned tag since
+>   commit `88bd1c01` (2026-07-02), blob `572b5c11455d396e3d23d44b7bf724130ebce385`, 50848 bytes,
+>   identical to what the 2026-07-23 entry recorded. The local patch stays byte-clean, no re-sync
+>   is required.
+> - **PRs #28697 / #28699 / #28702** all still `open`, `merged: false`, `updated_at` unchanged at
+>   2026-07-13. No new comments or reviews since. The trigger "if a PR merges, the local patch
+>   becomes redundant" has not fired.
+> - **The "Upstream PRs" table above was rewritten** to reflect the PRs' current diffs
+>   (`+371/-1`, `+146/-10`, `+864/-101`) and current mechanism (config.yaml keys under
+>   `platforms.email.*`, not the original env vars), instead of the shape they had when first
+>   opened. This is a documentation correction only. Nothing changed upstream between the
+>   2026-07-23 and 2026-07-28 checks beyond ordinary review back and forth that had already
+>   happened by 2026-07-13.
+> - **Path correction:** the "Local patch" section and the re-sync steps in this doc previously
+>   named `roles/k8s_dgx/files/hermes_email_gateway_patched.py`,
+>   `roles/k8s_dgx/tasks/hermes.yml` and `roles/k8s_dgx/templates/hermes/hermes_webui_deployment.yaml.j2`.
+>   Verified against the repo, all three live under `roles/k8s_infra/` instead
+>   (`roles/k8s_infra/files/hermes_email_gateway_patched.py`,
+>   `roles/k8s_infra/tasks/apps/hermes.yml`,
+>   `roles/k8s_infra/templates/hermes/hermes_webui_deployment.yaml.j2`). Corrected in place above.
 
 1. Download the new upstream file:
 
