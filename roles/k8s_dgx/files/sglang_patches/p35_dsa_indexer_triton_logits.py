@@ -45,7 +45,7 @@ logits kernel (watch deep_gemm SM121 support and flashinfer), DELETE this and
 re-point the backend.
 """
 
-from _patchlib import Patch
+from _patchlib import Patch, write_module
 
 MARKER = "# [patch] _sgl_dsa_indexer_triton_"
 
@@ -172,14 +172,12 @@ patch_new_file = Patch(
 import os  # noqa: E402
 
 _target_path = patch_new_file.path
-if not os.path.isfile(_target_path):
-    with open(_target_path, "w") as _fh:
-        _fh.write(TRITON_MODULE)
-    print(f"Patched triton_paged_mqa_logits.py: created ({len(TRITON_MODULE)} bytes)")
-elif open(_target_path).read() != TRITON_MODULE:
-    with open(_target_path, "w") as _fh:
-        _fh.write(TRITON_MODULE)
-    print("Patched triton_paged_mqa_logits.py: refreshed to current content")
+if not os.path.isfile(_target_path) or open(_target_path).read() != TRITON_MODULE:
+    # write_module() imports the result before declaring success and removes it
+    # again on failure. A generated module that cannot be imported is worse than
+    # an absent one: SGLang's registry swallows the ImportError and silently
+    # disables every model that transitively imports it (see p30, 2026-07-28).
+    write_module(_target_path, TRITON_MODULE, f"triton_paged_mqa_logits ({len(TRITON_MODULE)} bytes)")
 else:
     print("[patch] triton_paged_mqa_logits.py: already current, skipping")
 
