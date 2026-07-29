@@ -166,7 +166,7 @@ sglang_shard_memory_request: "100Gi"
 # (request / node capacity) × total swap. Use ONLY to let a DIRECT serve load
 # (load_format=auto) survive the process_weights_after_loading fusion peak via
 # swap; at steady-state (weights < node RAM) it won't swap. No memory *limit* set.
-# Testweise: -e sglang_memory_request=100Gi. Reverting to "" may leave an orphan
+# For a trial run: -e sglang_memory_request=100Gi. Reverting to "" may leave an orphan
 # requests.memory (strategic-merge) → kubectl delete deploy + redeploy to clear.
 sglang_memory_request: "{{ sglang_model_profiles[_sglang_active_model].memory_request | default('') }}"
 # Disable DeepGemm JIT (sets SGLANG_ENABLE_JIT_DEEPGEMM=false) — needed for
@@ -393,24 +393,29 @@ sglang_hf_hub_offline: "{{ sglang_model_profiles[_sglang_active_model].hf_hub_of
 # Attention backend: per-model in sglang_model_profiles, defaults to "flashinfer".
 # Set to "triton" for hybrid GDN models (MoE+Mamba) on Blackwell GPUs.
 sglang_attention_backend: "{{ sglang_model_profiles[_sglang_active_model].attention_backend | default('flashinfer') }}"
-# Phasengetrennte Attention-Backends. Leer -> kein Flag -> SGLang nimmt für beide
-# Phasen attention_backend oben. Nur setzen, wenn Prefill und Decode WIRKLICH
-# auseinanderlaufen sollen; SGLang warnt dann bewusst ("Compatibility issues are
-# unlikely, but may occur in rare edge cases").
+# Phase-split attention backends. Empty -> no flag -> SGLang uses attention_backend
+# above for both phases. Only set these when prefill and decode REALLY have to
+# diverge; SGLang then warns on purpose ("Compatibility issues are unlikely, but
+# may occur in rare edge cases").
 #
-# DER Anwendungsfall ist NVFP4 als KV-Cache auf GB10/SM121 (kv_cache_dtype: nvfp4):
+# THE use case is NVFP4 as KV cache on GB10/SM121 (kv_cache_dtype: nvfp4):
 #   prefill_attention_backend: flashinfer
 #   decode_attention_backend:  trtllm_mha
-# Grund: SGLang prüft phasenweise. trtllm_mha im PREFILL verlangt SM100 (auf GB10
-# falsch), im DECODE genügt sm90/sm100/sm120 (auf GB10 wahr). Zusätzlich greift die
-# strenge Allowlist KV4_ATTENTION_MHA_BACKEND_CHOICES (die flashinfer NICHT enthält)
-# nur, wenn prefill == decode; mit unterschiedlichen Backends bleibt es bei der
-# Warnung. Exakt diese Kombination ist upstream für MHA+SM120 getestet
+# Reason: SGLang checks per phase. trtllm_mha in PREFILL requires SM100 (false on
+# GB10), in DECODE sm90/sm100/sm120 suffices (true on GB10). On top of that, the
+# strict allowlist KV4_ATTENTION_MHA_BACKEND_CHOICES (which does NOT contain
+# flashinfer) only applies when prefill == decode; with different backends it stays
+# at the warning. Exactly this combination is tested upstream for MHA+SM120
 # (test/registered/quant/test_llama8b_nvfp4_kv_cache_sm120.py).
-# Messung 2026-07-28 auf GB10: läuft, aber KEIN Durchsatzgewinn bei bs=1/8k Kontext
-# (41,7 vs 41,2 tok/s gegen fp8_e4m3). Details: nvfp4_kv.md.
+# Measured 2026-07-28 on GB10: works, but NO throughput gain at bs=1 / 8k context
+# (41.7 vs 41.2 tok/s against fp8_e4m3). Details: nvfp4_kv.md.
 sglang_prefill_attention_backend: "{{ sglang_model_profiles[_sglang_active_model].prefill_attention_backend | default('') }}"
 sglang_decode_attention_backend: "{{ sglang_model_profiles[_sglang_active_model].decode_attention_backend | default('') }}"
+# nvfp4-KV + NEXTN/MTP (p37, see nvfp4_kv_mtp_plan.md sections 14-19): the patch's
+# draft-extend prefix fill is a host fill and does not run on CUDA-graph replay,
+# so the draft-extend graph MUST stay off for it ("1"). Empty = env unset =
+# SGLang default (graph on). Verify and draft-step graphs are unaffected.
+sglang_disable_draft_extend_cuda_graph: "{{ sglang_model_profiles[_sglang_active_model].disable_draft_extend_cuda_graph | default('') }}"
 # DSA paged-MQA-logits backend (DeepSeek Sparse Attention indexer decode). Empty → SGLang
 # default (auto → DeepGEMM). On GB10/SM121 DeepGEMM asserts, so set "torch" (the _sgl_ torch
 # fallback runtime-patched into dsa_indexer.py) to run the sparse indexer. Wired to

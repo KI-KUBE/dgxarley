@@ -146,10 +146,14 @@
         SGLANG_DIST_TIMEOUT: "{{ sglang_dist_timeout | string }}"
         SGLANG_WATCHDOG_TIMEOUT: "{{ sglang_watchdog_timeout | string }}"
         SGLANG_ATTENTION_BACKEND: "{{ sglang_attention_backend }}"
-        # Leer = kein Flag = beide Phasen nutzen SGLANG_ATTENTION_BACKEND.
-        # Gesetzt nur für den NVFP4-KV-Fall, siehe defaults/main/sglang.yml.
+        # Empty = no flag = both phases use SGLANG_ATTENTION_BACKEND.
+        # Only set for the NVFP4-KV case, see defaults/main/sglang.yml.
         SGLANG_PREFILL_ATTENTION_BACKEND: "{{ sglang_prefill_attention_backend }}"
         SGLANG_DECODE_ATTENTION_BACKEND: "{{ sglang_decode_attention_backend }}"
+        # Read directly by SGLang (not by the launch script); empty = default.
+        # "1" is mandatory for nvfp4-KV + MTP (p37's draft-extend fill is a
+        # host fill that would not run on graph replay).
+        SGLANG_DISABLE_DRAFT_EXTEND_CUDA_GRAPH: "{{ sglang_disable_draft_extend_cuda_graph }}"
         SGLANG_DSA_PAGED_MQA_LOGITS_BACKEND: "{{ sglang_dsa_paged_mqa_logits_backend }}"
         SGLANG_DSA_DECODE_BACKEND: "{{ sglang_dsa_decode_backend }}"
         SGLANG_DSA_PREFILL_BACKEND: "{{ sglang_dsa_prefill_backend }}"

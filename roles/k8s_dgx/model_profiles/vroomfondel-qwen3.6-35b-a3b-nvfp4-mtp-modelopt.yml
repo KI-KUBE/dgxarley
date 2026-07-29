@@ -31,67 +31,80 @@
 #   acceptance/throughput. Compare acceptance vs a BF16-MTP build before relying on the
 #   speedup — this is a research probe, not yet GSM8K/acceptance-gated.
 #
-# ── NVFP4 als KV-CACHE: so ginge es, und was es (nicht) bringt ───────────────
-# Gemessen 2026-07-28 auf spark5 (GB10/SM121, TP=1, Image 0.5.16-dev-sm121, dieses
-# Modell). NVFP4-KV LÄUFT auf GB10, aber NUR mit GETRENNTEN Attention-Backends:
+# ── NVFP4 AS KV CACHE: how it would work, and what it does (not) buy ─────────
+# Measured 2026-07-28 on spark5 (GB10/SM121, TP=1, image 0.5.16-dev-sm121, this
+# model). NVFP4-KV RUNS on GB10, but ONLY with SEPARATE attention backends:
 #
 #     --kv-cache-dtype nvfp4
 #     --prefill-attention-backend flashinfer
 #     --decode-attention-backend  trtllm_mha
 #
-# Warum getrennt: SGLang prüft phasenweise. trtllm_mha-PREFILL verlangt SM100
-# (auf GB10 falsch), trtllm_mha-DECODE erlaubt sm90/sm100/sm120 (auf GB10 wahr).
-# Und die strenge Allowlist KV4_ATTENTION_MHA_BACKEND_CHOICES (ohne flashinfer!)
-# greift NUR, wenn prefill == decode. Mit unterschiedlichen Backends bleibt nur
-# eine Warnung. Genau diese Kombination ist upstream für unsere Architektur
-# getestet: test/registered/quant/test_llama8b_nvfp4_kv_cache_sm120.py
-# (Llama-3.1-8B-NVFP4, MHA, gegated auf is_sm120_supported()).
-# Ein EINHEITLICH gesetztes attention_backend scheitert dagegen dreifach:
-# flashinfer an der Allowlist, trtllm_mha am SM100-Prefill-Gate, triton am
-# KeyError 'float4_e2m1fn_x2' (Triton 3.7.1 kennt den FP4-Typ nicht).
+# Why separate: SGLang checks per phase. trtllm_mha PREFILL requires SM100
+# (false on GB10), trtllm_mha DECODE allows sm90/sm100/sm120 (true on GB10).
+# And the strict allowlist KV4_ATTENTION_MHA_BACKEND_CHOICES (without
+# flashinfer!) only applies when prefill == decode. With different backends only
+# a warning remains. Exactly this combination is tested upstream for our
+# architecture: test/registered/quant/test_llama8b_nvfp4_kv_cache_sm120.py
+# (Llama-3.1-8B-NVFP4, MHA, gated on is_sm120_supported()).
+# A UNIFORMLY set attention_backend instead fails three ways: flashinfer on the
+# allowlist, trtllm_mha on the SM100 prefill gate, triton on
+# KeyError 'float4_e2m1fn_x2' (Triton 3.7.1 does not know the FP4 type).
 #
-# MESSERGEBNIS (GSM8K n=20, greedy, 2048 Token Budget, sonst identische Flags):
-#            KV-Dtype    GSM8K     Tokens/Frage   Durchsatz
-#            fp8_e4m3    19/20     642            41,2 tok/s
-#            nvfp4       18/20     1279           41,7 tok/s
-# Der Durchsatz ist IDENTISCH. Die höhere Latenz des nvfp4-Laufs (30,7 s vs
-# 15,6 s) kommt allein aus den doppelt so langen Antworten, nicht aus dem
-# KV-Format — auf Tokens normiert ist der Unterschied Rauschen. Plausibel: bei
-# bs=1 und ~1,3k Kontext dominieren MoE/GEMM, nicht die Attention-Matmuls, die
-# von den FP4-Cores profitieren würden. Ein Gewinn ist erst bei hoher
-# Nebenläufigkeit und langem Kontext zu erwarten — UNGEMESSEN.
-# Qualität: 18/20 vs 19/20 ist EINE Frage und bei n=20 nicht auflösbar; upstream
-# misst über 1319 Fragen 0.6461 (FP8-KV) vs 0.6324 (NVFP4-KV), also ~1,4 Punkte.
+# MEASUREMENT (GSM8K n=20, greedy, 2048 token budget, otherwise identical flags):
+#            KV dtype    GSM8K     tokens/question   throughput
+#            fp8_e4m3    19/20     642               41.2 tok/s
+#            nvfp4       18/20     1279              41.7 tok/s
+# Throughput is IDENTICAL. The higher latency of the nvfp4 run (30.7 s vs
+# 15.6 s) comes purely from the twice-as-long answers, not from the KV format;
+# normalized per token the difference is noise. Plausible: at bs=1 and ~1.3k
+# context, MoE/GEMM dominates, not the attention matmuls that would benefit from
+# the FP4 cores. A gain is only expected at high concurrency and long context,
+# which is UNMEASURED.
+# Quality: 18/20 vs 19/20 is ONE question and not resolvable at n=20; upstream
+# measures 0.6461 (FP8-KV) vs 0.6324 (NVFP4-KV) over 1319 questions, so ~1.4 points.
 #
-# ⛔ NIEMALS ZUSAMMEN MIT NEXTN/MTP (gemessen 2026-07-28, GB10, dieses Modell):
-#   nvfp4-KV + speculative_enabled: true startet sauber, laeuft schnell und
-#   produziert WORT-SALAT. GSM8K 0/10, 10/10 Antworten laufen ins Token-Limit,
-#   Ausgaben degenerieren zu "000000..." bzw. "The user is a user. The user is
-#   a user." — waehrend Durchsatz (52,7 tok/s) und Akzeptanz voellig gesund
-#   AUSSEHEN. Genau das ist die Falle: `accept len: 3.00` steht auf dem
-#   theoretischen MAXIMUM (= speculative_num_draft_tokens), in einem intakten
-#   Lauf sind es 2,55-2,90. Eine Akzeptanz am Anschlag heisst nicht "perfekter
-#   Draft", sondern dass die Verifikation nichts mehr verwirft — Draft und
-#   Target produzieren denselben Muell.
-#   Es gibt KEINE Fehlermeldung, keinen Absturz, keinen Log-Hinweis. Wer nur auf
-#   Startet-es und tok/s schaut, haelt diese Konfiguration fuer die beste von
-#   allen. Vier gemessene Zellen, gleiches Modell/Image/TP=1:
-#       KV        MTP    Durchsatz    GSM8K
-#       fp8_e4m3  aus    41,2 tok/s   19/20
-#       nvfp4     aus    40,8 tok/s   18/20
-#       fp8_e4m3  an     53,2 tok/s   10/10   (accept len 2,55-2,90)
-#       nvfp4     an     52,7 tok/s    0/10   (accept len 3,00 = kaputt)
-#   Ungeklaert ist, ob das FP4-KV-Format schuld ist oder die dafuer noetige
-#   Backend-Trennung (decode=trtllm_mha) mit dem Draft-Extend-Pfad kollidiert.
-#   Bis das geklaert ist: nvfp4-KV NUR mit speculative_enabled: false.
+# ⛔→✅ WITH NEXTN/MTP: used to be silent corruption, SOLVED since p37 (2026-07-29).
+#   History of the failure mode (measured 2026-07-28, GB10, this model):
+#   nvfp4-KV + speculative_enabled: true starts cleanly, runs fast and produces
+#   WORD SALAD. GSM8K 0/10, 10/10 answers run into the token limit, outputs
+#   degenerate into "000000..." resp. "The user is a user. The user is a user.",
+#   while throughput (52.7 tok/s) and acceptance LOOK perfectly healthy. That is
+#   exactly the trap: `accept len: 3.00` sits at the theoretical MAXIMUM
+#   (= speculative_num_draft_tokens), whereas an intact run shows 2.55-2.90.
+#   Acceptance pinned at the ceiling does not mean "perfect draft", it means
+#   verification rejects nothing any more: draft and target produce the same
+#   garbage.
+#   There is NO error message, no crash, no log hint. Whoever only looks at
+#   does-it-start and tok/s considers this configuration the best of all. Four
+#   measured cells, same model/image/TP=1:
+#       KV        MTP    throughput   GSM8K
+#       fp8_e4m3  off    41.2 tok/s   19/20
+#       nvfp4     off    40.8 tok/s   18/20
+#       fp8_e4m3  on     53.2 tok/s   10/10   (accept len 2.55-2.90)
+#       nvfp4     on     52.7 tok/s    0/10   (accept len 3.00 = broken)
+#   CAUSE (clarified 2026-07-29, full chain of evidence nvfp4_kv_mtp_plan.md
+#   §14-19): neither the FP4 format nor the backend split. The flashinfer
+#   backend's dequant workspace is NEVER filled under speculation
+#   (TARGET_VERIFY and DRAFT_EXTEND_V2) but still read
+#   (`is_extend_without_speculative` gate; upstream main identical, unfixed).
+#   FIX = p37_nvfp4_kv_spec_native_verify: verify computes natively on FP4 via
+#   the XQA decode kernel (including the draft block mask SGLang never passes
+#   through), draft-extend gets a position-preserving prefix fill. Verified live
+#   (E7, graphs on): GSM8K 10/10, accept len scattering 2.30-2.70, 47.2 tok/s
+#   (nvfp4 without MTP: 40.8; fp8+MTP reference: 54.1, the gap being the
+#   disabled draft-extend graph, see the next point).
+#   OPERATING CONDITION: `disable_draft_extend_cuda_graph: "1"` in the profile
+#   (p37's host fill does not run on graph replay; verify/draft-step graphs stay
+#   on). The detector for regressions remains `accept len`: constantly at the
+#   maximum (= speculative_num_draft_tokens) means draft and verify read the
+#   SAME wrong data, while throughput and startup look healthy.
 #
-# ⚠ NICHT ÜBER DIESES PROFIL NUTZBAR, solange die Plumbing fehlt: sglang_launch.sh
-# kennt nur EIN `attention_backend` (SGLANG_ATTENTION_BACKEND), es gibt keine
-# Profilschlüssel für getrennte Prefill/Decode-Backends. Für einen Produktivlauf
-# müssten `prefill_attention_backend` / `decode_attention_backend` als Profilkeys
-# eingeführt und im Launch-Skript auf --prefill-attention-backend /
-# --decode-attention-backend abgebildet werden. Bis dahin ist NVFP4-KV nur per
-# Hand-Start reproduzierbar (siehe nvfp4_kv.md).
+# USE VIA THIS PROFILE: the plumbing has existed since 2026-07-28/29. Profile
+# keys `prefill_attention_backend` / `decode_attention_backend` /
+# `disable_draft_extend_cuda_graph` (defaults/main/sglang.yml) are passed
+# through to sglang_launch.sh resp. SGLang via SGLANG_* envs. Activation = set
+# those three keys plus `kv_cache_dtype: nvfp4` in the profile (deliberately not
+# pre-wired; first measure throughput at the target concurrency against fp8).
 #
 # ── ⚠ REQUIRED SGLang RUNTIME PATCHES (sglang_patches/, applied by sglang_launch.sh) ──
 #   Stock SGLang 0.5.15 crashes; this checkpoint needs FIVE launch-time source patches:
