@@ -57,6 +57,85 @@ def gate_env(name: str, value: str) -> bool:
     return os.environ.get(name, "") == value
 
 
+def target_contains(target: str, needle: str) -> bool:
+    """True when the target file exists AND contains `needle`.
+
+    The gate for patches whose subject matter was DELETED upstream rather than
+    moved. Without it, "upstream removed the buggy function" is indistinguishable
+    from "the anchor drifted and someone must rebase it": both surface as one
+    ANCHOR-DRIFT line, so the drift report stops being a work list.
+
+    Use it as `when=target_contains(<same target>, <marker of the buggy code>)`.
+    A False gate logs one "gate not matched" line, which is the honest statement
+    that this patch has nothing to do on this image.
+
+    Missing/unreadable file counts as False: nothing to patch there either.
+    """
+    path = os.path.join(DIST_PACKAGES, target)
+    try:
+        with open(path) as fh:
+            return needle in fh.read()
+    except OSError:
+        return False
+
+
+def is_kernels_namespace() -> bool:
+    """True on SGLang >= v0.5.16, i.e. after the RFC #29630 namespace migration.
+
+    A coarse but reliable version discriminator: v0.5.16 moved the kernel ops out
+    of `srt/layers/...` into the new `sglang/kernels/ops/` tree. Prefer a precise
+    `target_contains()` probe where one exists; use this when a patch is
+    deliberately NOT maintained for the new layout, so the log says "gate not
+    matched" (a decision) instead of ANCHOR-DRIFT (a work item).
+    """
+    return os.path.isdir(os.path.join(DIST_PACKAGES, "sglang/kernels/ops"))
+
+
+def write_module(path: str, source: str, what: str) -> bool:
+    """Write a generated Python module and PROVE it imports.
+
+    p30/p35 do not edit SGLang, they generate new modules into its tree. Nothing
+    ever checked that the generated source is importable, and on 2026-07-28 that
+    cost us: p30 emitted an import of `sglang.srt.layers.quantization.fp8_kernel`,
+    which RFC #29630 moved in v0.5.16. The patch reported success, the module was
+    unimportable, and the ImportError cascaded through SGLang's model registry —
+    31 model classes silently disabled (deepseek_v2/v4, glm4_moe, kimi_*, ...),
+    visible only as "Ignore import error when loading ..." far from the cause.
+
+    Returns True when the module was written and imports. On failure the file is
+    REMOVED again (a missing module degrades to "unpatched SGLang", an
+    unimportable one poisons the registry) and one warning line is printed.
+    Never raises: same contract as the rest of this module.
+    """
+    import importlib.util
+
+    try:
+        with open(path, "w") as fh:
+            fh.write(source)
+    except OSError as exc:
+        print(f"ANCHOR-DRIFT: {os.path.basename(path)}: {what} could not be written ({exc})")
+        return False
+
+    try:
+        spec = importlib.util.spec_from_file_location(f"_dgxarley_probe_{os.path.basename(path)[:-3]}", path)
+        if spec is None or spec.loader is None:
+            raise ImportError("no import spec")
+        spec.loader.exec_module(importlib.util.module_from_spec(spec))
+    except Exception as exc:  # noqa: BLE001 - any import-time failure must degrade, not crash
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        print(
+            f"ANCHOR-DRIFT: {os.path.basename(path)}: {what} written but NOT IMPORTABLE "
+            f"({type(exc).__name__}: {exc}) - file removed so it cannot poison the model registry"
+        )
+        return False
+
+    print(f"Wrote {os.path.basename(path)}: {what}")
+    return True
+
+
 class Patch:
     """One patch against one SGLang source file.
 
@@ -64,12 +143,24 @@ class Patch:
     patch does not apply to this model/config and is skipped with one log line
     (this replaces the bash `if` that used to wrap the heredoc, so gate and
     patch now live in the same file).
+
+    `alt_targets` lists further paths the same code may live under, tried in
+    order after `target`; the first one that EXISTS wins. SGLang moves files
+    between releases (RFC #29630 moved model_runner_kv_cache_mixin.py's content
+    to model_executor/pool_configurator.py in v0.5.16), and the patch set is
+    shipped as ONE ConfigMap to instances that may pin DIFFERENT images. So a
+    patch cannot simply follow the move: it has to hit whichever layout the
+    image in front of it happens to have.
     """
 
-    def __init__(self, name: str, target: str, when: bool = True) -> None:
+    def __init__(self, name: str, target: str, when: bool = True, alt_targets: tuple[str, ...] = ()) -> None:
         self.name = name
-        self.target = target
         self.when = when
+        for candidate in (target, *alt_targets):
+            if os.path.isfile(os.path.join(DIST_PACKAGES, candidate)):
+                target = candidate
+                break
+        self.target = target
         self.path = os.path.join(DIST_PACKAGES, target)
         self.basename = os.path.basename(target)
         self._code = ""
@@ -112,6 +203,36 @@ class Patch:
             raise AnchorDrift(f"{label} anchor missing")
         self._code = self._code.replace(old, new)
         self._changed = True
+
+    def replace_any(
+        self,
+        variants: "list[tuple[str, str]]",
+        marker: str,
+        what: str | None = None,
+    ) -> None:
+        """Apply the FIRST (old, new) pair whose `old` matches; drift only if none do.
+
+        For the recurring case where upstream kept the logic but changed its
+        spelling between the versions we serve: a method became a free function
+        (so `self.server_args.` lost its `self.`, and the block dedented), or an
+        accessor was renamed (`get_global_server_args()` -> `get_server_args()`).
+
+        One ConfigMap feeds instances that pin different images, so "rebase to the
+        new spelling" is not an option: both must keep working. Order the variants
+        oldest-first only for readability, the probe is exact-match either way.
+
+        `marker` is mandatory: with several possible `new` texts there is no
+        sensible default already-applied probe.
+        """
+        label = what or self.name
+        if marker in self._code:
+            return
+        for old, new in variants:
+            if old in self._code:
+                self._code = self._code.replace(old, new, 1)
+                self._changed = True
+                return
+        raise AnchorDrift(f"{label} anchor missing (tried {len(variants)} spellings)")
 
     def prepend(self, text: str, marker: str) -> None:
         """Prepend `text` at the top of the file (for import lines with no anchor)."""

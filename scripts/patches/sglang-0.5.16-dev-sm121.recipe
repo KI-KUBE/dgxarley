@@ -71,36 +71,108 @@
 #      PP=4 (triton). See TURBOQUANT.md for why they diverged.
 #   B. compressed-tensors NVFP4 MoE with apply_router_weight_on_input=True now
 #      ASSERTS instead of running (also #30448).
-#   C. RUNTIME patches (roles/k8s_dgx/files/sglang_patches/): 31 of 34 target
-#      paths are unchanged, 3 are gone with the namespace migration:
-#        srt/layers/attention/dsa/torch_paged_mqa_logits.py   (p30)
-#        srt/layers/attention/dsa/triton_paged_mqa_logits.py  (p35)
-#        srt/model_executor/model_runner_kv_cache_mixin.py
-#      p30/p35 are the LIVE-PROVEN GLM-5.2 DSA indexer stack
-#      (reference_glm52_dsa_indexer_deepgemm_sm121), so GLM-5.2 must not be
-#      deployed off this image before they are re-pathed. Note the possible
-#      upside: v0.5.16 ships a vectorized, CUDA-graph-safe
-#      fp8_paged_mqa_logits_torch_sm120 in srt/layers/attention/dsv4/indexer.py
-#      plus a registered SM120 test, i.e. upstream may have absorbed what p30
-#      does by hand. Diff before re-porting.
+#   C. RUNTIME patches (roles/k8s_dgx/files/sglang_patches/) — MEASURED on the
+#      BUILT image, 2026-07-28 (spark5 podman, all 39 patches run exactly as
+#      sglang_launch.sh runs them, three env scenarios: bare / GLM-5.2+
+#      SGLANG_DSA_INDEXER_TRITON / Hy3. Same battery against
+#      0.5.15.post1-sm121 as the control: 0 drift there, so every hit below is
+#      caused by the version bump, not pre-existing rot).
+#      33 of 39 apply cleanly. SIX drift (identical in all three scenarios):
+#        p24_linear_nvfp4_scale        linear.py: anchor gone. `weight_scale_2`
+#                                      and `nvfp4` no longer appear in linear.py
+#                                      at all, so this is a RE-TARGET, not an
+#                                      anchor bump. Check first whether upstream
+#                                      PR #29151 landed and the patch is dead.
+#        p26_cutlass_moe_zeroinit      cutlass_moe.py: a_map/c_map/topk_weights
+#                                      still there but `cutlass_moe_fp4` is GONE
+#                                      (#30448). The zero-init fix was for the
+#                                      FP4 path → likely simply OBSOLETE; the
+#                                      fp8 path (cutlass_fused_experts_fp8) is
+#                                      untouched by this patch.
+#        p28_modelopt_cutlass_params_ep  modelopt_quant.py: the whole
+#                                      `CutlassMoEParams` class is gone → the EP
+#                                      fix has no target any more. Verify where
+#                                      EP expert counts are computed now.
+#        p31_dsa_flashinfer_gather     server_args.py + dsa_backend.py: both
+#                                      files and DSA_CHOICES still exist, only
+#                                      the surrounding code moved → ANCHOR
+#                                      REBASE. (p31-p33 are the FALLBACK gather
+#                                      path, not the live-proven one.)
+#        p33_dsa_fig_graph_split       dsa_backend.py S1-init-state: same,
+#                                      anchor rebase.
+#        p34_dsa_trtllm_sparse_sm120   model_runner_kv_cache_mixin.py is GONE;
+#                                      its content now lives in
+#                                      srt/model_executor/pool_configurator.py
+#                                      (get_num_kv_heads / kv_lora_rank there).
+#                                      Second hunk (forward_mla.py fuse-rope off
+#                                      on SM12x) needs an anchor rebase.
+#                                      THIS ONE MATTERS: p34 is the live-proven
+#                                      GLM-5.2 DSA path
+#                                      (reference_glm52_dsa_indexer_deepgemm_sm121).
+#      CORRECTION to the earlier static analysis: p30 and p35 are FINE. Their
+#      "missing" targets (torch_paged_mqa_logits.py, triton_paged_mqa_logits.py)
+#      are files these patches CREATE, not files they edit — both report
+#      "created" on the built image.
+#      Drift is logged as a warning and never crashes the pod, so a deploy would
+#      SILENTLY run without those six fixes. GLM-5.2 must not be served off this
+#      image before p34 is re-pathed.
+#      Possible upside to check while re-porting: v0.5.16 ships a vectorized,
+#      CUDA-graph-safe fp8_paged_mqa_logits_torch_sm120 in
+#      srt/layers/attention/dsv4/indexer.py (present in the image, verified),
+#      i.e. upstream may have absorbed what p30 does by hand.
 #   D. Flag renames in v0.5.16: --enable-deepep-waterfill → --enable-waterfill,
 #      --optimistic-prefill-retries → --optimistic-prefill-attempts. Grep the
 #      model profiles and sglang_launch.sh before serving.
+#      SEPARATE, PRE-EXISTING ISSUE — deprecated flags. NOT a v0.5.16 delta:
+#      Loki shows the identical warnings from PRODUCTION pods on the
+#      0.5.15.post1 image (and some already on 0.5.15), so this backlog predates
+#      the bump and does not block it. Query used:
+#        {namespace="sglang"} |= "is deprecated and will be removed in a future release"
+#      Four flags, all emitted by sglang_launch.sh / profile keys:
+#        --cuda-graph-max-bs            → --cuda-graph-max-bs-decode       (last 07-16)
+#        --disable-cuda-graph           → --cuda-graph-backend-{decode,prefill}=disabled
+#                                                                          (last 07-16)
+#        --disable-piecewise-cuda-graph → --cuda-graph-backend-prefill=disabled
+#                                                                          (last 07-25)
+#        --mamba-scheduler-strategy     → --mamba-radix-cache-strategy     (last 07-25)
+#      ✅ FIXED 2026-07-28 in sglang_launch.sh: it now emits the new spellings
+#      unconditionally. No version probe needed — BOTH spellings exist in
+#      0.5.15.post1 AND 0.5.16 (checked against `--help` in both images), and a
+#      start with the new flags produces neither "unrecognized arguments" nor a
+#      deprecation warning on either. Note that two of them are not plain
+#      renames: --disable-cuda-graph maps to BOTH
+#      --cuda-graph-backend-{decode,prefill} disabled, and the piecewise branch is
+#      suppressed when the full-disable branch already turned prefill off.
+#      Profile keys are unchanged (cuda_graph_max_bs, disable_cuda_graph,
+#      disable_piecewise_cuda_graph, mamba_scheduler_strategy) — this is purely a
+#      launch-script concern.
 #   E. UnifiedRadixTree is now the DEFAULT for SWA / Mamba / DSA models, and
 #      QServe + FBGEMM FP8 quantization were removed. Behaviour change, not a
 #      build break.
 #   F. flashinfer is a 0.6.16 RELEASE CANDIDATE here, two minor steps over
-#      SGLang's own 0.6.14 pin. Re-run the rmsnorm smoke test on the built image
-#      (reference_cutlass_dsl_wheel_swap) AND check nvidia-cudnn-frontend >= 1.25
-#      (0.6.16 raised that floor and the Dockerfile installs flashinfer with
-#      --no-deps). Details + rollback order in the FLASHINFER_VERSION block.
+#      SGLang's own 0.6.14 pin. Rollback order in the FLASHINFER_VERSION block.
+#      ✅ CLEARED 2026-07-28 on GB10 (spark5, podman --device nvidia.com/gpu=all):
+#         rmsnorm smoke test PASSES on the built image (no mlir_global_dtors ICE,
+#         output finite, max abs err 0.0144 vs fp32 reference = bf16 rounding).
+#         cutlass-dsl 4.6.1 + flashinfer 0.6.16rc3 is therefore a working pair.
+#      ℹ️  The cudnn-frontend>=1.25 concern is MOOT: nvidia-cudnn-frontend is not
+#         installed in this image AT ALL, and it is equally absent from the live
+#         0.5.15.post1-sm121 image. Status quo, not a regression. Only matters if
+#         something ever routes onto a flashinfer cudnn backend.
 #   G. NVFP4 attention is NEW on SM121 with flashinfer #3897, it never ran on
-#      this hardware before. Validate it deliberately rather than assuming it
-#      just works: a uniform-NVFP4 model (attention included) end-to-end, output
-#      quality checked by pattern-grep + token distribution + tail, not by
-#      finish_reason. The companion correctness fix #3838 (SM120 NVFP4
-#      qk_correction / row-sum / lse) makes this the natural moment to re-test
-#      the still-open Hy3/HYV3 W4A4 NaN as well.
+#      this hardware before.
+#      ✅ KERNEL-LEVEL VERIFIED 2026-07-28 on GB10 (spark5):
+#         is_sm121a_supported() = True, and
+#         nvfp4_attention_sm120_quantize_qkv + _fwd run end to end at
+#         [1, 8, 512, 128] bf16 causal: output finite, cosine 0.9909 and rel-L2
+#         0.135 vs an fp32 SDPA reference (the expected 4-bit loss profile), and
+#         2.65x faster than torch SDPA bf16 on the fwd (indicative single-shape
+#         timing, upstream claims 2.3-2.4x vs FA2 at head_dim 128).
+#      ⏳ STILL OPEN: end-to-end through SGLang with a real uniform-NVFP4 model
+#         (attention included). Judge output quality by pattern-grep + token
+#         distribution + tail, not by finish_reason. The companion correctness
+#         fix #3838 (SM120 NVFP4 qk_correction / row-sum / lse) makes this the
+#         natural moment to re-test the still-open Hy3/HYV3 W4A4 NaN as well.
 #
 # Voraussetzungen: xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132 Base auf dem
 # Build-Host (scripts/build_pytorch_base_image.sh, siehe

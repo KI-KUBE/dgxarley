@@ -496,8 +496,13 @@ if [ "$SGLANG_SPECULATIVE_ENABLED" = "true" ]; then
     fi
   fi
 fi
+# --mamba-scheduler-strategy ist deprecated (Warnung seit mindestens 0.5.15,
+# nachweisbar in Loki: {namespace="sglang"} |= "is deprecated and will be
+# removed"). Beide Schreibweisen existieren in 0.5.15.post1 UND 0.5.16 (am
+# 2026-07-28 in beiden Images gegen `--help` geprüft), der Wechsel ist für die
+# gepinnten Images also gefahrlos.
 if [ -n "$SGLANG_MAMBA_SCHEDULER_STRATEGY" ]; then
-  args+=(--mamba-scheduler-strategy "$SGLANG_MAMBA_SCHEDULER_STRATEGY")
+  args+=(--mamba-radix-cache-strategy "$SGLANG_MAMBA_SCHEDULER_STRATEGY")
 fi
 # Mamba state-cache pool sizing (hybrid SSM models). Empty = SGLang auto-fit.
 # max_mamba_cache_size // mamba_ratio is the parallelism ceiling on hybrid models.
@@ -529,6 +534,25 @@ if [ -n "$SGLANG_WATCHDOG_TIMEOUT" ]; then
 fi
 if [ -n "$SGLANG_ATTENTION_BACKEND" ]; then
   args+=(--attention-backend "$SGLANG_ATTENTION_BACKEND")
+fi
+# Phasengetrennte Attention-Backends. Leer -> kein Flag -> beide Phasen nehmen
+# --attention-backend oben. Gesetzt überschreiben sie es pro Phase.
+#
+# Anwendungsfall NVFP4-KV auf GB10 (kv_cache_dtype: nvfp4): prefill=flashinfer,
+# decode=trtllm_mha. Einheitliches Backend scheitert dort dreifach — flashinfer an
+# der KV4-MHA-Allowlist, trtllm_mha am SM100-Prefill-Gate, triton am fehlenden
+# FP4-Typ in Triton. Volle Herleitung + Messwerte: nvfp4_kv.md.
+#
+# ⚠ Die beiden Flags sind KEINE Ergänzung zu --attention-backend, sondern haben
+# Vorrang. Nur eines von beiden zu setzen ist zulässig und lässt die andere Phase
+# auf --attention-backend; genau daraus entsteht aber die "prefill != decode"-
+# Konstellation, die SGLangs strenge KV4-Allowlist umgeht — beabsichtigt, aber
+# beim Setzen bewusst prüfen.
+if [ -n "${SGLANG_PREFILL_ATTENTION_BACKEND:-}" ]; then
+  args+=(--prefill-attention-backend "$SGLANG_PREFILL_ATTENTION_BACKEND")
+fi
+if [ -n "${SGLANG_DECODE_ATTENTION_BACKEND:-}" ]; then
+  args+=(--decode-attention-backend "$SGLANG_DECODE_ATTENTION_BACKEND")
 fi
 # DSA paged-MQA-logits backend (DeepSeek Sparse Attention indexer decode kernel).
 # Empty → no flag → SGLang default ("auto" → DeepGEMM). Set "torch" on GB10/SM121 to use
@@ -596,13 +620,26 @@ fi
 if [ -n "$SGLANG_FP4_GEMM_BACKEND" ] && [ "$SGLANG_FP4_GEMM_BACKEND" != "auto" ]; then
   args+=(--fp4-gemm-backend "$SGLANG_FP4_GEMM_BACKEND")
 fi
+# CUDA-Graph-Flags in der neuen Schreibweise (die alten sind deprecated, siehe
+# den Loki-Nachweis beim mamba-Flag oben). Zwei davon sind KEINE reine
+# Umbenennung, sondern werden auf die neuen per-Phase-Backends abgebildet:
+#   --disable-cuda-graph           -> --cuda-graph-backend-decode disabled
+#                                     + --cuda-graph-backend-prefill disabled
+#   --disable-piecewise-cuda-graph -> --cuda-graph-backend-prefill disabled
+#   --cuda-graph-max-bs            -> --cuda-graph-max-bs-decode
+# _cg_prefill_disabled merkt sich, ob prefill schon abgeschaltet wurde, damit die
+# beiden Zweige das Flag nicht doppelt setzen, wenn ein Profil beides angibt
+# (disable_cuda_graph UND disable_piecewise_cuda_graph).
+_cg_prefill_disabled=0
+
 if [ "$SGLANG_DISABLE_CUDA_GRAPH" = "true" ] || [ "$SGLANG_CUDA_GRAPH_MAX_BS" = "0" ]; then
-  args+=(--disable-cuda-graph)
+  args+=(--cuda-graph-backend-decode disabled --cuda-graph-backend-prefill disabled)
+  _cg_prefill_disabled=1
 elif [ -n "$SGLANG_CUDA_GRAPH_MAX_BS" ] && [ "$SGLANG_CUDA_GRAPH_MAX_BS" != "256" ]; then
-  args+=(--cuda-graph-max-bs "$SGLANG_CUDA_GRAPH_MAX_BS")
+  args+=(--cuda-graph-max-bs-decode "$SGLANG_CUDA_GRAPH_MAX_BS")
 fi
-if [ "$SGLANG_DISABLE_PIECEWISE_CUDA_GRAPH" = "true" ]; then
-  args+=(--disable-piecewise-cuda-graph)
+if [ "$SGLANG_DISABLE_PIECEWISE_CUDA_GRAPH" = "true" ] && [ "$_cg_prefill_disabled" != "1" ]; then
+  args+=(--cuda-graph-backend-prefill disabled)
 fi
 if [ "$SGLANG_WEIGHT_LOADER_DISABLE_MMAP" = "true" ]; then
   args+=(--weight-loader-disable-mmap)
