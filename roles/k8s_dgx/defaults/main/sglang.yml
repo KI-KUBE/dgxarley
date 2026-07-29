@@ -411,10 +411,12 @@ sglang_attention_backend: "{{ sglang_model_profiles[_sglang_active_model].attent
 # (41.7 vs 41.2 tok/s against fp8_e4m3). Details: nvfp4_kv.md.
 sglang_prefill_attention_backend: "{{ sglang_model_profiles[_sglang_active_model].prefill_attention_backend | default('') }}"
 sglang_decode_attention_backend: "{{ sglang_model_profiles[_sglang_active_model].decode_attention_backend | default('') }}"
-# nvfp4-KV + NEXTN/MTP (p37, see nvfp4_kv_mtp_plan.md sections 14-19): the patch's
-# draft-extend prefix fill is a host fill and does not run on CUDA-graph replay,
-# so the draft-extend graph MUST stay off for it ("1"). Empty = env unset =
-# SGLang default (graph on). Verify and draft-step graphs are unaffected.
+# Debug escape hatch: "1" disables the draft-extend CUDA graph (SGLang env
+# SGLANG_DISABLE_DRAFT_EXTEND_CUDA_GRAPH). NO LONGER required for nvfp4-KV +
+# NEXTN/MTP — since 2026-07-29 p37 runs its draft-extend workspace fill in
+# metadata init (host side, executes on every graph replay prep), verified
+# with the graph ON (E8: GSM8K 10/10, 48.1 tok/s). Keep empty unless
+# bisecting a draft-extend regression. See nvfp4_kv_mtp_plan.md sections 14-21.
 sglang_disable_draft_extend_cuda_graph: "{{ sglang_model_profiles[_sglang_active_model].disable_draft_extend_cuda_graph | default('') }}"
 # DSA paged-MQA-logits backend (DeepSeek Sparse Attention indexer decode). Empty → SGLang
 # default (auto → DeepGEMM). On GB10/SM121 DeepGEMM asserts, so set "torch" (the _sgl_ torch

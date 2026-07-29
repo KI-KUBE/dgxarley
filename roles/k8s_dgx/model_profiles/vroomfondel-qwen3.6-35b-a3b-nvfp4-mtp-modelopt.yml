@@ -93,18 +93,20 @@
 #   (E7, graphs on): GSM8K 10/10, accept len scattering 2.30-2.70, 47.2 tok/s
 #   (nvfp4 without MTP: 40.8; fp8+MTP reference: 54.1, the gap being the
 #   disabled draft-extend graph, see the next point).
-#   OPERATING CONDITION: `disable_draft_extend_cuda_graph: "1"` in the profile
-#   (p37's host fill does not run on graph replay; verify/draft-step graphs stay
-#   on). The detector for regressions remains `accept len`: constantly at the
-#   maximum (= speculative_num_draft_tokens) means draft and verify read the
-#   SAME wrong data, while throughput and startup look healthy.
+#   Since 2026-07-29 (later the same day) p37 runs its draft-extend workspace
+#   fill in metadata init, so ALL CUDA graphs incl. draft-extend stay ON —
+#   verified E8: GSM8K 10/10, accept len 2.30-2.77, 48.1 tok/s. The detector
+#   for regressions remains `accept len`: constantly at the maximum
+#   (= speculative_num_draft_tokens) means draft and verify read the SAME
+#   wrong data, while throughput and startup look healthy.
 #
 # USE VIA THIS PROFILE: the plumbing has existed since 2026-07-28/29. Profile
-# keys `prefill_attention_backend` / `decode_attention_backend` /
-# `disable_draft_extend_cuda_graph` (defaults/main/sglang.yml) are passed
-# through to sglang_launch.sh resp. SGLang via SGLANG_* envs. Activation = set
-# those three keys plus `kv_cache_dtype: nvfp4` in the profile (deliberately not
-# pre-wired; first measure throughput at the target concurrency against fp8).
+# keys `prefill_attention_backend` / `decode_attention_backend`
+# (defaults/main/sglang.yml) are passed through to sglang_launch.sh via
+# SGLANG_* envs (`disable_draft_extend_cuda_graph` exists as a debug escape
+# hatch only, no longer required). Activation = set the two backend keys plus
+# `kv_cache_dtype: nvfp4` in the profile (deliberately not pre-wired; first
+# measure throughput at the target concurrency against fp8).
 #
 # ── ⚠ REQUIRED SGLang RUNTIME PATCHES (sglang_patches/, applied by sglang_launch.sh) ──
 #   Stock SGLang 0.5.15 crashes; this checkpoint needs FIVE launch-time source patches:

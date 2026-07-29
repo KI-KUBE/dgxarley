@@ -150,9 +150,9 @@
         # Only set for the NVFP4-KV case, see defaults/main/sglang.yml.
         SGLANG_PREFILL_ATTENTION_BACKEND: "{{ sglang_prefill_attention_backend }}"
         SGLANG_DECODE_ATTENTION_BACKEND: "{{ sglang_decode_attention_backend }}"
-        # Read directly by SGLang (not by the launch script); empty = default.
-        # "1" is mandatory for nvfp4-KV + MTP (p37's draft-extend fill is a
-        # host fill that would not run on graph replay).
+        # Read directly by SGLang (not by the launch script); empty = default
+        # (graph on). Debug escape hatch only — p37's draft-extend fill runs
+        # in metadata init and is graph-replay-safe since 2026-07-29.
         SGLANG_DISABLE_DRAFT_EXTEND_CUDA_GRAPH: "{{ sglang_disable_draft_extend_cuda_graph }}"
         SGLANG_DSA_PAGED_MQA_LOGITS_BACKEND: "{{ sglang_dsa_paged_mqa_logits_backend }}"
         SGLANG_DSA_DECODE_BACKEND: "{{ sglang_dsa_decode_backend }}"

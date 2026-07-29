@@ -34,15 +34,25 @@ FIX (three parts, verified live in E6/E7: GSM8K 10/10, accept len scattering
      `_kv_write_scales` (the nvfp4 pool expects None -> scale table; fp8/bf16
      unchanged at layer.k_scale).
   3. flashinfer: instead of the (never/incorrectly running) extend fill,
-     DRAFT_EXTEND_V2 gets a position-preserving PREFIX fill via
-     `get_flashinfer_decode_dequant_workspace_kv_buffer` (the draft pool holds
-     only the single MTP layer, hence cheap; in the ragged case the paged part
-     reads only the prefix, the current chunk runs raw/ragged).
+     DRAFT_EXTEND_V2 gets a position-preserving PREFIX fill of the dequant
+     workspace. The fill lives in METADATA INIT (`init_forward_metadata` for
+     eager, `init_forward_metadata_out_graph` for graph-replay prep), i.e. it
+     is host code that runs on EVERY draft-extend round even when the
+     draft-extend CUDA graph is enabled. That is only possible because the
+     draft pool holds exactly ONE layer (the MTP head) — the workspace is
+     shared per layer, so a multi-layer pool falls back to a per-layer fill
+     in forward_extend (eager only, guarded against stream capture).
+     The CURRENT chunk cannot come from that fill (its KV is not in the pool
+     yet at metadata time): under the graph the path is non-ragged and reads
+     the current tokens from the workspace too, so forward_extend scatters
+     k/v into the workspace at cache_loc — pure tensor ops that record into
+     the CUDA graph and replay with fresh data. (Eager/ragged reads the
+     current chunk raw; the scatter branch is not taken there.)
 
-OPERATIONAL NOTE: as long as the prefix fill runs inside forward, the
-draft-extend CUDA graph must stay off (`SGLANG_DISABLE_DRAFT_EXTEND_CUDA_GRAPH=1`),
-otherwise the host fill does not run on graph replay. Verify and draft-step
-graphs are capture-safe (static mask/pool tensors).
+OPERATIONAL NOTE: the draft-extend CUDA graph can stay ON. The former
+`SGLANG_DISABLE_DRAFT_EXTEND_CUDA_GRAPH=1` requirement applied to the E6/E7
+prototype only (fill inside forward). Verify and draft-step graphs were
+capture-safe all along (static mask/pool tensors).
 
 RUNTIME GATES: all inserted paths only engage for `is_nvfp4_kvcache` resp.
 `prefill_uses_dequant_workspace` AND speculative forward modes, so for fp8/bf16
@@ -301,19 +311,145 @@ NEW_DFILL = """                prepare_workspace=self.dq_page_table is not None
             if forward_batch.forward_mode.is_draft_extend_v2():
                 # [dgxarley-nvfp4-dfill] DRAFT_EXTEND_V2 falls through the
                 # is_extend_without_speculative() gate of the extend fill:
-                # the workspace would be read stale. Instead dequantize the
-                # PREFIX position-preservingly, since slot indices == read
-                # indices of the paged wrapper (no custom_kv_indices under
-                # speculation); the current chunk runs ragged over the raw
-                # k/v. Under V2, seq_lens already include the new tokens.
-                kv_cache = pool.get_flashinfer_decode_dequant_workspace_kv_buffer(
-                    layer,
-                    self.req_to_token_pool.req_to_token,
-                    forward_batch.req_pool_indices,
-                    forward_batch.seq_lens - forward_batch.extend_seq_lens,
-                )"""
+                # the workspace would be read stale (the stock prep is
+                # suppressed above). The PREFIX is dequantized position-
+                # preservingly by _dgxarley_fill_draft_extend_prefix during
+                # metadata init (host side, runs on every CUDA-graph replay
+                # prep too). Only when that could not cover the pool
+                # (multi-layer draft pool: the workspace is shared per layer)
+                # fall back to a per-layer fill here — host code, so eager
+                # only, and never while a stream capture is recording.
+                if not getattr(
+                    self, "_dgxarley_dfill_prefix_done", False
+                ) and not torch.cuda.is_current_stream_capturing():
+                    kv_cache = pool.get_flashinfer_decode_dequant_workspace_kv_buffer(
+                        layer,
+                        self.req_to_token_pool.req_to_token,
+                        forward_batch.req_pool_indices,
+                        (
+                            forward_batch.seq_lens - forward_batch.extend_seq_lens
+                        ).clamp_min(0),
+                    )"""
+
+OLD_DSCATTER = """            causal = (
+                not layer.is_cross_attention
+                and layer.attn_type != AttentionType.ENCODER_ONLY
+            )
+            o = prefill_wrapper_paged.forward("""
+
+NEW_DSCATTER = """            if (
+                self.prefill_uses_dequant_workspace
+                and forward_batch.forward_mode.is_draft_extend_v2()
+                and k is not None
+            ):
+                # [dgxarley-nvfp4-dscatter] the non-ragged draft-extend path
+                # (taken under the draft-extend CUDA graph) reads the CURRENT
+                # chunk from the workspace as well, and the metadata-time
+                # prefix fill cannot provide it (the pool gets this layer's
+                # k/v only in set_kv_buffer above). Pure tensor ops: they
+                # record into the CUDA graph and replay with fresh
+                # cache_loc/k/v. In the eager/ragged case this branch is not
+                # taken (current chunk is read raw by the ragged wrapper).
+                _dq_k, _dq_v = kv_cache
+                _dq_k[cache_loc] = k.view(
+                    -1, layer.tp_k_head_num, layer.head_dim
+                ).to(_dq_k.dtype)
+                _dq_v[cache_loc] = v.view(
+                    -1, layer.tp_v_head_num, layer.head_dim
+                ).to(_dq_v.dtype)
+            causal = (
+                not layer.is_cross_attention
+                and layer.attn_type != AttentionType.ENCODER_ONLY
+            )
+            o = prefill_wrapper_paged.forward("""
+
+OLD_DHELPER = """    def _kv_write_scales(self, layer: RadixAttention):
+        if self.kv_cache_quant_method.needs_global_scale():
+            return None, None
+        return layer.k_scale, layer.v_scale"""
+
+NEW_DHELPER = """    def _kv_write_scales(self, layer: RadixAttention):
+        if self.kv_cache_quant_method.needs_global_scale():
+            return None, None
+        return layer.k_scale, layer.v_scale
+
+    def _dgxarley_fill_draft_extend_prefix(self, forward_batch) -> None:
+        # [dgxarley-nvfp4-dprefix] position-preserving fill of the dequant
+        # workspace for DRAFT_EXTEND_V2 (the stock extend fill skips every
+        # speculative mode). Runs host-side during metadata init, i.e. also
+        # on every draft-extend CUDA-graph replay prep (the runner's fb_view
+        # carries seq_lens/req_pool_indices/spec_info only, so nothing else
+        # may be accessed here). Only possible when the pool holds exactly
+        # ONE layer (the MTP draft head): the workspace is shared per layer,
+        # so a multi-layer pool must fill per layer in forward_extend instead
+        # (eager fallback there).
+        # Deliberately fills the FULL seq_lens span (V2 seq_lens include the
+        # new tokens): the new-token slots hold stale pool content at
+        # metadata time, but the in-forward scatter overwrites exactly those
+        # slots with fresh k/v before the kernel reads — and computing the
+        # true prefix would need extend lens the graph view does not carry.
+        self._dgxarley_dfill_prefix_done = False
+        pool = self.token_to_kv_pool
+        inner = getattr(pool, "full_kv_pool", pool)
+        if not getattr(inner, "is_quantized_kv_cache", False):
+            return
+        if len(inner.k_buffer) != 1:
+            return
+        gid = inner.start_layer
+        inner._prepare_dequant_decode_workspace(
+            gid,
+            gid,
+            self.req_to_token_pool.req_to_token,
+            forward_batch.req_pool_indices,
+            forward_batch.seq_lens,
+        )
+        self._dgxarley_dfill_prefix_done = True"""
+
+OLD_DMETA_EAGER = """            self._prepare_dequant_workspace_metadata_for_extend(
+                forward_batch, use_ragged
+            )"""
+
+NEW_DMETA_EAGER = """            self._prepare_dequant_workspace_metadata_for_extend(
+                forward_batch, use_ragged
+            )
+            if forward_batch.forward_mode.is_draft_extend_v2():
+                # [dgxarley-nvfp4-dmeta] see _dgxarley_fill_draft_extend_prefix
+                self._dgxarley_fill_draft_extend_prefix(forward_batch)"""
+
+OLD_DMETA_GRAPH = """        elif forward_mode.is_draft_extend_v2():
+            self.indices_updater_prefill.update(
+                req_pool_indices[:bs],
+                seq_lens[:bs],
+                seq_lens_cpu[:bs] if seq_lens_cpu is not None else None,
+                seq_lens_sum,
+                prefix_lens=None,
+                prefill_wrappers=self.draft_extend_cuda_graph_metadata[bs],
+                use_ragged=False,
+                encoder_lens=encoder_lens[:bs] if encoder_lens is not None else None,
+                spec_info=spec_info,
+            )"""
+
+NEW_DMETA_GRAPH = """        elif forward_mode.is_draft_extend_v2():
+            self.indices_updater_prefill.update(
+                req_pool_indices[:bs],
+                seq_lens[:bs],
+                seq_lens_cpu[:bs] if seq_lens_cpu is not None else None,
+                seq_lens_sum,
+                prefix_lens=None,
+                prefill_wrappers=self.draft_extend_cuda_graph_metadata[bs],
+                use_ragged=False,
+                encoder_lens=encoder_lens[:bs] if encoder_lens is not None else None,
+                spec_info=spec_info,
+            )
+            # [dgxarley-nvfp4-dmeta-graph] host-side replay prep: refill the
+            # draft prefix workspace before the captured kernels read it.
+            self._dgxarley_fill_draft_extend_prefix(forward_batch)"""
 
 
 @dfill.run
 def apply_dfill(p: Patch) -> None:
+    p.replace(OLD_DHELPER, NEW_DHELPER, marker="[dgxarley-nvfp4-dprefix]", what="prefix fill helper")
     p.replace(OLD_DFILL, NEW_DFILL, marker="[dgxarley-nvfp4-dfill]", what="draft prefix fill")
+    p.replace(OLD_DSCATTER, NEW_DSCATTER, marker="[dgxarley-nvfp4-dscatter]", what="current-chunk scatter")
+    p.replace(OLD_DMETA_EAGER, NEW_DMETA_EAGER, marker="[dgxarley-nvfp4-dmeta]", what="eager metadata fill")
+    p.replace(OLD_DMETA_GRAPH, NEW_DMETA_GRAPH, marker="[dgxarley-nvfp4-dmeta-graph]", what="graph metadata fill")
