@@ -56,7 +56,7 @@ same as the other 4 edits.
 
 import os
 
-from _patchlib import DIST_PACKAGES, Patch
+from _patchlib import DIST_PACKAGES, Patch, write_module
 
 # ── 1) paged_mqa_logits_backend.py: DSAPagedMQALogitsBackend gets a TORCH member ──
 
@@ -157,7 +157,11 @@ def apply_serverargs(p: Patch) -> None:
 
 _TORCH_KERNEL_TARGET = "sglang/srt/layers/attention/dsa/torch_paged_mqa_logits.py"
 _TORCH_KERNEL_PATH = os.path.join(DIST_PACKAGES, _TORCH_KERNEL_TARGET)
-_TORCH_KERNEL_MARKER = """fp8_paged_mqa_logits_torch_dsa"""
+# Bumped 2026-07-28 together with the fp8_kernel import fix below. The old marker
+# ("fp8_paged_mqa_logits_torch_dsa") is present in BOTH the broken and the fixed
+# source, so a container that already carries the broken file would have hit the
+# already_written shortcut and kept it. Version the marker with the source.
+_TORCH_KERNEL_MARKER = """fp8_paged_mqa_logits_torch_dsa  # dgxarley-v2"""
 
 _TORCH_KERNEL_SOURCE = '''# SPDX-License-Identifier: Apache-2.0
 """
@@ -196,7 +200,16 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 
-from sglang.srt.layers.quantization.fp8_kernel import is_fp8_fnuz
+# dgxarley: version-tolerant import. RFC #29630 moved fp8_kernel out of
+# srt/layers/quantization in SGLang v0.5.16; the pre-0.5.16 images we still pin
+# only have the old path. Getting this wrong is SILENT: the ImportError is
+# swallowed by SGLang's model registry ("Ignore import error when loading ...")
+# and merely disables ~31 model classes (deepseek_v2/v4, glm4_moe, kimi_*, ...).
+# marker: fp8_paged_mqa_logits_torch_dsa  # dgxarley-v2
+try:  # SGLang >= 0.5.16
+    from sglang.kernels.ops.quantization.fp8_kernel import is_fp8_fnuz
+except ImportError:  # SGLang <= 0.5.15.post1
+    from sglang.srt.layers.quantization.fp8_kernel import is_fp8_fnuz
 
 FP8_DTYPE = torch.float8_e4m3fnuz if is_fp8_fnuz() else torch.float8_e4m3fn
 
@@ -291,9 +304,9 @@ def _write_torch_kernel_module() -> None:
     if already_written:
         print("dsa/torch_paged_mqa_logits.py: already written, skipping")
         return
-    with open(_TORCH_KERNEL_PATH, "w") as fh:
-        fh.write(_TORCH_KERNEL_SOURCE)
-    print("Wrote sglang/srt/layers/attention/dsa/torch_paged_mqa_logits.py: fp8_paged_mqa_logits_torch_dsa (phase 1)")
+    # write_module() imports the result before declaring victory. Plain open()/write()
+    # let the 2026-07-28 fp8_kernel-import breakage through unnoticed; see its docstring.
+    write_module(_TORCH_KERNEL_PATH, _TORCH_KERNEL_SOURCE, "fp8_paged_mqa_logits_torch_dsa (phase 1)")
 
 
 _write_torch_kernel_module()
