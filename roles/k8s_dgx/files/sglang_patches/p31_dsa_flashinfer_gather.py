@@ -35,11 +35,26 @@ Two files, two Patch objects:
      report "already applied" the moment the init edit lands in the same run).
 """
 
-from _patchlib import Patch
+from _patchlib import Patch, is_kernels_namespace
 
 # --- File A: server_args.py -- add "flashinfer_gather" to DSA_CHOICES ---
 
-patch_server_args = Patch(name="DSA_CHOICES: add flashinfer_gather", target="sglang/srt/server_args.py")
+
+# ── 0.5.16 GATE (deliberate, 2026-07-28) ─────────────────────────────────────
+# The flashinfer_gather path is the FALLBACK DSA route; production runs p34+p35
+# (reference_glm52_dsa_indexer_deepgemm_sm121). On SGLang >= v0.5.16 the anchors
+# below moved and rebasing them would buy a fallback we do not currently want.
+# So this patch is switched OFF there ON PURPOSE, and says so in the log ("gate
+# not matched") rather than crying ANCHOR-DRIFT once per start.
+# To bring the fallback back on 0.5.16: drop `when=` and rebase the anchors, but
+# keep them working on <= 0.5.15.post1 too (one ConfigMap, many pinned images).
+_PRE_0516_ONLY = not is_kernels_namespace()
+
+patch_server_args = Patch(
+    name="DSA_CHOICES: add flashinfer_gather",
+    target="sglang/srt/server_args.py",
+    when=_PRE_0516_ONLY,
+)
 
 MARKER_A = "# [patch] _sgl_dsa_flashinfer_gather_choice_"
 
@@ -76,6 +91,7 @@ def apply_a(p: Patch) -> None:
 patch_dsa_backend = Patch(
     name="flashinfer_gather decode backend (gather + dense fa2, phase 1)",
     target="sglang/srt/layers/attention/dsa_backend.py",
+    when=_PRE_0516_ONLY,  # see the 0.5.16 GATE note above
 )
 
 MARKER_B_INIT = "# [patch] _sgl_dsa_flashinfer_gather_init_"
