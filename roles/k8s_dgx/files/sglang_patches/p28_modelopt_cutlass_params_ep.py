@@ -26,11 +26,20 @@ edits and writes nothing. That is the safer failure mode; it only differs from
 the original once upstream actually moves the anchor.
 """
 
-from _patchlib import Patch
+from _patchlib import Patch, target_contains
+
+_TARGET = "sglang/srt/layers/quantization/modelopt_quant.py"
 
 patch = Patch(
     name="CutlassMoEParams uses num_local_experts for EP",
-    target="sglang/srt/layers/quantization/modelopt_quant.py",
+    target=_TARGET,
+    # The whole CutlassMoEParams class is gone from modelopt_quant.py in v0.5.16
+    # (PR #30448 removed cutlass_moe_fp4 and its parameter plumbing; NVFP4 MoE
+    # now goes to FlashInfer-CUTLASS on SM120/121). That is exactly the exit
+    # condition this patch's own docstring names, so a missing anchor here is the
+    # expected end state rather than drift. Kept for the pre-0.5.16 images still
+    # pinned by profiles; retire via RETIRED_PATCHES.md once none remain.
+    when=target_contains(_TARGET, "CutlassMoEParams"),
 )
 
 OLD_PARAMS = "num_experts=layer.num_experts,  # global num experts"
