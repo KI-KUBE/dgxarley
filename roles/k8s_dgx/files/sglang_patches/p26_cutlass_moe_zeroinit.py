@@ -48,11 +48,22 @@ surrounding `num_topk = topk_ids.shape[1]` line that exists only in
 cutlass_moe_fp4.
 """
 
-from _patchlib import Patch
+from _patchlib import Patch, target_contains
+
+_TARGET = "sglang/srt/layers/moe/cutlass_moe.py"
 
 patch = Patch(
     name="a_map/c_map zero-init + topk_weights mask for EP",
-    target="sglang/srt/layers/moe/cutlass_moe.py",
+    target=_TARGET,
+    # Both bugs live INSIDE cutlass_moe_fp4(). SGLang PR #30448 ("Refactor FP4
+    # quantization and remove deprecated JIT kernels", in v0.5.16) deleted that
+    # function outright and routes NVFP4 MoE on SM100/SM120/SM121 to
+    # FlashInfer-CUTLASS instead, which is the backend our profiles already pin.
+    # So on >= 0.5.16 the missing anchor is the EXPECTED end state, not drift.
+    # Kept (not deleted) because pre-0.5.16 images are still pinned by profiles
+    # and the ConfigMap is shared by every instance. Delete this file, with an
+    # entry in RETIRED_PATCHES.md, once no profile pins an image below 0.5.16.
+    when=target_contains(_TARGET, "def cutlass_moe_fp4"),
 )
 
 OLD = """    num_topk = topk_ids.shape[1]
