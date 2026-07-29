@@ -3,13 +3,30 @@ KV-scale patch A+B above, applied to qwen3_5).
 
 A modelopt-NVFP4 Qwen3.5 checkpoint with quantized attention bakes per-layer FP8
 KV scales (full-attn layers only: ...self_attn.k_proj.k_scale / ...v_proj.v_scale,
-F32 scalars). Two gaps in qwen3_5.py drop them -> SGLang logs "Using FP8 KV cache
-but no scaling factors provided. Defaulting to scaling factors of 1.0" and the
-flashinfer attn backend uses 1.0 (baked scales are ~0.01-0.04 -> 25-80x off, a
-real precision loss). NOT a load-blocker. Relevant only for checkpoints that
+F32 scalars). Two gaps in qwen3_5.py drop them, so the flashinfer attn backend
+uses 1.0 (baked scales are ~0.01-0.04 -> 25-80x off, a real precision loss).
+NOT a load-blocker. Relevant only for checkpoints that
 quantize attention (uniform-W4A4); NVIDIA MoE-only NVFP4 has no baked KV
 scales so both edits are inert there. No model-name gate (qwen3_5.py is imported
 only for this arch).
+
+NOT A SIGNAL FOR THIS PATCH (corrected 2026-07-28, this cost a misdiagnosis):
+
+    Using FP8 KV cache but no scaling factors provided.
+    Defaulting to scaling factors of 1.0. This may lead to less accurate results!
+
+An earlier version of this docstring claimed the two gaps below cause that line.
+They do not. It comes from load_kv_cache_scales() in
+srt/model_executor/model_runner_components/load_model_utils.py and its ONLY
+condition is `server_args.quantization_param_path is None`. It fires on every run
+with --kv-cache-dtype fp8_e4m3 and no separate scale JSON, whether or not this
+patch worked, and that function knows nothing about the weight-loader path this
+patch fixes. Ignore the line.
+
+To actually verify this patch, read the loaded values: the RadixAttention modules
+must carry attn.k_scale / attn.v_scale around 0.01-0.04, not 1.0. A weaker but
+free check: the weight loader must not report the ...k_proj.k_scale /
+...v_proj.v_scale keys as unexpected or unused.
   A) RadixAttention built WITHOUT quant_config -> FP8-KV quant method never runs
      -> no k_scale/v_scale params. Fix: pass quant_config.
   B) [superseded 2026-07-24, see below] load_weights skipped
