@@ -20,8 +20,7 @@ different offsets: stale AND shifted). In eager mode it crashes instead with
 STALE table of the last prefill and the extend fill then indexes
 `extend_prefix_lens_cpu=None`.
 
-FIX (three parts, verified live in E6/E7: GSM8K 10/10, accept len scattering
-2.30-2.70, 47.2 tok/s with CUDA graphs):
+FIX (three parts):
   1. hybrid_attn_backend: route TARGET_VERIFY to the decode backend when that
      one reads FP4 natively. The prefill backend CANNOT read the FP4 cache
      correctly under speculation; the XQA decode kernel can do it natively
@@ -48,6 +47,36 @@ FIX (three parts, verified live in E6/E7: GSM8K 10/10, accept len scattering
      k/v into the workspace at cache_loc — pure tensor ops that record into
      the CUDA graph and replay with fresh data. (Eager/ragged reads the
      current chunk raw; the scatter branch is not taken there.)
+
+MEASURED (2026-07-29, Qwen3.6-35B-A3B-NVFP4-MTP, TP=1, GB10, steps=2 /
+draft_tokens=3, GSM8K greedy; full history nvfp4_kv_mtp_plan.md §14-22):
+
+  configuration                                GSM8K   accept len   tok/s
+  broken (unpatched, graphs)                    0/10   3.00 pinned  52.7*
+  E6  fix, eager (all graphs off)               6/8    2.35-2.75    22.0
+  E7  fix, graphs, draft-extend graph OFF      10/10   2.30-2.70    47.2
+  E8  fix, ALL graphs ON (fill in metadata)    10/10   2.30-2.77    48.1
+  reference fp8-KV + MTP (same split)          10/10   2.45-2.92    54.1
+  reference nvfp4-KV, no speculation           18/20   —            40.8
+  (* looks healthy — that is the trap: accept len pinned at the maximum
+     means draft and verify read the SAME garbage and never disagree.)
+
+T6 concurrency A/B (identical flags, graphs to bs 32, ctx 32k, ignore_eos;
+mean/max of the server's summed gen-throughput per phase):
+
+  phase              nvfp4 tok/s    fp8 tok/s     accept nvfp4 / fp8
+  conc 1             37.8 / 47.1    47.4 / 55.6   2.10 / 2.33
+  conc 16            242  / 307     297  / 309    2.08 / 2.34
+  conc 32            303  / 389     350  / 497    2.08 / 2.29
+  4x ~20k prompt     85   / 100     91   / 120    2.10 / 2.39
+
+VERDICT: the patch makes nvfp4-KV + MTP CORRECT, but on THIS model fp8-KV
+stays 10-20% faster in every cell — largely because FP4-KV lowers MTP
+acceptance (the draft reads the coarser cache), a structural cost of FP4
+under speculation that no kernel tuning recovers. Caveat: Qwen3.6 is a GDN
+hybrid with only 10 of 40 layers full attention, so the FP4 tensor cores
+have little attention share to win on; re-measure on a dense pure-MHA model
+before generalizing. Until then fp8_e4m3 remains the production KV dtype.
 
 OPERATIONAL NOTE: the draft-extend CUDA graph can stay ON. The former
 `SGLANG_DISABLE_DRAFT_EXTEND_CUDA_GRAPH=1` requirement applied to the E6/E7

@@ -105,8 +105,13 @@
 # (defaults/main/sglang.yml) are passed through to sglang_launch.sh via
 # SGLANG_* envs (`disable_draft_extend_cuda_graph` exists as a debug escape
 # hatch only, no longer required). Activation = set the two backend keys plus
-# `kv_cache_dtype: nvfp4` in the profile (deliberately not pre-wired; first
-# measure throughput at the target concurrency against fp8).
+# `kv_cache_dtype: nvfp4` in the profile — but T6 (2026-07-29, A/B at conc
+# 1/16/32 + ~20k prompt, identical flags) says DON'T for this model: fp8 is
+# 10-20% faster in EVERY cell (e.g. conc32 350 vs 303 tok/s mean) and FP4-KV
+# lowers MTP acceptance (2.1 vs 2.3 — the draft reads the coarser cache).
+# Caveat: this is a GDN hybrid with only 10 of 40 layers full attention, so
+# the FP4 cores have little attention share to win on; re-measure before
+# judging a dense pure-MHA model. Details: nvfp4_kv_mtp_plan.md section 22.
 #
 # ── ⚠ REQUIRED SGLang RUNTIME PATCHES (sglang_patches/, applied by sglang_launch.sh) ──
 #   Stock SGLang 0.5.15 crashes; this checkpoint needs FIVE launch-time source patches:
