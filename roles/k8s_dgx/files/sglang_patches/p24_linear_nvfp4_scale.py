@@ -78,15 +78,24 @@ NEW_QKV = """            if isinstance(param, PerTensorScaleParameter):
 
 @patch.run
 def apply(p: Patch) -> None:
+    # The markers deliberately probe the UPSTREAM text, not our comment, so this
+    # patch also recognises the natively-fixed state. PR #29151 shipped in SGLang
+    # v0.5.16 (verified 2026-07-28: linear.py carries this code verbatim at the
+    # merged-column and QKV call sites). Our NEW_* is a backport of that PR, so
+    # both states share these strings and the already-applied guard fires either
+    # way: patched on <= 0.5.15.post1, silently skipped on >= 0.5.16.
+    # Do NOT go back to a "# [patch]" marker here — it only matches OUR edit, so
+    # on 0.5.16 the guard misses, the anchor is gone, and the patch reports
+    # ANCHOR-DRIFT for a bug that no longer exists.
     p.replace_all(
         OLD_MERGED,
         NEW_MERGED,
-        marker="# [patch]: PR #29151 -- fill every logical slot",
+        marker='"merged-column checkpoint load, got shape "',
         what="nvfp4-scale D-merged-col-scalar-scale",
     )
     p.replace_all(
         OLD_QKV,
         NEW_QKV,
-        marker="# [patch]: PR #29151 -- fill all q/k/v slots",
+        marker='"Expected scalar scale for fused-in-checkpoint QKV "',
         what="nvfp4-scale D-qkv-scalar-scale",
     )
