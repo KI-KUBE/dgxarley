@@ -31,6 +31,68 @@
 #   acceptance/throughput. Compare acceptance vs a BF16-MTP build before relying on the
 #   speedup — this is a research probe, not yet GSM8K/acceptance-gated.
 #
+# ── NVFP4 als KV-CACHE: so ginge es, und was es (nicht) bringt ───────────────
+# Gemessen 2026-07-28 auf spark5 (GB10/SM121, TP=1, Image 0.5.16-dev-sm121, dieses
+# Modell). NVFP4-KV LÄUFT auf GB10, aber NUR mit GETRENNTEN Attention-Backends:
+#
+#     --kv-cache-dtype nvfp4
+#     --prefill-attention-backend flashinfer
+#     --decode-attention-backend  trtllm_mha
+#
+# Warum getrennt: SGLang prüft phasenweise. trtllm_mha-PREFILL verlangt SM100
+# (auf GB10 falsch), trtllm_mha-DECODE erlaubt sm90/sm100/sm120 (auf GB10 wahr).
+# Und die strenge Allowlist KV4_ATTENTION_MHA_BACKEND_CHOICES (ohne flashinfer!)
+# greift NUR, wenn prefill == decode. Mit unterschiedlichen Backends bleibt nur
+# eine Warnung. Genau diese Kombination ist upstream für unsere Architektur
+# getestet: test/registered/quant/test_llama8b_nvfp4_kv_cache_sm120.py
+# (Llama-3.1-8B-NVFP4, MHA, gegated auf is_sm120_supported()).
+# Ein EINHEITLICH gesetztes attention_backend scheitert dagegen dreifach:
+# flashinfer an der Allowlist, trtllm_mha am SM100-Prefill-Gate, triton am
+# KeyError 'float4_e2m1fn_x2' (Triton 3.7.1 kennt den FP4-Typ nicht).
+#
+# MESSERGEBNIS (GSM8K n=20, greedy, 2048 Token Budget, sonst identische Flags):
+#            KV-Dtype    GSM8K     Tokens/Frage   Durchsatz
+#            fp8_e4m3    19/20     642            41,2 tok/s
+#            nvfp4       18/20     1279           41,7 tok/s
+# Der Durchsatz ist IDENTISCH. Die höhere Latenz des nvfp4-Laufs (30,7 s vs
+# 15,6 s) kommt allein aus den doppelt so langen Antworten, nicht aus dem
+# KV-Format — auf Tokens normiert ist der Unterschied Rauschen. Plausibel: bei
+# bs=1 und ~1,3k Kontext dominieren MoE/GEMM, nicht die Attention-Matmuls, die
+# von den FP4-Cores profitieren würden. Ein Gewinn ist erst bei hoher
+# Nebenläufigkeit und langem Kontext zu erwarten — UNGEMESSEN.
+# Qualität: 18/20 vs 19/20 ist EINE Frage und bei n=20 nicht auflösbar; upstream
+# misst über 1319 Fragen 0.6461 (FP8-KV) vs 0.6324 (NVFP4-KV), also ~1,4 Punkte.
+#
+# ⛔ NIEMALS ZUSAMMEN MIT NEXTN/MTP (gemessen 2026-07-28, GB10, dieses Modell):
+#   nvfp4-KV + speculative_enabled: true startet sauber, laeuft schnell und
+#   produziert WORT-SALAT. GSM8K 0/10, 10/10 Antworten laufen ins Token-Limit,
+#   Ausgaben degenerieren zu "000000..." bzw. "The user is a user. The user is
+#   a user." — waehrend Durchsatz (52,7 tok/s) und Akzeptanz voellig gesund
+#   AUSSEHEN. Genau das ist die Falle: `accept len: 3.00` steht auf dem
+#   theoretischen MAXIMUM (= speculative_num_draft_tokens), in einem intakten
+#   Lauf sind es 2,55-2,90. Eine Akzeptanz am Anschlag heisst nicht "perfekter
+#   Draft", sondern dass die Verifikation nichts mehr verwirft — Draft und
+#   Target produzieren denselben Muell.
+#   Es gibt KEINE Fehlermeldung, keinen Absturz, keinen Log-Hinweis. Wer nur auf
+#   Startet-es und tok/s schaut, haelt diese Konfiguration fuer die beste von
+#   allen. Vier gemessene Zellen, gleiches Modell/Image/TP=1:
+#       KV        MTP    Durchsatz    GSM8K
+#       fp8_e4m3  aus    41,2 tok/s   19/20
+#       nvfp4     aus    40,8 tok/s   18/20
+#       fp8_e4m3  an     53,2 tok/s   10/10   (accept len 2,55-2,90)
+#       nvfp4     an     52,7 tok/s    0/10   (accept len 3,00 = kaputt)
+#   Ungeklaert ist, ob das FP4-KV-Format schuld ist oder die dafuer noetige
+#   Backend-Trennung (decode=trtllm_mha) mit dem Draft-Extend-Pfad kollidiert.
+#   Bis das geklaert ist: nvfp4-KV NUR mit speculative_enabled: false.
+#
+# ⚠ NICHT ÜBER DIESES PROFIL NUTZBAR, solange die Plumbing fehlt: sglang_launch.sh
+# kennt nur EIN `attention_backend` (SGLANG_ATTENTION_BACKEND), es gibt keine
+# Profilschlüssel für getrennte Prefill/Decode-Backends. Für einen Produktivlauf
+# müssten `prefill_attention_backend` / `decode_attention_backend` als Profilkeys
+# eingeführt und im Launch-Skript auf --prefill-attention-backend /
+# --decode-attention-backend abgebildet werden. Bis dahin ist NVFP4-KV nur per
+# Hand-Start reproduzierbar (siehe nvfp4_kv.md).
+#
 # ── ⚠ REQUIRED SGLang RUNTIME PATCHES (sglang_patches/, applied by sglang_launch.sh) ──
 #   Stock SGLang 0.5.15 crashes; this checkpoint needs FIVE launch-time source patches:
 #     p50_qwen35_attn_quant   — allow QUANTIZED attention for modelopt_fp4 (uniform W4A4
