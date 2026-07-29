@@ -39,11 +39,16 @@ original bash block used:
 Full design + rationale: dsa_cuda_graph_plan.md.
 """
 
-from _patchlib import Patch
+from _patchlib import Patch, is_kernels_namespace
 
+# ── 0.5.16 GATE (deliberate, 2026-07-28) ─────────────────────────────────────
+# Rides on p31: this only refines the flashinfer_gather fallback, which is
+# switched off on SGLang >= v0.5.16 (see p31 for the full rationale). Gate and
+# reason live here too so the file is readable on its own.
 patch = Patch(
     name="flashinfer_gather CUDA-GRAPH plan/run-split",
     target="sglang/srt/layers/attention/dsa_backend.py",
+    when=not is_kernels_namespace(),
 )
 
 MARKER = "# [patch] _sgl_dsa_fig_graph_split_"
