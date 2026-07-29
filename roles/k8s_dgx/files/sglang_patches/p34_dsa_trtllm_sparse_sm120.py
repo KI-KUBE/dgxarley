@@ -91,35 +91,47 @@ MARKER = "# [patch] _sgl_dsa_trtllm_sparse_sm120_"
 
 patch_mixin = Patch(
     name="MLA KV dim: keep the 656-byte packed layout for trtllm on SM12x",
+    # <= v0.5.15.post1: a ModelRunner mixin method (self.server_args, 8-space body).
     target="sglang/srt/model_executor/model_runner_kv_cache_mixin.py",
+    # >= v0.5.16: same logic, now the free function calculate_mla_kv_cache_dim()
+    # in mem_cache/kv_cache_configurator.py (plain server_args arg, dedented).
+    alt_targets=("sglang/srt/mem_cache/kv_cache_configurator.py",),
 )
+
+# The injected body, shared by both spellings. `_i` is the indent of the enclosing
+# `if` block, which differs because v0.5.16 turned the method into a function.
+_SM12X_BYPASS = """{_i}    {marker}
+{_i}    # On SM120/SM121 the trtllm impl dispatches to flashinfer's packed
+{_i}    # sparse-MLA backend (backend="auto" in _forward_trtllm, this patch),
+{_i}    # which consumes the 656-byte inline-scale layout -- do NOT early-
+{_i}    # return to the plain 576 layout there. Datacenter Blackwell (SM100)
+{_i}    # keeps the early return and the plain layout for trtllm-gen.
+{_i}    if not (
+{_i}        torch.cuda.is_available()
+{_i}        and torch.cuda.get_device_capability()[0] == 12
+{_i}    ):
+{_i}        return kv_cache_dim"""
+
+
+def _mixin_variant(indent: str, accessor: str) -> tuple[str, str]:
+    head = (
+        f"{indent}if (\n"
+        f'{indent}    {accessor}dsa_prefill_backend == "trtllm"\n'
+        f'{indent}    or {accessor}dsa_decode_backend == "trtllm"\n'
+        f"{indent}):\n"
+    )
+    old = f"{indent}    return kv_cache_dim"
+    new = _SM12X_BYPASS.format(_i=indent, marker=MARKER)
+    return head + old, head + new
 
 
 @patch_mixin.run
 def apply_mixin(p: Patch) -> None:
-    p.replace(
-        """        if (
-            self.server_args.dsa_prefill_backend == "trtllm"
-            or self.server_args.dsa_decode_backend == "trtllm"
-        ):
-            return kv_cache_dim""",
-        """        if (
-            self.server_args.dsa_prefill_backend == "trtllm"
-            or self.server_args.dsa_decode_backend == "trtllm"
-        ):
-            """
-        + MARKER
-        + """
-            # On SM120/SM121 the trtllm impl dispatches to flashinfer's packed
-            # sparse-MLA backend (backend="auto" in _forward_trtllm, this patch),
-            # which consumes the 656-byte inline-scale layout -- do NOT early-
-            # return to the plain 576 layout there. Datacenter Blackwell (SM100)
-            # keeps the early return and the plain layout for trtllm-gen.
-            if not (
-                torch.cuda.is_available()
-                and torch.cuda.get_device_capability()[0] == 12
-            ):
-                return kv_cache_dim""",
+    p.replace_any(
+        [
+            _mixin_variant("        ", "self.server_args."),  # <= 0.5.15.post1 (method)
+            _mixin_variant("    ", "server_args."),  # >= 0.5.16 (free function)
+        ],
         marker=MARKER,
         what="trtllm early-return SM12x bypass",
     )
@@ -231,26 +243,32 @@ def apply_forward_mla(p: Patch) -> None:
     # flashinfer_gather path used, live-proven with the packed pool). SM100
     # keeps the fused path. The second call site (extra cos_sin_cache args for
     # the attention call) is gated by the same function, so it stays consistent.
-    p.replace(
-        """        if self.current_attention_backend in ("dsa", "nsa"):
-            return (
-                get_global_server_args().dsa_decode_backend == "trtllm"
-                or get_global_server_args().dsa_prefill_backend == "trtllm"
-            ) and get_attn_backend().kv_cache_dtype == torch.float8_e4m3fn
-""",
-        """        if self.current_attention_backend in ("dsa", "nsa"):
-            """
-        + MARKER
-        + """
-            # SM12x routes trtllm to the native sparse kernel (BF16 query,
-            # inline-scale packed KV): keep rope in forward_absorb_prepare.
-            if torch.cuda.get_device_capability()[0] == 12:
-                return False
-            return (
-                get_global_server_args().dsa_decode_backend == "trtllm"
-                or get_global_server_args().dsa_prefill_backend == "trtllm"
-            ) and get_attn_backend().kv_cache_dtype == torch.float8_e4m3fn
-""",
+    # v0.5.16 renamed the accessor get_global_server_args() -> get_server_args()
+    # here; the logic is otherwise identical. Both spellings must keep working
+    # (one ConfigMap, instances on different pinned images), hence replace_any.
+    def _rope_variant(accessor: str) -> tuple[str, str]:
+        body = (
+            f"            return (\n"
+            f'                {accessor}().dsa_decode_backend == "trtllm"\n'
+            f'                or {accessor}().dsa_prefill_backend == "trtllm"\n'
+            f"            ) and get_attn_backend().kv_cache_dtype == torch.float8_e4m3fn\n"
+        )
+        old = '        if self.current_attention_backend in ("dsa", "nsa"):\n' + body
+        new = (
+            '        if self.current_attention_backend in ("dsa", "nsa"):\n'
+            f"            {MARKER}\n"
+            "            # SM12x routes trtllm to the native sparse kernel (BF16 query,\n"
+            "            # inline-scale packed KV): keep rope in forward_absorb_prepare.\n"
+            "            if torch.cuda.get_device_capability()[0] == 12:\n"
+            "                return False\n" + body
+        )
+        return old, new
+
+    p.replace_any(
+        [
+            _rope_variant("get_global_server_args"),  # <= 0.5.15.post1
+            _rope_variant("get_server_args"),  # >= 0.5.16
+        ],
         marker=MARKER,
         what="dsa fuse-rope off on SM12x",
     )
