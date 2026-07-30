@@ -605,35 +605,38 @@ on this cluster after the move: 400 MiB at 2.1 GB/s, 107 hits, 0 misses, 0 GETs.
 
 #### Master-specific pitfalls
 
-- **Valkey bind vs OVS at boot — handled, do not "fix" it again.** `valkey.conf`
-  binds a specific address, and on the master that address lives on an OVS VLAN
-  interface, while the Debian unit only orders itself `After=network.target` (which
-  is reached long before an interface is configured). `Restart=always` in the vendor
-  unit looks like a safety net and is not one: it ships `RestartSec=100ms` with the
-  default `StartLimitBurst=5` per 10s, so all five retries are spent within half a
-  second and the unit then stays `failed` — with the metadata engine dead, every
-  mount in the cluster stalls. `backend.yml` therefore installs the drop-in
-  `10-juicefs.conf`: `After=`/`Wants=` both `network-online.target` AND
-  `openvswitch-switch.service`, plus `RestartSec=5s` and `StartLimitIntervalSec=0`.
-  Note what each part does and does not buy you:
+- **Valkey bind vs OVS at boot — a non-issue HERE, but only because of one sysctl.**
+  `valkey.conf` binds a specific address, and on the master that address lives on an
+  OVS VLAN interface, while the Debian unit only orders itself
+  `After=network.target` (reached long before any interface is configured). What
+  makes this harmless is **`net.ipv4.ip_nonlocal_bind=1`**, set on every `k3sserver`
+  host by the `common` role (`roles/common/tasks/main.yml`, tag `sysctl`): a process
+  may bind an address that does not exist yet, and the socket starts receiving once
+  the address appears. Check it before assuming, `sysctl net.ipv4.ip_nonlocal_bind`
+  must say 1 — if it is ever 0, the race below becomes real. (IPv6 is separate,
+  `net.ipv6.ip_nonlocal_bind` is 0 here, which does not matter for an IPv4 bind.)
+
+  `backend.yml` still installs the `10-juicefs.conf` drop-in as defense in depth
+  (`After=`/`Wants=` both `network-online.target` and `openvswitch-switch.service`,
+  `RestartSec=5s`, `StartLimitIntervalSec=0`). Its *independent* value is the retry
+  rate, not the ordering: the vendor unit pairs `Restart=always` with
+  `RestartSec=100ms` and the default `StartLimitBurst=5` per 10s, so ANY transient
+  start failure (a bad edit to valkey.conf, a crash at boot) burns five retries in
+  half a second and leaves the unit `failed` for good — and a dead metadata engine
+  stalls every mount in the cluster. Further notes:
   - `Wants=` pulls a unit into the transaction, `After=` orders behind it. They are
-    orthogonal; either one alone is useless here.
+    orthogonal; either alone is useless.
   - **Neither anchor guarantees the address exists.** Measured on this master,
     netplan invokes `systemd-networkd-wait-online --any -i heidk8.101 -i <usb-nic>`,
     so `network-online.target` can be reached while the OVS VLAN interface holding
     the storage address is still unconfigured — that interface is not in the wait
     list at all, regardless of what `networkctl status` reports as
-    `Required For Online`. Ordering only narrows the window.
-  - The **retry loop is the actual safety net**: retry forever, 5s apart, until the
-    bind succeeds. There is no "address X is up" unit to order against.
+    `Required For Online`. There is no "address X is up" unit to order against.
   - Do NOT "harden" this with `Restart=on-failure` — that is WEAKER than the
     `Restart=always` the vendor unit already sets.
 
   Verify with `systemctl show valkey-server -p RestartUSec -p StartLimitIntervalUSec`
-  (expect `5s` / `0`) and `-p After` (expect both anchors), then confirm on the next
-  reboot of the master. If you ever want the window closed deterministically rather
-  than narrowed, the lever is `net.ipv4.ip_nonlocal_bind=1` (bind an address that
-  does not exist yet), not more ordering.
+  (expect `5s` / `0`), then confirm on the next reboot of the master.
 - **Leftovers on the old node.** The role removes the meta-backup cron from
   non-backup nodes, but nothing else: `/etc/rustfs`, `/etc/juicefs`, the disabled
   units and `/var/lib/valkey` stay. That is deliberate (rollback), so wipe them

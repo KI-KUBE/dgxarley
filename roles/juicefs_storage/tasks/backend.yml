@@ -105,12 +105,20 @@
       notify: restart valkey
       no_log: true  # contains requirepass
 
-    # --- Boot-order hardening for the bind-scoped Valkey -------------------
-    # valkey.conf binds a SPECIFIC address (juicefs_valkey_bind_addresses), so the
-    # service cannot start before that address exists. The Debian unit only orders
+    # --- Boot hardening for the bind-scoped Valkey -------------------------
+    # valkey.conf binds a SPECIFIC address (juicefs_valkey_bind_addresses). That
+    # address may not exist yet at service start — the Debian unit only orders
     # itself After=network.target, which is reached long before an interface is
-    # actually configured — on the k3s master the storage address lives on an OVS
-    # VLAN interface that comes up comparatively late.
+    # configured, and on the k3s master the storage address lives on an OVS VLAN
+    # interface that comes up comparatively late.
+    #
+    # THE BIND ITSELF IS ALREADY SAFE: the common role sets
+    # net.ipv4.ip_nonlocal_bind=1 on every k3sserver host, so binding a
+    # not-yet-configured address succeeds and the socket picks up traffic once the
+    # address appears. Everything below is defense in depth for that, and stands on
+    # its own for the RETRY RATE (see below), which is the part that actually earns
+    # its keep. If ip_nonlocal_bind is ever turned off, the ordering here is what is
+    # left, so keep both.
     #
     # Restart=always (already in the vendor unit) does NOT save this: it ships with
     # RestartSec=100ms and the default StartLimitBurst=5 per 10s, so five retries
