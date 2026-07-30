@@ -92,3 +92,137 @@
   when:
     - corednsconfigmap.changed
     - False
+# ---------------------------------------------------------------------------
+# Master-pinned CoreDNS replica (coredns_master_replica_enabled)
+# ---------------------------------------------------------------------------
+# WHY a second Deployment instead of patching the k3s one: `coredns` is owned by
+# the k3s Addon controller (objectset.rio.cattle.io/owner-gvk = k3s.cattle.io/v1,
+# Kind=Addon) and gets re-applied from its manifest, so affinity edits there are
+# not durable. This workload is invisible to that controller.
+#
+# WHY it is needed at all: the k3s manifest's topologySpreadConstraint spreads
+# replicas across DIFFERENT nodes but never prefers the master, so on 2026-07-30
+# both replicas sat on GPU sparks and a routine spark shutdown killed cluster DNS.
+#
+# HOW it joins DNS: the kube-dns Service selects `k8s-app: kube-dns` only, so this
+# pod becomes an endpoint of the SAME ClusterIP. Its own selector adds
+# `variant: master` to stay disjoint from the k3s ReplicaSet's pods.
+# Side effect, and a welcome one: the k3s Deployment's spread constraint counts
+# this pod too (it matches `k8s-app: kube-dns`), so its replicas now avoid the
+# master by themselves and spread over the sparks.
+#
+# NOTE: no topologySpreadConstraints here on purpose — this pod must be allowed
+# on the master unconditionally, that is the entire point.
+- name: Master-pinned CoreDNS replica
+  when: coredns_master_replica_enabled | default(true) | bool
+  block:
+    - name: Read the k3s-managed coredns Deployment (image lockstep)
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: coredns
+        namespace: kube-system
+      register: _coredns_addon
+
+    - name: Take the image from the k3s addon
+      ansible.builtin.set_fact:
+        _coredns_image: "{{ _coredns_addon.resources[0].spec.template.spec.containers[0].image }}"
+      when: _coredns_addon.resources | default([]) | length > 0
+
+    - name: Fall back to the pinned image (addon not present yet)
+      ansible.builtin.set_fact:
+        _coredns_image: "{{ coredns_image_fallback }}"
+      when: _coredns_image is not defined
+
+    - name: Deploy coredns-master
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: coredns-master
+            namespace: kube-system
+            labels:
+              k8s-app: kube-dns
+              kubernetes.io/name: CoreDNS
+              variant: master
+          spec:
+            replicas: 1
+            strategy:
+              type: RollingUpdate
+              rollingUpdate:
+                maxUnavailable: 0     # never drop the only master-side resolver
+                maxSurge: 1
+            selector:
+              matchLabels:
+                k8s-app: kube-dns
+                variant: master
+            template:
+              metadata:
+                labels:
+                  k8s-app: kube-dns
+                  variant: master
+              spec:
+                nodeSelector:
+                  node-role: k3smaster   # NOT kubernetes.io/hostname (that is elite800)
+                tolerations:
+                  - key: CriticalAddonsOnly
+                    operator: Exists
+                  - key: node-role.kubernetes.io/control-plane
+                    operator: Exists
+                    effect: NoSchedule
+                serviceAccountName: coredns
+                priorityClassName: system-cluster-critical
+                dnsPolicy: Default
+                containers:
+                  - name: coredns
+                    image: "{{ _coredns_image }}"
+                    imagePullPolicy: IfNotPresent
+                    args: ["-conf", "/etc/coredns/Corefile"]
+                    resources:
+                      requests:
+                        cpu: 100m
+                        memory: 70Mi
+                      limits:
+                        cpu: 100m
+                        memory: 170Mi
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                        add: ["NET_BIND_SERVICE"]
+                        drop: ["all"]
+                    ports:
+                      - { containerPort: 53, name: dns, protocol: UDP }
+                      - { containerPort: 53, name: dns-tcp, protocol: TCP }
+                      - { containerPort: 9153, name: metrics, protocol: TCP }
+                    livenessProbe:
+                      httpGet: { path: /health, port: 8080, scheme: HTTP }
+                      initialDelaySeconds: 60
+                      periodSeconds: 10
+                      timeoutSeconds: 1
+                      failureThreshold: 3
+                    readinessProbe:
+                      httpGet: { path: /ready, port: 8181, scheme: HTTP }
+                      periodSeconds: 2
+                      timeoutSeconds: 1
+                      failureThreshold: 3
+                    volumeMounts:
+                      - { name: config-volume, mountPath: /etc/coredns, readOnly: true }
+                      - { name: custom-config-volume, mountPath: /etc/coredns/custom, readOnly: true }
+                volumes:
+                  # SAME ConfigMap as the k3s addon — the Corefile patched at the
+                  # top of this file therefore applies to both, no second copy.
+                  - name: config-volume
+                    configMap:
+                      name: coredns
+                      defaultMode: 420
+                      items:
+                        - { key: Corefile, path: Corefile }
+                        - { key: NodeHosts, path: NodeHosts }
+                  - name: custom-config-volume
+                    configMap:
+                      name: coredns-custom
+                      defaultMode: 420
+                      optional: true

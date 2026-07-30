@@ -2,6 +2,25 @@
 # Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
 # DNS
 dns_external_domain_suffix: "dgx.example.com"
+# Replicas of the K3S-MANAGED coredns Deployment. Its manifest enforces a
+# topologySpreadConstraint (maxSkew 1, hostname, DoNotSchedule), so these land on
+# N DIFFERENT nodes — but nothing makes the master one of them. With 2 replicas on
+# a 5-node cluster both can (and did, 2026-07-30) sit on GPU sparks: powering the
+# sparks down took cluster DNS with them, which silently broke Grafana→Prometheus,
+# Prometheus→Alertmanager (56 dropped notifications) and every service-name lookup
+# on the master. The master-pinned replica below is the answer to that; keep this
+# at 2 (it covers the spark side).
 coredns_replicas: 2
+# Extra single CoreDNS replica PINNED to the k3s master, so DNS survives any spark
+# outage. Deployed as its own Deployment (`coredns-master`) rather than by editing
+# the k3s Addon: k3s owns the `coredns` objects (objectset.rio.cattle.io Addon) and
+# rewrites them, while a separate workload is untouched by that. It carries the
+# `k8s-app: kube-dns` label, so the existing kube-dns Service picks it up as an
+# endpoint automatically; `variant: master` keeps its OWN selector distinct.
+coredns_master_replica_enabled: true
+# Image for that pinned replica. Normally NOT used: the task reads the image from
+# the live k3s coredns Deployment so both stay in lockstep across k3s upgrades.
+# This is only the fallback for a first run where that Deployment is absent.
+coredns_image_fallback: "rancher/mirrored-coredns-coredns:1.14.4"
 # Cert-manager TSIG secret
 tsig_secret_key: "CHANGEME_BASE64_TSIG_KEY_HERE"
