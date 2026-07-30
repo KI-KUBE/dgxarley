@@ -35,8 +35,22 @@ route:
 # storage node's instance, but a dead metadata engine stalls EVERY mount
 # cluster-wide, so it must stay visible even when its own node is off.
 # Cluster-scoped alerts (CronJobFailed) carry no instance and never match.
-# The GPU alerts need no entry: their metrics vanish with the node, so
-# they resolve on their own rather than firing.
+#
+# WHICH per-node alerts actually need an entry — measured live 2026-07-30 by
+# powering off all four sparks, NOT reasoned about:
+#   * `up == 0` alerts DO fire. A DaemonSet pod on a dead node is not evicted
+#     (see below), so its scrape target survives with up=0 → DcgmExporterUnavailable
+#     and JuiceFSMountDown both fired for all four nodes. They belong in the list.
+#   * METRIC-VALUE alerts (GpuTempHigh, GpuXidErrors) need no entry: the scrape
+#     fails, the DCGM_FI_* series go stale, the expression matches nothing.
+# The earlier claim here — "GPU alerts need no entry, their metrics vanish" —
+# lumped both kinds together and was wrong for the up-based one.
+#
+# Why the target keeps existing: the node lifecycle controller only sets
+# `node.kubernetes.io/unreachable:NoSchedule` on the dead nodes, never the
+# NoExecute variant, so the taint manager never evicts. Pods stay `Running` on a
+# powered-off node indefinitely (their own 300s unreachable-toleration never
+# starts counting). Do not design alert rules around pods disappearing.
 inhibit_rules:
   - source_matchers: ['alertname = NodeDown']
     target_matchers: ['alertname =~ "JuiceFSMountDown|JuiceFSObjectErrors|DcgmExporterUnavailable"']

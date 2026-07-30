@@ -103,6 +103,20 @@
 # WHY it is needed at all: the k3s manifest's topologySpreadConstraint spreads
 # replicas across DIFFERENT nodes but never prefers the master, so on 2026-07-30
 # both replicas sat on GPU sparks and a routine spark shutdown killed cluster DNS.
+# Blast radius that day, all from those two pods being on the wrong nodes:
+# Grafana could not query Prometheus (dashboards rendered empty), Prometheus could
+# not resolve the Alertmanager Service (156 notifications dropped, so the cluster
+# was silently unmonitored), and every service-name lookup on the master failed.
+#
+# AND IT DOES NOT SELF-HEAL. The obvious assumption — "the pods get rescheduled
+# onto a live node" — is false here: the node lifecycle controller sets only
+# `node.kubernetes.io/unreachable:NoSchedule` on the dead nodes, never the
+# NoExecute variant, so the taint manager never evicts. The CoreDNS pods kept
+# `deletionTimestamp: None` and stayed `Running` on powered-off hosts (their own
+# 300s unreachable-toleration never starts counting without a NoExecute taint).
+# Verify with: kubectl get nodes -o json | jq '.items[].spec.taints'.
+# So DNS availability cannot rely on rescheduling — it needs a replica that is
+# already ON the always-on node, which is exactly what this Deployment is.
 #
 # HOW it joins DNS: the kube-dns Service selects `k8s-app: kube-dns` only, so this
 # pod becomes an endpoint of the SAME ClusterIP. Its own selector adds
