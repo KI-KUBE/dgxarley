@@ -30,55 +30,7 @@
         name: alertmanager-config
         namespace: monitoring
       data:
-        alertmanager.yml: |
-          global:
-            resolve_timeout: 5m
-            smtp_smarthost: '${SMTP_SMARTHOST}'
-            smtp_from: '${SMTP_MAILFROM}'
-
-          route:
-            group_by: ['alertname']
-            group_wait: 10s
-            group_interval: 10s
-            repeat_interval: 8760h  # 1 year
-            receiver: 'email-and-gotify' # Default receiver
-
-          receivers:
-          - name: 'email-and-gotify'
-            email_configs:
-            - to: '${ALERT_EMAIL}'
-              send_resolved: true
-              require_tls: false
-              headers:
-                Subject: '[{{ '{{' }} .Status | toUpper {{ '}}' }}] {{ '{{' }} .GroupLabels.alertname {{ '}}' }}'
-              text: |
-                {{ '{{' }} range .Alerts {{ '}}' }}
-                Alert: {{ '{{' }} .Labels.alertname {{ '}}' }}
-                Severity: {{ '{{' }} .Labels.severity {{ '}}' }}
-                Job: {{ '{{' }} .Labels.job_name {{ '}}' }}
-                Namespace: {{ '{{' }} .Labels.namespace {{ '}}' }}
-
-                Summary: {{ '{{' }} .Annotations.summary {{ '}}' }}
-                Description: {{ '{{' }} .Annotations.description {{ '}}' }}
-
-                Status: {{ '{{' }} .Status {{ '}}' }}
-                ---
-                {{ '{{' }} end {{ '}}' }}
-              html: |
-                {{ '{{' }} range .Alerts {{ '}}' }}
-                <h2>Alert: {{ '{{' }} .Labels.alertname {{ '}}' }}</h2>
-                <p><strong>Severity:</strong> {{ '{{' }} .Labels.severity {{ '}}' }}</p>
-                <p><strong>Job:</strong> {{ '{{' }} .Labels.job_name {{ '}}' }}</p>
-                <p><strong>Namespace:</strong> {{ '{{' }} .Labels.namespace {{ '}}' }}</p>
-                <hr>
-                <p><strong>Summary:</strong> {{ '{{' }} .Annotations.summary {{ '}}' }}</p>
-                <p>{{ '{{' }} .Annotations.description {{ '}}' }}</p>
-                <p><strong>Status:</strong> {{ '{{' }} .Status {{ '}}' }}</p>
-                <hr>
-                {{ '{{' }} end {{ '}}' }}
-            webhook_configs:
-            - url: 'http://alertmanager-gotify-bridge.monitoring.svc.cluster.local:8080/webhook'
-              send_resolved: true
+        alertmanager.yml: "{{ lookup('template', 'monitoring_alertmanager.yml.j2') }}"
 
 - name: Create gotify-bridge-script ConfigMap
   kubernetes.core.k8s:

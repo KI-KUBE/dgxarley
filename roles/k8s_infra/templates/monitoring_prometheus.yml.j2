@@ -1,0 +1,333 @@
+{#
+  Managed by Ansible (k8s_infra). Prometheus scrape config. Rendered into the prometheus-config ConfigMap by
+  tasks/monitoring/prometheus.yml via lookup('template').
+
+  Jinja is STILL applied here, so Prometheus/Alertmanager's own Go-template
+  braces must stay escaped exactly as they were when this block lived
+  inline in the task file. Ansible renders with trim_blocks and WITHOUT
+  lstrip_blocks, unchanged by the move.
+#}
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+# TELL PROMETHEUS WHERE ALERTMANAGER IS
+alerting:
+  alertmanagers:
+  - static_configs:
+    - targets:
+      - alertmanager.monitoring.svc.cluster.local:9093
+
+# LOAD THE RULES FILE
+rule_files:
+  - "/etc/prometheus/alert_rules.yml"
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['127.0.0.1:9090']
+
+  - job_name: 'kubernetes-kubelets'
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+    # --- RAM-Optimierung: NFD + deprecated Beta-Labels droppen ---
+    metric_relabel_configs:
+      - action: labeldrop
+        regex: 'feature_node_kubernetes_io_.+'
+      - action: labeldrop
+        regex: 'beta_kubernetes_io_.+'
+      # Phase 3: Konstante Labels droppen (single-node cluster)
+      - action: labeldrop
+        regex: 'node_kubernetes_io_instance_type'
+      - action: labeldrop
+        regex: 'node_role_kubernetes_io_master'
+
+  - job_name: 'traefik'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: ['kube-system']
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+        action: keep
+        regex: traefik
+      # Only keep the traefik metrics port (9100), drop all other ports
+      # This prevents scraping mosquitto/other proxy ports exposed through Traefik
+      - source_labels: [__meta_kubernetes_pod_container_port_name]
+        action: keep
+        regex: metrics
+
+  - job_name: 'node-exporter'
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+        action: keep
+        regex: node-exporter
+      - source_labels: [__meta_kubernetes_pod_node_name]
+        target_label: node
+      # Override instance label with node name (hostname) instead of IP:port
+      # for dashboard readability and cross-metric joins.
+      - source_labels: [__meta_kubernetes_pod_node_name]
+        target_label: instance
+
+  - job_name: 'dcgm-exporter'
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app_kubernetes_io_name]
+        action: keep
+        regex: dcgm-exporter
+      - source_labels: [__meta_kubernetes_pod_container_port_name]
+        action: keep
+        regex: metrics
+      - source_labels: [__meta_kubernetes_pod_node_name]
+        target_label: node
+      - source_labels: [__meta_kubernetes_pod_node_name]
+        target_label: instance
+
+  - job_name: 'coredns'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names: ['kube-system']
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_k8s_app]
+        action: keep
+        regex: kube-dns
+      - source_labels: [__address__]
+        action: replace
+        target_label: __address__
+        regex: ([^:]+)(?::\d+)?
+        replacement: $1:9153
+
+  - job_name: 'kubernetes-apiservers'
+    kubernetes_sd_configs:
+      - role: endpointslice
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpointslice_address_type, __meta_kubernetes_endpointslice_port_name]
+        action: keep
+        regex: default;kubernetes;IPv4;https
+    # --- RAM-Optimierung: Teure Histogram-Buckets droppen (~63k Serien) ---
+    metric_relabel_configs:
+      # Relabel instance from IP:port to hostname for dashboard readability
+      - source_labels: [instance]
+        regex: '{{ k3smasterip | regex_escape }}:6443'
+        target_label: instance
+        replacement: "{{ k3s_master_node_hostname }}"
+      - source_labels: [__name__]
+        regex: 'apiserver_request_duration_seconds_bucket|etcd_request_duration_seconds_bucket|apiserver_request_sli_duration_seconds_bucket|apiserver_watch_list_duration_seconds_bucket|apiserver_request_body_size_bytes_bucket|apiserver_watch_cache_read_wait_seconds_bucket|apiserver_response_sizes_bucket|apiserver_watch_events_sizes_bucket|workqueue_queue_duration_seconds_bucket|workqueue_work_duration_seconds_bucket|scheduler_plugin_execution_duration_seconds_bucket|kubernetes_feature_enabled|apiserver_admission_controller_admission_duration_seconds_bucket|apiserver_flowcontrol_request_execution_seconds_bucket|apiserver_flowcontrol_priority_level_request_utilization_bucket'
+        action: drop
+
+  - job_name: 'kubernetes-nodes'
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: kubernetes.default.svc.cluster.local:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics
+    # --- RAM-Optimierung: Nur kubelet-Metriken behalten ---
+    # Saves ~75k time-series (~82k → ~7k)
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'kubelet_.+'
+        action: keep
+      - action: labeldrop
+        regex: 'feature_node_kubernetes_io_.+'
+      - action: labeldrop
+        regex: 'beta_kubernetes_io_.+'
+      - action: labeldrop
+        regex: 'node_kubernetes_io_instance_type'
+      - action: labeldrop
+        regex: 'node_role_kubernetes_io_master'
+
+  - job_name: 'kubernetes-cadvisor'
+    scheme: https
+    tls_config:
+      ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+    bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    kubernetes_sd_configs:
+      - role: node
+    relabel_configs:
+      - action: labelmap
+        regex: __meta_kubernetes_node_label_(.+)
+      - target_label: __address__
+        replacement: kubernetes.default.svc.cluster.local:443
+      - source_labels: [__meta_kubernetes_node_name]
+        regex: (.+)
+        target_label: __metrics_path__
+        replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+      - source_labels: [__meta_kubernetes_node_name]
+        target_label: node
+    # --- RAM-Optimierung: Nur dashboard-relevante cAdvisor-Metriken behalten ---
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'container_cpu_usage_seconds_total|container_cpu_cfs_throttled_seconds_total|container_memory_working_set_bytes|container_memory_rss|container_spec_cpu_quota|container_spec_memory_limit_bytes|container_network_receive_bytes_total|container_network_receive_errors_total|container_network_receive_packets_total|container_network_receive_packets_dropped_total|container_network_transmit_bytes_total|container_network_transmit_errors_total|container_network_transmit_packets_total|container_network_transmit_packets_dropped_total|container_oom_events_total|container_fs_usage_bytes|container_fs_limit_bytes|machine_cpu_cores|machine_memory_bytes'
+        action: keep
+      - action: labeldrop
+        regex: 'feature_node_kubernetes_io_.+'
+      - action: labeldrop
+        regex: 'beta_kubernetes_io_.+'
+      - action: labeldrop
+        regex: 'node_kubernetes_io_instance_type'
+      - action: labeldrop
+        regex: 'node_role_kubernetes_io_master'
+
+  # The Kube-State-Metrics scrape job
+  - job_name: 'kube-state-metrics'
+    static_configs:
+      - targets: ['kube-state-metrics.kube-system.svc.cluster.local:8080']
+    # --- RAM-Optimierung: NFD-Label-Metriken droppen (hoher Index-Overhead) ---
+    metric_relabel_configs:
+      - source_labels: [__name__]
+        regex: 'kube_node_labels'
+        action: drop
+
+  - job_name: 'kubernetes-service-endpointslices'
+    kubernetes_sd_configs:
+      - role: endpointslice
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+        action: replace
+        target_label: __scheme__
+        regex: (https?)
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+        action: replace
+        target_label: __address__
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      - source_labels: [__meta_kubernetes_service_name]
+        action: replace
+        target_label: kubernetes_name
+
+  # Pod discovery job
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+
+  {% if litellm_enable_metrics | default(false) and litellm_metrics_require_auth | default(false) %}
+  # LiteLLM /metrics with auth ON: the annotation job can't send a bearer,
+  # so scrape the service directly with a LiteLLM key. (Default gate is
+  # open — litellm_metrics_require_auth=false — and uses kubernetes-pods.)
+  # NOTE: any valid LiteLLM key can read /metrics (not scoped, issue #13644)
+  # and the key is rendered into this ConfigMap — prefer a scoped virtual
+  # key in production rather than litellm_master_key.
+  - job_name: 'litellm'
+    # trailing slash: LiteLLM 307-redirects /metrics → /metrics/
+    metrics_path: /metrics/
+    authorization:
+      type: Bearer
+      credentials: "{{ litellm_master_key }}"
+    static_configs:
+      - targets: ['litellm.litellm.svc.cluster.local:{{ litellm_port }}']
+  {% endif %}
+
+  # NUT exporter — multi-target scrape (one target per UPS)
+  # druggeri/nut_exporter doesn't emit a ups label natively,
+  # so we pass ?ups=<name> per target and inject the label via static_configs.
+  - job_name: 'nut-exporter-{{ nut_ups_name }}'
+    metrics_path: /ups_metrics
+    params:
+      ups: ['{{ nut_ups_name }}']
+    static_configs:
+      - targets: ['nut-exporter.monitoring.svc.cluster.local:9199']
+        labels:
+          ups: '{{ nut_ups_name }}'
+  {% if nut_ups_secondary_name is defined %}
+
+  - job_name: 'nut-exporter-{{ nut_ups_secondary_name }}'
+    metrics_path: /ups_metrics
+    params:
+      ups: ['{{ nut_ups_secondary_name }}']
+    static_configs:
+      - targets: ['nut-exporter.monitoring.svc.cluster.local:9199']
+        labels:
+          ups: '{{ nut_ups_secondary_name }}'
+  {% endif %}
+
+  {% if juicefs_enabled | default(false) | bool and juicefs_metrics_enabled | default(false) | bool %}
+  # JuiceFS client metrics — bare-metal systemd FUSE mounts (storage.yml),
+  # NOT k8s pods: static targets on the nodes' k3s-VLAN IPs (host_vars
+  # vault). instance is rewritten IP:port → hostname for dashboard
+  # readability (dashboard 20794 groups by instance). Hosts with
+  # juicefs_mount_enabled=false (e.g. spark5 until its QSFP is cabled)
+  # are skipped — no permanently-dead targets. The target list is built
+  # output-free ({% raw %}{% set %}{% endraw %} loops) and emitted flow-style via to_json:
+  # a block-style loop body would inherit the tag lines' indentation as
+  # residue (Ansible templates run trim_blocks WITHOUT lstrip_blocks)
+  # and break the YAML. The comment right below the tags absorbs the
+  # residual whitespace.
+  {% set _jfs_targets = [] %}
+  {% for h in groups[juicefs_mount_group] | default([]) if hostvars[h].juicefs_mount_enabled | default(true) | bool %}{% set _ = _jfs_targets.append({'targets': [hostvars[h].k3s_node_ip ~ ':' ~ juicefs_metrics_port], 'labels': {'node': h}}) %}{% endfor %}
+  {% if juicefs_mount_master | default(false) | bool %}{% for h in groups['k3sserver'] | default([]) if hostvars[h].isk3smaster | default(false) %}{% set _ = _jfs_targets.append({'targets': [hostvars[h].k3s_node_ip ~ ':' ~ juicefs_metrics_port], 'labels': {'node': k3s_master_node_hostname}}) %}{% endfor %}{% endif %}
+  # (targets: every enabled mount node, plus the master when
+  #  juicefs_mount_master is on)
+  - job_name: 'juicefs'
+    static_configs: {{ _jfs_targets | to_json }}
+    relabel_configs:
+      - source_labels: [node]
+        target_label: instance
+
+  # Valkey (JuiceFS metadata engine) via prometheus-redis-exporter on
+  # the storage node — bare-metal apt install, like the backend itself.
+  # `node` (→ instance) is the K8S NODE NAME, not the inventory name:
+  # for the sparks the two are identical, for the master they are NOT
+  # (k3smaster vs k3s_master_node_hostname). The NodeDown inhibit_rule
+  # joins on `instance`, so a master-hosted backend (JUICEFS_MIGRATION_HOWTO.md
+  # §13.3) would otherwise keep alerting while its node is already down.
+  - job_name: 'juicefs-valkey'
+    static_configs:
+      - targets: ['{{ hostvars[juicefs_primary_node].k3s_node_ip }}:{{ juicefs_valkey_exporter_port }}']
+        labels:
+          node: '{{ k3s_master_node_hostname if hostvars[juicefs_primary_node].isk3smaster | default(false) | bool else juicefs_primary_node }}'
+    relabel_configs:
+      - source_labels: [node]
+        target_label: instance
+  {% endif %}

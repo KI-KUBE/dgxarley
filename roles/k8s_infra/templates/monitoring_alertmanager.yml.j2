@@ -1,0 +1,80 @@
+{#
+  Managed by Ansible (k8s_infra). Alertmanager routing/inhibition/receiver config. Rendered into the
+  alertmanager-config ConfigMap by tasks/monitoring/alertmanager.yml via
+  lookup('template'). The ${VAR} placeholders are substituted by envsubst in
+  the container entrypoint, NOT by Ansible.
+
+  Jinja is STILL applied here, so Prometheus/Alertmanager's own Go-template
+  braces must stay escaped exactly as they were when this block lived
+  inline in the task file. Ansible renders with trim_blocks and WITHOUT
+  lstrip_blocks, unchanged by the move.
+#}
+global:
+  resolve_timeout: 5m
+  smtp_smarthost: '${SMTP_SMARTHOST}'
+  smtp_from: '${SMTP_MAILFROM}'
+
+route:
+  group_by: ['alertname']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 8760h  # 1 year
+  receiver: 'email-and-gotify' # Default receiver
+
+# Collapse the follow-up cascade of a dead node into its single root
+# cause: while NodeDown fires for an instance, every per-exporter alert
+# for that SAME instance is suppressed. Powering off the four sparks
+# otherwise yields 4x JuiceFSMountDown + 4x DcgmExporterUnavailable and
+# nothing that says "the nodes are off".
+#
+# The `equal` join works because the node-exporter, dcgm-exporter and
+# juicefs jobs all relabel `instance` to the k8s NODE NAME
+# (tasks/monitoring/prometheus.yml) — keep that invariant when adding a
+# node-scoped exporter, otherwise its alerts silently escape inhibition.
+# Deliberately NOT inhibited: JuiceFSMetaEngineDown. It shares the
+# storage node's instance, but a dead metadata engine stalls EVERY mount
+# cluster-wide, so it must stay visible even when its own node is off.
+# Cluster-scoped alerts (CronJobFailed) carry no instance and never match.
+# The GPU alerts need no entry: their metrics vanish with the node, so
+# they resolve on their own rather than firing.
+inhibit_rules:
+  - source_matchers: ['alertname = NodeDown']
+    target_matchers: ['alertname =~ "JuiceFSMountDown|JuiceFSObjectErrors|DcgmExporterUnavailable"']
+    equal: ['instance']
+
+receivers:
+- name: 'email-and-gotify'
+  email_configs:
+  - to: '${ALERT_EMAIL}'
+    send_resolved: true
+    require_tls: false
+    headers:
+      Subject: '[{{ '{{' }} .Status | toUpper {{ '}}' }}] {{ '{{' }} .GroupLabels.alertname {{ '}}' }}'
+    text: |
+      {{ '{{' }} range .Alerts {{ '}}' }}
+      Alert: {{ '{{' }} .Labels.alertname {{ '}}' }}
+      Severity: {{ '{{' }} .Labels.severity {{ '}}' }}
+      Job: {{ '{{' }} .Labels.job_name {{ '}}' }}
+      Namespace: {{ '{{' }} .Labels.namespace {{ '}}' }}
+
+      Summary: {{ '{{' }} .Annotations.summary {{ '}}' }}
+      Description: {{ '{{' }} .Annotations.description {{ '}}' }}
+
+      Status: {{ '{{' }} .Status {{ '}}' }}
+      ---
+      {{ '{{' }} end {{ '}}' }}
+    html: |
+      {{ '{{' }} range .Alerts {{ '}}' }}
+      <h2>Alert: {{ '{{' }} .Labels.alertname {{ '}}' }}</h2>
+      <p><strong>Severity:</strong> {{ '{{' }} .Labels.severity {{ '}}' }}</p>
+      <p><strong>Job:</strong> {{ '{{' }} .Labels.job_name {{ '}}' }}</p>
+      <p><strong>Namespace:</strong> {{ '{{' }} .Labels.namespace {{ '}}' }}</p>
+      <hr>
+      <p><strong>Summary:</strong> {{ '{{' }} .Annotations.summary {{ '}}' }}</p>
+      <p>{{ '{{' }} .Annotations.description {{ '}}' }}</p>
+      <p><strong>Status:</strong> {{ '{{' }} .Status {{ '}}' }}</p>
+      <hr>
+      {{ '{{' }} end {{ '}}' }}
+  webhook_configs:
+  - url: 'http://alertmanager-gotify-bridge.monitoring.svc.cluster.local:8080/webhook'
+    send_resolved: true
