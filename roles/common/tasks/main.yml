@@ -104,6 +104,12 @@
     - locale
   import_tasks: localestuff.yml
 
+# net.ipv4.ip_nonlocal_bind=1 — load-bearing, not cosmetic: it lets a service bind
+# an address that does not exist YET (the socket starts receiving once the address
+# is configured). That is what keeps the bind-scoped JuiceFS Valkey from failing at
+# boot on the k3s master, where its address lives on a late-coming OVS VLAN
+# interface — see roles/juicefs_storage/tasks/backend.yml and
+# JUICEFS_MIGRATION_HOWTO.md §13.3. Do not drop it without reading those.
 - name: ensure net.ipv4.ip_nonlocal_bind=1 (boot-persistent via /etc/sysctl.d)
   sysctl:
     name: net.ipv4.ip_nonlocal_bind
@@ -116,18 +122,6 @@
     - sysctl
   when:
     - "'k3sserver' in group_names"
-
-#- name: ensure net.ipv4.ip_nonlocal_bind=1 in /etc/sysctl.conf
-#  lineinfile:
-#    dest: /etc/sysctl.conf
-#    line: "net.ipv4.ip_nonlocal_bind=1"
-#    regexp: '^#?\s*net\.ipv4\.ip_nonlocal_bind.*$'
-#    create: yes
-#  notify: sysctl reload
-#  tags:
-#    - sysctl
-#  when:
-#    - "'k3sserver' in group_names"
 
 - name: raise inotify limits for K3s/containerd/systemd
   sysctl:
