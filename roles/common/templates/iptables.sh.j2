@@ -70,12 +70,19 @@ iptables -A HTSTUFFIN -s {{ qsfp_network }} -j RETURN
 iptables -A HTSTUFFIN -s {{ qsfp_vf_network }} -j RETURN
 {% endif %}
 
-{% if juicefs_enabled | default(false) | bool and juicefs_mount_master | default(false) | bool and inventory_hostname == juicefs_primary_node | default('') %}
-# JuiceFS backend reachability for a QSFP-less master mount.
-# Spark mount clients reach Valkey(6379)+RustFS(9000) over the QSFP subnet
-# (already trusted above); the master has no QSFP and comes in over the mgmt/k3s
-# VLAN, which is otherwise closed for these ports. Only rendered ON the storage
-# node, only when juicefs_mount_master is on. requirepass + S3 keys still apply.
+{% if juicefs_enabled | default(false) | bool and inventory_hostname == juicefs_primary_node | default('')
+   and (juicefs_mount_master | default(false) | bool
+        or hostvars[juicefs_primary_node | default('')].qsfp_ip is not defined) %}
+# JuiceFS backend reachability for mount clients that cannot use the QSFP mesh.
+# Spark mount clients normally reach Valkey(6379)+RustFS(9000) over the QSFP
+# subnet (already trusted above), so no rule is needed. Rendered ON the storage
+# node only, in the two cases where a client arrives over the mgmt/k3s VLAN
+# instead, which is otherwise closed for these ports:
+#   1. juicefs_mount_master  -> the QSFP-less master mounts a spark-hosted backend;
+#   2. the storage node ITSELF has no qsfp_ip (e.g. juicefs_primary_node moved to
+#      the k3s master, see JUICEFS_MIGRATION_HOWTO.md §13.3) -> then EVERY client,
+#      i.e. all sparks, comes in over mgmt and juicefs_mount_master stays false.
+# Both resolve to the same rule; requirepass + S3 keys still apply.
 # (juicefs_enabled / juicefs_primary_node / juicefs_mount_master live in
 # group_vars/all/main/juicefs.yml; nothing opens while the layer is not deployed.)
 #

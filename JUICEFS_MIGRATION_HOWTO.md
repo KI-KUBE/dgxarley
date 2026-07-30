@@ -445,6 +445,164 @@ node (Variant B), `systemctl enable --now valkey-server rustfs` there, and run
 `ansible-playbook storage.yml` — the clients re-render back. Nothing was
 destroyed until you wiped the old copies in the last step.
 
+### 13.3 Variant C — move the storage node to the k3s MASTER (re-plug the disk)
+
+Mechanically Variant B (same disk, re-plugged), but the target is the QSFP-less
+k3s master instead of another spark. That single difference changes four things,
+each of which is a separate gotcha below: the data path leaves the QSFP mesh, the
+firewall gate inverts, the `rustfs` UID becomes worth pre-seeding, and the master
+is a much smaller box than a spark.
+
+**Why you might want it:** the storage node stops competing with GPU serving on a
+spark (RustFS CPU + page cache next to unified memory), it sits on the UPS, and a
+spark whose QSFP is not cabled (`juicefs_mount_enabled: false`, e.g. spark5) can
+finally mount, because the backend is now reachable over mgmt.
+
+**What it costs (measure before you decide):** every client falls from the 200GbE
+QSFP mesh to the mgmt/k3s VLAN. Check both ends first:
+
+```bash
+cat /sys/class/net/<mgmt-iface>/speed        # on the master AND on a spark
+```
+
+On this cluster both ends negotiate 2.5 GbE, which is still above what the USB
+**spinning** backend disk delivers sequentially (~150 MB/s), so the disk stays the
+bottleneck for bulk reads (see `reference_juicefs_backend_usb_hdd`). What does get
+worse: metadata RTT to Valkey (µs over QSFP vs a few hundred µs over mgmt), and
+the master's single mgmt NIC now carries object traffic on top of the k3s API,
+the NFS exports and all ingress. A cold model load will saturate it.
+
+#### Repo changes (before touching hardware)
+
+1. `group_vars/all/vault/juicefs.yml`: `juicefs_primary_node: k3smaster`, and in
+   `juicefs_rustfs_members` change the entry's `node:` to `k3smaster` (its disk
+   `path`/`uuid`/`fstype` travel with the disk and stay as they are). With
+   `juicefs_manage_fstab: true` the role then writes the UUID-keyed fstab entry on
+   the master and mounts the disk itself.
+2. **Firewall gate** (`roles/common/templates/iptables.sh.j2`): already wired, see
+   the comment there. The rule opening 6379+9000 from `k3snodes` used to hang on
+   `juicefs_mount_master`, which encodes "the master is a client of a spark-hosted
+   backend". With the master AS the backend it is the *sparks* that arrive over
+   mgmt while `juicefs_mount_master` stays false, so the gate also fires when the
+   primary itself has no `qsfp_ip`. Nothing to edit, but the master needs
+   `ansible-playbook common.yml --tags iptables --limit k3smaster` (step 6).
+3. `juicefs_rustfs_memory_high` in `host_vars/k3smaster/main/juicefs.yml`: the
+   default is unlimited, which is fine on a 128 GB spark and not fine on the
+   master (control plane, PostgreSQL, Grafana, Loki on ~16 GB). `"2G"` is a sane
+   start.
+4. Leave `juicefs_mount_master: false` unless you actually need `/mnt/jfs` on the
+   master (SGLang runs only on sparks). If you do turn it on, `juicefs_cache_size_mib`
+   (~1.05 TiB globally) MUST get a host override: the master's root LV is nowhere
+   near that, and `juicefs_cache_dir` sits on it.
+
+#### Pre-seed the rustfs UID (no downtime, saves hours)
+
+The `rustfs` system user gets a different UID on every node, and the disk carries
+the old one, so §13.1/§13.2 tell you to `chown -R` the data dir. On a populated
+backend that is millions of inodes on a USB spindle. Create the user on the master
+with the OLD node's UID/GID instead, BEFORE the first backend run (the role's
+`user`/`group` modules are idempotent and will not renumber an existing user):
+
+```bash
+ssh root@<old-node> 'id rustfs'                       # -> uid=<U>(rustfs) gid=<G>(rustfs)
+ssh root@<master>   'groupadd -r -g <G> rustfs; \
+                     useradd  -r -u <U> -g <G> -s /usr/sbin/nologin -M -d /var/lib/rustfs rustfs'
+```
+
+Then skip the `chown -R` in step 5. Verify with `ls -land <disk-path>/rustfs` after
+mounting: owner must resolve to `rustfs`, not a bare number.
+
+#### Runbook
+
+Placeholders: `<master-ip>` = the master's `k3s_node_ip`, `<old-ip>` = the old
+storage node's QSFP IP, `<disk-path>` = the disk `path` from `juicefs_rustfs_members`.
+
+1. **Downtime starts.** Scale SGLang/vLLM to 0 (they hold the FUSE mount when
+   `hf_hub_cache_on_juicefs` is on), then on EVERY mount node:
+   ```bash
+   systemctl stop juicefs-dgxfs
+   ```
+2. **On the old storage node** — dump onto the disk itself so it travels, then
+   release the disk:
+   ```bash
+   set -a; . /etc/juicefs/dgxfs.env; set +a
+   juicefs dump --keep-secret-key redis://<old-ip>:6379/1 <disk-path>/dgxfs-meta-move.json
+   systemctl disable --now rustfs valkey-server
+   umount <disk-path>
+   sed -i '\|<disk-path>|d' /etc/fstab && systemctl daemon-reload
+   ```
+   Leave `/var/lib/valkey` on that node untouched, it is the rollback.
+3. **Re-plug** the disk into the master, on a USB 3 port. Check which root hub you
+   landed on with `lsusb -t`: on an EliteDesk the USB3 controller also carries the
+   2.5GbE USB NIC, which is fine bandwidth-wise (10 Gbit hub) but worth knowing.
+   Do not mount by hand, step 5 does it from the vault UUID.
+4. **Repo:** apply the vault + host_vars changes above.
+5. **Backend bring-up on the master**, deliberately WITHOUT the format/mount tags
+   (see the warning at the top of §13: an empty Valkey looks unformatted and a
+   plain full run would format a FRESH filesystem into the populated bucket):
+   ```bash
+   ansible-playbook storage.yml --tags juicefs_bin,juicefs_backend,juicefs_backup
+   ```
+   If you skipped the UID pre-seed:
+   `systemctl stop rustfs && chown -R rustfs:rustfs <disk-path>/rustfs && systemctl start rustfs`.
+6. **Firewall** (opens 6379 for the spark clients; 9000 may already be open via an
+   unrelated `localnets` rule, do not rely on that):
+   ```bash
+   ansible-playbook common.yml --tags iptables --limit k3smaster
+   ```
+7. **Restore metadata + rewrite the bucket endpoint** on the master:
+   ```bash
+   set -a; . /etc/juicefs/dgxfs.env; set +a
+   juicefs load   redis://<master-ip>:6379/1 <disk-path>/dgxfs-meta-move.json
+   juicefs config redis://<master-ip>:6379/1 --bucket http://<master-ip>:9000/juicefs
+   juicefs status redis://<master-ip>:6379/1   # expect: name dgxfs, new bucket URL
+   ```
+8. **Full playbook run** — format is now correctly skipped, every client's mount
+   unit re-renders to `<master-ip>` and restarts, and the meta-backup cron migrates
+   to the master (which already has the `rc` CLI + the `rustfs_rc_alias` from the
+   k3sserver role):
+   ```bash
+   ansible-playbook storage.yml
+   ```
+9. **Monitoring** — the `juicefs-valkey` scrape job targets
+   `hostvars[juicefs_primary_node].k3s_node_ip`, so it must follow:
+   ```bash
+   ansible-playbook k8s_infra.yml --tags prometheus
+   ```
+10. **Verify** (§9 checklist), then scale SGLang back up and confirm the first boot
+    does NOT re-download weights via xet. Only then delete
+    `<disk-path>/dgxfs-meta-move.json`.
+
+**Downtime scope:** the metadata dump/load is the only data that actually moves
+(single-digit MB for a multi-TB filesystem, `juicefs status` + `valkey-cli info
+memory` tell you beforehand), so the window is dominated by the physical re-plug,
+not by copying. Budget ~30 min.
+
+#### Master-specific pitfalls
+
+- **Valkey bind vs OVS at boot.** `valkey.conf` renders `bind 127.0.0.1 <master-ip>`,
+  and on the master that address lives on an OVS VLAN interface, while the apt unit
+  only orders itself `After=network.target`. If OVS is slower than Valkey the
+  service fails at boot and every mount hangs. Reboot the master once after the
+  move and check; if it fails, add a drop-in with `After=network-online.target` +
+  `Restart=on-failure`.
+- **Leftovers on the old node.** The role removes the meta-backup cron from
+  non-backup nodes, but nothing else: `/etc/rustfs`, `/etc/juicefs`, the disabled
+  units and `/var/lib/valkey` stay. That is deliberate (rollback), so wipe them
+  only after a few healthy days.
+- **fstab on the old node** is NOT unwound by `juicefs_manage_fstab` when a host
+  leaves `juicefs_rustfs_members`; step 2 removes the line by hand.
+- **spark5 (or any QSFP-less spark)** can mount after this move. Flip its inline
+  `juicefs_mount_enabled: true` in `hosts.yml` and re-run
+  `storage.yml --tags juicefs_mount`; it also enters the Prometheus target list.
+
+**Rollback:** identical to §13.2 (the old node still has its full Valkey data dir),
+plus revert the `host_vars/k3smaster` knobs. Move the disk back, flip
+`juicefs_primary_node` in the vault, `systemctl enable --now valkey-server rustfs`
+on the old node, `ansible-playbook storage.yml`, and re-run
+`common.yml --tags iptables --limit k3smaster` so the now-pointless open ports
+close again.
+
 ---
 
 ## 14. Open decisions before starting
