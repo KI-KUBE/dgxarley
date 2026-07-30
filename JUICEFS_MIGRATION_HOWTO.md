@@ -605,12 +605,35 @@ on this cluster after the move: 400 MiB at 2.1 GB/s, 107 hits, 0 misses, 0 GETs.
 
 #### Master-specific pitfalls
 
-- **Valkey bind vs OVS at boot.** `valkey.conf` renders `bind 127.0.0.1 <master-ip>`,
-  and on the master that address lives on an OVS VLAN interface, while the apt unit
-  only orders itself `After=network.target`. If OVS is slower than Valkey the
-  service fails at boot and every mount hangs. Reboot the master once after the
-  move and check; if it fails, add a drop-in with `After=network-online.target` +
-  `Restart=on-failure`.
+- **Valkey bind vs OVS at boot — handled, do not "fix" it again.** `valkey.conf`
+  binds a specific address, and on the master that address lives on an OVS VLAN
+  interface, while the Debian unit only orders itself `After=network.target` (which
+  is reached long before an interface is configured). `Restart=always` in the vendor
+  unit looks like a safety net and is not one: it ships `RestartSec=100ms` with the
+  default `StartLimitBurst=5` per 10s, so all five retries are spent within half a
+  second and the unit then stays `failed` — with the metadata engine dead, every
+  mount in the cluster stalls. `backend.yml` therefore installs the drop-in
+  `10-juicefs.conf`: `After=`/`Wants=` both `network-online.target` AND
+  `openvswitch-switch.service`, plus `RestartSec=5s` and `StartLimitIntervalSec=0`.
+  Note what each part does and does not buy you:
+  - `Wants=` pulls a unit into the transaction, `After=` orders behind it. They are
+    orthogonal; either one alone is useless here.
+  - **Neither anchor guarantees the address exists.** Measured on this master,
+    netplan invokes `systemd-networkd-wait-online --any -i heidk8.101 -i <usb-nic>`,
+    so `network-online.target` can be reached while the OVS VLAN interface holding
+    the storage address is still unconfigured — that interface is not in the wait
+    list at all, regardless of what `networkctl status` reports as
+    `Required For Online`. Ordering only narrows the window.
+  - The **retry loop is the actual safety net**: retry forever, 5s apart, until the
+    bind succeeds. There is no "address X is up" unit to order against.
+  - Do NOT "harden" this with `Restart=on-failure` — that is WEAKER than the
+    `Restart=always` the vendor unit already sets.
+
+  Verify with `systemctl show valkey-server -p RestartUSec -p StartLimitIntervalUSec`
+  (expect `5s` / `0`) and `-p After` (expect both anchors), then confirm on the next
+  reboot of the master. If you ever want the window closed deterministically rather
+  than narrowed, the lever is `net.ipv4.ip_nonlocal_bind=1` (bind an address that
+  does not exist yet), not more ordering.
 - **Leftovers on the old node.** The role removes the meta-backup cron from
   non-backup nodes, but nothing else: `/etc/rustfs`, `/etc/juicefs`, the disabled
   units and `/var/lib/valkey` stay. That is deliberate (rollback), so wipe them

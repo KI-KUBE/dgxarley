@@ -105,9 +105,60 @@
       notify: restart valkey
       no_log: true  # contains requirepass
 
+    # --- Boot-order hardening for the bind-scoped Valkey -------------------
+    # valkey.conf binds a SPECIFIC address (juicefs_valkey_bind_addresses), so the
+    # service cannot start before that address exists. The Debian unit only orders
+    # itself After=network.target, which is reached long before an interface is
+    # actually configured — on the k3s master the storage address lives on an OVS
+    # VLAN interface that comes up comparatively late.
+    #
+    # Restart=always (already in the vendor unit) does NOT save this: it ships with
+    # RestartSec=100ms and the default StartLimitBurst=5 per 10s, so five retries
+    # are spent within half a second and the unit then stays `failed` for good —
+    # and with the metadata engine dead, every JuiceFS mount in the cluster stalls.
+    #
+    # ORDERING NARROWS THE WINDOW, THE RETRY LOOP CLOSES IT. Neither ordering
+    # anchor is a guarantee that the address exists:
+    #   * network-online.target — measured on this master, netplan invokes
+    #     `systemd-networkd-wait-online --any -i heidk8.101 -i <usb-nic>`, so the
+    #     target can be reached while the OVS VLAN interface carrying the storage
+    #     address is still unconfigured. It is NOT the interface we need.
+    #   * openvswitch-switch.service — its completion means ovsdb-server +
+    #     ovs-vswitchd are up, i.e. the bridge/port CAN exist; the address is then
+    #     configured by systemd-networkd a moment later.
+    # There is no "address X is up" unit to order against, so the actual safety
+    # net is RestartSec=5s + StartLimitIntervalSec=0 (same rationale as the FUSE
+    # mount unit): retry forever, a few seconds apart, until the bind succeeds.
+    # Wants= pulls the unit into the transaction, After= orders us behind it —
+    # both are needed, either alone is useless here.
+    - name: Ensure the Valkey systemd drop-in dir exists
+      ansible.builtin.file:
+        path: "/etc/systemd/system/{{ juicefs_valkey_apt_package }}.service.d"
+        state: directory
+        mode: "0755"
+
+    - name: Harden Valkey boot ordering + restart rate (drop-in)
+      ansible.builtin.copy:
+        dest: "/etc/systemd/system/{{ juicefs_valkey_apt_package }}.service.d/10-juicefs.conf"
+        mode: "0644"
+        content: |
+          # Managed by Ansible (juicefs_storage) — do not edit.
+          # See tasks/backend.yml for the rationale.
+          [Unit]
+          After=network-online.target openvswitch-switch.service
+          Wants=network-online.target openvswitch-switch.service
+          StartLimitIntervalSec=0
+
+          [Service]
+          RestartSec=5s
+      notify:
+        - reload systemd
+        - restart valkey
+
     - name: Enable and start Valkey
       ansible.builtin.systemd:
         name: "{{ juicefs_valkey_apt_package }}"
+        daemon_reload: true
         enabled: true
         state: started
 
