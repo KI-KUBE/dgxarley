@@ -31,6 +31,12 @@
         namespace: monitoring
       data:
         alertmanager.yml: "{{ lookup('template', 'monitoring_alertmanager.yml.j2') }}"
+  # Registered for the Deployment's checksum/config annotation below — without it
+  # a config-only change updates the ConfigMap but never rolls the pod, and since
+  # the envsubst initContainer renders alertmanager.yml only at container START,
+  # the OLD config keeps running silently (found 2026-07-30: an added inhibit_rule
+  # applied cleanly per Ansible, yet the live pod ran without it for good).
+  register: alertmanager_config
 
 - name: Create gotify-bridge-script ConfigMap
   kubernetes.core.k8s:
@@ -157,6 +163,11 @@
             labels:
               app: alertmanager
             annotations:
+              # Rolls the pod on any alertmanager.yml change (same pattern as the
+              # prometheus Deployment). Covers the ConfigMap ONLY: a change to
+              # alertmanager-secrets (the ${VAR} values envsubst inlines) still
+              # needs a manual `kubectl rollout restart deploy/alertmanager`.
+              checksum/config: "{{ alertmanager_config.result.data | to_json | hash('sha256') }}"
               kubectl.kubernetes.io/default-container: "alertmanager"
               keel.sh/policy: patch
               keel.sh/match-tag: "true"

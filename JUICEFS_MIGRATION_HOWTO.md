@@ -486,6 +486,14 @@ the NFS exports and all ingress. A cold model load will saturate it.
    mgmt while `juicefs_mount_master` stays false, so the gate also fires when the
    primary itself has no `qsfp_ip`. Nothing to edit, but the master needs
    `ansible-playbook common.yml --tags iptables --limit k3smaster` (step 6).
+   The same file also carries the **same-node scrape** rules (`-s {{ cluster_cidr }}`
+   next to each `k3snodes` metrics rule). They exist because of this move: the
+   in-cluster Prometheus is SNAT'd to its node IP only when it scrapes ACROSS
+   nodes. Scraping an exporter on its OWN node, which is what the valkey-exporter
+   became once the backend landed on the master, the packet never leaves the host,
+   is not SNAT'd, and arrives with the POD IP, which is not in `k3snodes`. Symptom
+   is a `context deadline exceeded` on that one target with the exporter answering
+   `curl` locally and NO entry in the ulogd drop log.
 3. `juicefs_rustfs_memory_high` in `host_vars/k3smaster/main/juicefs.yml`: the
    default is unlimited, which is fine on a 128 GB spark and not fine on the
    master (control plane, PostgreSQL, Grafana, Loki on ~16 GB). `"2G"` is a sane
@@ -565,10 +573,17 @@ storage node's QSFP IP, `<disk-path>` = the disk `path` from `juicefs_rustfs_mem
    ansible-playbook storage.yml
    ```
 9. **Monitoring** — the `juicefs-valkey` scrape job targets
-   `hostvars[juicefs_primary_node].k3s_node_ip`, so it must follow:
+   `hostvars[juicefs_primary_node].k3s_node_ip`, so it must follow. Do this while
+   the mount nodes are UP, otherwise the freshly added `NodeDown` rule fires once
+   per powered-off node:
    ```bash
-   ansible-playbook k8s_infra.yml --tags prometheus
+   ansible-playbook k8s_infra.yml --tags prometheus,alertmanager
    ```
+   Both Deployments carry a `checksum/config` annotation, so a config-only change
+   rolls the pod. (The alertmanager one was added 2026-07-30 — it was missing, and
+   because its `envsubst` initContainer renders the config only at container start,
+   an updated ConfigMap silently kept running the OLD config. If you ever hit that
+   shape again: `kubectl rollout restart deploy/<x> -n monitoring`.)
 10. **Verify** (§9 checklist), then scale SGLang back up and confirm the first boot
     does NOT re-download weights via xet. Only then delete
     `<disk-path>/dgxfs-meta-move.json`.
@@ -577,6 +592,16 @@ storage node's QSFP IP, `<disk-path>` = the disk `path` from `juicefs_rustfs_mem
 (single-digit MB for a multi-TB filesystem, `juicefs status` + `valkey-cli info
 memory` tell you beforehand), so the window is dominated by the physical re-plug,
 not by copying. Budget ~30 min.
+
+**The per-node read caches SURVIVE the move.** `juicefs dump`/`load` preserves the
+filesystem UUID and the chunk IDs, and the client cache is keyed by exactly those,
+so every mount node's `juicefs_cache_dir` (~1 TiB here) stays valid — do NOT wipe
+it "to be safe", that would force every byte back over the slow mgmt path and the
+USB spindle. Verify instead of assuming: compare the UUID in `juicefs status`
+before and after (§ runbook step 7), then read a large cached file and watch
+`/mnt/jfs/.stats` — `juicefs_blockcache_hits` must climb while
+`juicefs_blockcache_miss` and the `object_request` GET counter stay put. Measured
+on this cluster after the move: 400 MiB at 2.1 GB/s, 107 hits, 0 misses, 0 GETs.
 
 #### Master-specific pitfalls
 
@@ -595,6 +620,16 @@ not by copying. Budget ~30 min.
 - **spark5 (or any QSFP-less spark)** can mount after this move. Flip its inline
   `juicefs_mount_enabled: true` in `hosts.yml` and re-run
   `storage.yml --tags juicefs_mount`; it also enters the Prometheus target list.
+- **Freeing a USB socket on the master can strand a UPS.** The master's other USB
+  devices are the two NUT-monitored UPSes, and they are indistinguishable
+  (identical `MEC/MEC0003 0001:0000`, no usable serial), so `roles/nut` pins each
+  one by `busport` — the physical port. Re-plugging a UPS to make room silently
+  leaves its driver `active running` while `upsc <name>` returns `Error: Data
+  stale`; in `lsusb -t` the moved device shows `Driver=[none]` instead of `usbfs`.
+  Fix: `nut-scanner -U` on the master for the new `busport`, update it in
+  `group_vars/all/vault/nut.yml`, `ansible-playbook common.yml --tags nut --limit
+  k3smaster`, then check BOTH UPSes — the run restarts the other driver too, which
+  has to reclaim its exclusively-held USB device.
 
 **Rollback:** identical to §13.2 (the old node still has its full Valkey data dir),
 plus revert the `host_vars/k3smaster` knobs. Move the disk back, flip

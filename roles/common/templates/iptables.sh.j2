@@ -98,14 +98,29 @@ iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 6379,9000
 {% if inventory_hostname in groups.get(juicefs_mount_group | default('dgxsparks'), [])
    or (juicefs_mount_master | default(false) | bool and isk3smaster | default(false) | bool) %}
 # JuiceFS client /metrics (`juicefs mount --metrics <k3s_node_ip>:<port>`, see
-# juicefs_storage role): scraped by the in-cluster Prometheus, whose egress is
-# SNAT'd to its node IP → k3snodes (same pattern as the coturn metrics rule).
+# juicefs_storage role): scraped by the in-cluster Prometheus, whose CROSS-NODE
+# egress is SNAT'd to its node IP → k3snodes (same pattern as the coturn rule).
 iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport {{ juicefs_metrics_port | default(9567) }} -m set --match-set k3snodes src -j RETURN
+{% if cluster_cidr is defined %}
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport {{ juicefs_metrics_port | default(9567) }} -s {{ cluster_cidr }} -j RETURN
+{% endif %}
 {% endif %}
 {% if inventory_hostname == juicefs_primary_node | default('') %}
 # Valkey metrics via prometheus-redis-exporter — storage node only (the
 # JuiceFS metadata engine lives there).
 iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport {{ juicefs_valkey_exporter_port | default(9121) }} -m set --match-set k3snodes src -j RETURN
+{% if cluster_cidr is defined %}
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport {{ juicefs_valkey_exporter_port | default(9121) }} -s {{ cluster_cidr }} -j RETURN
+{% endif %}
+{% endif %}
+{% if cluster_cidr is defined %}
+# SAME-NODE scrape (the two -s {{ cluster_cidr }} rules above): a Prometheus pod
+# scraping a bare-metal exporter on ITS OWN node is NOT SNAT'd — the packet never
+# leaves the host — so it arrives with the POD IP, which is not in k3snodes. The
+# k3snodes rule alone therefore covers cross-node scrapes ONLY. Became load-bearing
+# when juicefs_primary_node moved onto the k3s master (JUICEFS_MIGRATION_HOWTO.md
+# §13.3), where Prometheus itself runs: the valkey-exporter target went from
+# cross-node (worked) to same-node (silent scrape timeout, no drop log).
 {% endif %}
 {% endif %}
 

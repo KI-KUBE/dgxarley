@@ -1,0 +1,14 @@
+---
+# Non-sensitive host overrides for the juicefs_storage role on the k3s master.
+# Created 2026-07-30 when the JuiceFS storage node moved here from a spark
+# (JUICEFS_MIGRATION_HOWTO.md §13.3).
+#
+# Soft page-cache containment for RustFS (systemd MemoryHigh → cgroup v2
+# memory.high on rustfs.service). The role default is "" (unlimited), which was
+# fine on a 128 GB spark but not here: the master has ~16 GB total and shares it
+# with the control plane, PostgreSQL, Grafana, Loki and the kubelet. MemoryHigh
+# is a THROTTLE, not a wall (that would be MemoryMax → OOM kill): crossing it
+# puts reclaim pressure on this cgroup instead of letting a global reclaim evict
+# every other service's page cache. Counts heap AND the page cache of the object
+# data RustFS serves, so it is mostly a cap on cache growth, not on the heap.
+juicefs_rustfs_memory_high: "8G"
