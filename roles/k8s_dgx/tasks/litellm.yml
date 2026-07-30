@@ -304,7 +304,7 @@
                     memory: 512Mi
                   limits:
                     cpu: "1"
-                    memory: 1536Mi
+                    memory: 2048Mi
                 readinessProbe:
                   httpGet:
                     path: /health/readiness
