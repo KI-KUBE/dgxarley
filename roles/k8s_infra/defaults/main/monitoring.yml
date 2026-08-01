@@ -57,11 +57,19 @@ promtail_teardown: false
 fluentbit_teardown: false
 # Pin the MOVING MINOR tag — Fluent Bit's config format drifts across majors
 # (classic .conf vs YAML), so keel (force + match-tag + poll) must only walk
-# patch releases. `4.2` exists as a moving tag and currently resolves to 4.2.7;
-# there is deliberately no bare `4` tag upstream. 5.0 is the current major —
-# moving there is a manual decision, not something keel should do overnight.
+# patch releases. Upstream publishes no bare `4`/`5` tag, only `X.Y`, so the
+# minor tag is the coarsest safe pin; `latest` would let keel cross a major
+# unattended.
+# On 5.0 since 2026-08-01. The move was verified BEFORE deploying with the
+# local harness (FLUENTBIT_VALIDATE.md 6.7) against this exact config: classic
+# .conf still parses, out_loki kept every option in use here
+# (structured_metadata, structured_metadata_map_keys, drop_single_key raw), the
+# lua filter, Path_Key and CRI multiline behave identically, and the emitted
+# labels/line/metadata were byte-identical to 4.2. No deprecation warnings.
+# Caveat to re-check on the next bump: the 4.2 line was AHEAD on patches at the
+# time of the switch (4.2.7 from 2026-07-09 vs 5.0.9 from 2026-07-04).
 # Multi-arch (amd64/arm64/arm), so the same tag runs on k3smaster and spark1-4.
-fluentbit_image: "fluent/fluent-bit:4.2"
+fluentbit_image: "fluent/fluent-bit:5.0"
 # Canary rollout: pin the fluent-bit DaemonSet to a node subset while comparing
 # its labels against promtail's in Grafana. Empty = all nodes (normal state).
 # e.g. {"kubernetes.io/hostname": "elite800"}

@@ -9,8 +9,8 @@
 --     [record accessor] syntax error, unexpected '$', expecting end of file
 --     [output:loki] invalid record accessor pattern for key 'job'
 -- and fluent-bit then SIGSEGVs in flb_loki_kv_destroy() on that error path
--- (upstream bug, the plugin frees a partially built kv). Verified on
--- fluent-bit 4.2.7. Promtail builds the same label with a relabel concat
+-- (upstream bug, the plugin frees a partially built kv). Verified on fluent-bit
+-- 4.2.7, unchanged on 5.0. Promtail builds the same label with a relabel concat
 -- (separator '/'), which has no equivalent in the loki output plugin, so the
 -- concatenation has to happen on the record BEFORE it reaches the output.
 --
