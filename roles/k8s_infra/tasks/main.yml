@@ -215,6 +215,16 @@
     - isk3smaster is defined
     - isk3smaster
 
+# Install + teardown both live in the component file (gated inside on
+# grafanalogs_enabled / grafanalogs_teardown), so the import is gated only on
+# isk3smaster — same pattern as matrix/honcho/hindsight.
+- name: Deploy/teardown grafanalogs (dedicated Grafana for Loki)
+  import_tasks: monitoring/grafanalogs.yml
+  tags: [grafanalogs, loki]
+  when:
+    - isk3smaster is defined
+    - isk3smaster
+
 - name: import uptimekuma.yml if isk3smaster is defined and true
   import_tasks: monitoring/uptimekuma.yml
   tags:

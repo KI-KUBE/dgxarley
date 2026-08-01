@@ -1,0 +1,57 @@
+##
+## Loki server config — rendered by roles/k8s_infra/tasks/monitoring/loki.yml
+## into ConfigMap `loki-config`, mounted at /etc/loki/local-config.yaml.
+##
+## Single-binary, single-node, filesystem backend. No object store, no ring
+## beyond an in-memory one, replication_factor 1.
+##
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: loki_tsdb_index_
+        period: 24h
+
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /loki/tsdb-index
+    cache_location: /loki/tsdb-cache
+
+ingester:
+  max_chunk_age: 24h
+
+limits_config:
+  # Backfill guard. Relevant at a collector cutover: fluent-bit starts at the
+  # tail of each file (read_from_head off), and anything older than this window
+  # would be dropped here silently rather than rejected loudly.
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+  # Required by the collector's structured-metadata path
+  # (fluentbit_pod_labels_structured_metadata), which carries the pod labels
+  # that were deliberately dropped from the stream labels.
+  allow_structured_metadata: true
+  volume_enabled: true
+  # Raised because promtail promotes EVERY pod label to a stream label. The
+  # fluent-bit default uses a curated allowlist (13 labels) and no longer needs
+  # this headroom, but it stays for the promtail rollback path.
+  max_label_names_per_series: 30

@@ -60,8 +60,12 @@
           - Ingress
         ingress:
           # Catch-all: everything from namespace loki is allowed. That covers
-          # the promtail DaemonSet (push path, :3100) without pinning it
-          # individually. Everything outside is implicitly denied (an empty
+          # the log-collector DaemonSet (push path, :3100) without pinning it
+          # individually, and needs no change across the promtail → fluent-bit
+          # switch because both live in this namespace. A collector moved to
+          # its own namespace would silently fail to push until added to
+          # loki_networkpolicy_extra_namespaces.
+          # Everything outside is implicitly denied (an empty
           # ingress list = deny). Note: ad-hoc log queries from a debug pod in
           # another namespace are blocked too -- run such a pod in ns loki, or
           # add the namespace to loki_networkpolicy_extra_namespaces.
@@ -73,6 +77,12 @@
                       | map('community.general.dict_kv', 'namespaceSelector') | list }}"
 
 
+# Rendered into a fact first so the same string feeds both the ConfigMap and
+# the checksum annotation on the Deployment.
+- name: Render loki server config
+  ansible.builtin.set_fact:
+    _loki_conf: "{{ lookup('template', 'monitoring_loki.yaml.j2') }}"
+
 - name: Create loki configmap
   kubernetes.core.k8s:
     state: present
@@ -83,48 +93,7 @@
         name: loki-config
         namespace: loki
       data:
-        loki-config.yaml: |
-          auth_enabled: false
-
-          server:
-            http_listen_port: 3100
-            grpc_listen_port: 9096
-
-          common:
-            path_prefix: /loki
-            storage:
-              filesystem:
-                chunks_directory: /loki/chunks
-                rules_directory: /loki/rules
-            replication_factor: 1
-            ring:
-              kvstore:
-                store: inmemory
-
-          schema_config:
-            configs:
-              - from: 2024-01-01
-                store: tsdb
-                object_store: filesystem
-                schema: v13
-                index:
-                  prefix: loki_tsdb_index_
-                  period: 24h
-
-          storage_config:
-            tsdb_shipper:
-              active_index_directory: /loki/tsdb-index
-              cache_location: /loki/tsdb-cache
-
-          ingester:
-            max_chunk_age: 24h
-
-          limits_config:
-            reject_old_samples: true
-            reject_old_samples_max_age: 168h
-            allow_structured_metadata: true
-            volume_enabled: true
-            max_label_names_per_series: 30
+        loki-config.yaml: "{{ _loki_conf }}"
 
 - name: Create loki deployment
   kubernetes.core.k8s:
@@ -151,6 +120,11 @@
           metadata:
             labels:
               app: loki
+            annotations:
+              # The config is subPath-mounted, and a subPath mount never picks
+              # up ConfigMap updates — without this a config edit would land in
+              # the ConfigMap and the running Loki would keep the old one.
+              checksum/config: "{{ _loki_conf | hash('sha256') }}"
           spec:
             restartPolicy: Always
             nodeSelector:
@@ -221,172 +195,495 @@
 
 
 
-- name: Create promtail configmap
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        name: promtail-config
-        namespace: loki
-      data:
-        promtail.yaml: |
-          server:
-            http_listen_port: 9080
-            grpc_listen_port: 0
+# =============================================================================
+# LOG COLLECTOR (DaemonSet in ns `loki`)
+# =============================================================================
+# Promtail is EOL since 2026-03-02. The two collectors are gated INDEPENDENTLY
+# (`fluentbit_enabled` / `promtail_enabled`), same shape as every other
+# component in this role, rather than by one either/or selector.
+#
+# That is deliberate but sharper than an either/or: BOTH can be on at once.
+#   * Normal operation: exactly one. Two collectors tailing the same files write
+#     every line to Loki TWICE, into the SAME stream, with no label revealing
+#     it. The guard further down warns when it sees that.
+#   * Shadow canary: both on IS the intended state for phase 1 of
+#     FLUENTBIT_VALIDATE.md — fluent-bit pinned to one node via
+#     fluentbit_node_selector, carrying a temporary `collector` label so the two
+#     do not merge, promtail still running everywhere.
+#
+# Both blocks are install-only: turning one off DELETES NOTHING (repo-wide gate
+# convention). Removal is the opt-in `-e promtail_teardown=true` /
+# `-e fluentbit_teardown=true`, targeted with `--tags loki`. The teardown blocks
+# live at the END of this file, outside the install gates, so they stay
+# reachable no matter how the enable flags are set.
+#
+# The loki NetworkPolicy above needs no change for either collector: its
+# ingress catch-all allows everything from namespace `loki`, and both
+# DaemonSets live there.
+- name: Resolve log collector gates
+  ansible.builtin.set_fact:
+    _fluentbit_install: >-
+      {{ (fluentbit_enabled | default(true) | bool)
+         and not (fluentbit_teardown | default(false) | bool) }}
+    _promtail_install: >-
+      {{ (promtail_enabled | default(false) | bool)
+         and not (promtail_teardown | default(false) | bool) }}
 
-          clients:
-          - url: http://loki.loki.svc.cluster.local.:3100/loki/api/v1/push
-
-          positions:
-            filename: /tmp/positions.yaml
-          target_config:
-            sync_period: 10s
-          scrape_configs:
-          - job_name: pod-logs
-            kubernetes_sd_configs:
-              - role: pod
-            pipeline_stages:
-              - cri: {}
-            relabel_configs:
-              - source_labels:
-                  - __meta_kubernetes_pod_node_name
-                target_label: __host__
-              - action: labelmap
-                regex: __meta_kubernetes_pod_label_(.+)
-              - action: replace
-                replacement: $1
-                separator: /
-                source_labels:
-                  - __meta_kubernetes_namespace
-                  - __meta_kubernetes_pod_name
-                target_label: job
-              - action: replace
-                source_labels:
-                  - __meta_kubernetes_namespace
-                target_label: namespace
-              - action: replace
-                source_labels:
-                  - __meta_kubernetes_pod_name
-                target_label: pod
-              - action: replace
-                source_labels:
-                  - __meta_kubernetes_pod_container_name
-                target_label: container
-              - replacement: /var/log/pods/*$1/*.log
-                separator: /
-                source_labels:
-                  - __meta_kubernetes_pod_uid
-                  - __meta_kubernetes_pod_container_name
-                target_label: __path__
+- name: Warn when both log collectors are enabled at once
+  ansible.builtin.debug:
+    msg: >-
+      fluentbit_enabled AND promtail_enabled are both true — both DaemonSets
+      will tail the same files and every log line lands in Loki TWICE. That is
+      only correct for the shadow-canary phase of FLUENTBIT_VALIDATE.md (with
+      fluentbit_node_selector set and a temporary `collector` label). Otherwise
+      disable one.
+  when:
+    - _fluentbit_install | bool
+    - _promtail_install | bool
 
 
-- name: Create promtail clusterrole
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: rbac.authorization.k8s.io/v1
-      kind: ClusterRole
-      metadata:
-        name: promtail-clusterrole
-      rules:
-        - apiGroups: [""]
-          resources:
-          - nodes
-          - services
-          - pods
-          verbs:
-          - get
-          - watch
-          - list
+# -----------------------------------------------------------------------------
+# Fluent Bit (successor to promtail)
+# -----------------------------------------------------------------------------
+- name: Fluent Bit — install
+  when: _fluentbit_install | bool
+  block:
+    # All collector semantics (label mapping, CRI multiline, buffering) live in
+    # the template with their rationale. Rendered into a fact first so the same
+    # string feeds both the ConfigMap and the checksum annotation below.
+    # The lua script is referenced by the config's [FILTER] lua block and lands
+    # in the SAME ConfigMap, so both are mounted under /fluent-bit/etc/conf.
+    # Both feed the checksum below — a change to either must roll the pods.
+    - name: Render fluent-bit config
+      ansible.builtin.set_fact:
+        _fluentbit_conf: "{{ lookup('template', 'monitoring_fluentbit.conf.j2') }}"
+        _fluentbit_lua: "{{ lookup('file', role_path ~ '/files/fluentbit_job_label.lua') }}"
 
+    # Volumes are built as facts rather than written inline in the DaemonSet
+    # below, because the systemd input needs two extra host mounts that must
+    # NOT appear when it is disabled.
+    - name: Build fluent-bit volume set
+      ansible.builtin.set_fact:
+        _fluentbit_volume_mounts:
+          # Runs as root (image default): /var/log/pods is root-owned, and both
+          # tail DBs are written back into /var/log so read positions survive a
+          # pod restart (promtail kept them in an ephemeral /tmp and re-read
+          # from scratch every time).
+          - name: logs
+            mountPath: /var/log
+          # Mounted at /fluent-bit/etc/conf, NOT /fluent-bit/etc — the latter
+          # would shadow the image's plugins.conf/parsers.conf.
+          - name: fluent-bit-config
+            mountPath: /fluent-bit/etc/conf
+        _fluentbit_volumes:
+          - name: logs
+            hostPath:
+              path: /var/log
+          - name: fluent-bit-config
+            configMap:
+              name: fluent-bit-config
 
-- name: Create promtail serviceaccount
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: ServiceAccount
-      metadata:
-        namespace: loki
-        name: promtail-serviceaccount
+    # /var/log/journal (persistent) is already covered by the /var/log mount,
+    # but /run/log/journal (volatile) is not, and libsystemd refuses to open a
+    # journal without /etc/machine-id. k3smaster stores persistently; the sparks
+    # were powered off and could not be checked, so both are mounted.
+    - name: Add journal mounts when the systemd input is enabled
+      ansible.builtin.set_fact:
+        _fluentbit_volume_mounts: "{{ _fluentbit_volume_mounts + [
+            {'name': 'runlog-journal', 'mountPath': '/run/log/journal', 'readOnly': true},
+            {'name': 'machine-id', 'mountPath': '/etc/machine-id', 'readOnly': true}
+          ] }}"
+        _fluentbit_volumes: "{{ _fluentbit_volumes + [
+            {'name': 'runlog-journal', 'hostPath': {'path': '/run/log/journal', 'type': 'DirectoryOrCreate'}},
+            {'name': 'machine-id', 'hostPath': {'path': '/etc/machine-id', 'type': 'File'}}
+          ] }}"
+      when: fluentbit_systemd_enabled | default(false) | bool
 
-
-- name: Create promtail clusterrolebinding
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: rbac.authorization.k8s.io/v1
-      kind: ClusterRoleBinding
-      metadata:
-        name: promtail-clusterrolebinding
-      subjects:
-          - kind: ServiceAccount
-            name: promtail-serviceaccount
-            namespace: loki
-      roleRef:
-          kind: ClusterRole
-          name: promtail-clusterrole
-          apiGroup: rbac.authorization.k8s.io
-
-
-
-- name: Create promtail daemonset
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: apps/v1
-      kind: DaemonSet
-      metadata:
-        namespace: loki
-        name: promtail-daemonset
-        annotations:
-          keel.sh/policy: force
-          keel.sh/match-tag: "true"
-          keel.sh/pollSchedule: "@every 24h"
-          keel.sh/trigger: poll
-      spec:
-        selector:
-          matchLabels:
-            name: promtail
-        template:
+    - name: Create fluent-bit configmap
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
           metadata:
-            labels:
-              name: promtail
-          spec:
-            serviceAccount: promtail-serviceaccount
-            dnsConfig:
-              options:
-                - name: ndots
-                  value: "1"
-            containers:
-            - name: promtail-container
-              image: grafana/promtail:latest
-              imagePullPolicy: Always
-              args:
-              - -config.file=/etc/promtail/promtail.yaml
+            name: fluent-bit-config
+            namespace: loki
+          data:
+            fluent-bit.conf: "{{ _fluentbit_conf }}"
+            fluentbit_job_label.lua: "{{ _fluentbit_lua }}"
+
+    # The kubernetes filter only needs pods; `namespaces` is for its optional
+    # Namespace_Labels/Namespace_Annotations lookups. promtail additionally
+    # needed nodes+services for its kubernetes_sd_configs — fluent-bit
+    # discovers via the log filenames, not the API.
+    - name: Create fluent-bit clusterrole
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: fluent-bit-clusterrole
+          rules:
+            - apiGroups: [""]
               resources:
-                requests:
-                  cpu: 50m
-                  memory: 128Mi
-                limits:
-                  cpu: 1000m
-                  memory: 256Mi
-              env:
-              - name: 'HOSTNAME'
-                valueFrom:
-                  fieldRef:
-                    fieldPath: 'spec.nodeName'
-              volumeMounts:
-              - name: logs
-                mountPath: /var/log
-              - name: promtail-config
-                mountPath: /etc/promtail
-            volumes:
-            - name: logs
-              hostPath:
-                path: /var/log
-            - name: promtail-config
-              configMap:
-                name: promtail-config
+                - pods
+                - namespaces
+              verbs:
+                - get
+                - watch
+                - list
+
+    - name: Create fluent-bit serviceaccount
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            namespace: loki
+            name: fluent-bit-serviceaccount
+
+    - name: Create fluent-bit clusterrolebinding
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: fluent-bit-clusterrolebinding
+          subjects:
+            - kind: ServiceAccount
+              name: fluent-bit-serviceaccount
+              namespace: loki
+          roleRef:
+            kind: ClusterRole
+            name: fluent-bit-clusterrole
+            apiGroup: rbac.authorization.k8s.io
+
+    - name: Create fluent-bit daemonset
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: DaemonSet
+          metadata:
+            namespace: loki
+            name: fluent-bit-daemonset
+            annotations:
+              keel.sh/policy: force
+              keel.sh/match-tag: "true"
+              keel.sh/pollSchedule: "@every 24h"
+              keel.sh/trigger: poll
+          spec:
+            selector:
+              matchLabels:
+                name: fluent-bit
+            template:
+              metadata:
+                labels:
+                  name: fluent-bit
+                annotations:
+                  # fluent-bit does not hot-reload its config — without this the
+                  # ConfigMap would update and the running pods keep the old one.
+                  checksum/config: "{{ (_fluentbit_conf + _fluentbit_lua) | hash('sha256') }}"
+                  # Picked up by the annotation-based `kubernetes-pods` scrape
+                  # job in monitoring_prometheus.yml.j2. promtail had no metrics
+                  # wiring at all.
+                  prometheus.io/scrape: "true"
+                  prometheus.io/port: "2020"
+                  prometheus.io/path: "/api/v1/metrics/prometheus"
+              spec:
+                serviceAccount: fluent-bit-serviceaccount
+                nodeSelector: "{{ fluentbit_node_selector | default({}) }}"
+                dnsConfig:
+                  options:
+                    - name: ndots
+                      value: "1"
+                containers:
+                  - name: fluent-bit-container
+                    image: "{{ fluentbit_image }}"
+                    imagePullPolicy: Always
+                    # Mounted at /fluent-bit/etc/conf, NOT /fluent-bit/etc — the
+                    # latter would shadow the image's plugins.conf/parsers.conf.
+                    command: ["/fluent-bit/bin/fluent-bit"]
+                    args: ["-c", "/fluent-bit/etc/conf/fluent-bit.conf"]
+                    ports:
+                      - containerPort: 2020
+                        name: http
+                    resources:
+                      requests:
+                        cpu: 10m
+                        memory: 64Mi
+                      limits:
+                        cpu: 500m
+                        memory: 256Mi
+                    livenessProbe:
+                      httpGet:
+                        path: /
+                        port: http
+                      initialDelaySeconds: 10
+                      periodSeconds: 30
+                    env:
+                      - name: 'HOSTNAME'
+                        valueFrom:
+                          fieldRef:
+                            fieldPath: 'spec.nodeName'
+                    # Built above; carries two extra host mounts when the
+                    # systemd/journal input is enabled.
+                    volumeMounts: "{{ _fluentbit_volume_mounts }}"
+                volumes: "{{ _fluentbit_volumes }}"
+
+
+# -----------------------------------------------------------------------------
+# Promtail (EOL 2026-03-02 — kept for rollback, see promtail_enabled)
+# -----------------------------------------------------------------------------
+- name: Promtail — install
+  when: _promtail_install | bool
+  block:
+    - name: Render promtail config
+      ansible.builtin.set_fact:
+        _promtail_conf: "{{ lookup('template', 'monitoring_promtail.yaml.j2') }}"
+
+    - name: Create promtail configmap
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: promtail-config
+            namespace: loki
+          data:
+            promtail.yaml: "{{ _promtail_conf }}"
+
+
+    - name: Create promtail clusterrole
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: promtail-clusterrole
+          rules:
+            - apiGroups: [""]
+              resources:
+              - nodes
+              - services
+              - pods
+              verbs:
+              - get
+              - watch
+              - list
+
+
+    - name: Create promtail serviceaccount
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            namespace: loki
+            name: promtail-serviceaccount
+
+
+    - name: Create promtail clusterrolebinding
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: promtail-clusterrolebinding
+          subjects:
+              - kind: ServiceAccount
+                name: promtail-serviceaccount
+                namespace: loki
+          roleRef:
+              kind: ClusterRole
+              name: promtail-clusterrole
+              apiGroup: rbac.authorization.k8s.io
+
+
+
+    - name: Create promtail daemonset
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: DaemonSet
+          metadata:
+            namespace: loki
+            name: promtail-daemonset
+            annotations:
+              keel.sh/policy: force
+              keel.sh/match-tag: "true"
+              keel.sh/pollSchedule: "@every 24h"
+              keel.sh/trigger: poll
+          spec:
+            selector:
+              matchLabels:
+                name: promtail
+            template:
+              metadata:
+                labels:
+                  name: promtail
+                annotations:
+                  # promtail does not hot-reload without SIGHUP, so a ConfigMap
+                  # update alone would not reach the running process.
+                  checksum/config: "{{ _promtail_conf | hash('sha256') }}"
+              spec:
+                serviceAccount: promtail-serviceaccount
+                dnsConfig:
+                  options:
+                    - name: ndots
+                      value: "1"
+                containers:
+                - name: promtail-container
+                  # `:latest` is frozen upstream since the 2026-03-02 EOL, so
+                  # the keel poll above is a no-op now. Left as-is: this path
+                  # exists only as a rollback target, not to be maintained.
+                  image: grafana/promtail:latest
+                  imagePullPolicy: Always
+                  args:
+                  - -config.file=/etc/promtail/promtail.yaml
+                  resources:
+                    requests:
+                      cpu: 50m
+                      memory: 128Mi
+                    limits:
+                      cpu: 1000m
+                      memory: 256Mi
+                  env:
+                  - name: 'HOSTNAME'
+                    valueFrom:
+                      fieldRef:
+                        fieldPath: 'spec.nodeName'
+                  volumeMounts:
+                  - name: logs
+                    mountPath: /var/log
+                  - name: promtail-config
+                    mountPath: /etc/promtail
+                volumes:
+                - name: logs
+                  hostPath:
+                    path: /var/log
+                - name: promtail-config
+                  configMap:
+                    name: promtail-config
+
+
+# -----------------------------------------------------------------------------
+# Duplicate-collector guard
+# -----------------------------------------------------------------------------
+# Turning a collector's enable flag off DELETES NOTHING (repo-wide convention),
+# so a DaemonSet from a previous run keeps tailing and every line lands in Loki
+# twice — in the SAME stream, with no label revealing it. This checks the
+# CLUSTER, not the variables: it catches the leftover that the enable flags no
+# longer mention. Warn instead of deleting behind the operator's back; the
+# teardown below is the explicit lever.
+- name: Look for collector DaemonSets that are no longer enabled
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: DaemonSet
+    namespace: loki
+    name: "{{ item.ds }}"
+  register: _loki_stale_collector
+  loop:
+    - { ds: fluent-bit-daemonset, install: "{{ _fluentbit_install }}", flag: fluentbit_teardown }
+    - { ds: promtail-daemonset, install: "{{ _promtail_install }}", flag: promtail_teardown }
+  loop_control:
+    label: "{{ item.ds }}"
+  when: not (item.install | bool)
+
+- name: Warn about a disabled log collector still running
+  ansible.builtin.debug:
+    msg: >-
+      DaemonSet {{ item.item.ds }} is still running in namespace loki although
+      it is no longer enabled. While another collector is active, every log line
+      is written to Loki TWICE. Remove it with:
+      ansible-playbook k8s_infra.yml --tags loki -e {{ item.item.flag }}=true
+  loop: "{{ _loki_stale_collector.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.ds }}"
+  when:
+    - not (item.skipped | default(false))
+    - item.resources | default([]) | length > 0
+
+
+# -----------------------------------------------------------------------------
+# Teardowns (opt-in, outside the install gates so they stay reachable)
+# -----------------------------------------------------------------------------
+# Neither teardown touches the loki namespace, the Loki Deployment or the log
+# data under {{ k8s_infra_data_base }}/loki — only the collector's own objects.
+- name: Promtail — teardown (opt-in `-e promtail_teardown=true`)
+  when: promtail_teardown | default(false) | bool
+  block:
+    - name: Delete promtail namespaced resources
+      kubernetes.core.k8s:
+        state: absent
+        api_version: "{{ item.api_version }}"
+        kind: "{{ item.kind }}"
+        name: "{{ item.name }}"
+        namespace: loki
+      loop:
+        - { api_version: apps/v1, kind: DaemonSet, name: promtail-daemonset }
+        - { api_version: v1, kind: ConfigMap, name: promtail-config }
+        - { api_version: v1, kind: ServiceAccount, name: promtail-serviceaccount }
+      loop_control:
+        label: "{{ item.kind }}/{{ item.name }}"
+
+    - name: Delete promtail cluster-scoped resources
+      kubernetes.core.k8s:
+        state: absent
+        api_version: rbac.authorization.k8s.io/v1
+        kind: "{{ item.kind }}"
+        name: "{{ item.name }}"
+      loop:
+        - { kind: ClusterRoleBinding, name: promtail-clusterrolebinding }
+        - { kind: ClusterRole, name: promtail-clusterrole }
+      loop_control:
+        label: "{{ item.kind }}/{{ item.name }}"
+
+    # promtail kept its read positions in an ephemeral /tmp inside the pod, so
+    # there is nothing to clean up on the nodes. fluent-bit's tail DB below is
+    # different — it lives on the host.
+
+
+- name: Fluent Bit — teardown (opt-in `-e fluentbit_teardown=true`)
+  when: fluentbit_teardown | default(false) | bool
+  block:
+    - name: Delete fluent-bit namespaced resources
+      kubernetes.core.k8s:
+        state: absent
+        api_version: "{{ item.api_version }}"
+        kind: "{{ item.kind }}"
+        name: "{{ item.name }}"
+        namespace: loki
+      loop:
+        - { api_version: apps/v1, kind: DaemonSet, name: fluent-bit-daemonset }
+        - { api_version: v1, kind: ConfigMap, name: fluent-bit-config }
+        - { api_version: v1, kind: ServiceAccount, name: fluent-bit-serviceaccount }
+      loop_control:
+        label: "{{ item.kind }}/{{ item.name }}"
+      # NOTE: /var/log/flb_journal.db (the journal read position) is left on the
+      # nodes for the same reason as flb_kube.db below.
+
+    - name: Delete fluent-bit cluster-scoped resources
+      kubernetes.core.k8s:
+        state: absent
+        api_version: rbac.authorization.k8s.io/v1
+        kind: "{{ item.kind }}"
+        name: "{{ item.name }}"
+      loop:
+        - { kind: ClusterRoleBinding, name: fluent-bit-clusterrolebinding }
+        - { kind: ClusterRole, name: fluent-bit-clusterrole }
+      loop_control:
+        label: "{{ item.kind }}/{{ item.name }}"
+
+    # NOTE: /var/log/flb_kube.db is DELIBERATELY left on every node. It is the
+    # tail read-position DB; keeping it means a re-install resumes where it
+    # stopped instead of replaying every rotated log file into Loki. Remove it
+    # by hand (all 5 nodes) only if you want a full re-read.

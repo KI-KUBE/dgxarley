@@ -74,7 +74,12 @@ nut_mode: "netserver"
 nut_listen_address: "0.0.0.0"
 nut_listen_port: 3493
 
-# upsd users (override passwords via vault)
+# upsd users. All four are overridden from group_vars/all/{main,vault}/nut.yml —
+# the usernames used to live only here, which made them invisible to a vault
+# audit even though they are half of a credential.
+# nut_monitor_user/-password MUST match nut_exporter_username/-password
+# (roles/k8s_infra/defaults/main/monitoring.yml): separate variables in a
+# separate role, so a rotation of one side silently locks out the exporter.
 nut_admin_user: "admin"
 nut_admin_password: "changeme"
 nut_monitor_user: "monuser"

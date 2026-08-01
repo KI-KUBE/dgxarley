@@ -14,3 +14,50 @@ alertmanager_smtp_mailfrom: "alertmanager@example.com"
 alertmanager_alert_email: "admin@example.com"
 alertmanager_gotify_token: "CHANGEME_GOTIFY_TOKEN"
 alertmanager_gotify_url: "https://gotify.example.com"
+
+# ---------------------------------------------------------------------------
+# Loki log collector (fluent-bit) — operational config
+# ---------------------------------------------------------------------------
+# None of these are secrets; they live here (and in vault/) so the EFFECTIVE
+# collector config is defined at group level and a change stays attributable to
+# the monitoring topic without decrypting anything.
+#
+# CAUTION — these keys now SHADOW roles/k8s_infra/defaults/main/monitoring.yml.
+# Editing the role default has no effect any more; change them here and in
+# vault/. That bites hardest on the two LISTS below: group_vars REPLACES a list
+# wholesale rather than merging, so appending an entry to the role default is
+# silently ineffective. Same trap as litellm_model_list_append.
+#
+# The two collectors are gated independently. `<x>_enabled: false` only skips
+# the install, it deletes nothing — removal is `-e <x>_teardown=true`. Both
+# enabled at once duplicates every log line in Loki and is only correct for the
+# shadow-canary phase of FLUENTBIT_VALIDATE.md.
+# The teardown flags are normally driven as `-e` extra-vars (which beat
+# group_vars); they are listed here so the resting state is explicit.
+fluentbit_enabled: true
+promtail_enabled: false
+fluentbit_teardown: false
+promtail_teardown: false
+fluentbit_image: "fluent/fluent-bit:4.2"
+fluentbit_node_selector: {}
+fluentbit_pod_labels:
+  - app
+  - name
+  - k8s-app
+  - tier
+  - variant
+  - app.kubernetes.io/name
+  - app.kubernetes.io/instance
+  - app.kubernetes.io/component
+fluentbit_auto_kubernetes_labels: false
+fluentbit_pod_labels_structured_metadata: true
+fluentbit_node_label: false
+fluentbit_output_storage_limit: "1G"
+# systemd/journal input — additive, NOT promtail parity. Keep off while the
+# collector acceptance check in FLUENTBIT_VALIDATE.md runs.
+fluentbit_systemd_enabled: false
+fluentbit_systemd_units:
+  - ulogd2.service
+  - k3s.service
+  - k3s-agent.service
+fluentbit_systemd_max_entries: 1000

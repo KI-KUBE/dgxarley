@@ -1,0 +1,361 @@
+---
+# =============================================================================
+# GRAFANALOGS — dedicated Grafana for Loki (log exploration UI)
+# =============================================================================
+# Ported from the sister repo (`../ansible`,
+# roles/k8s_infra/tasks/monitoring/kubectlstuff_loki.yml:508-722), where it is a
+# second Grafana next to the Prometheus one. Adapted to this repo's conventions;
+# the port is deliberately NOT 1:1, see the divergence list below.
+#
+# WHY A SECOND GRAFANA AT ALL: the Prometheus Grafana lives in namespace
+# `monitoring`, and `loki-ingress-allow-namespace` only admits traffic from
+# namespace `loki`. Since the 2026-07-30 k3s restart that policy is actually
+# ENFORCED (kube-router active, `disable-network-policy: false`), so a Loki
+# datasource in the monitoring Grafana would fail unless `monitoring` were added
+# to `loki_networkpolicy_extra_namespaces`. Running this instance IN namespace
+# `loki` sidesteps that entirely and keeps the policy tight.
+#
+# DIVERGENCES FROM THE SISTER REPO (all deliberate):
+#   * The Loki datasource is actually PROVISIONED here. The sister deploys a
+#     Grafana with no datasource at all, so it has to be clicked in by hand —
+#     which defeats the purpose of the instance.
+#   * Admin credentials come from a Secret fed by a variable. The sister has the
+#     password inline in plaintext in the task file.
+#   * hostPath storage instead of a PVC — this cluster has no dynamic
+#     StorageClass (same reason Loki itself uses hostPath).
+#   * The two IngressRoutes get DISTINCT names. In the sister repo both are
+#     named `grafanalogsingress` in the same namespace, so the HTTPS one
+#     silently overwrites the HTTP redirect one.
+#   * The junk ConfigMap `grafana-config` (literal "undefined shit" mounted at
+#     /etc/grafana_config, read by nothing) is not carried over.
+#   * Image pinned to the same tag as the Prometheus Grafana instead of
+#     `:latest`, and an ip-allowlist middleware plus a DNS A record are added to
+#     match how every other published service in this repo is exposed.
+#
+# Gated install + in-file teardown, same pattern as matrix/honcho/hindsight:
+# `grafanalogs_enabled: false` only SKIPS the install, it deletes nothing.
+# Removal is the opt-in `-e grafanalogs_teardown=true`.
+
+- name: Grafanalogs — install
+  when:
+    - grafanalogs_enabled | default(false) | bool
+    - not (grafanalogs_teardown | default(false) | bool)
+  block:
+    - name: Create grafanalogs-secrets
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: grafanalogs-secrets
+            namespace: loki
+          type: Opaque
+          stringData:
+            GF_SECURITY_ADMIN_USER: 'admin'
+            GF_SECURITY_ADMIN_PASSWORD: "{{ grafanalogs_admin_password }}"
+            GF_AUTH_ANONYMOUS_ENABLED: 'false'
+            GF_SERVER_ROOT_URL: "https://grafanalogs.{{ dns_external_domain_suffix }}"
+      register: grafanalogs_secrets
+
+    # The point of the whole instance. Loki runs with auth_enabled=false, so no
+    # credentials are needed; the NetworkPolicy is what protects it, and this
+    # pod satisfies it by living in namespace `loki`.
+    - name: Create grafanalogs-provisioning ConfigMap
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: grafanalogs-provisioning
+            namespace: loki
+          data:
+            datasources.yaml: |
+              apiVersion: 1
+              deleteDatasources:
+                - name: Loki
+                  orgId: 1
+              datasources:
+              - name: Loki
+                type: loki
+                url: http://loki.loki.svc.cluster.local:3100
+                access: proxy
+                isDefault: true
+                uid: loki
+                jsonData:
+                  # Single-binary Loki, one tenant, auth_enabled=false — no
+                  # X-Scope-OrgID header must be sent.
+                  timeout: 60
+                  maxLines: 5000
+      register: grafanalogs_provisioning
+
+    - name: Create grafanalogs Deployment
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: grafanalogs
+            namespace: loki
+            labels:
+              app: grafanalogs
+          spec:
+            replicas: 1
+            # hostPath storage — never two pods on the same grafana.db.
+            strategy:
+              type: Recreate
+            selector:
+              matchLabels:
+                app: grafanalogs
+            template:
+              metadata:
+                labels:
+                  app: grafanalogs
+                annotations:
+                  checksum/config: "{{ (grafanalogs_secrets.result.data | to_json + grafanalogs_provisioning.result.data | to_json) | hash('sha256') }}"
+                  kubectl.kubernetes.io/default-container: "grafanalogs"
+                  keel.sh/policy: force
+                  keel.sh/match-tag: "true"
+                  keel.sh/pollSchedule: "@every 24h"
+                  keel.sh/trigger: poll
+              spec:
+                # hostPath lives on k3smaster; Loki itself is pinned the same way.
+                nodeSelector:
+                  kubernetes.io/arch: amd64
+                dnsConfig:
+                  options:
+                    - name: ndots
+                      value: "2"
+                initContainers:
+                  - name: fix-permissions
+                    image: busybox
+                    command: ["sh", "-c", "chown -R 472:472 /var/lib/grafana"]
+                    volumeMounts:
+                      - name: grafanalogs-storage
+                        mountPath: /var/lib/grafana
+                containers:
+                  - name: grafanalogs
+                    image: "{{ grafanalogs_image }}"
+                    ports:
+                      - name: grafanaport
+                        containerPort: 3000
+                    envFrom:
+                      - secretRef:
+                          name: grafanalogs-secrets
+                    volumeMounts:
+                      - name: grafanalogs-storage
+                        mountPath: /var/lib/grafana
+                      - name: grafanalogs-provisioning
+                        mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+                        subPath: datasources.yaml
+                    readinessProbe:
+                      httpGet:
+                        path: /robots.txt
+                        port: grafanaport
+                      initialDelaySeconds: 10
+                      periodSeconds: 30
+                      timeoutSeconds: 2
+                    livenessProbe:
+                      tcpSocket:
+                        port: grafanaport
+                      initialDelaySeconds: 30
+                      periodSeconds: 10
+                    resources:
+                      requests:
+                        cpu: 100m
+                        memory: 128Mi
+                      limits:
+                        cpu: 500m
+                        memory: 512Mi
+                volumes:
+                  - name: grafanalogs-storage
+                    hostPath:
+                      path: "{{ k8s_infra_data_base }}/grafanalogs"
+                      type: DirectoryOrCreate
+                  - name: grafanalogs-provisioning
+                    configMap:
+                      name: grafanalogs-provisioning
+
+    - name: Create grafanalogs Service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: grafanalogs
+            namespace: loki
+          spec:
+            selector:
+              app: grafanalogs
+            type: ClusterIP
+            ports:
+              - port: 3000
+                targetPort: grafanaport
+
+    # Middlewares are created PER NAMESPACE in this repo — Traefik's CRD
+    # provider is not configured for cross-namespace references, so pointing at
+    # the `monitoring` copies would silently 404. Namespace `loki` had none yet.
+    - name: Create grafanalogs ip allowlist middleware
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: grafanalogs-ip-allowlist
+            namespace: loki
+          spec:
+            ipAllowList:
+              sourceRange: "{{ traefik_internal_allowlist }}"
+
+    - name: Create http to https redirect middleware
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: redirect-myhttps
+            namespace: loki
+          spec:
+            redirectScheme:
+              scheme: https
+
+    - name: Create grafanalogs TLS Certificate
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: cert-manager.io/v1
+          kind: Certificate
+          metadata:
+            name: "grafanalogs.{{ dns_external_domain_suffix }}"
+            namespace: loki
+          spec:
+            dnsNames:
+              - "grafanalogs.{{ dns_external_domain_suffix }}"
+            secretName: "grafanalogs.{{ dns_external_domain_suffix }}"
+            issuerRef:
+              name: "{{ grafanalogs_tls_issuer }}"
+              kind: ClusterIssuer
+
+    # Distinct names for the two routes — see the divergence note in the header.
+    - name: Create grafanalogs HTTP IngressRoute
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
+          metadata:
+            name: grafanalogshttpingress
+            namespace: loki
+          spec:
+            entryPoints:
+              - web
+            routes:
+              - kind: Rule
+                match: "Host(`grafanalogs.{{ dns_external_domain_suffix }}`)"
+                priority: 10
+                services:
+                  - kind: Service
+                    name: grafanalogs
+                    namespace: loki
+                    passHostHeader: true
+                    port: 3000
+                middlewares:
+                  - name: grafanalogs-ip-allowlist
+                    namespace: loki
+                  - name: redirect-myhttps
+                    namespace: loki
+
+    - name: Create grafanalogs HTTPS IngressRoute
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
+          metadata:
+            name: grafanalogshttpsingress
+            namespace: loki
+          spec:
+            entryPoints:
+              - websecure
+            routes:
+              - kind: Rule
+                match: "Host(`grafanalogs.{{ dns_external_domain_suffix }}`)"
+                priority: 10
+                services:
+                  - kind: Service
+                    name: grafanalogs
+                    namespace: loki
+                    passHostHeader: true
+                    port: 3000
+                middlewares:
+                  - name: grafanalogs-ip-allowlist
+                    namespace: loki
+            tls:
+              secretName: "grafanalogs.{{ dns_external_domain_suffix }}"
+
+    - name: Register DNS A record for grafanalogs
+      community.general.nsupdate:
+        server: "{{ nsupdate_server }}"
+        zone: "{{ nsupdate_zone }}"
+        key_name: "{{ nsupdate_tsig_key_name }}"
+        key_secret: "{{ nsupdate_tsig_key_secret }}"
+        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
+        record: "grafanalogs.{{ dns_external_domain_suffix }}."
+        type: A
+        ttl: "{{ nsupdate_ttl }}"
+        value: "{{ nsupdate_ingress_ip }}"
+        state: present
+      when: grafanalogs_manage_dns | default(true) | bool
+
+
+- name: Grafanalogs — teardown (opt-in `-e grafanalogs_teardown=true`)
+  when: grafanalogs_teardown | default(false) | bool
+  block:
+    # The `loki` namespace is NEVER deleted here — it holds Loki itself and the
+    # log collector. Only this instance's own objects are removed.
+    - name: Delete grafanalogs namespaced resources
+      kubernetes.core.k8s:
+        state: absent
+        api_version: "{{ item.api_version }}"
+        kind: "{{ item.kind }}"
+        name: "{{ item.name }}"
+        namespace: loki
+      loop:
+        - { api_version: apps/v1, kind: Deployment, name: grafanalogs }
+        - { api_version: v1, kind: Service, name: grafanalogs }
+        - { api_version: v1, kind: Secret, name: grafanalogs-secrets }
+        - { api_version: v1, kind: ConfigMap, name: grafanalogs-provisioning }
+        - { api_version: traefik.io/v1alpha1, kind: IngressRoute, name: grafanalogshttpingress }
+        - { api_version: traefik.io/v1alpha1, kind: IngressRoute, name: grafanalogshttpsingress }
+        - { api_version: traefik.io/v1alpha1, kind: Middleware, name: grafanalogs-ip-allowlist }
+        - { api_version: cert-manager.io/v1, kind: Certificate, name: "grafanalogs.{{ dns_external_domain_suffix }}" }
+        # cert-manager does NOT garbage-collect the TLS Secret behind a deleted
+        # Certificate — same trap as the matrix client teardowns.
+        - { api_version: v1, kind: Secret, name: "grafanalogs.{{ dns_external_domain_suffix }}" }
+      loop_control:
+        label: "{{ item.kind }}/{{ item.name }}"
+
+    # `redirect-myhttps` is deliberately NOT deleted: it is a generic, shared
+    # middleware name that other routes in this namespace may adopt later.
+    # Delete it by hand if namespace `loki` really has no ingress left.
+
+    - name: Remove DNS A record for grafanalogs
+      community.general.nsupdate:
+        server: "{{ nsupdate_server }}"
+        zone: "{{ nsupdate_zone }}"
+        key_name: "{{ nsupdate_tsig_key_name }}"
+        key_secret: "{{ nsupdate_tsig_key_secret }}"
+        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
+        record: "grafanalogs.{{ dns_external_domain_suffix }}."
+        type: A
+        state: absent
+      when: grafanalogs_manage_dns | default(true) | bool
+
+    # NOTE: {{ k8s_infra_data_base }}/grafanalogs is deliberately left on disk.
+    # It holds grafana.db with saved dashboards, explore history and any manually
+    # added datasources. Remove it by hand to abandon the instance for good.

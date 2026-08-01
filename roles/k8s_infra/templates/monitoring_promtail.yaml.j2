@@ -1,0 +1,71 @@
+##
+## Promtail config — rendered by roles/k8s_infra/tasks/monitoring/loki.yml into
+## ConfigMap `promtail-config`, mounted at /etc/promtail/promtail.yaml.
+##
+## LEGACY / ROLLBACK PATH ONLY. Promtail is EOL since 2026-03-02 and is only
+## installed when `promtail_enabled: true`. The supported collector is
+## fluent-bit (monitoring_fluentbit.conf.j2). Do not extend this file; changes
+## belong in the fluent-bit template.
+##
+## Kept unchanged on purpose: this is the reference the fluent-bit label mapping
+## was derived from, and any edit here would invalidate that comparison. Note
+## that the label set this produces is NOT fully visible from this file — the
+## `cri:` stage below also exports a `stream` label (stdout/stderr) that is
+## documented nowhere in it, and promtail additionally adds a `filename` label
+## for every file target. Both were only found by querying the live Loki.
+##
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+clients:
+- url: http://loki.loki.svc.cluster.local.:3100/loki/api/v1/push
+
+# Inside the container, i.e. ephemeral: promtail re-reads from scratch after
+# every restart. fluent-bit keeps its equivalent DB on the hostPath instead.
+positions:
+  filename: /tmp/positions.yaml
+target_config:
+  sync_period: 10s
+scrape_configs:
+- job_name: pod-logs
+  kubernetes_sd_configs:
+    - role: pod
+  pipeline_stages:
+    # Rejoins the P/F partial lines the runtime splits at 16 KB, AND exports
+    # `stream`. fluent-bit's equivalent is `multiline.parser cri` on the input.
+    - cri: {}
+  relabel_configs:
+    # Internal target filter only — never exported as a label.
+    - source_labels:
+        - __meta_kubernetes_pod_node_name
+      target_label: __host__
+    # Promotes EVERY pod label, which is why limits_config had to raise
+    # max_label_names_per_series to 30. fluent-bit uses a curated allowlist.
+    - action: labelmap
+      regex: __meta_kubernetes_pod_label_(.+)
+    - action: replace
+      replacement: $1
+      separator: /
+      source_labels:
+        - __meta_kubernetes_namespace
+        - __meta_kubernetes_pod_name
+      target_label: job
+    - action: replace
+      source_labels:
+        - __meta_kubernetes_namespace
+      target_label: namespace
+    - action: replace
+      source_labels:
+        - __meta_kubernetes_pod_name
+      target_label: pod
+    - action: replace
+      source_labels:
+        - __meta_kubernetes_pod_container_name
+      target_label: container
+    - replacement: /var/log/pods/*$1/*.log
+      separator: /
+      source_labels:
+        - __meta_kubernetes_pod_uid
+        - __meta_kubernetes_pod_container_name
+      target_label: __path__

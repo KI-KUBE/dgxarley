@@ -22,11 +22,177 @@ loki_networkpolicy_enabled: true
 # e.g. ["monitoring"] once Grafana gets a Loki datasource. Plain name strings —
 # matched on the automatic `kubernetes.io/metadata.name` namespace label.
 loki_networkpolicy_extra_namespaces: []
+# ---------------------------------------------------------------------------
+# Loki log collector (DaemonSet in ns `loki`)
+# ---------------------------------------------------------------------------
+# !! These values are SHADOWED. Every key below is redefined in
+# !! group_vars/all/main/monitoring.yml and group_vars/all/vault/monitoring.yml,
+# !! which both win over role defaults. Editing them HERE has no effect — change
+# !! the group_vars copies. The lists are especially unforgiving: group_vars
+# !! REPLACES a list wholesale instead of merging, so an entry appended here is
+# !! silently ignored. What remains below is documentation of intent plus the
+# !! fallback for a deployment without this repo's group_vars.
+# Promtail is EOL since 2026-03-02 (LTS from 2025-02, commercial support ended
+# 2026-02-28) — `fluentbit` is the successor deployed here. Grafana's own
+# recommendation is Alloy; Fluent Bit was chosen for its much smaller footprint
+# on the ARM64 sparks, at the cost of rebuilding promtail's relabel semantics
+# by hand (see the label-parity notes in tasks/monitoring/loki.yml).
+#
+# The two collectors are gated INDEPENDENTLY, same shape as every other
+# component in this role. `<x>_enabled: false` only skips the install, it
+# deletes nothing; removal is the opt-in
+#   ansible-playbook k8s_infra.yml --tags loki -e promtail_teardown=true
+#
+# Independent flags mean BOTH can be on. In normal operation exactly one should
+# be — two collectors tail the same files and write every line to Loki twice,
+# into the same stream, with nothing in the labels revealing it. The task file
+# warns in that case, and also when a DaemonSet is still running although its
+# flag is off (turning a flag off does not remove anything).
+# Both on IS correct for one situation: the shadow-canary phase of
+# FLUENTBIT_VALIDATE.md, with fluentbit_node_selector pinning fluent-bit to one
+# node and a temporary `collector` label keeping the streams apart.
+fluentbit_enabled: true
+promtail_enabled: false
+promtail_teardown: false
+fluentbit_teardown: false
+# Pin the MOVING MINOR tag — Fluent Bit's config format drifts across majors
+# (classic .conf vs YAML), so keel (force + match-tag + poll) must only walk
+# patch releases. `4.2` exists as a moving tag and currently resolves to 4.2.7;
+# there is deliberately no bare `4` tag upstream. 5.0 is the current major —
+# moving there is a manual decision, not something keel should do overnight.
+# Multi-arch (amd64/arm64/arm), so the same tag runs on k3smaster and spark1-4.
+fluentbit_image: "fluent/fluent-bit:4.2"
+# Canary rollout: pin the fluent-bit DaemonSet to a node subset while comparing
+# its labels against promtail's in Grafana. Empty = all nodes (normal state).
+# e.g. {"kubernetes.io/hostname": "elite800"}
+fluentbit_node_selector: {}
+# Pod labels promoted to Loki stream labels, as an explicit ALLOWLIST.
+#
+# This is a deliberate divergence from promtail. promtail's `labelmap
+# __meta_kubernetes_pod_label_(.+)` promotes EVERY pod label, which is why
+# `max_label_names_per_series: 30` had to be raised in the Loki config above.
+# Measured on this cluster: `pod-template-hash` alone had 31 distinct values
+# across 32 pods (a fresh stream on every single rollout), and the Job labels
+# (`job-name`, `controller-uid`, and their `batch.kubernetes.io/` twins) mint a
+# new value per Job run, i.e. unbounded growth. Those are dropped here.
+#
+# Kept are the labels that are actually queried on: `{app="sglang"}` and
+# friends. Dropping THOSE would be the change that breaks dashboards, so the
+# list errs on the side of keeping anything selector-shaped.
+#
+# Names are sanitized to Loki's `[a-zA-Z_][a-zA-Z0-9_]*` exactly as promtail's
+# labelmap did (`app.kubernetes.io/name` → `app_kubernetes_io_name`), so
+# existing queries against those keep matching. A pod missing an entry from
+# this list simply gets no such label — out_loki skips a record accessor that
+# resolves to nothing rather than emitting an empty one.
+fluentbit_pod_labels:
+  - app
+  - name
+  - k8s-app
+  - tier
+  - variant
+  - app.kubernetes.io/name
+  - app.kubernetes.io/instance
+  - app.kubernetes.io/component
+# REMOVED: `hermes-component` / `hermes-user`. They showed up in a scan of live
+# pod labels and were briefly listed here; they are set per-user in
+# templates/hermes/hermes_agent_deployment.yaml.j2 and are app-specific, and
+# `hermes-user` grows with the number of hermes users. Both remain queryable via
+# structured metadata (see fluentbit_pod_labels_structured_metadata below).
+# Escape hatch: `on` promotes every pod label, i.e. byte-exact promtail
+# parity, INCLUDING the churn documented above. Only worth it if a rollback to
+# promtail has to be label-comparable. When true, fluentbit_pod_labels is
+# ignored (auto covers a superset of it).
+fluentbit_auto_kubernetes_labels: false
+# Send the FULL pod-label map as Loki structured metadata, so the churn labels
+# dropped from fluentbit_pod_labels above stay findable without costing a
+# stream. `pod-template-hash` becomes `| pod_template_hash="abc"` after a
+# stream selector instead of `{pod_template_hash="abc"}`.
+# Verified against out_loki's pack_maps(): it walks the addressed map and packs
+# one entry per pod label, sanitizing keys exactly like the stream labels do.
+# Requires `allow_structured_metadata: true` in the Loki config (set above).
+# Cost: the allowlisted labels are then carried BOTH as stream labels and
+# per-line metadata. Set false to save that per-line overhead and accept that
+# the churn labels are simply gone.
+fluentbit_pod_labels_structured_metadata: true
+# --- systemd/journal input (separately gated, OFF) -------------------------
+# Collects node-level journal logs IN ADDITION to container logs. This is a NEW
+# capability, not parity: promtail had exactly one scrape (`pod-logs`) and no
+# journal source, verified 2026-08-01 (every `job` value in Loki has the
+# <namespace>/<pod> form, and no unit/syslog_identifier/boot_id label exists).
+#
+# Motivation: kernel and unit logs never reached Loki. In particular
+# `journalctl -t ulogd` (the kube-router NetworkPolicy drops, relevant now that
+# policies are enforced) and everything rsyslog forwards into the journal via
+# omjournal (haproxy, UDP 514 from pods) are only visible per node over SSH.
+#
+# Enabling ADDS streams, so it MUST stay off while the collector parity check in
+# FLUENTBIT_VALIDATE.md runs — it would make the "no additional streams"
+# criterion fail by design. Turn it on afterwards.
+fluentbit_systemd_enabled: false
+# Units to collect, matched as `_SYSTEMD_UNIT=<value>`, OR-combined. An empty
+# list means NO filter, i.e. the ENTIRE journal.
+# Measured volume on k3smaster over 24 h: k3s.service 26635 entries,
+# haproxy.service 2228, cron 545, everything else in the low hundreds. ulogd2
+# only fires on actual policy drops. Widen deliberately; `[]` on a busy node is
+# a lot of lines.
+fluentbit_systemd_units:
+  - ulogd2.service
+  - k3s.service
+  - k3s-agent.service
+# Entries read per input cycle. Upstream default is 5000; lowered so a burst
+# cannot starve the container-log input, which stays the primary source.
+fluentbit_systemd_max_entries: 1000
+# Cap for the on-disk output retry buffer, per node. The output retries
+# forever (a Loki restart must not lose logs), so this is what bounds the
+# damage if Loki stays down: once hit, the OLDEST buffered chunks are dropped.
+fluentbit_output_storage_limit: "1G"
+# Optional `node` stream label. OFF for label parity: promtail's `__host__` was
+# an internal target label and was never exported to Loki.
+fluentbit_node_label: false
+# ---------------------------------------------------------------------------
+# Grafanalogs — dedicated Grafana for Loki (ported from the sister repo)
+# ---------------------------------------------------------------------------
+# A SECOND Grafana, in namespace `loki`, with the Loki datasource provisioned.
+# It lives in `loki` on purpose: `loki-ingress-allow-namespace` only admits
+# traffic from that namespace, and since the 2026-07-30 k3s restart the policy
+# is actually enforced. A Loki datasource in the Prometheus Grafana (namespace
+# `monitoring`) would need `loki_networkpolicy_extra_namespaces: ["monitoring"]`
+# instead, which widens the policy — this keeps it tight.
+#
+# OFF by default, like every other ported component here (cf. matrix_enabled).
+# Enable with `grafanalogs_enabled: true`, then:
+#   ansible-playbook k8s_infra.yml --tags grafanalogs
+# `false` only skips the install; removal is the opt-in
+#   ansible-playbook k8s_infra.yml --tags grafanalogs -e grafanalogs_teardown=true
+grafanalogs_enabled: false
+grafanalogs_teardown: false
+# Same pin as the Prometheus Grafana. The sister repo runs `:latest`; keel
+# (force + match-tag + poll) then walks majors unattended, which for Grafana
+# means unannounced schema migrations of grafana.db.
+grafanalogs_image: "grafana/grafana:12.4-ubuntu"
+grafanalogs_tls_issuer: "letsencrypt-production"
+# Set false to manage the grafanalogs A record outside this repo.
+grafanalogs_manage_dns: true
+# NOT a dummy and deliberately absent from group_vars/all/{main,vault}/: this is
+# an ALIAS onto the already-vaulted grafana_admin_password, resolved lazily, so
+# this instance gets the real password without a second copy of the secret.
+# Adding it to main/ with a placeholder would OVERRIDE this alias (main/ beats
+# role defaults) and hand grafanalogs the placeholder unless vault/ is filled
+# too — and that copy would then have to be rotated in lockstep. Only split it
+# out if this instance should genuinely have its OWN password; then it needs an
+# entry in BOTH files.
+grafanalogs_admin_password: "{{ grafana_admin_password }}"
 # Enable-gate (import-level). ON by default. Teardown opt-in:
 # `-e nut_exporter_teardown=true` removes the exporter Deployment/Service/Secret
 # from the shared `monitoring` namespace (the namespace itself is NOT deleted).
 nut_exporter_enabled: true
 nut_exporter_teardown: false
+# nut_exporter_server / _username / _password are overridden from
+# group_vars/all/{main,vault}/nut.yml — they belong to the `nut` topic file so a
+# change stays attributable without decrypting. _username/_password MUST match
+# nut_monitor_user/nut_monitor_password of the `nut` role, which is what
+# upsd.users contains; they are separate variables and can drift silently.
 nut_exporter_server: "192.168.124.100"
 nut_exporter_username: "monuser"
 nut_exporter_password: "changeme"
