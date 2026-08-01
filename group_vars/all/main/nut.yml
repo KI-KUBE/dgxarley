@@ -3,8 +3,19 @@
 # NUT UPS
 nut_ups_name: "greencell"
 nut_ups_secondary_name: "greencell2"
+# upsd users — these become the section names in /etc/nut/upsd.users.
+# nut_monitor_user/-password must stay equal to nut_exporter_username/-password
+# below, otherwise the Prometheus exporter cannot log in to upsd.
+nut_admin_user: "admin"
 nut_admin_password: "changeme"
+nut_monitor_user: "monuser"
 nut_monitor_password: "changeme"
 # NUT exporter (k8s_infra)
 nut_exporter_server: "192.168.124.100"
+# Must match the upsd user the `nut` role creates from nut_monitor_user
+# (roles/nut/templates/etc_nut_upsd.users.j2 renders `[{{ nut_monitor_user }}]`)
+# — and nut_exporter_password must match nut_monitor_password, otherwise the
+# exporter cannot authenticate against upsd. The two are separate variables in
+# separate roles, so they can drift silently; verified identical 2026-08-01.
+nut_exporter_username: "monuser"
 nut_exporter_password: "changeme"
