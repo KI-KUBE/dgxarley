@@ -182,7 +182,7 @@ All persistent data uses hostPath volumes under `/var/lib/k8s-data/` on k3smaste
 | Prometheus             | monitoring                | Metrics collection (scrapes kubelets, cAdvisor, CoreDNS, Traefik, KSM, node-exporter)                                                                  |
 | Grafana                | monitoring                | Dashboards (local auth, auto-provisioned Kubernetes dashboards from dotdc)                                                                             |
 | Alertmanager           | monitoring                | Alert routing (email + Gotify bridge via external cluster)                                                                                             |
-| Loki + Promtail        | loki                      | Log aggregation (filesystem backend, DaemonSet log collector)                                                                                          |
+| Loki + Fluent Bit      | loki                      | Log aggregation (filesystem backend, DaemonSet log collector; `fluentbit_enabled` / `promtail_enabled` gate them independently, promtail EOL since 2026-03-02)              |
 | NUT Exporter           | monitoring                | Prometheus exporter for NUT UPS metrics (`druggeri/nut_exporter:3.2.5`, per-UPS scrape jobs)                                                           |
 | Uptime Kuma            | uptimekuma                | Uptime monitoring                                                                                                                                      |
 

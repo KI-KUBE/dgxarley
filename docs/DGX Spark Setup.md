@@ -2245,7 +2245,7 @@ Neben den AI-Workloads wurde ein vollständiger Infrastruktur-Stack via Ansible-
 
 - **Prometheus** — scrapet kubelets, cAdvisor, CoreDNS, Traefik, KSM, node-exporter
 - **Grafana** — lokale Auth, vorkonfigurierte K8s-Dashboards (dotdc), `promgrafana.dgx.example.com`
-- **Loki** (v3.6) — Filesystem-Backend (TSDB v13), Single-Node; Promtail-DaemonSet sammelt Pod-Logs
+- **Loki** (v3.6) — Filesystem-Backend (TSDB v13), Single-Node; Fluent-Bit-DaemonSet sammelt Pod-Logs (Promtail seit 2026-03-02 EOL, per `promtail_enabled` als Rollback-Pfad erhalten)
 - **Alertmanager** — Alerts via E-Mail und Gotify (`gotify.example.com`)
 - **Uptime Kuma** — `uptimekuma.dgx.example.com`
 

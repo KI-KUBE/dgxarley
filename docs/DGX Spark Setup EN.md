@@ -2245,7 +2245,7 @@ In addition to the AI workloads, a complete infrastructure stack was deployed vi
 
 - **Prometheus** — scrapes kubelets, cAdvisor, CoreDNS, Traefik, KSM, node-exporter
 - **Grafana** — local auth (no Keycloak OIDC), preconfigured K8s dashboards (dotdc), `promgrafana.dgx.example.com`
-- **Loki** (v3.6) — filesystem backend (TSDB v13), single node; Promtail DaemonSet collects pod logs
+- **Loki** (v3.6) — filesystem backend (TSDB v13), single node; Fluent Bit DaemonSet collects pod logs (Promtail EOL since 2026-03-02, kept as a rollback path via `promtail_enabled`)
 - **Alertmanager** — alerts via email and Gotify (`gotify.example.com`)
 - **Uptime Kuma** — `uptimekuma.dgx.example.com`
 
