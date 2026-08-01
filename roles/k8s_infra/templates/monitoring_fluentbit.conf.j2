@@ -123,19 +123,28 @@
     Name                kubernetes
     Match               kube.*
     Kube_Tag_Prefix     kube.var.log.containers.
-    # LOAD-BEARING. The filter fetches the pod object from the API server; the
-    # default HTTP read buffer is 32 KB. If the response does not fit, the
-    # filter attaches NO metadata and passes the record through — silently, with
-    # only a debug-level `http_do=-1, HTTP Status: 200`. Every $kubernetes[...]
-    # accessor in the output then resolves to nothing and those lines land in a
-    # stream without job/namespace/pod/container, cluster-wide, without a single
-    # error or warning.
-    # 0 = no limit, the buffer grows as needed.
-    # Measured here on 2026-08-01: the single-pod GET for hermes-agent-ht is
-    # 37 KB, i.e. already over the default (`kubectl get pods -A -o json` shows
-    # only 17.7 KB for it — the list representation is more compact than the
-    # per-pod GET the filter actually issues, so measure the single GET).
-    # Found first in the sister cluster on rook-ceph OSD pods (~52 KB).
+    # Insurance, NOT a fix for an observed problem here. 0 = no limit, the
+    # buffer grows as needed; the documented default is 32 KB.
+    #
+    # The failure mode it guards against is genuinely nasty: the filter fetches
+    # the pod object from the API server, and if the response does not fit the
+    # read buffer it attaches NO metadata and passes the record through — with
+    # nothing but a debug-level `http_do=-1, HTTP Status: 200`. Every
+    # $kubernetes[...] accessor then resolves to nothing and those lines land in
+    # a stream without job/namespace/pod/container, with no error or warning.
+    # The sister cluster hit exactly that on rook-ceph OSD pods (~52 KB objects).
+    #
+    # It does NOT reproduce here, and that was checked rather than assumed:
+    # controlled A/B on 2026-08-01 against the live API with the largest pod in
+    # this cluster (hermes-agent-*, 37 KB on a single-pod GET) — metadata was
+    # attached correctly BOTH with the default buffer and with 0, on 4.2 as well
+    # as 5.0. So 37 KB is not enough to trigger it; the real threshold is
+    # somewhere above that. Kept anyway because the setting is free and the
+    # failure is silent.
+    #
+    # Gotcha when measuring: `kubectl get pods -A -o json` reports only 17.7 KB
+    # for the same pod. The list representation is more compact than the
+    # per-pod GET the filter actually issues — always measure the single GET.
     Buffer_Size         0
     # Keep the log line raw — parsing it into fields would change what Loki
     # stores as the line body (see drop_single_key below).
