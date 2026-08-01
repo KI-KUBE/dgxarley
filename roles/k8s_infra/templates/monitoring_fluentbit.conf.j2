@@ -47,6 +47,13 @@
     storage.type      filesystem
     Skip_Long_Lines   On
     Refresh_Interval  10
+    # promtail attaches the source path to every file target as the `filename`
+    # label. Everything in that path except the pod UID and the container
+    # restart index is already covered by job/namespace/pod/container, but
+    # dropping it outright would make the switch lossy. It goes to structured
+    # metadata in the [OUTPUT], NOT to a stream label: the restart index changes
+    # on every container restart and would mint a fresh stream each time.
+    Path_Key          filename
     # read_from_head stays at its default (off): at cutover fluent-bit starts at
     # the tail of each file instead of replaying history that Loki would reject
     # anyway (reject_old_samples_max_age: 168h).
@@ -161,9 +168,10 @@
     #   __host__ was promtail-internal and never exported, hence no `node`
     #     label unless fluentbit_node_label is set.
     #
-    # DELIBERATELY NOT reproduced: `filename`. promtail adds it for every file
-    # target; the value embeds the container ID, so it churns on every restart
-    # while job/pod/container already identify the source.
+    # `filename` is deliberately NOT among the stream labels: its value carries
+    # the container restart index, so as a label it would mint a new stream on
+    # every restart. It is preserved as structured metadata below (Path_Key on
+    # the input supplies it), which keeps the switch free of information loss.
     #
     labels                 job=$job, namespace=$kubernetes['namespace_name'], pod=$kubernetes['pod_name'], container=$kubernetes['container_name'], stream=$stream
 {%- if fluentbit_node_label | default(false) | bool %}, node=$kubernetes['host']
@@ -187,6 +195,12 @@
     # the same way the stream labels are sanitized.
     structured_metadata_map_keys $kubernetes['labels']
 {% endif %}
+    # promtail's `filename`, preserved without stream cost. Supplied by Path_Key
+    # on the input. Being a record accessor, out_loki also strips it from the
+    # log line — which it MUST, otherwise `log` + `filename` would be two keys
+    # and drop_single_key would silently ship a JSON wrapper again (the exact
+    # trap `_p` sprang; verified locally that it does not happen here).
+    structured_metadata    filename=$filename
     # promtail ships the RAW log line; fluent-bit would ship
     # {"log":...,"stream":...,"time":...}. remove_keys strips everything but
     # `log`, then drop_single_key raw emits that value unquoted — byte-equal to
