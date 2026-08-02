@@ -309,6 +309,21 @@ BUILD_JOBS="${BUILD_SM121_BUILD_JOBS:-8}"
 
 PUSH_IMAGE=1
 
+# Patch-set acceptance gate (scripts/verify_sglang_image.sh), ON by default.
+# Runs on the BUILD HOST right after the build and BEFORE the ~15 min local
+# transfer and the Docker Hub push, so a broken image never leaves spark5.
+# That ordering is the whole point: the gate costs ~1 minute of CPU-only podman
+# (no GPU, no k3s) and catches exactly the failure mode that looks like success
+# — a runtime patch whose anchor drifted, or a generated module that silently
+# takes model classes out of SGLang's registry (v0.5.16/p30 incident, see the
+# verify script's header). Disable with --no-verify for an ad-hoc build you do
+# not intend to promote.
+VERIFY_IMAGE=1
+VERIFY_SCRIPT="${SCRIPT_DIR}/verify_sglang_image.sh"
+# The runtime patch set the gate replays. Same dir sglang_launch.sh ships as the
+# <prefix>-patch-scripts ConfigMap; the gate mounts it into the image at /patches.
+SGLANG_PATCHES_DIR="${SCRIPT_DIR}/../roles/k8s_dgx/files/sglang_patches"
+
 # When set to 1 (via --no-local-copy), skip the ~15 min save|load transfer
 # of the built image from the remote build host back to this control host.
 # Implies PUSH_IMAGE=0 because `run_push` reads from the local podman store
@@ -431,11 +446,14 @@ Usage: $(basename "$0") [--base xomoxcc|scitrera|<image>]
                         [--remote-host user@host] [--podman-connection NAME]
                         [--no-arch-prune] [--keep-fa3] [--keep-sm90-target]
                         [--keep-flashmla] [--sm121-debug] [--no-sm121-core]
-                        [--no-local-copy] [--no-push] [--help]
+                        [--no-local-copy] [--no-push] [--no-verify] [--help]
 
-Builds ${IMAGE_TAG} on the remote build host via podman socket, copies
-the result back to this host (unless --no-local-copy), and pushes it
-from here (unless --no-push or --no-local-copy).
+Builds ${IMAGE_TAG}
+on the remote build host via podman socket, runs the patch-set acceptance
+gate there (unless --no-verify), copies the result back to this host
+(unless --no-local-copy), and pushes it from here (unless --no-push or
+--no-local-copy). The gate runs BEFORE transfer and push, so a broken
+image never leaves the build host.
 
 Options:
   --base VALUE Select the PyTorch dev base image this build sits on:
@@ -499,6 +517,16 @@ Options:
                Implies --no-push (you cannot push without a local copy;
                the build host has no Docker Hub credentials by design).
   --no-push    Skip 'podman push' after build + local copy.
+  --no-verify  Skip the patch-set acceptance gate
+               (scripts/verify_sglang_image.sh) that normally runs on the
+               build host straight after the build and BEFORE the local
+               transfer and the push. The gate applies the dgxarley runtime
+               patches the way sglang_launch.sh does and then checks two
+               things the patch run cannot check itself: did any patch report
+               ANCHOR-DRIFT, and does SGLang's model registry still import
+               without a regression vs the unpatched image. ~1 min, CPU-only
+               podman, no GPU and no k3s. A failure ABORTS the run before
+               anything leaves the build host. Only skip for throwaway builds.
   --help       Show this help.
 
 Environment overrides:
@@ -536,6 +564,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --no-push) PUSH_IMAGE=0; shift ;;
         --no-local-copy) NO_LOCAL_COPY=1; PUSH_IMAGE=0; shift ;;
+        --no-verify) VERIFY_IMAGE=0; shift ;;
         --base)
             shift
             [[ $# -gt 0 ]] || die "--base requires an argument (xomoxcc|scitrera|<image>)"
@@ -714,6 +743,18 @@ preflight() {
     for tool in git patch podman; do
         command -v "${tool}" >/dev/null || die "Required tool not found: ${tool}"
     done
+
+    # Fail fast on a missing/non-executable acceptance gate. Discovering this
+    # only after the build would mean either a 40+ min rerun or an untested
+    # promotion — exactly what running the gate early is supposed to prevent.
+    if (( VERIFY_IMAGE == 1 )); then
+        [[ -x "${VERIFY_SCRIPT}" ]] \
+            || die "Acceptance gate not executable: ${VERIFY_SCRIPT} (or use --no-verify)"
+        [[ -d "${SGLANG_PATCHES_DIR}" ]] \
+            || die "Runtime patch dir not found: ${SGLANG_PATCHES_DIR} (or use --no-verify)"
+        command -v ssh >/dev/null \
+            || die "Required tool not found: ssh (the gate ships the patch set to the build host)"
+    fi
 
     if [[ ! -f "${PODMAN_SSH_IDENTITY}" ]]; then
         cat >&2 <<EOF
@@ -1549,6 +1590,52 @@ run_build() {
 }
 
 # ============================================================================
+# Patch-set acceptance gate (runs on the build host, before transfer + push)
+# ============================================================================
+
+run_verify() {
+    if (( VERIFY_IMAGE == 0 )); then
+        log "Skipping patch-set acceptance gate (--no-verify)"
+        warn "Image is UNVERIFIED — do not promote it without running:"
+        warn "  ${VERIFY_SCRIPT##*/} docker.io/${IMAGE_TAG} ${PODMAN_CONNECTION}"
+        return
+    fi
+
+    log "Patch-set acceptance gate on ${PODMAN_CONNECTION}"
+
+    # Deliberately the docker.io/ FQN: that is the tag run_build asserts exists
+    # in the remote store, and a bare short name would send podman through
+    # short-name resolution instead of hitting the freshly built image.
+    #
+    # No `|| true` — a failure here MUST abort the run. The gate sits before
+    # transfer_image_from_remote and run_push precisely so a broken image costs
+    # a minute of CPU instead of a 15-minute transfer plus a public push that
+    # then has to be retracted.
+    if ! "${VERIFY_SCRIPT}" "docker.io/${IMAGE_TAG}" "${PODMAN_CONNECTION}"; then
+        cat >&2 <<EOF
+
+The image built, but the patch-set acceptance gate FAILED (see above).
+Nothing has been transferred to this host and nothing has been pushed.
+
+The image is still in ${PODMAN_CONNECTION}'s podman store as
+docker.io/${IMAGE_TAG}, so you can inspect it without rebuilding:
+
+  scripts/verify_sglang_image.sh docker.io/${IMAGE_TAG} ${PODMAN_CONNECTION}
+
+ANCHOR-DRIFT means a runtime patch under roles/k8s_dgx/files/sglang_patches/
+no longer finds its anchor — the fix silently stops happening. A model-registry
+regression means a patched/generated module is unimportable, which takes the
+affected model classes out of SGLang with no top-level warning at runtime.
+Both are fixed in the patch set, not in the image: correct the patch, then
+rerun this script (the layer cache makes the rebuild cheap).
+
+To promote anyway (you should not), rerun with --no-verify.
+EOF
+        die "Acceptance gate failed for ${IMAGE_TAG} — not transferring, not pushing"
+    fi
+}
+
+# ============================================================================
 # Transfer built image from remote to local
 # ============================================================================
 
@@ -1663,6 +1750,7 @@ $(log "Remote-only build complete")
 Image: ${IMAGE_TAG}
 Location: docker.io/${IMAGE_TAG} in ${PODMAN_CONNECTION}'s podman store only
           (NOT on this control host, NOT pushed to Docker Hub)
+Patch-set gate: $( (( VERIFY_IMAGE == 1 )) && echo "PASSED" || echo "SKIPPED (--no-verify) — image is UNVERIFIED" )
 
 Next step — distribute to all 4 K3s nodes via the throwaway registry on
 the build host (uses QSFP 200 GbE for the heavy transfers, source-fast-
@@ -1683,6 +1771,7 @@ EOF
 $(log "Build + push complete")
 
 Image: ${IMAGE_TAG}
+Patch-set gate: $( (( VERIFY_IMAGE == 1 )) && echo "PASSED (0 ANCHOR-DRIFT, no model-registry regression)" || echo "SKIPPED (--no-verify) — image is UNVERIFIED, run scripts/verify_sglang_image.sh before promoting" )
 
 Next steps (on the x86 control host in ~/pythondev_workspace/dgxarley):
 
@@ -1749,6 +1838,10 @@ main() {
     prepare_cuda_containers
     apply_patches
     run_build
+    # Gate FIRST: a failure here must cost a minute, not a 15 min transfer plus
+    # a Docker Hub push. Runs regardless of --no-local-copy (the image is on the
+    # build host either way, which is where the gate wants it).
+    run_verify
     if (( NO_LOCAL_COPY == 0 )); then
         transfer_image_from_remote
         run_push
