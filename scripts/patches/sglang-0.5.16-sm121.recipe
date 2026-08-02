@@ -136,6 +136,32 @@
 #      Drift is logged as a warning and never crashes the pod, so a deploy would
 #      SILENTLY run without those six fixes. GLM-5.2 must not be served off this
 #      image before p34 is re-pathed.
+#      ✅ RESOLVED 2026-08-02 — acceptance gate CLEAN on the 0.6.16-final image
+#         (scripts/verify_sglang_image.sh xomoxcc/dgx-spark-sglang:0.5.16-sm121
+#         spark5, image id e13762c84ff9):
+#           bare / glm / hy3 — each: 0 ANCHOR-DRIFT, model registry no regression
+#           baseline 2 pre-existing upstream failures (bailing_moe_linear,
+#           bailing_moe_nextn — optional vllm dep, excluded by design)
+#         All six were fixed between 2026-07-28 and 2026-08-02, in two DIFFERENT
+#         ways — the distinction matters, "0 drift" alone does not mean "the fix
+#         still runs":
+#           RE-TARGETED (patch still applies, fix is live):
+#             p24 f17cfda  markers switched to upstream anchor strings
+#             p34 d21f59e  made v0.5.16-compatible — THE one that mattered, the
+#                          live-proven GLM-5.2 DSA path is fixed, so the "do not
+#                          serve GLM-5.2 off this image" block above is LIFTED
+#           SELF-GATED OFF on >= 0.5.16 (patch deliberately no-ops, fix is gone
+#           because its target is gone — silent by design, not a regression):
+#             p26 80c6cc3  gated on cutlass_moe_fp4 being present (#30448 removed it)
+#             p28 fd8a937  made conditional on the anchor existing
+#             p31 2d0c0e3  gated to pre-0.5.16 (fallback gather path)
+#             p33          same gate as p31 (p31-p33 are one fallback path)
+#         So the gate being green is NOT the same as all six fixes being active.
+#         Four of them are intentionally inert here. Re-read risks A and B before
+#         serving the affected NVFP4 profiles.
+#      ⚠️ SCOPE: the gate is IMPORT-level (does a patch still find its anchor,
+#         does the model registry still import). It executes no kernel and serves
+#         no token. Risks A, B, E and G stay open until a real serving run.
 #      Possible upside to check while re-porting: v0.5.16 ships a vectorized,
 #      CUDA-graph-safe fp8_paged_mqa_logits_torch_sm120 in
 #      srt/layers/attention/dsv4/indexer.py (present in the image, verified),
@@ -178,10 +204,24 @@
 #         rmsnorm smoke test PASSES on the built image (no mlir_global_dtors ICE,
 #         output finite, max abs err 0.0144 vs fp32 reference = bf16 rounding).
 #         cutlass-dsl 4.6.1 + flashinfer 0.6.16rc3 is therefore a working pair.
-#         ⚠️ That run was on rc3. #4226 (rc4) makes the CuTe-DSL arch guard
-#         env-aware and gates norm's DSL dispatch on it, i.e. it touches exactly
-#         the rmsnorm-CuTe path this test covers — REPEAT the smoke test on the
-#         0.6.16-final build before trusting the ✅ above.
+#      ✅ RE-CLEARED 2026-08-02 on the 0.6.16-FINAL build (image id e13762c84ff9,
+#         spark5 idle: k3s inactive, no containers, no GPU processes). The rerun
+#         was NOT optional: #4226 (rc4) made the CuTe-DSL arch guard env-aware and
+#         gates norm's DSL dispatch on it, i.e. it rewrote exactly this path.
+#           rmsnorm(4x512 bf16): shape (4,512), finite True,
+#           max abs err 0.014897 vs fp32 reference — same bf16-rounding regime as
+#           the rc3 run (0.0144), no ICE.
+#         AND the dispatch was verified to actually TAKE the DSL path, so the
+#         green result is not a silent CUDA-JIT fallback masking the ICE:
+#           _cute_dsl_supports_arch(12,1) = True
+#           is_cute_dsl_arch_supported(12,1) = True
+#           norm._use_cuda_norm(cuda:0) = False   ← False means DSL, not CUDA JIT
+#           the *_cute symbols (rmsnorm_cute, fused_add_rmsnorm_cute, …) all
+#           imported, i.e. cutlass-dsl 4.6.1 is accepted as compatible
+#         Re-check these four on any flashinfer or cutlass-dsl bump: norm/__init__
+#         .py falls back to CUDA JIT SILENTLY when the DSL cannot target the arch
+#         (or CUTE_DSL_ARCH is unset for a new one), and then the smoke test goes
+#         green without ever compiling a DSL kernel.
 #      ℹ️  The cudnn-frontend>=1.25 concern is MOOT: nvidia-cudnn-frontend is not
 #         installed in this image AT ALL, and it is equally absent from the live
 #         0.5.15.post1-sm121 image. Status quo, not a regression. Only matters if
