@@ -9,6 +9,57 @@
 ## `cri:` pipeline stage exports stdout/stderr as a label and nothing in
 ## promtail.yaml says so.
 ##
+## CAUTION: ONE remove_keys LIST FOR BOTH OUTPUTS + `workers 1` — see below.
+##
+{#
+  Both [OUTPUT] loki instances get EXACTLY this list AND `workers 1`. Not
+  cosmetics but protection against an UPSTREAM BUG (measured 2026-08-02 in the
+  sister repo on fluent-bit 5.0.9, mechanism verified in the v5.0.9 source):
+
+  Since 4.0.4 out_loki keeps the compiled remove_keys accessors in
+  thread-local storage — introduced by PR fluent/fluent-bit#10563, the "fix"
+  for the multi-worker race fluent/fluent-bit#10560. But the TLS key is
+  FILE-GLOBAL, i.e. shared by ALL out_loki instances (plugins/out_loki/loki.c:
+  FLB_TLS_DEFINE(thread_local_remove_mpa) + cb_loki_flush). The FIRST flush in
+  a thread pins ITS instance's list into the thread slot; every later flush of
+  every OTHER instance in the same thread then cleans up with the FOREIGN
+  list. Without `workers` (out_loki default 0) both outputs flush in the same
+  engine thread, and the high-volume kube output practically always wins:
+  journal lines went out as
+  {"SYSLOG_IDENTIFIER":...,"_HOSTNAME":...,"PRIORITY":...,"MESSAGE":...}
+  instead of the bare message, because `drop_single_key raw` only fires with
+  exactly ONE remaining key. Stream labels stay correct throughout — the
+  damage is confined to the line body. No dedicated upstream issue for this
+  cross-instance case (as of 2026-08-02), only comments under #10563 that it
+  is "still flaky without workers".
+
+  Reproduced with the real live config against a local HTTP sink:
+    - journal output alone                  -> bare line
+    - both outputs, different lists         -> JSON wrapper
+    - both outputs, order swapped           -> JSON wrapper (what counts is
+                                               who FLUSHES first, not config
+                                               order)
+    - both outputs, IDENTICAL lists         -> bare line
+
+  Two lines of defense:
+  1. `workers 1` on BOTH outputs: each instance gets its own flush thread, so
+     the global TLS slot is effectively per instance and the bug cannot
+     strike by construction.
+  2. ONE shared list INCLUDING job/stream/filename: the list actually used is
+     remove_keys PLUS the label/structured_metadata accessors of the
+     respective instance — the kube instance's therefore contains
+     $job/$stream/$filename, the journal instance's does not. Only with those
+     three explicit here is the shared list a superset in BOTH directions;
+     otherwise a journal instance that ever pins first would ship every
+     container line as {"log":...,"job":...,"stream":...,"filename":...}.
+     Labels/structured metadata are unaffected — extraction happens BEFORE
+     the body cleanup.
+
+  Hence: ONE source instead of two separately maintained lists — otherwise
+  the next change to one output silently decouples the other. Keys that do
+  not exist on the other record type do no harm — remove_keys skips them.
+#}
+{% set loki_remove_keys = 'kubernetes,time,_p,job,stream,filename,_SYSTEMD_UNIT,_HOSTNAME,SYSLOG_IDENTIFIER,PRIORITY' %}
 
 [SERVICE]
     Flush                     5
@@ -176,6 +227,11 @@
     Match                  kube.*
     Host                   loki.loki.svc.cluster.local
     Port                   3100
+    # Do NOT leave this at the default (0): a dedicated flush thread per
+    # instance keeps the file-global remove_keys TLS slot (upstream bug since
+    # 4.0.4, PR fluent/fluent-bit#10563) from ever being reused by the other
+    # out_loki instance. Rationale in the file header.
+    workers                1
     #
     # Stream labels. Mapping back to the promtail relabel rules:
     #   job=<ns>/<pod>  ← replace(namespace, pod_name, separator '/'). Built on
@@ -234,10 +290,15 @@
     # listed: drop_single_key only fires when exactly ONE key is left, so
     # leaving _p in place ships `{"_p":"F","log":"..."}` instead of the bare
     # line — verified locally, it does not show up in a config test.
-    # kubernetes/time/stream/job are consumed by the labels above (out_loki
-    # removes every label accessor from the body); kubernetes and time are
-    # named explicitly because they are not label accessors.
-    remove_keys            kubernetes,time,_p
+    # job/stream/filename would already be removed for THIS instance via the
+    # labels/structured_metadata above (out_loki appends every used accessor
+    # to its internal list) — they are listed explicitly ANYWAY so the shared
+    # list is a superset from the journal instance's point of view too (TLS
+    # bug, rationale in the file header). kubernetes and time must be explicit
+    # regardless, because they are not label accessors. The journal keys at
+    # the end of the list never exist on a container record and are only there
+    # because BOTH outputs need the same list — rationale in the file header.
+    remove_keys            {{ loki_remove_keys }}
     drop_single_key        raw
     compress               gzip
     # A Loki restart must not cost log lines, so retries are unlimited and the
@@ -262,8 +323,18 @@
     Match                  host.*
     Host                   loki.loki.svc.cluster.local
     Port                   3100
+    # Dedicated flush thread, same as the kube output: guards against the
+    # cross-instance remove_keys TLS bug (PR fluent/fluent-bit#10563,
+    # rationale in the file header).
+    workers                1
     labels                 job=systemd-journal, node=$_HOSTNAME, unit=$_SYSTEMD_UNIT, identifier=$SYSLOG_IDENTIFIER, priority=$PRIORITY
     line_format            json
+    # Without remove_keys this output relied SOLELY on the label-accessor
+    # removal — exactly the mechanism the TLS bug knocks out when the kube
+    # instance pins the thread slot first. The list MUST be byte-identical to
+    # the kube output's, hence the same variable — rationale in the file
+    # header.
+    remove_keys            {{ loki_remove_keys }}
     drop_single_key        raw
     compress               gzip
     retry_limit            false
