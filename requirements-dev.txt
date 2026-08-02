@@ -9,7 +9,16 @@ pytest
 Pillow
 rich
 typer
-sglang
+# sglang: REMOVED 2026-08-02 — uninstallable on Python 3.14 (CI + local venv).
+# Since v0.5.11 upstream ships only compiled per-ABI wheels (cp310..cp313
+# manylinux, no sdist, no py3-none-any), so pip on 3.14 backtracks past every
+# 0.5.x down to 0.5.4.postN, whose sdist-only flashinfer_python==0.4.1 needs the
+# long-gone apache-tvm-ffi==0.1.0b15 at build time and hard-fails the job.
+# Not needed here: mypy already resolves it via the `sglang.*`
+# ignore_missing_imports override in pyproject.toml, and every runtime import in
+# dgxarley/integration/sglang_bench.py is function-local + ImportError-guarded.
+# Real users of the bench wrapper install the `sglang-bench` extra (pyproject.toml)
+# on a GPU box with a supported CPython.
 pyserial
 fastapi
 uvicorn

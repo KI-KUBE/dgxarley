@@ -69,7 +69,11 @@ DOCKERFILE="${PATCHES_DIR}/dgx-spark-quant-sm121.Dockerfile"
 # (build_sm121_image.sh: SGLang v0.5.15.post1 + flashinfer 0.6.15.post1 + cutlass
 # 4.6.1). This layer pins nothing itself — modelopt/torch/transformers all come from
 # the base via the pip-freeze constraint — so no other change is needed here.
-TAG="${BUILD_QUANT_TAG:-0.5.16-dev-sm121}"
+# 2026-08-02: 0.5.16-dev-sm121 → 0.5.16-sm121, in lockstep with the serving image's
+# rename off `-dev` (build_sm121_image.sh + sglang-0.5.16-sm121.recipe header). The
+# existing xomoxcc/dgx-spark-quant:0.5.16-dev-sm121 (2026-07-28) layers on the
+# flashinfer-0.6.16rc3 serving image and stays as-is; do not overwrite it.
+TAG="${BUILD_QUANT_TAG:-0.5.16-sm121}"
 
 # Produced image. Overridable wholesale via BUILD_QUANT_IMAGE.
 IMAGE="${BUILD_QUANT_IMAGE:-xomoxcc/dgx-spark-quant:${TAG}}"

@@ -1,9 +1,28 @@
 #
-# DEV recipe: SGLang v0.5.16 + our SM121 build patches.
+# SGLang v0.5.16 + our SM121 build patches. Next production line, NOT YET
+# GPU-VALIDATED — production stays on sglang-0.5.15.post1-sm121.recipe until it
+# is. Created 2026-07-28 to evaluate the v0.5.16 line (released 2026-07-25,
+# 574 PRs / 169 contributors).
 #
-# NOT a production image. Created 2026-07-28 to evaluate the v0.5.16 line
-# (released 2026-07-25, 574 PRs / 169 contributors). Production stays on
-# sglang-0.5.15.post1-sm121.recipe until this one is GPU-validated.
+# ── RENAMED 2026-08-02: sglang-0.5.16-dev-sm121 → sglang-0.5.16-sm121 ───────
+# Tag accordingly xomoxcc/dgx-spark-sglang:0.5.16-dev-sm121 → :0.5.16-sm121
+# (same for xomoxcc/dgx-spark-quant, see build_dgx_spark_quant_image.sh).
+# TWO reasons, the first is the load-bearing one:
+#   1. The `-dev` tag on Docker Hub (both repos, pushed 2026-07-28) is a
+#      DIFFERENT ARTEFACT: it carries flashinfer 0.6.16rc3. It is cited as the
+#      measurement basis by p36_flashinfer_plan_uniform_q_len.py ("Image
+#      0.5.16-dev-sm121, flashinfer 0.6.16rc3"), p37_nvfp4_kv_spec_native_
+#      verify.py and model_profiles/vroomfondel-qwen3.6-35b-a3b-nvfp4-mtp-
+#      modelopt.yml. Rebuilding the flashinfer-0.6.16-final image UNDER THE SAME
+#      TAG would silently change what those findings point at — precisely the
+#      mutable-tag trap of the cutlass-dsl 4.5.2 wheel-swap incident. New
+#      content gets a new tag; the rc3 tag stays frozen as the reference for
+#      those three files (do NOT retarget their comments).
+#   2. `-dev` has never meant "unvalidated" in this repo, it marked SIDE lines
+#      (0.5.13-dev-nemotronh-mtp, the retired *-dev1 pair). Every mainline
+#      recipe (0.5.11 … 0.5.15.post1) carried no suffix and was likewise
+#      unvalidated on the day it was written. v0.5.16 is the mainline successor,
+#      not a side experiment.
 #
 # THE HEADLINE: this is the first ref where our CORE SM121 kernel patch is
 # GONE, not merged. SGLang PR #30448 ("Refactor FP4 quantization and remove
@@ -27,9 +46,10 @@
 #      adopted the 2D-shared-buffer half of our compat fix, so the canonical
 #      patch neither finds its file nor applies. The variant carries only the
 #      remaining uint8-view hunk at the new path.
-#   4. FLASHINFER_VERSION 0.6.15.post1 → 0.6.16rc3 (2026-07-28). The SECOND
+#   4. FLASHINFER_VERSION 0.6.15.post1 → 0.6.16 (final, 2026-07-31). The SECOND
 #      driver of this recipe, see the FLASHINFER_VERSION block below for the
-#      GB10-specific content and the RC caveat.
+#      GB10-specific content. Was pinned to 0.6.16rc3 from 2026-07-28 until
+#      2026-08-02; the RC caveat is GONE, this is now a stable release.
 #   5. CUTLASS_DSL / TRANSFORMERS / KERNELS: UNCHANGED pins (4.6.1 / 5.12.1 /
 #      0.14.1). v0.5.16's own pyproject moved flashinfer 0.6.12 → 0.6.14 and
 #      cutlass-dsl 4.5.2 → 4.6.0, i.e. upstream caught up to roughly where we
@@ -149,12 +169,19 @@
 #   E. UnifiedRadixTree is now the DEFAULT for SWA / Mamba / DSA models, and
 #      QServe + FBGEMM FP8 quantization were removed. Behaviour change, not a
 #      build break.
-#   F. flashinfer is a 0.6.16 RELEASE CANDIDATE here, two minor steps over
-#      SGLang's own 0.6.14 pin. Rollback order in the FLASHINFER_VERSION block.
+#   F. flashinfer is two minor steps over SGLang's own 0.6.14 pin. Rollback
+#      order in the FLASHINFER_VERSION block.
+#      ✅ RC RISK RETIRED 2026-08-02: 0.6.16 went final on 2026-07-31, the pin
+#         moved rc3 → 0.6.16. 21 commits rc3..final, all fixes/cherry-picks
+#         (details in the FLASHINFER_VERSION block), no SM121 feature churn.
 #      ✅ CLEARED 2026-07-28 on GB10 (spark5, podman --device nvidia.com/gpu=all):
 #         rmsnorm smoke test PASSES on the built image (no mlir_global_dtors ICE,
 #         output finite, max abs err 0.0144 vs fp32 reference = bf16 rounding).
 #         cutlass-dsl 4.6.1 + flashinfer 0.6.16rc3 is therefore a working pair.
+#         ⚠️ That run was on rc3. #4226 (rc4) makes the CuTe-DSL arch guard
+#         env-aware and gates norm's DSL dispatch on it, i.e. it touches exactly
+#         the rmsnorm-CuTe path this test covers — REPEAT the smoke test on the
+#         0.6.16-final build before trusting the ✅ above.
 #      ℹ️  The cudnn-frontend>=1.25 concern is MOOT: nvidia-cudnn-frontend is not
 #         installed in this image AT ALL, and it is equally absent from the live
 #         0.5.15.post1-sm121 image. Status quo, not a regression. Only matters if
@@ -184,13 +211,18 @@ TARGET=runtime
 BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
 
 # Override über den v0.5.16-Upstream-Pin (flashinfer_python[cu13]==0.6.14) hinaus
-# auf 0.6.16rc3 (2026-07-28, 113 Commits über 0.6.15.post1). ⚠️ RELEASE CANDIDATE,
-# am Tag seiner Veröffentlichung eingepinnt — bewusst gewählt, weil in diesem
-# Fenster ungewöhnlich viel GB10-spezifische Arbeit gelandet ist. Mit SGLang
-# PR #30448 hängt der NVFP4-MoE-Pfad auf SM120/121 ohnehin KOMPLETT an flashinfer
-# (der eigene cutlass_moe_fp4-Pfad ist weg), der Pin wiegt also schwerer als je.
+# auf 0.6.16 FINAL (2026-07-31, 134 Commits über 0.6.15.post1). Bewusst gewählt,
+# weil in diesem Fenster ungewöhnlich viel GB10-spezifische Arbeit gelandet ist.
+# Mit SGLang PR #30448 hängt der NVFP4-MoE-Pfad auf SM120/121 ohnehin KOMPLETT an
+# flashinfer (der eigene cutlass_moe_fp4-Pfad ist weg), der Pin wiegt also
+# schwerer als je.
 #
-# Was 0.6.16 für SM121/GB10 bringt (Commit-Range v0.5.15.post1...v0.6.16rc3):
+# Der Pin stand vom 2026-07-28 bis 2026-08-02 auf 0.6.16rc3 (dem damals einzigen
+# 0.6.16-Prerelease). Damit ist die offene Frage "RC-Politik" aus
+# FLASHINFER_0.6.16rc3_TODO.local.md §0 erledigt: wir bleiben bei der bisherigen
+# Linie und pinnen nur Stables.
+#
+# Was 0.6.16 für SM121/GB10 bringt (Commit-Range v0.5.15.post1...v0.6.16):
 #   • #3897 feat(attention): enable SM121 (GB10/DGX Spark) for NVFP4 attention.
 #     DER Grund für diesen Bump. Der SM120-NVFP4-Attention-Kernel kompiliert und
 #     läuft laut PR unverändert als sm_121a; es fehlten nur die
@@ -214,29 +246,47 @@ BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
 #   • Viel MoE-Arbeit ohne direkten SM121-Bezug (MegaMoE, unified MoE API,
 #     NVFP4-Finalize, mm_fp4-Autotune-Cache).
 #
-# RC-RISIKO und was zu prüfen ist:
-#   • rc3 ist der einzige 0.6.16-Prerelease auf PyPI. Der Dockerfile-Schritt
-#     installiert mit `uv pip install --pre` aus dem flashinfer-eigenen Index,
-#     eine RC-Version ist also installierbar. Alle DREI Pakete existieren dort
-#     in 0.6.16rc3, inklusive des aarch64/cu130-Rades:
-#       flashinfer-python  0.6.16rc3  (py3-none-any)
-#       flashinfer-cubin   0.6.16rc3  (py3-none-any)
-#       flashinfer-jit-cache 0.6.16rc3+cu130 manylinux_2_28_aarch64 (1.6 GB;
-#         0.6.15.post1 war 1.7 GB, konsistent mit dem gencode-Pruning aus #3947)
-#     Geprüft 2026-07-28 gegen https://flashinfer.ai/whl.
+# Was rc3 → 0.6.16 final noch dazukam (21 Commits, rc4 + rc5 + final; geprüft
+# 2026-08-02 via GitHub compare v0.6.16rc3...v0.6.16). Ausschließlich Fixes und
+# Cherry-Picks, KEINE neue SM121-Funktionalität — die vier mit Relevanz hier:
+#   • #4226 "Make CuTe-DSL arch guard env-aware and gate norm's DSL dispatch on
+#     it" (rc4). Berührt genau den rmsnorm-CuTe-Pfad, den unser GB10-Smoke-Test
+#     abdeckt → Smoke-Test auf dem final-Build WIEDERHOLEN (Risiko F oben).
+#   • #4213 + #4235 fix(moe): inkompatible output-scale-Cubins ablehnen bzw. per
+#     Name filtern, bis die gepinnten Pakete mDtypeSfC tragen. NVFP4-MoE-Pfad,
+#     also unser Hauptpfad seit SGLang #30448.
+#   • #4230 fix(trtllm): routed-MoE-Backends auf unterstützte Architekturen
+#     beschränken (Release-Port von #4107).
+#   • #4288 fix(moe): trtllm-gen route map um ein Element padden (OOB-Read).
+#
+# WAS ZU PRÜFEN IST:
+#   • Der Dockerfile-Schritt installiert aus dem flashinfer-eigenen Index. Alle
+#     DREI Pakete existieren dort in 0.6.16 final, inklusive des aarch64/cu130-
+#     Rades (geprüft 2026-08-02 gegen https://flashinfer.ai/whl):
+#       flashinfer-python  0.6.16  (py3-none-any)
+#       flashinfer-cubin   0.6.16  (py3-none-any)   ← NICHT auf PyPI, nur hier
+#       flashinfer-jit-cache 0.6.16+cu130 manylinux_2_28_aarch64 (1.71 GB;
+#         rc3 war 1.70 GB. Die frühere "1.6 GB / kleiner als 0.6.15.post1"-Notiz
+#         war falsch, das gencode-Pruning aus #3947 schlägt nicht auf die
+#         Wheel-Größe durch.)
+#     `uv pip install --pre` bleibt im Dockerfile harmlos, wird für einen Stable
+#     aber nicht mehr gebraucht.
 #   • flashinfer 0.6.16 verlangt nvidia-cudnn-frontend>=1.25.0 (0.6.15: >=1.13.0).
 #     Der Dockerfile installiert flashinfer mit --no-deps, die Anforderung wird
 #     also NICHT automatisch erfüllt. Auf dem gebauten Image gegenprüfen:
 #       python3 -c "import importlib.metadata as m; print(m.version('nvidia-cudnn-frontend'))"
 #     Falls < 1.25: entweder nachinstallieren oder auf 0.6.15.post1 zurück.
+#     (Risiko F oben: aktuell MOOT, das Paket ist im Image gar nicht installiert.)
 #   • Wir liegen mit diesem Pin ZWEI Minor-Schritte über SGLangs eigenem
-#     0.6.14-Pin und auf einem RC. Bei jedem unerklärlichen Kernel-Fehler ist
-#     dieser Pin der erste Rollback-Kandidat.
+#     0.6.14-Pin. Bei jedem unerklärlichen Kernel-Fehler ist dieser Pin der erste
+#     Rollback-Kandidat.
 # Roll-back-Reihenfolge: 0.6.15.post1 (live-validiert auf 0.5.15.post1-sm121),
-# dann 0.6.14 (= Upstream-Pin von v0.5.16).
+# dann 0.6.14 (= Upstream-Pin von v0.5.16). 0.6.16rc3 nur als Referenz für den
+# GB10-Smoke-Test vom 2026-07-28, NICHT als Rollback-Ziel (Stable-only-Politik).
 # FLASHINFER_VERSION=0.6.14
 # FLASHINFER_VERSION=0.6.15.post1
-FLASHINFER_VERSION=0.6.16rc3
+# FLASHINFER_VERSION=0.6.16rc3
+FLASHINFER_VERSION=0.6.16
 
 # transformers 5.12.1 — exakt v0.5.16s pyproject-Pin (==5.12.1, unverändert ggü.
 # v0.5.15/post1). NICHT isoliert über die SGLang-Ref hinaus bumpen (kein
@@ -251,8 +301,9 @@ TRANSFORMERS_VERSION=5.12.1
 KERNELS_VERSION=0.14.1
 
 # nvidia-cutlass-dsl 4.6.1 — explicit pin, force-reinstalled late in the build.
-# v0.5.16 pinnt upstream 4.6.0; flashinfer 0.6.16rc3 verlangt weiterhin nur
-# >=4.5.0 (open-ended, unverändert seit 0.6.14), und NVIDIA hat schon einmal
+# v0.5.16 pinnt upstream 4.6.0; flashinfer 0.6.16 verlangt weiterhin nur
+# >=4.5.0 (open-ended, unverändert seit 0.6.14, und identisch in rc3 und final
+# — die Dependency-Metadaten der beiden sind byte-gleich), und NVIDIA hat schon einmal
 # unterschiedlichen Wheel-Inhalt unter derselben Versionsnummer ausgeliefert
 # (4.5.2-Vorfall, mlir_global_dtors-'data' ICE, reference_cutlass_dsl_wheel_swap)
 # — der explizite Pin bleibt Pflicht.
@@ -330,4 +381,4 @@ TILELANG_PATCH_VARIANT="-v0.5.16"
 #     von diesem Flag unberührt (p21/p22) — Qwen3.6 live gegenprüfen.
 APPLY_QWEN36_MIXED_NVFP4_PR27906=0
 
-IMAGE_TAG=xomoxcc/dgx-spark-sglang:0.5.16-dev-sm121
+IMAGE_TAG=xomoxcc/dgx-spark-sglang:0.5.16-sm121

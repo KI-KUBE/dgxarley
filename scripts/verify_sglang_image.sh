@@ -25,8 +25,8 @@
 # Usage:
 #   scripts/verify_sglang_image.sh <image> [podman-connection]
 #
-#   scripts/verify_sglang_image.sh xomoxcc/dgx-spark-sglang:0.5.16-dev-sm121
-#   scripts/verify_sglang_image.sh xomoxcc/dgx-spark-sglang:0.5.16-dev-sm121 spark5
+#   scripts/verify_sglang_image.sh xomoxcc/dgx-spark-sglang:0.5.16-sm121
+#   scripts/verify_sglang_image.sh xomoxcc/dgx-spark-sglang:0.5.16-sm121 spark5
 #
 # With a connection name the checks run on that remote podman host (the images
 # live in spark5's store), otherwise locally.

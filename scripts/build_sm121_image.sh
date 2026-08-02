@@ -79,8 +79,14 @@ BRANCH_NAME="sm121"
 # source patches (PRs #22929/#22928) are also applied — the underlying
 # build steps and SM121 sgl-kernel patches are identical.
 #
-# Dev set (v0.5.16 line — NOT production, needs GPU validation):
-#   sglang-0.5.16-dev-sm121.recipe     — SGLang v0.5.16 (released 2026-07-25).
+# Next line (v0.5.16 — NOT production yet, needs GPU validation):
+#   sglang-0.5.16-sm121.recipe         — SGLang v0.5.16 (released 2026-07-25).
+#                                        Renamed 2026-08-02 from
+#                                        sglang-0.5.16-dev-sm121; the `-dev` tag
+#                                        on Docker Hub stays frozen as the
+#                                        flashinfer-0.6.16rc3 artefact that
+#                                        p36/p37 + the qwen3.6 profile cite.
+#                                        Rationale in the recipe header.
 #                                        FIRST ref where the CORE sm121 patch is
 #                                        OFF: PR #30448 deleted its target
 #                                        (jit_kernel/csrc/moe/nvfp4_blockwise_moe
@@ -91,7 +97,8 @@ BRANCH_NAME="sm121"
 #                                        variant (RFC #29630 moved the file and
 #                                        upstream absorbed one of its two hunks).
 #                                        SECOND driver: flashinfer 0.6.15.post1 →
-#                                        0.6.16rc3 — an RC, taken deliberately for
+#                                        0.6.16 (final since 2026-07-31; pin moved
+#                                        off 0.6.16rc3 on 2026-08-02), for
 #                                        #3897 (NVFP4 ATTENTION now enabled on
 #                                        SM121/GB10, 2.3-2.4x vs FA2-BF16 @ head_dim
 #                                        128) + #3838 (SM120 NVFP4 qk_correction/lse
@@ -105,9 +112,10 @@ BRANCH_NAME="sm121"
 #                                        recipe's OPEN RISKS block before serving:
 #                                        moe_runner_backend cutlass/triton is gone,
 #                                        runtime patches p30/p35 lost their paths,
-#                                        two server-arg flags were renamed, and the
-#                                        flashinfer RC needs cudnn-frontend >=1.25.
-#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.16-dev-sm121
+#                                        two server-arg flags were renamed, and
+#                                        flashinfer 0.6.16 needs cudnn-frontend
+#                                        >=1.25 (moot: not installed in the image).
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.16-sm121
 #
 # Current set (v0.5.15 line — DEFAULT):
 #   sglang-0.5.15-sm121.recipe         — THE production image. SGLang v0.5.15 +
@@ -206,12 +214,13 @@ BRANCH_NAME="sm121"
 #RECIPE_NAME="sglang-0.5.15.post1-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121"
 
-# DEV (2026-07-28): v0.5.16 evaluation build. Uncomment BOTH lines to build it.
-# Deliberately not the default — the ref removes the NVFP4 cutlass/triton MoE
-# runners and moves three runtime-patch targets, so it needs a GPU validation
-# pass first. Full delta + open risks in the recipe header.
-RECIPE_NAME="sglang-0.5.16-dev-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.16-dev-sm121"
+# v0.5.16 (2026-07-28, renamed off `-dev` 2026-08-02): next production line,
+# still NOT GPU-validated — the ref removes the NVFP4 cutlass/triton MoE runners
+# and moves three runtime-patch targets. Full delta + open risks in the recipe
+# header. The `-dev` Docker Hub tag is the older flashinfer-0.6.16rc3 artefact
+# and must NOT be overwritten; this pin now builds :0.5.16-sm121 with 0.6.16 final.
+RECIPE_NAME="sglang-0.5.16-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.16-sm121"
 
 # Rollback: previous production line (v0.5.15). flashinfer 0.6.14 + cutlass-dsl
 # 4.6.0; SGLang deps identical to post1. The 0.5.15.post1 recipe only bumps

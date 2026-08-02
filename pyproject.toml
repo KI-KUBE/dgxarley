@@ -51,7 +51,11 @@ dev = [
     "isort",
     "types-requests",
     "types-PyYAML",
-    "sglang",
+    # "sglang" — REMOVED 2026-08-02, see the note in requirements-dev.txt.
+    # Upstream ships no cp314 wheel and no sdist since v0.5.11, so this pin made
+    # `pip install -e .[dev]` unresolvable on this project's own requires-python
+    # (>=3.14). mypy covers it via the `sglang.*` override below; the bench
+    # wrapper's imports are function-local. Use the `sglang-bench` extra instead.
     "typer",
     "types-pyserial"
     # torch is installed via requirements-dev.txt with --extra-index-url
@@ -59,6 +63,7 @@ dev = [
 ]
 # Runtime deps for dgxarley.integration.sglang_bench (the bench_serving launcher).
 # sglang pulls in transformers + pybase64 at import time, typer drives the CLI.
+# NOTE: needs CPython 3.10–3.13 (no cp314 sglang wheel upstream as of 2026-08-02).
 sglang-bench = [
     "sglang",
     "transformers",
