@@ -457,6 +457,19 @@ mandatory.** One new pre-release exists since the 2026-07-23 check,
 cubin checksum collision and an unguarded Sm107a build fix; nothing touches
 `get_cuda_version()` or subprocess handling, so it changes nothing here.
 
+**Status 2026-08-03:** Re-verified against flashinfer's current `main`.
+`flashinfer/jit/cpp_ext.py:get_cuda_version()` **still** calls
+`subprocess.check_output([nvcc, "--version"])` unconditionally on the happy
+path, no structural change. Three releases shipped since the 2026-07-28
+check: **v0.6.16 stable** (2026-07-31), **v0.6.16.post1** (2026-08-02) and
+pre-release **v0.6.17rc1** (2026-07-31); the v0.6.16 changelog mentions
+nothing about `get_cuda_version`, `cpp_ext.py`, `fp4_quantize` or
+dynamo/torch.compile handling. The commit log for `cpp_ext.py` since
+2026-07-28 shows only unrelated SM107-support churn (#4122, its revert, and
+the reland #4280 merged 2026-07-30). **Patch 1
+(`p60_flashinfer_cuda_version.py`) remains mandatory; no upstream fix
+exists.**
+
 **File locations updated (repo housekeeping, not an upstream change):** the
 runtime patches described throughout this document as living inside
 `sglang_launch.sh` (heredoc blocks `PATCH_FI_CUDA_VER_EOF` and
