@@ -189,16 +189,27 @@
 #    state: mounted
 
 
+# install_k3s gates ONLY the two imports that turn a host into a cluster node.
+# Fail-closed here (default false): the enabling `true` is set exactly once, in
+# group_vars/k3sserver/main/k3s.yml, so a host reaching this role without the
+# group's vars never installs k3s by accident. Turn it off per host inline in
+# hosts.yml (spark5). Such a host still gets everything else in this role and
+# keeps the group's firewall / storage semantics, which key off group membership
+# rather than off this flag.
+# kubeconfig.yml below is deliberately NOT gated: it is run_once + delegate_to
+# localhost, so a false on any single host must not decide it for the whole play.
 - name: ensure cgroup v2 memory/cpuset enabled on RPi
   import_tasks: ensure_cgroups.yml
   tags:
     - cgroups
     - k3sinstall
+  when: install_k3s | default(false) | bool
 
 - name: import k3sinstall.yml to install clients and server and join them together
   import_tasks: k3sinstall.yml
   tags:
     - k3sinstall
+  when: install_k3s | default(false) | bool
 
 - name: merge kubeconfig to local control node
   import_tasks: kubeconfig.yml

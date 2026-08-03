@@ -2,6 +2,19 @@
 # Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
 deinstall_apparmor: true
 
+# Install K3s (server or agent) on this host. This is the ONE place the flag is
+# turned on: every member of `k3sserver` becomes a cluster node, while the task-side
+# conditionals in roles/k3sserver default it to false, so nothing installs k3s
+# without this group var. Set to false inline in hosts.yml for a host that must keep
+# the group's NON-k3s semantics but must not join the cluster --
+# the firewall (k3snodes ipset, the k3s rule block and the rc.local boot path in
+# roles/common/templates/*), `localnets_k3sserver`, ulogd2, ip_nonlocal_bind and
+# the storage.yml host pattern all key off group membership, not off this flag.
+# Currently false only on spark5 (podman build/verify host). Gates the
+# ensure_cgroups + k3sinstall imports in roles/k3sserver/tasks/main.yml; the rest
+# of the role (NFS, crontab, rsyslog, rustfs-cli, sops+age) still runs.
+install_k3s: true
+
 # K3s Master
 k3smasterip: "192.168.124.100"
 k3s_master_node_hostname: "k3smaster"

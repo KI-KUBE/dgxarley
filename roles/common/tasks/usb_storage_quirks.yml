@@ -26,12 +26,30 @@
   notify: update initramfs
 
 # --- RPi/aarch64 path: cmdline.txt (usb-storage builtin) ---
+#
+# The probe above tests whether usb-storage is currently LOADED, which is not the
+# same as "builtin": on a DGX Spark with no USB mass-storage device attached the
+# module simply is not loaded yet, and the host then falls into this branch even
+# though it boots via GRUB and has no /boot/firmware/cmdline.txt at all (measured
+# on spark5, 2026-08-03 -- a bare slurp hard-failed the whole common run there).
+# Hence the stat gate: this branch stays RPi-only.
+# NOT handled on purpose: a GRUB host where usb-storage really is builtin would
+# need the quirk in /etc/default/grub.d/ instead. No such host exists in this
+# inventory (DGX-OS ships usb-storage as a module), so that path is unwritten
+# rather than silently wrong.
+- name: Check if cmdline.txt exists (RPi/aarch64 boot config)
+  stat:
+    path: /boot/firmware/cmdline.txt
+  register: cmdline_stat
+  when: usb_storage_is_module.rc != 0
 
 - name: Read current cmdline.txt
   slurp:
     src: /boot/firmware/cmdline.txt
   register: cmdline_content
-  when: usb_storage_is_module.rc != 0
+  when:
+    - usb_storage_is_module.rc != 0
+    - cmdline_stat.stat.exists | default(false)
 
 - name: Append UAS disable quirk to cmdline.txt (usb-storage is builtin)
   copy:
@@ -42,4 +60,5 @@
     mode: '0755'
   when:
     - usb_storage_is_module.rc != 0
+    - cmdline_stat.stat.exists | default(false)
     - "'usb-storage.quirks=152d:0579:u' not in (cmdline_content.content | b64decode)"
