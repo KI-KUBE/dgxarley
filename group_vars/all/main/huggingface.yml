@@ -41,3 +41,14 @@ hf_hub_disable_telemetry: 1
 # the ansible var name matches the current env name. HF recommends the HF cache be on
 # SSD/NVMe, not a distributed FS — ours is JuiceFS, so tune conservatively.
 hf_xet_num_concurrent_range_gets: 16
+# HF_XET_RECONSTRUCT_WRITE_SEQUENTIALLY — same propagation as the knobs above.
+# XET-ONLY (no-op on the plain HTTPS/LFS path, and no-op while HF_HUB_DISABLE_XET=1).
+# hf_xet reconstructs a downloaded file by writing its chunks to local disk in
+# PARALLEL with direct addressing, which is designed for SSD/NVMe. On a spinning
+# disk those parallel writes turn into seeks; setting this to 1 makes the writes
+# sequential, which HF recommends for HDDs. 0 = upstream default (parallel).
+# RELEVANT HERE: the HF cache lives on JuiceFS whose object backend is a USB-3.0
+# SPINNING disk (spark4 /mnt/intenso), i.e. exactly the HDD case the flag targets.
+# Kept at the neutral 0 until it is measured — flip in the vault copy to try it.
+# Read as a boolean by HF (only 1/true/yes/on enable it).
+hf_xet_reconstruct_write_sequentially: 0

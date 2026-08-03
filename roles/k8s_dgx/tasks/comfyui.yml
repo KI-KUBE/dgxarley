@@ -142,6 +142,8 @@
                       # xet concurrent range-GETs per file (xet-only; no-op on plain HTTPS).
                       - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
                         value: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
+                      - name: HF_XET_RECONSTRUCT_WRITE_SEQUENTIALLY
+                        value: "{{ hf_xet_reconstruct_write_sequentially | default(0) | string }}"
                     ports:
                       - containerPort: "{{ comfyui_port }}"
                         name: http

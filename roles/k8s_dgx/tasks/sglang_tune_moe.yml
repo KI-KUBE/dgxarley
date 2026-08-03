@@ -76,6 +76,8 @@
                     value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
                   - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
                     value: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
+                  - name: HF_XET_RECONSTRUCT_WRITE_SEQUENTIALLY
+                    value: "{{ hf_xet_reconstruct_write_sequentially | default(0) | string }}"
                   - name: MOE_CONFIG_DIR
                     value: "{{ sglang_moe_config_dir }}"
                   - name: HF_CACHE_HOST_PATH

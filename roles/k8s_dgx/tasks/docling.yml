@@ -30,6 +30,9 @@
         HF_XET_HIGH_PERFORMANCE: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
         # xet concurrent range-GETs per file (xet-only; no-op on plain HTTPS).
         HF_XET_NUM_CONCURRENT_RANGE_GETS: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
+        # Sequential instead of parallel local writes on the xet reconstruct path
+        # (1 = sequential, for spinning disks). xet-only.
+        HF_XET_RECONSTRUCT_WRITE_SEQUENTIALLY: "{{ hf_xet_reconstruct_write_sequentially | default(0) | string }}"
 
 - name: Create docling service
   kubernetes.core.k8s:

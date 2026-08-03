@@ -112,6 +112,8 @@
                     value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
                   - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
                     value: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
+                  - name: HF_XET_RECONSTRUCT_WRITE_SEQUENTIALLY
+                    value: "{{ hf_xet_reconstruct_write_sequentially | default(0) | string }}"
                   - name: HF_HUB_DISABLE_PROGRESS_BARS
                     value: "0"
                 volumeMounts:
@@ -153,6 +155,8 @@
                     value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
                   - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
                     value: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
+                  - name: HF_XET_RECONSTRUCT_WRITE_SEQUENTIALLY
+                    value: "{{ hf_xet_reconstruct_write_sequentially | default(0) | string }}"
                   - name: SGLANG_ENABLE_JIT_DEEPGEMM
                     value: "false"
                   - name: PYTORCH_CUDA_ALLOC_CONF
@@ -234,6 +238,8 @@
                     value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
                   - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
                     value: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
+                  - name: HF_XET_RECONSTRUCT_WRITE_SEQUENTIALLY
+                    value: "{{ hf_xet_reconstruct_write_sequentially | default(0) | string }}"
                   - name: HF_HUB_DISABLE_PROGRESS_BARS
                     value: "0"
                 volumeMounts:
@@ -291,6 +297,8 @@
                     value: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
                   - name: HF_XET_NUM_CONCURRENT_RANGE_GETS
                     value: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
+                  - name: HF_XET_RECONSTRUCT_WRITE_SEQUENTIALLY
+                    value: "{{ hf_xet_reconstruct_write_sequentially | default(0) | string }}"
                   - name: SGLANG_ENABLE_JIT_DEEPGEMM
                     value: "false"
                   - name: PYTORCH_CUDA_ALLOC_CONF
