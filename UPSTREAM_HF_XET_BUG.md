@@ -2,7 +2,41 @@
 
 ## Status
 
-**Open upstream — workaround in place** (first diagnosed 2026-07-13). `hf_preload`
+**FIXED upstream (huggingface_hub v1.26.0, 2026-07-30) — workaround still
+deployed, in-cluster verification pending** (first diagnosed 2026-07-13,
+resolved upstream 2026-07-28). The bug turned out NOT to be in `hf_xet` at
+all: `huggingface_hub`'s tree-listing cache (PR
+[#4394](https://github.com/huggingface/huggingface_hub/pull/4394)) passed a
+**redacted placeholder `xetHash` (64×`*`)** from the Hub `/tree` API straight
+to `hf_xet` on **gated repos**, and `hf_xet` correctly rejected it with the
+"hex hash" error. Fixed by huggingface_hub PR
+[#4595](https://github.com/huggingface/huggingface_hub/pull/4595) (merged
+2026-07-28, closes `xet-core#895`), released in **huggingface_hub v1.26.0**
+(2026-07-30). Our affected repos (e.g.
+`nvidia/Llama-4-Scout-17B-16E-Instruct-NVFP4`) are gated — exactly the fixed
+scenario. **Next step:** run the faithful reproduction below against
+`huggingface_hub >= 1.26.0` without `HF_HUB_DISABLE_XET`; if clean, flip
+`hf_hub_disable_xet: 0` in the vault and move this doc to
+`FIXED_UPSTREAM_HF_XET_BUG.md` (see "How to know when to drop the
+workaround"). Until then the workaround stays in place.
+
+**Version state in-cluster (checked 2026-08-03):** the live image
+`xomoxcc/dgx-spark-sglang:0.5.16-sm121` (built 2026-08-02) already carries
+`huggingface_hub 1.26.0`, i.e. the fix, purely because nothing pinned hub and
+the build resolved latest. Since that made the fixed version an accident of
+build date, the recipe now sets a **floor**: `HF_HUB_MIN_VERSION=1.26.0` in
+`scripts/patches/sglang-0.5.16-sm121.recipe`, wired through the new
+`scripts/patches/dockerfile-hf-hub-floor.patch` (`ARG HF_HUB_MIN_VERSION`, a
+gated `uv pip install "huggingface_hub>=…"` as the LAST pip action of the
+builder stage). Empty/unset in every older recipe, so those are unchanged, and
+the 0.5.16 artefact itself is unchanged as well (it already had 1.26.0). This
+only removes the risk that a rebuild re-resolves back into the broken 1.2x
+window after `hf_hub_disable_xet` is flipped to 0. Nothing needs pulling in
+`requirements*.txt` or `pyproject.toml`: `huggingface-hub` appears only as an
+unpinned entry in `requirements.txt` and is not imported anywhere on the
+control node (all real users are container-side scripts).
+
+Original status (historical): `hf_preload`
 (and any container doing a fresh HuggingFace download) aborts on Xet-backed repos
 with `RuntimeError: Task error: Unable to parse string as hex hash value`, thrown
 from `hf_xet`'s **session-based** file-download-group API. The bug is present in
@@ -54,16 +88,38 @@ RuntimeError: Task error: Unable to parse string as hex hash value
 | `hf_xet` | `1.5.3.dev0` (diagnostic pre-release, 2026-07-24) | released by maintainer `@seanses` on `xet-core#895`, embeds the failing hash value in the error message, not a fix. Confirmed still broken by two independent reporters, 2026-07-25 and 2026-07-27 |
 | `huggingface_hub` | `1.25.0` (released 2026-07-27) | **confirmed still broken**, tested alongside `hf_xet 1.5.3.dev0` in the same `xet-core#895` thread, 2026-07-27 |
 | `huggingface_hub` | `1.25.1` (released 2026-07-27) | **confirmed still broken**, same test combination (huggingface_hub 1.25.1 plus hf_xet 1.5.3.dev0), reported on `xet-core#895`, 2026-07-27 |
+| `huggingface_hub` | `1.26.0` (released 2026-07-30) | **contains the fix** (PR #4595, verified an ancestor of the v1.26.0 tag via compare API) — **not yet verified in-cluster** |
 
 Neither `hf_xet` nor `huggingface_hub` is pinned in the SGLang build recipes
 (`scripts/patches/sglang-0.5.1{4,5}-sm121.recipe`), so a rebuild pulls whatever pip
 resolves at build time — currently the broken versions.
+(Superseded 2026-08-03 for the 0.5.16 line only: that recipe now sets the floor
+`HF_HUB_MIN_VERSION=1.26.0`; the 0.5.1{4,5} recipes stay unpinned.)
 
 xet-core releases (checked 2026-07-13): `v1.5.2-rc0` (2026-07-09, pre-release, newest),
 `v1.5.1` (2026-06-08, latest stable), `v1.5.0` (2026-05-06, **"Session based API"** —
 where the failing `session.new_file_download_group` was introduced), `v1.4.3` (2026-03-31).
 
-## Root cause (measured, not inferred)
+## Root cause
+
+**Confirmed upstream (2026-07-27/28, `@seanses` on `xet-core#895` + fix PR
+huggingface_hub#4595):** huggingface_hub PR #4394 added a tree-listing cache
+optimization that skips the per-file HEAD call for xet files when the file
+metadata can be rebuilt from the cached `/tree` API response. On **gated
+repos** where the caller lacks content access, the Hub `/tree` API returns a
+**redacted placeholder `xetHash`** (64 `*` characters) instead of the real
+hash; huggingface_hub passed that placeholder straight to `hf_xet`, which
+correctly rejected it ("Unable to parse string as hex hash value"). The
+HTTP/non-xet path never hit this because it goes through HEAD
+(`X-Xet-Hash` header), which returns either the real hash or a 401. So
+`hf_xet` was never broken — the diagnostic `1.5.3.dev0` build is moot. The
+fix (PR #4595, in hub v1.26.0) adds `is_valid_xet_hash()` /
+`is_valid_tree_entries()` and falls back to HEAD when the tree-cache hash is
+invalid/redacted. This exactly explains the measured split below:
+`snapshot_download` consumed the (redacted) tree listing, `hf_hub_download`
+took the per-file HEAD path.
+
+### Our measurement (2026-07-13, pre-confirmation — consistent with the above)
 
 The distinguishing variable is the **huggingface_hub download code path**, not the
 data, the version, the cache, concurrency, disk, or the CAS service:
@@ -160,6 +216,17 @@ are apples-to-oranges (they take the `hf_hub_download` path, which works).
   unchanged: nothing merged, nothing released, `HF_HUB_DISABLE_XET=1`
   remains mandatory, but for the first time a fix looks plausible in
   the near term, worth checking back again soon.
+- **Update 2026-08-03: RESOLVED.** `xet-core#895` was **CLOSED
+  2026-07-28T16:05:37Z** — the same day the previous entry was written.
+  `@seanses`' root-cause comment (2026-07-27) identified the gated-repo
+  redacted-`xetHash` mechanism (see "Root cause" above); `@Wauplin`'s
+  fix landed as huggingface_hub PR
+  [#4595](https://github.com/huggingface/huggingface_hub/pull/4595)
+  ("[Download] Reject redacted Xet hashes from tree cache", merged
+  2026-07-28T16:05:36Z, "Fixes xet-core#895") and shipped in
+  **huggingface_hub v1.26.0** (2026-07-30; fix commit confirmed an
+  ancestor of the tag via the compare API). `hf_xet` itself needed no
+  fix. Workaround-drop procedure below now actionable.
 - Related closed reports (symptom cluster, same 1.5.x era, resolved
   independently of this bug):
   - huggingface/xet-core #358 — "errors became very common" with snapshot_download (closed)
@@ -177,10 +244,12 @@ are apples-to-oranges (they take the `hf_hub_download` path, which works).
 
 ## How to know when to drop the workaround
 
-When a `hf_xet > 1.5.2rc0` (or a huggingface_hub release noting a session
-download-group fix) is out:
+**The trigger has fired (2026-08-03): huggingface_hub v1.26.0 contains the
+fix.** The fixing component is `huggingface_hub` (any `hf_xet` version is
+fine):
 
-1. Rebuild an image OR test in a throwaway container with the new `hf_xet`.
+1. Rebuild an image OR test in a throwaway container with
+   `huggingface_hub >= 1.26.0`.
 2. Run the faithful reproduction above **without** `HF_HUB_DISABLE_XET`.
 3. If shard 2 downloads cleanly → set `hf_hub_disable_xet: 0` in
    `group_vars/all/vault/huggingface.yml` and redeploy; delete this file or move it
@@ -211,3 +280,28 @@ download-group fix) is out:
   check the `huggingface_hub` fix. Nothing merged or released yet.
   `HF_HUB_DISABLE_XET=1` remains required, but a fix now looks close,
   recheck again soon.
+- **2026-08-03** — Bug is fixed upstream: `xet-core#895` closed 2026-07-28,
+  root cause confirmed as huggingface_hub's tree-cache passing the
+  gated-repo redacted `xetHash` placeholder (introduced by hub PR #4394),
+  fixed by hub PR #4595, released in **huggingface_hub v1.26.0**
+  (2026-07-30). Doc updated throughout (Status, Affected versions, Root
+  cause, Upstream tracking). Workaround `HF_HUB_DISABLE_XET=1` stays
+  deployed until the reproduction is re-run in-cluster against hub ≥1.26.0;
+  then flip `hf_hub_disable_xet: 0` and rename this doc to `FIXED_…`.
+- **2026-08-03 (later)** — verified that the live image
+  `xomoxcc/dgx-spark-sglang:0.5.16-sm121` (build 2026-08-02, id `e13762c84ff9`)
+  ships `huggingface_hub 1.26.0` + `hf_xet 1.6.0.dev0`, i.e. the fix is already
+  in the image, by accident (nothing pinned hub). Made it deliberate with a
+  FLOOR pin instead of leaving it to pip resolution:
+  `scripts/patches/dockerfile-hf-hub-floor.patch` (new, `ARG
+  HF_HUB_MIN_VERSION` + gated `uv pip install` as the last pip action of the
+  builder stage, trailing-context-only hunk so it applies last and independent
+  of the optional patches), plumbed through `scripts/build_sm121_image.sh`
+  (apply step 2g, recipe var, `--build-arg`), and
+  `HF_HUB_MIN_VERSION=1.26.0` set in `sglang-0.5.16-sm121.recipe`. Older
+  recipes leave it empty, so the knob is a no-op there. Patch chain
+  dry-run-verified with zero fuzz against the pristine upstream Dockerfile and
+  against the full 0.5.16 chain. No change to `requirements*.txt` /
+  `pyproject.toml` (control node does not import hub at all). Workaround
+  `hf_hub_disable_xet: 1` still deployed; the in-cluster reproduction is still
+  the open step before flipping it.
