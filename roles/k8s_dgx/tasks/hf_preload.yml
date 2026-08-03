@@ -44,19 +44,23 @@
         backoffLimit: 1
         template:
           spec:
-            nodeSelector:
-              kubernetes.io/arch: arm64
-              # kubernetes.io/arch: amd64
-              spark-id: "2"
+            # Placement + image are variables now (defaults/main/hf_cache.yml):
+            # the Job runs on the amd64 master to sit next to the JuiceFS
+            # backend, which the arm64-only sglang_image cannot do.
+            nodeSelector: "{{ hf_preload_node_selector }}"
             hostNetwork: true
             restartPolicy: Never
             containers:
               - name: download
-                image: "{{ sglang_image }}"
+                image: "{{ hf_preload_image }}"
                 command: ["/bin/bash", "/scripts/run.sh"]
                 env:
                   - name: HF_TOKEN
                     value: "{{ hf_token }}"
+                  # Floor for the pip-installed hub client; empty = unpinned.
+                  # run.sh no-ops the install when the image already satisfies it.
+                  - name: HF_HUB_MIN_VERSION
+                    value: "{{ hf_preload_hub_min_version | default('') }}"
                   - name: HF_HUB_DISABLE_XET
                     value: "{{ hf_hub_disable_xet | default(0) | string }}"
                   - name: HF_HUB_DISABLE_TELEMETRY

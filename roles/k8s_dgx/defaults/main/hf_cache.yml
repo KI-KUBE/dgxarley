@@ -17,6 +17,39 @@ hf_hub_cache_on_juicefs: false
 # "{{ juicefs_mount_path }}/hf-cache") only if JuiceFS holds more than the HF cache.
 hf_cache_juicefs_root: "{{ juicefs_mount_path }}"
 hf_token: "hf_CHANGEME"
+# --- HF preload Job placement + image ---------------------------------------
+# Node placement for the preload Job. Moved off spark2 onto the k3s master
+# 2026-08-03: the master hosts the JuiceFS backend (Valkey + RustFS on
+# /mnt/intenso, relocated there 2026-07-30), so with hf_hub_cache_on_juicefs
+# the object-write leg becomes loopback instead of a spark -> master hop over
+# the network. Two hard prerequisites, both easy to get wrong:
+#   1. juicefs_mount_master MUST be true (group_vars/all/vault/juicefs.yml).
+#      The hf-cache hostPath below is type Directory when JuiceFS-backed, so
+#      without /mnt/jfs on the master the pod stays unschedulable/failed.
+#   2. The image must be amd64-capable (see hf_preload_image).
+# Label is node-role, NOT kubernetes.io/hostname (that one reads "elite800").
+# To move it back onto a spark: {kubernetes.io/arch: arm64, spark-id: "2"}.
+hf_preload_node_selector:
+  node-role: k3smaster
+# Image for the preload Job. Deliberately NOT sglang_image any more: the
+# dgx-spark-sglang builds are linux/arm64 ONLY (GB10), and the Job now runs on
+# the amd64 master. Multi-arch python so the Job can be moved back onto a spark
+# without a second image swap. The Job only needs python3 + huggingface_hub
+# (+ rsync/openssh, and only when RSYNC_TARGETS is non-empty, which it is not
+# under hf_hub_cache_on_juicefs), so the full serving image was never required
+# here; hf_preload_run.sh installs the hub client when the image lacks it.
+# 3.14 matches the repo's own floor (the dgxarley package requires >=3.14).
+# Checked on the way in: the tag is multi-arch (amd64 + arm64), huggingface_hub
+# 1.26.0 classifies 3.14, and hf_xet 1.5.2 ships cp38-abi3 manylinux wheels for
+# x86_64 AND aarch64, so nothing gets built from Rust source in this slim image.
+hf_preload_image: "python:3.14-slim"
+# huggingface_hub floor for the Job, mirroring HF_HUB_MIN_VERSION in
+# scripts/patches/sglang-0.5.16-sm121.recipe. 1.26.0 carries the xet fix for
+# "Unable to parse string as hex hash value" (hub PR #4595,
+# UPSTREAM_HF_XET_BUG.md), which is why hf_hub_disable_xet went back to 0 on
+# 2026-08-03. Keep the two in lockstep: a Job image below this floor would
+# re-open that crash on gated repos. Empty = install whatever pip resolves.
+hf_preload_hub_min_version: "1.26.0"
 # HuggingFace model pre-download Job
 hf_preload_models:
   - "vroomfondel/Hy3-NVFP4-W4A4"
