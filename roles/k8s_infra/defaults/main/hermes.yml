@@ -50,7 +50,33 @@ hermes:
   # hermes_health_patch.py still required. BASIC_AUTH/TERMINAL_CWD/API_SERVER_KEY/
   # EMAIL_*/MATRIX_* env + gateway.lock/gateway_state.json all unchanged (verified).
   # v0.19.0 adds only optional extras (BASIC_AUTH_PASSWORD_HASH, durable state.db).
-  image_tag: "v2026.7.20"            # agent image (nousresearch/hermes-agent)
+  # Bumped v2026.7.20 -> v2026.7.30 (v0.19.1) 2026-08-03. NOTE: keel had already
+  # pulled this tag on 2026-07-31 (the hermes Deployments carry keel.sh/policy:
+  # minor + a 24h poll), so the pods were running it while these defaults still
+  # said v2026.7.20; the bump only re-aligns the repo with the cluster (without
+  # it, the next --tags hermes run would roll the image BACK). v0.19.1 is a pure
+  # rollup/patch release (~2789 commits since v0.19.0, curated changelog deferred
+  # to v0.20.0). Re-verified against the upstream tree at that tag:
+  #  * plugins/platforms/email/adapter.py still BYTE-IDENTICAL to the v2026.7.7.2
+  #    sync base (md5 39ed5d135762806451a944a9b279b8ad, 50848 bytes), plugin.yaml
+  #    and __init__.py identical too, so again no [PATCH-N] re-sync. (Upstream
+  #    main HAS diverged on 2026-08-02, not in any tag yet, see
+  #    HERMES_EMAIL_UPSTREAM.md: re-sync check stays mandatory on the NEXT bump.)
+  #  * hermes_health_patch.py still required AND still applies: _check_auth is
+  #    unchanged in shape and _probe_gateway_health still sends no Authorization
+  #    header. _check_auth gained profile-scoped API keys, which our wrapper does
+  #    not touch (it only short-circuits the two /health paths); the added
+  #    /v1/health route is unauthenticated anyway. Confirmed live in the running
+  #    7.30 pod: patch banner in the gateway log, 0 "rejected invalid API key".
+  #  * Unchanged: image contract (WORKDIR /opt/hermes, ENTRYPOINT /init +
+  #    docker/main-wrapper.sh, HERMES_HOME=/opt/data, python3.13 venv path),
+  #    dashboard CLI flags, should_require_auth / _is_accepted_host, the
+  #    dashboard_auth basic provider, the platforms.<x>.extra config folding and
+  #    the dashboard-themes loader (_normalise_theme_definition byte-identical).
+  #  * Only notable base-image change: a source-built SQLite 3.53.4 replaces
+  #    Debian's 3.46 (WAL-reset corruption bug). Touches state.db under the
+  #    NFS-backed /opt/data, nothing patch-related.
+  image_tag: "v2026.7.30"            # agent image (nousresearch/hermes-agent)
   # NOTE: the venv site-packages dir (mount point for the hermes_health_patch
   # .py/.pth) is NOT configured here — it carries a pythonX.Y segment that bumps
   # with the base image. hermes.yml probes the actual image ONCE at deploy time

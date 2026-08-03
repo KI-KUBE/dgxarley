@@ -38,6 +38,17 @@ RE-SYNC on a hermes.image_tag bump: confirm gateway.platforms.api_server still
 defines APIServerAdapter._check_auth(self, request) and that aiohttp still exposes
 the path as request.path. If upstream finally fixes the probe (sends the key) or
 makes /health/detailed public, DELETE this patch.
+
+Re-verified 2026-08-03 at v2026.7.30 (v0.19.1), the currently pinned tag: both
+anchors hold and the mismatch is unfixed, so this patch stays required.
+_check_auth now resolves a profile-scoped expected key first (named profiles fail
+closed), which our wrapper never reaches for the two health paths, and the router
+gained a /v1/health alias onto the same unauthenticated _handle_health.
+_probe_gateway_health still issues a bare urllib GET with no Authorization header
+and GATEWAY_HEALTH_URL is still the only cross-container mechanism (still marked
+deprecated, still no replacement config key). Live proof in the running pod: the
+banner below appears in the gateway log and the log has 0 "rejected invalid API
+key" warnings.
 """
 
 import sys

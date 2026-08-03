@@ -17,10 +17,17 @@ Environment variables:
 ------------------------------------------------------------------------------
 LOCAL PATCH (dgxarley) — synced to upstream tag v2026.7.7.2
 (plugins/platforms/email/adapter.py, md5 39ed5d135762806451a944a9b279b8ad,
-50848 bytes). Current for the pinned image (hermes.image_tag v2026.7.20;
-adapter.py re-fetched at ref v2026.7.20 on 2026-07-23 and verified BYTE-IDENTICAL
-to this v2026.7.7.2 base — same md5/size — so this patch applies unchanged, no
-[PATCH-N] re-sync needed for the v2026.7.7.2 → v2026.7.20 bump).
+50848 bytes). Current for the pinned image (hermes.image_tag v2026.7.30;
+adapter.py re-fetched at ref v2026.7.20 on 2026-07-23 and again at ref
+v2026.7.30 on 2026-08-03, both verified BYTE-IDENTICAL to this v2026.7.7.2 base
+(same md5/size), so this patch applies unchanged and neither the
+v2026.7.7.2 -> v2026.7.20 nor the v2026.7.20 -> v2026.7.30 bump forced a
+[PATCH-N] re-sync. plugin.yaml (name: email-platform, hence the runtime module
+hermes_plugins.email_platform.adapter) and __init__.py are identical at
+v2026.7.30 too, so the ConfigMap subPath mount target is unchanged.
+WATCH: upstream main diverged on 2026-08-02 (commit ff89f1b862 touches this
+file, +1744 bytes, not in any released tag yet), so the re-sync check is
+mandatory on the NEXT bump. See HERMES_EMAIL_UPSTREAM.md.
 
 FILE MOVED at this bump: upstream #41112/#3823 landed the plugin refactor that
 the v2026.6.19 patch header warned about — the adapter moved from

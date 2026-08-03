@@ -381,6 +381,64 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 >   `roles/k8s_infra/tasks/apps/hermes.yml`,
 >   `roles/k8s_infra/templates/hermes/hermes_webui_deployment.yaml.j2`). Corrected in place above.
 
+> **2026-08-03 check — new release v2026.7.30 (adapter unchanged there, no re-sync), but `main`
+> has diverged again:**
+> - **Latest release:** now **v2026.7.30** (v0.19.1, published 2026-07-30) — a rollup/patch
+>   release with no curated changelog (~2,789 commits since v0.19.0; notes explicitly deferred
+>   to v0.20.0). `plugins/platforms/email/adapter.py` at this tag is **byte-identical** to the
+>   pinned v2026.7.20 baseline (blob `572b5c11…`) — the pinned deployment and local patch are
+>   unaffected, no re-sync forced.
+> - **`hermes.image_tag` bumped to `v2026.7.30` on 2026-08-03** (same day). The bump was
+>   catch-up, not a rollout: keel had already pulled the tag on 2026-07-31 13:38 (the hermes
+>   Deployments carry `keel.sh/policy: minor` + a 24h poll), so the pods had been running
+>   v2026.7.30 for three days while `roles/k8s_infra/defaults/main/hermes.yml` still said
+>   v2026.7.20 — a re-run of `--tags hermes` would have rolled the image BACK. Full patch-fit
+>   check at the new tag came back clean (adapter byte-identical as above, plugin.yaml +
+>   `__init__.py` identical, health-patch anchors intact, image/CLI/config contracts
+>   unchanged), and both patches were verified live in the running 7.30 pod.
+> - **`main` diverged 2026-08-02:** commit `ff89f1b862` ("fix(email): Slack-pattern helper for
+>   unscoped default-profile adapter + scope ports/trust flag") modifies the email adapter —
+>   blob now `f224202b…`, 52592 bytes (+1744 vs pinned) — not yet in any released tag. (An
+>   earlier intermediate commit `f08f403157`, 2026-07-05, also touched the file without
+>   shipping in a tag.) Same watch-pattern as the 2026-06-12/06-14 divergence warnings:
+>   **re-sync check mandatory on the next `hermes.image_tag` bump.**
+> - **PRs #28697 / #28699 / #28702** all still `open`, `merged: false`, `updated_at` unchanged
+>   at 2026-07-13. No new activity.
+
+> **2026-08-03 follow-up — the 2026-08-02 `main` divergence broke #28702's mergeability,
+> fixed by a merge of current `main` (pushed):**
+> - **Merge state after `ff89f1b862` / `f08f403157`:** #28702 is now `mergeable: CONFLICTING`,
+>   `mergeStateStatus: DIRTY` (head `e84f4cc62e`, last rebase 2026-07-06 onto `3b5c64543`).
+>   #28697 (`6bd60442`) and #28699 (`c05d0e06`) are still `MERGEABLE` / `BLOCKED` — git
+>   auto-merges them, they only wait on required checks/approval. So the divergence costs
+>   exactly one PR a rebase, not all three.
+> - **The conflict is a single hunk** in `_dispatch_message`. Upstream's two commits move the
+>   `EMAIL_*` reads to the profile-scoped `agent.secret_scope.get_secret` (via the new
+>   `_get_esecret` / `_esecret_int` / `_esecret_bool` helpers, replacing `utils.env_int` /
+>   `env_bool`), including the three allowlist drop-check reads (`EMAIL_ALLOWED_USERS`,
+>   `EMAIL_ALLOW_ALL_USERS`). #28702 re-indents that exact block into its new `try/finally`,
+>   so the two edits touch the same lines. Every other #28702 hunk auto-merges, and the PR
+>   adds no env reads of its own (its four knobs are `config.extra` keys, not env).
+> - **Resolution:** keep the `try`-scoped indentation from #28702, adopt main's `_get_secret`
+>   reads verbatim. Merge commit `70de728cb` (parents `e84f4cc62e` + `7997c9ced8`) built in the
+>   per-PR fork clone `/home/thiess/hermes-fork-folders` (branch `feat/email-folder-lifecycle`,
+>   `origin` = `vroomfondel/hermes-agent`, `upstream` = `NousResearch/hermes-agent`; one clone
+>   per PR: `-folders` = #28702, `-sent` = #28697, `-existing` = #28699). The local branch was
+>   4 commits behind `origin` first (the 2026-07-06 merge was made in the GitHub UI) and was
+>   fast-forwarded before merging. Post-merge diff vs `upstream/main` is unchanged at
+>   `+864 / −101` and `tests/gateway/test_email.py` +
+>   `test_email_robustness.py` + main's new `test_email_secret_scope.py` are **60/60 passing**.
+> - **Pushed** to `vroomfondel/hermes-agent` `feat/email-folder-lifecycle`
+>   (`e84f4cc62..70de728cb`) on 2026-08-03. GitHub re-evaluated #28702 to
+>   `mergeable: MERGEABLE`, `mergeStateStatus: BLOCKED`, head `70de728cb0` — i.e. back in line
+>   with #28697 / #28699, waiting only on required checks/approval. Still `open`, not merged.
+> - **Local deployed patch is NOT affected.** `hermes.image_tag` is pinned to `v2026.7.30`
+>   (bumped from `v2026.7.20` on 2026-08-03; both tags carry the same adapter blob
+>   `572b5c11…`), which is still what `roles/k8s_infra/files/hermes_email_gateway_patched.py`
+>   is synced against; the scoped-secret rewrite lives only on `main` and in no released tag.
+>   When it does ship, the re-sync will have to fold the same `os.getenv` → `_get_esecret`
+>   change into the `[PATCH-6]` `try/finally` region.
+
 1. Download the new upstream file:
 
    ```bash
