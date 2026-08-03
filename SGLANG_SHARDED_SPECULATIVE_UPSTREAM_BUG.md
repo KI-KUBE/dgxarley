@@ -104,6 +104,28 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 i
 > `--speculative-draft-load-format auto` and `--speculative-draft-model-path`
 > workaround remains required and unchanged.
 
+> **Re-verified 2026-08-03:** the tracked code moved again, this time on
+> `main` only (no release yet; SGLang still at v0.5.16). A 5-part PR series
+> merged 2026-08-03 04:22–04:24 UTC —
+> [#33334](https://github.com/sgl-project/sglang/pull/33334) through
+> [#33338](https://github.com/sgl-project/sglang/pull/33338) ("config: stop
+> writing config onto the published ServerArgs…", "spec: build every draft
+> worker from a draft ServerArgs copy", …) — relocates the mechanism:
+> `Scheduler.maybe_init_draft_worker()` (now `scheduler.py:865`) calls a new
+> helper `draft_server_args_copy()` in a new file
+> `python/sglang/srt/speculative/draft_worker_common.py`. Source-verified on
+> `main`: `_draft_load_format_fields()` (lines 64-68) still returns `{}` when
+> `get_spec().speculative_draft_load_format is None` — the root-cause
+> conditional gate is unchanged, just relocated. The draft still silently
+> inherits `load_format=sharded_state` when the flag is unset; our
+> `--speculative-draft-load-format auto` + `--speculative-draft-model-path`
+> workaround remains required and unchanged. **One incidental fix:** PR
+> #33335 resolves the latent in-place-mutation caveat flagged in the "Note"
+> under "Our Workaround" below — `draft_server_args_copy()` now does
+> `deepcopy(server_args)` first and overrides only the copy (docstring: "The
+> target's own instance is untouched"), so the shared `server_args` object is
+> no longer mutated on `main`.
+
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`
 
@@ -216,11 +238,15 @@ This forces the draft model to:
 The main model continues to use `sharded_state` for fast loading. The draft model
 loads from the HF cache, which adds a few seconds to startup but works correctly.
 
-**Note:** `maybe_init_draft_worker` modifies `self.server_args.load_format` in-place
-(not a copy) when `speculative_draft_load_format` is set. This mutates the shared
-`server_args` object. It's harmless because the main model is already loaded at this
-point, but it's a latent bug that could bite if SGLang ever re-reads `load_format`
-after draft worker initialization.
+**Note (resolved upstream 2026-08-03, historical for ≤v0.5.16):**
+`maybe_init_draft_worker` used to modify `self.server_args.load_format` in-place
+(not a copy) when `speculative_draft_load_format` is set, mutating the shared
+`server_args` object. Harmless in practice (the main model is already loaded at
+that point), but a latent bug if SGLang ever re-read `load_format` after draft
+worker initialization. Fixed on `main` by PR #33335 (2026-08-03): the draft
+worker is now built from a `deepcopy` of `server_args` and only the copy is
+overridden (see the 2026-08-03 re-verification entry above). Still present in
+every release up to and including v0.5.16.
 
 ## Impact
 
