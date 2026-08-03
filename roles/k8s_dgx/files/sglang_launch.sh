@@ -495,6 +495,15 @@ if [ "$SGLANG_SPECULATIVE_ENABLED" = "true" ]; then
       args+=(--speculative-adaptive-config /tmp/speculative_adaptive_config.json)
     fi
   fi
+  # GDN ReplaySSM ring spec-verify (SGLang >=0.5.16, PR #28695). Replaces the
+  # per-draft SSM snapshot with a ring buffer; upstream reports 11.5 GB -> 1.8 GB
+  # speculative scratch per GPU (6.4x) on Qwen3.5-35B-A3B at TP1, at accuracy and
+  # throughput parity. Only valid for GDN/linear-attention models with a LINEAR
+  # draft chain (speculative_eagle_topk in {None, 1}); SGLang rejects other
+  # configurations. Default off upstream and here.
+  if [ "$SGLANG_ENABLE_GDN_REPLAYSSM_SPEC" = "true" ]; then
+    args+=(--enable-gdn-replayssm-spec)
+  fi
 fi
 # --mamba-scheduler-strategy ist deprecated (Warnung seit mindestens 0.5.15,
 # nachweisbar in Loki: {namespace="sglang"} |= "is deprecated and will be

@@ -116,6 +116,20 @@ sglang_max_mamba_cache_size: "{{ sglang_model_profiles[_sglang_active_model].max
 # for speculative decoding on hybrid-attention models. Sets SGLANG_ENABLE_SPEC_V2=1.
 sglang_enable_spec_v2: "{{ sglang_model_profiles[_sglang_active_model].enable_spec_v2 | default(false) }}"
 
+# GDN ReplaySSM ring spec-verify → --enable-gdn-replayssm-spec (SGLang >=0.5.16,
+# PR #28695). Drops the per-draft SSM snapshot in favour of a ring buffer:
+# upstream measures 11.5 GB → 1.8 GB speculative scratch per GPU (6.4x) on
+# Qwen3.5-35B-A3B at TP1, at accuracy and throughput parity. Freed scratch is
+# headroom for a higher mem_fraction_static (= more KV reserve after weight load).
+# Preconditions enforced by SGLang: GDN/linear-attention model, speculative
+# decoding on, and a LINEAR draft chain (speculative_eagle_topk in {None, 1}).
+# Ring length is tunable upstream via --linear-replayssm-cache-len (NOT wired
+# here — add a sibling knob if the default ring turns out to be the limit).
+# Default off (upstream default too); opt in per profile with
+# `enable_gdn_replayssm_spec: true`. UNVALIDATED on GB10: A/B against the
+# 0.5.15.post1 accept-length/throughput baseline before making it a profile default.
+sglang_enable_gdn_replayssm_spec: "{{ sglang_model_profiles[_sglang_active_model].enable_gdn_replayssm_spec | default(false) }}"
+
 # NOTE: you should never change the image directly here!
 sglang_image: "{{ sglang_model_profiles[_sglang_active_model].sglang_image | default(default_sglang_image) }}"
 

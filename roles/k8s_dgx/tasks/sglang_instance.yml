@@ -139,6 +139,9 @@
         SGLANG_SPECULATIVE_MOE_RUNNER_BACKEND: "{{ sglang_speculative_moe_runner_backend }}"
         SGLANG_SPECULATIVE_ADAPTIVE: "{{ sglang_speculative_adaptive | string | lower }}"
         SGLANG_SPECULATIVE_ADAPTIVE_CONFIG_JSON: "{{ sglang_speculative_adaptive_config | to_json }}"
+        # GDN ReplaySSM ring spec-verify (>=0.5.16, PR #28695). Only read inside
+        # the SGLANG_SPECULATIVE_ENABLED branch of launch.sh.
+        SGLANG_ENABLE_GDN_REPLAYSSM_SPEC: "{{ sglang_enable_gdn_replayssm_spec | string | lower }}"
         SGLANG_MAMBA_SCHEDULER_STRATEGY: "{{ sglang_mamba_scheduler_strategy }}"
         SGLANG_MAMBA_FULL_MEMORY_RATIO: "{{ sglang_mamba_full_memory_ratio | string }}"
         SGLANG_MAX_MAMBA_CACHE_SIZE: "{{ sglang_max_mamba_cache_size | string }}"
