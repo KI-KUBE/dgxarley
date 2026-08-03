@@ -80,6 +80,15 @@ RadixAttention's k_scale/v_scale carry no weight_loader
 anymore; do NOT additionally call maybe_remap_kv_scale_name() on these names --
 it would re-append ".attn" onto the already-mapped name
 ("...attn.attn.k_scale"), miss, and drop the scale again.
+
+[2026-08-03] UPSTREAMED: PR #31220 (this patch's C+D WeightsMapper revision
+plus p50's attention-quant unblock) was MERGED 2026-07-30 (commit
+c4af6cf26397), after the v0.5.16 tag cut (2026-07-25) -> ships in the next
+release (> v0.5.16). Retire p50+p51 via RETIRED_PATCHES.md on the image bump
+to the first release containing c4af6cf26397 (anchor-drift warnings from the
+runner are the signal). NOT covered upstream: qwen3_5_mtp.py (deliberately
+left out of the PR -- no MTP checkpoint with baked attention KV scales to
+verify against), so p43/p44 stay needed independently of this retirement.
 """
 
 from _patchlib import Patch
