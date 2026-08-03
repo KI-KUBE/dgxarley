@@ -559,6 +559,9 @@ PD-disagg) may surface new walls if turned on. **Update 2026-07-28:** #25165,
 #23743 and #25526 are all now closed by the stale-bot (unresolved, no fix
 landed, see the 2026-07-28 status block); only #26647 is still genuinely open.
 Stale-bot closure here does not mean the underlying gap is fixed.
+**Update 2026-08-03:** #26647 has now gone the same way — auto-closed by the
+stale-bot 2026-07-29 (one day after the previous check), unresolved, no fix
+landed. No issue in this Flash-stabilization cluster remains genuinely open.
 
 ---
 
@@ -579,7 +582,7 @@ Stale-bot closure here does not mean the underlying gap is fixed.
 | #25165 | main branch broke with deepseek v4 flash deployment | **closed (stale, unresolved)** — auto-closed by stale-bot 2026-07-13, no fix landed |
 | #23743 | [Tracking] DeepSeek V4 Flash GB200 serving fixes | **closed (stale, unresolved)** — auto-closed by stale-bot 2026-07-14, no fix landed |
 | #25526 | DSv4 Flash + HiCache breakable piecewise CUDA graph | **closed 2026-07-17 (stale-bot, unresolved)**, no fix landed |
-| #26647 | Mooncake HiCache fails with DeepSeek-V4-Flash hybrid cache | open (unchanged, last activity 2026-05-29) |
+| #26647 | Mooncake HiCache fails with DeepSeek-V4-Flash hybrid cache | **closed 2026-07-29 (stale-bot, unresolved)**, no fix landed |
 | #24111 | About pre-converted FP8 checkpoints (sgl-project/DeepSeek-V4-Flash-FP8) | **closed 2026-07-11 (stale-bot, unresolved)**, no fix landed |
 | #31125 | Known Issue (v0.5.16): temp-0 nondeterminism under DP attention + breakable prefill CUDA graph on the DSV4-Flash FP4 recipe | **open**, determinism test disabled as a stopgap, not fixed |
 | DeepGEMM #317 | DeepSeek-V4 on SM120: `tf32_hc_prenorm_gemm` + `paged_mqa_logits` kernels missing | **closed 2026-04-30 (declined, no SM120 HW; community PR #318 open)** |
