@@ -1,5 +1,24 @@
 # FlashInfer Upstream Bug: head_dim=512 not supported (Gemma-4 global attention)
 
+## Status 2026-08-03 (re-verify only, no change)
+
+All tracked refs re-checked against live upstream state; every state matches
+the 2026-07-28 entry below. Three flashinfer releases have shipped since then:
+**v0.6.16 stable** (2026-07-31), **v0.6.16.post1** (2026-08-02) and the
+pre-release **v0.6.17rc1** (2026-07-31). Their changelogs (MegaMoE, MiniMax
+sparse attention, XQA decode, unified MoE API, confidential-compute
+all-reduce, JIT cache) contain nothing touching the FA2/FA3 `prefill.cuh`
+register-budget path, `head_dim=512` dispatch, or the SGLang Gemma4
+allowlist. (PR #3897 "enable SM121 for NVFP4 attention", merged 2026-07-13,
+also shipped in this window but is NVFP4-attention-kernel-specific, not the
+BF16 FA2 register-budget issue tracked here — and moot anyway while the
+SGLang allowlist blocks `flashinfer` for Gemma4.) SGLang is still at
+**v0.5.16** (2026-07-25); the `Gemma4ForConditionalGeneration`
+attention-backend allowlist in `server_args.py` re-confirmed byte-identical
+on current `main`: `("trtllm_mha", "triton", "ascend", "intel_xpu")`.
+`attention_backend: triton` remains permanently mandatory for all four
+Gemma-4 profiles.
+
 ## Status 2026-07-28 (re-verify only, no change)
 
 All items referenced below re-checked against live upstream state. Issue
