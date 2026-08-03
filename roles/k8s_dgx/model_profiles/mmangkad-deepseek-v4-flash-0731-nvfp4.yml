@@ -1,0 +1,243 @@
+---
+# Model profile: mmangkad/DeepSeek-V4-Flash-0731-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# STATUS 2026-08-03: UNVALIDATED first-contact. Nothing about this checkpoint
+# has run on GB10 yet. It is the sibling of nvidia/DeepSeek-V4-Flash-NVFP4
+# (same quant recipe, same producer string) but on the NEW official base
+# deepseek-ai/DeepSeek-V4-Flash-0731, which brings TWO things the preview
+# checkpoint did not have: the hybrid CSA/HCA compressed attention (per-layer
+# compress_ratios) and a bundled DSpark speculative-decoding module. Both are
+# arch paths that have never executed on this cluster. Read the RISKS block
+# before deploying.
+#
+# WHAT THIS CHECKPOINT IS (verified against HF 2026-08-03; repo created
+# 2026-08-02, base created 2026-07-31):
+#   A third-party (mmangkad) ModelOpt repackage of deepseek-ai/DeepSeek-V4-
+#   Flash-0731, produced with Model Optimizer 0.46.0rc0-12-g9d360af34.
+#   hf_quant_config.json is BYTE-EQUIVALENT in shape to NVIDIA's official
+#   preview repack: producer modelopt, version dsv4-nvfp4-experts, quant_algo
+#   MIXED_PRECISION, NVFP4 (group 16) ONLY on layers.*.ffn.experts,
+#   exclude_modules = *.attn.*, *.ffn.shared_experts.*, head, mtp.* .
+#   config.json additionally carries quantization_config quant_method="fp8"
+#   (weight_block_size [128,128], scale_fmt ue8m0) for the non-expert base,
+#   i.e. block-FP8 base + NVFP4 routed experts, expert_dtype="fp4".
+#   166.9 GB safetensors (48 shards) -> ~41.7 GB/GPU at TP=4, essentially the
+#   same footprint as the 168.3 GB preview repack, so the KV headroom story is
+#   unchanged: big pool, MQA (num_key_value_heads=1) keeps per-token KV tiny.
+#   NOT compressed-tensors, so the wqkv_a/fused_wqa_wkv matcher gap of
+#   UPSTREAM_DSV4_BUGS.md section 2 does not apply.
+#   Third-party quantizer: this is NOT an NVIDIA repo. The layout was verified
+#   field by field against the official preview repack (identical), but the
+#   weights themselves are unaudited. Calibration per card: cnn_dailymail +
+#   Nemotron-Post-Training-Dataset-v2.
+#
+# Architecture (DeepseekV4ForCausalLM, model_type=deepseek_v4), 284B total /
+# 13B activated: 43 layers, hidden=4096, MQA (num_attention_heads=64,
+# num_key_value_heads=1, head_dim=512), DSA index/sparse attention
+# (index_topk=512, index_n_heads=64, index_head_dim=128), 256 routed experts
+# + 1 shared, 6 active/token, moe_intermediate_size=2048, q_lora_rank=1024,
+# o_lora_rank=1024, o_groups=8, 3 hash_moe layers, 1 MTP/DSpark head,
+# vocab=129280, max_position_embeddings=1048576 via yarn (factor 16 over
+# 65536), topk_method=noaux_tc, scoring_func=sqrtsoftplus,
+# routed_scaling_factor=1.5, swiglu_limit=10.0.
+#
+# NEW vs the Flash PREVIEW checkpoint (this is what makes it first-contact):
+#   1. HYBRID COMPRESSED ATTENTION. Per-layer compress_ratios (values 0 / 4 /
+#      128, asserted in sglang deepseek_v4.py), compress_rope_theta=160000,
+#      sliding_window=128, plus the MHC params hc_mult=4 / hc_sinkhorn_iters=20
+#      / hc_eps. The compress-ratio-4 and -128 layers run the c4 / c128 JIT
+#      kernels (python/sglang/jit_kernel/csrc/deepseek_v4/), which this cluster
+#      has never compiled. They are plain JIT-nvcc kernels gated on
+#      is_arch_support_pdl(), not an sm100 allowlist, so they SHOULD build for
+#      sm121, but that is an inference from the source, not a measurement.
+#      SGLang has supported the arch keys since v0.5.15.
+#   2. DSPARK speculative decoding (see the speculative block at the bottom).
+#      The DSpark head lives in the same mtp.0.* block as the preview's MTP
+#      head, extended with markov_head.* and confidence_head.* tensors.
+#   3. NO Jinja chat template in the repo (tokenizer_config.json has none).
+#      SGLang handles this NATIVELY: chat_encoding.resolve_chat_encoding_spec()
+#      returns "dsv4" for any DeepseekV4 arch (and for tool_call_parser
+#      "deepseekv4"), which routes through
+#      srt/entrypoints/openai/encoding_dsv4.py instead of apply_chat_template.
+#      So do NOT set a chat_template here. Caveat on reasoning_effort: the
+#      encoder accepts only "max" / "high" / None, and serving_chat drops
+#      anything else (the OpenAI default "medium" silently becomes None, i.e.
+#      the card's "low" level). A server-wide default can only be set via env
+#      SGLANG_DSV4_REASONING_EFFORT, for which this repo has no profile knob.
+#
+# ── RISKS (all unmeasured, ordered by how likely they are to bite) ───────────
+#   A. DSpark draft MoE is MXFP4, same SM100 trap as the preview's MTP head.
+#      Verified from the safetensors headers: mtp.0.ffn.experts.*.w1.weight is
+#      I8 with an F8_E8M0 scale (= MXFP4), while mtp.0.attn.* /
+#      mtp.0.ffn.shared_experts.* / mtp.0.main_proj are F8_E4M3. Since mtp.* is
+#      in the NVFP4 exclude list, HybridFp8NvFp4Config.get_quant_method routes
+#      those layers to the SM100-only Mxfp4FlashinferTrtllmMoEMethod, which
+#      crashes on GB10. Our image patch (scripts/patches/
+#      sglang-dsv4-mtp-marlin-v0.5.14.patch, gated APPLY_DSV4_MTP_MARLIN_
+#      TILELANG=1 in sglang-0.5.16-sm121.recipe, dry-run verified against
+#      v0.5.16) adds the marlin branch that speculative_moe_runner_backend:
+#      marlin selects. It was written for the EAGLE/nextn draft; the DSpark
+#      draft instantiates the same quant config, so it should hit the same
+#      branch, but that is UNVERIFIED.
+#   B. The c4 / c128 compressed-attention kernels have never been JIT-compiled
+#      on sm121 (point 1 above).
+#   C. DSpark itself is brand new upstream: it does not exist in v0.5.15 and
+#      landed in v0.5.16 (the image pinned below). Its kernels under
+#      srt/speculative/dspark_components/kernels/ are Triton with a torch
+#      reference fallback, so they are arch-portable in principle.
+#   D. Third-party quant (see above). Gate any acceptance on GSM8K, not on a
+#      clean boot.
+#
+# SM121 walls: identical arch family to the validated FP8/NVFP4 Flash
+# deployments, so walls 4/5/7 of UPSTREAM_DSV4_BUGS.md section 6 (DeepGEMM
+# MHC-prenorm, paged_mqa_logits, TVM topk_v2) are pre-emptively set to the
+# same fallbacks the preview profile uses. Walls 0 and 6 are solved natively
+# since v0.5.13 (section 8).
+_model_profile:
+  "mmangkad/DeepSeek-V4-Flash-0731-NVFP4":
+    knowledge_cutoff: "2025-05"  # inherited from the DeepSeek-V4-Flash base line, not restated for the 0731 release. LOW confidence, no official source for this checkpoint.
+    release_date: "2026-07-31"  # deepseek-ai/DeepSeek-V4-Flash-0731 base, HF API createdAt. NVFP4 repack published 2026-08-02.
+    info_url: "https://huggingface.co/mmangkad/DeepSeek-V4-Flash-0731-NVFP4"
+    nccl_transport: "roce"
+    tp_size: 4
+    ep_size: 4
+    # DSpark requires pp_size == 1 (_handle_dspark in arg_groups/speculative_hook.py
+    # raises otherwise), so TP=4 across the four sparks is the only topology that
+    # can also run DSPARK. Do not switch this profile to PP.
+    #
+    # 262144 conservative first-contact (model supports 1M via yarn, factor 16
+    # over 65536). Same reasoning as the preview profile: NVFP4 experts leave a
+    # large KV pool at ~41.7 GB/GPU. Raise to 524288 / 1048576 once an n=1
+    # baseline confirms KV fits at the chosen mem_fraction_static.
+    context_length: 262144
+    # quantization: UNSET on purpose, auto-detect. config.json declares
+    # quant_method "fp8" with the NVFP4 experts carried inside
+    # moe_quant_algo/quantized_layers, which is the mixed layout SGLang's
+    # HybridFp8NvFp4Config implements natively since v0.5.14. Do NOT set
+    # modelopt_fp4 (not a pure ModelOpt-FP4 checkpoint like the Nemotrons) and
+    # do NOT set compressed-tensors. First thing to check in the boot log.
+    trust_remote_code: true
+    kv_cache_dtype: "fp8_e4m3"
+    load_format: "auto"
+    weight_loader_disable_mmap: false
+    weight_loader_drop_cache_after_load: true
+    # mem_fraction_static = post-weight KV reserve (higher = more KV). Weights
+    # are ~41.7 GB of the 121 GiB unified memory, so 0.80 already yields a huge
+    # pool while leaving room for CUDA-graph capture (which is ON here). The
+    # upstream card suggests 0.90 on GB300; hold at 0.80 until the boot log
+    # shows the real KV/free split, then raise. Back off to 0.75 if capture OOMs.
+    mem_fraction_static: "0.80"
+    # Kernel choices, carried over from the preview NVFP4 profile (identical
+    # quant layout), all UNVALIDATED on this checkpoint:
+    #  - flashinfer_cutlass MoE: the proven NVFP4-MoE path on this cluster.
+    #    Note that v0.5.16 would pick flashinfer_trtllm_routed by itself if this
+    #    were left on "auto" (arg_groups/overrides.py: _deepseek_v4_overrides
+    #    does that for every hybrid FP8+NVFP4 checkpoint), and trtllm is
+    #    SM100-only. Pinning the runner here is what prevents that.
+    #    flashinfer_mxfp4 (what the upstream card recommends) belongs to the
+    #    OFFICIAL MXFP4 repo, not to this NVFP4 repack.
+    #  - attention_backend "dsv4": v0.5.16 forces this unconditionally for the
+    #    arch (same override provider, last-writer-wins), so it is stated here
+    #    to match reality rather than to steer it. The preview profile's
+    #    "flashinfer" is dead on v0.5.16 for the same reason. page_size is
+    #    likewise forced to 256 by the override, so it stays unset below.
+    #  - fp8_gemm cutlass: for the block-FP8 base. SM121 would auto-select
+    #    flashinfer -> trtllm, unsupported here.
+    #  - fp4_gemm flashinfer_cutlass: every NVFP4 winner on SM121 (fi_cudnn
+    #    needs the cudnn wheel absent from our base images).
+    moe_runner_backend: "flashinfer_cutlass"
+    attention_backend: "dsv4"
+    fp8_gemm_runner_backend: "cutlass"
+    fp4_gemm_backend: "flashinfer_cutlass"
+    # wo_a (o-LoRA proj) sits in the attn exclude set, so its stored dtype is
+    # whatever the base shipped. false = always-safe dequant-to-bf16; try true
+    # once the model loads clean (section 6 wall 2).
+    opt_fp8_wo_a_gemm: false
+    # DeepGEMM has no sm_121 variant for the two V4 kernels (DeepGEMM #317,
+    # SGLang #23657): hc_prenorm (MHC) -> TileLang, else crash at kernel_warmup.
+    opt_deepgemm_hc_prenorm: false
+    # ═══ DSA INDEXER ═══
+    # fp8_paged_mqa_logits (DSA Lightning-Indexer) runs every decode step and is
+    # hard-blocked on sm121 in DeepGEMM (_C.so arch allowlist + 128 KB SMEM vs
+    # GB10's 100 KB). SGLang's TileLang indexer is the fast path and needs the
+    # tilelang compat patch, which the 0.5.16 image carries in its v0.5.16
+    # variant (TILELANG_PATCH_VARIANT="-v0.5.16", only the uint8-view hunk left
+    # after upstream adopted the 2D shared-buffer half). indexer.py checks the
+    # TileLang branch BEFORE the torch branch, so fp8_paged_mqa_logits_torch
+    # stays true as the safe rollback: flipping opt_use_tilelang_indexer to
+    # false lands on the torch floor, never on the native-DeepGEMM crash.
+    opt_use_tilelang_indexer: true
+    fp8_paged_mqa_logits_torch: true
+    # C4-indexer top-k transform: the JIT topk_v1.cuh kernel was re-validated on
+    # GB10 (2026-06-20, bit-identical to torch), so no fallback here.
+    topk_transform_512_torch: false
+    disable_deep_gemm: true
+    # CUDA graphs ON, same as the preview NVFP4 profile: eager mode is broken on
+    # any cutlass_moe_fp4 path on SM121 (kernel-crash matrix in TURBOQUANT.md).
+    # Piecewise capture stays off (DSV4 piecewise is a known upstream trouble
+    # spot, #25526; full-CG is our validated mode on every NVFP4 model).
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    cuda_graph_max_bs: 32
+    jit_max_jobs: 1
+    pp_async_batch_depth: 0
+    # 4096 mirrors the upstream low-latency recipe for this checkpoint. It also
+    # caps the prefill memory spike on the new compressed-attention layers,
+    # which is worth having on a first boot.
+    chunked_prefill_size: 4096
+    # swa_full_tokens_ratio deliberately UNSET: the sliding_window=128 layers
+    # need it, and v0.5.16 fills in 0.1 for this arch by itself (and only when
+    # the user left it at the default), which is exactly the value the upstream
+    # launch command passes. Set it here only to deviate from 0.1.
+    num_experts: 256
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
+    # SGLang parser registry (v0.5.16): reasoning "deepseek-v4" ->
+    # _DeepSeekV3Detector, tool-call "deepseekv4" -> DeepSeekV4Detector. The
+    # tool-call name also pins the dsv4 chat encoder (see point 3 above).
+    reasoning_parser: "deepseek-v4"
+    tool_call_parser: "deepseekv4"
+    # This repo's generation_config.json: temperature=1.0, top_p=1.0
+    # (do_sample=true, no top_k). The base card additionally recommends
+    # top_p=0.95 for AGENTIC use, 1.0 otherwise, so the file value is kept.
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 1.0
+    # ═══ DSPARK speculative decoding ═══
+    # The 0731 line ships its draft head inside the target checkpoint (the
+    # dspark_* keys in config.json mark it: block_size=5, markov_rank=256,
+    # noise_token_id=128799, target_layer_ids=[40,41,42]), so no external draft
+    # model and no speculative_draft_model_path: _handle_dspark defaults the
+    # draft path to the model path when it sees those keys.
+    # Hard constraints from arg_groups/speculative_hook.py::_handle_dspark,
+    # all of which our launcher passes explicitly and therefore must match:
+    #   - speculative_num_draft_tokens MUST equal gamma + 1, where gamma is the
+    #     checkpoint's dspark_block_size (5 here). A mismatch is a ValueError at
+    #     boot, not a warning. Hence 6. If a future revision of the repo changes
+    #     dspark_block_size, this number moves with it.
+    #   - speculative_num_steps and speculative_eagle_topk are forced to 1
+    #     (warning only), so they are set to 1 to keep the log clean.
+    #   - pp_size must be 1 (see tp_size above), device must be CUDA.
+    # arg_groups/deepseek_v4_hook.py accepts EAGLE and DSPARK for this arch and
+    # rejects everything else, so NEXTN is not an option here.
+    # DISABLED for first contact: get a non-spec boot plus a GSM8K pass on the
+    # record first, since the DSpark draft MoE depends on the marlin branch
+    # (risk A above) that has only ever been exercised by EAGLE-MTP. Flip
+    # speculative_enabled to true afterwards, nothing else changes.
+    speculative_enabled: false
+    speculative_algo: DSPARK
+    speculative_num_steps: 1
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 6  # = dspark_block_size (5) + 1. HARD requirement, see above.
+    # Routes the MXFP4 DSpark draft MoE onto marlin (SM80+) instead of the
+    # SM100-only trtllm kernel. Needs APPLY_DSV4_MTP_MARLIN_TILELANG=1 in the
+    # image recipe, which sglang-0.5.16-sm121.recipe sets. Inert while
+    # speculative_enabled is false.
+    speculative_moe_runner_backend: marlin
+    # Image: 0.5.16 is the FLOOR for this checkpoint. DSPARK does not exist in
+    # v0.5.15 (verified: no dspark symbol anywhere in that tag), so an older
+    # image can at best serve it non-speculatively, and only if the CSA/HCA arch
+    # keys are understood (v0.5.15 has those). Built from
+    # scripts/patches/sglang-0.5.16-sm121.recipe via scripts/build_sm121_image.sh.
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.16-sm121"

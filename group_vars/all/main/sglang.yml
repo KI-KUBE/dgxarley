@@ -30,6 +30,7 @@ sglang_port: 8000
 # --- DeepSeek-V4 ---
 # sglang_model: "nvidia/DeepSeek-V4-Flash-NVFP4"                 # 284B/13B MoE, NVFP4 experts + FP8 base, 1M ctx — ~42 GB/GPU TP4; needs SGLang #25820 + v0.5.13 sm121 image
 # sglang_model: "nvidia/DeepSeek-V4-Pro-NVFP4"                   # 1.6T/49B MoE, NVFP4 experts + FP8 base — STAGING ONLY, does NOT fit on 4× GB10 (~225 GB/GPU TP4)
+# sglang_model: "mmangkad/DeepSeek-V4-Flash-0731-NVFP4"          # 284B/13B MoE, OFFICIAL 0731 base (hybrid CSA/HCA attn + bundled DSpark draft), 3rd-party modelopt repack of the same NVFP4-experts+FP8-base layout → ~41.7 GB/GPU TP4, 1M ctx. Needs the 0.5.16 image (DSPARK is absent in 0.5.15). UNVALIDATED first-contact
 #
 # --- Gemma-4 ---
 # sglang_model: "nvidia/Gemma-4-31B-IT-NVFP4"                        # 30.7B dense NVFP4, multimodal, 256K ctx (FROZEN_KV_MTP debug)
