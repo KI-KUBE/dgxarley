@@ -71,6 +71,11 @@
 #      aarch64 or py3-none-any wheels (checked on PyPI 2026-07-28), so none is a
 #      known arm64 build blocker. AUDIO_DEPS still installs librosa, which now
 #      overlaps with the upstream numba pin.
+#   8. HF_HUB_MIN_VERSION=1.26.0 (NEW KNOB, 2026-08-03, leer in allen älteren
+#      Recipes). Floor gegen den Xet-Gated-Repo-Download-Bug, siehe den
+#      HF_HUB_MIN_VERSION-Block unten und dockerfile-hf-hub-floor.patch. Ändert
+#      am gebauten Artefakt NICHTS gegenüber dem Build vom 2026-08-02 (der hat
+#      bereits hub 1.26.0), der Floor macht es nur reproduzierbar.
 #
 # ── PATCH VERIFY (2026-07-28, non-GPU, dry-run vs raw v0.5.16 source) ───────
 #   ✅ sgl-kernel-arch-prune.patch              hunks at 124/206 (offset -12/-11)
@@ -367,6 +372,23 @@ AUDIO_DEPS="librosa"
 
 # accelerate — baked into the image (ModelOptModelLoader importiert es).
 ACCELERATE_DEPS="accelerate"
+
+# huggingface_hub FLOOR (nicht exakt gepinnt). Neu 2026-08-03, erstes Recipe mit
+# diesem Knopf; leer/fehlend in allen älteren Recipes = Verhalten unverändert.
+# Grund: hub PR #4394 (Tree-Listing-Cache) reichte den REDAKTIERTEN xetHash-
+# Platzhalter, den die Hub-/tree-API für GATED Repos liefert, ungeprüft an
+# hf_xet weiter → "Task error: Unable to parse string as hex hash value" bei
+# jedem frischen snapshot_download eines gated Modells (hf_preload-Job,
+# Shard-Jobs, Model-Download-initContainer). hf_xet war nie schuld. Fix: hub PR
+# #4595, released in v1.26.0 (2026-07-30). Siehe UPSTREAM_HF_XET_BUG.md.
+# Weder hub noch hf_xet sind sonst irgendwo im Build gepinnt, dieses Image hat
+# 1.26.0 also nur zufällig (Build-Datum 2026-08-02, verifiziert: `hub 1.26.0`).
+# Solange der Cluster noch HF_HUB_DISABLE_XET=1 setzt (hf_hub_disable_xet), ist
+# das folgenlos, sobald das auf 0 zurückgeht, würde ein unglücklicher
+# Re-Resolve den Crash still wieder einschleppen. Der Floor verhindert genau das.
+# Der Install-Schritt läuft als LETZTE pip-Aktion der builder-Stage
+# (dockerfile-hf-hub-floor.patch), damit ihn nichts mehr downgraden kann.
+HF_HUB_MIN_VERSION=1.26.0
 
 SGLANG_VERSION=0.5.16
 SGLANG_REF="v0.5.16"

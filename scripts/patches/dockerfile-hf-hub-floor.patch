@@ -1,0 +1,77 @@
+Floor-pin `huggingface_hub` so a rebuild cannot re-resolve into the Xet
+gated-repo download bug.
+
+huggingface_hub PR #4394 (v1.2x) added a tree-listing cache that skips the
+per-file HEAD call for Xet files and rebuilds the file metadata from the cached
+/tree API response. On GATED repos the Hub returns a REDACTED xetHash
+placeholder (64 `*`) there, which hub handed straight to hf_xet:
+
+  RuntimeError: Task error: Unable to parse string as hex hash value
+
+Every fresh `snapshot_download` of a gated model died on it (hf_preload Job,
+the sglang/vllm shard Jobs, the pod model-download initContainers), while
+`hf_hub_download` was fine because it goes through HEAD. hf_xet was never at
+fault. Fixed by huggingface_hub PR #4595 ("[Download] Reject redacted Xet
+hashes from tree cache", merged 2026-07-28, closes xet-core#895), released in
+huggingface_hub v1.26.0 on 2026-07-30. Full history: UPSTREAM_HF_XET_BUG.md.
+
+Neither `huggingface_hub` nor `hf_xet` is pinned anywhere in the build (the
+scitrera Dockerfile installs whatever the sglang/transformers/flashinfer
+resolve pulls in), so the fixed version is in the image only by accident of
+build date. That is fine while the cluster still ships the
+`HF_HUB_DISABLE_XET=1` workaround (repo var `hf_hub_disable_xet`), but the
+moment that is flipped back to 0 an unlucky re-resolve would silently
+reintroduce the crash. This adds the floor as a build knob:
+
+  ARG HF_HUB_MIN_VERSION=""   # empty = leave hub alone (all older recipes)
+  HF_HUB_MIN_VERSION=1.26.0   # in sglang-0.5.16-sm121.recipe and later
+
+Mechanism mirrors dockerfile-kernels-pin.patch / dockerfile-accelerate.patch:
+an `ARG` + gated `uv pip install` RUN in the builder stage, before the
+dist-packages split, so it is carried into the runtime stage.
+
+PLACEMENT: this block goes LAST in the builder stage, immediately before the
+`# Break up dist-packages ...` split, i.e. AFTER the `uv pip install ./python`
+sglang step and after the DSV4 FlashMLA block. A floor installed earlier could
+be undone by any later resolve. The hunk is TRAILING-CONTEXT-ONLY (anchored on
+the upstream split block), so it applies regardless of which optional
+dockerfile-*.patch steps ran before it, and it must therefore be applied LAST
+in apply_patches().
+
+It is a FLOOR (>=), not an exact pin: hub is not in the inference hot path and
+no upper bound is known to be needed. Turn it into `==` here if a future hub
+release ever regresses. Deliberately installed WITH deps, since a floor bump
+may require a newer filelock/fsspec that `--no-deps` would leave unsatisfied.
+
+Remove when the sglang base image itself carries a hub >= 1.26.0 floor.
+
+Apply to: container-build/Dockerfile.sglang-nightly in the local clone of
+scitrera/cuda-containers.
+
+--- a/container-build/Dockerfile.sglang-nightly
++++ b/container-build/Dockerfile.sglang-nightly
+@@ -469,3 +469,24 @@
++# dgxarley: floor-pin huggingface_hub. Hub's tree-listing cache (PR #4394) fed
++# the redacted xetHash placeholder that the Hub /tree API returns for GATED
++# repos straight into hf_xet, which rejected it with "Unable to parse string as
++# hex hash value", killing every fresh snapshot_download of a gated model
++# (hf_preload Job, shard Jobs, the pod model-download initContainers). Fixed by
++# huggingface_hub PR #4595, released in v1.26.0 (2026-07-30); hf_xet itself was
++# never at fault. Nothing in this image pins hub, so without a floor a rebuild
++# can re-resolve back into the broken 1.2x window and silently re-break Xet
++# downloads once HF_HUB_DISABLE_XET=1 is dropped. Placed LAST in the builder
++# stage, after the sglang install, so no earlier step can downgrade it. Gated by
++# HF_HUB_MIN_VERSION (empty = leave hub alone, so every older recipe is
++# unaffected). Deliberately WITH deps: a floor bump may need a newer filelock or
++# fsspec, and --no-deps would leave that unsatisfied. See UPSTREAM_HF_XET_BUG.md.
++ARG HF_HUB_MIN_VERSION=""
++RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
++    if [ -n "$HF_HUB_MIN_VERSION" ]; then \
++        echo "=== Enforcing huggingface_hub>=${HF_HUB_MIN_VERSION} (xet gated-repo fix) ==="; \
++        uv pip install "huggingface_hub>=${HF_HUB_MIN_VERSION}"; \
++        python3 -c "import huggingface_hub as h; print('huggingface_hub', h.__version__)"; \
++    fi
++
+ # Break up dist-packages into smaller layers to avoid hitting Docker layer size limits
+ COPY stages/directory_split2.sh /opt/directory_split2.sh
+ RUN chmod +x /opt/directory_split2.sh && \

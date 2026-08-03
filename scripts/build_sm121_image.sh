@@ -1429,6 +1429,29 @@ apply_patches() {
         echo "Skipping dockerfile-qwen36-mixed-nvfp4.patch (recipe does not set APPLY_QWEN36_MIXED_NVFP4_PR27906=1)"
     fi
 
+    # 2g. Floor-pin huggingface_hub (ARG HF_HUB_MIN_VERSION + gated uv pip
+    #     install at the very END of the builder stage). Guards the Xet
+    #     gated-repo download bug: hub's tree cache passed a redacted xetHash
+    #     placeholder to hf_xet ("Unable to parse string as hex hash value"),
+    #     killing every fresh snapshot_download of a gated model. Fixed in
+    #     huggingface_hub v1.26.0; nothing in the build pins hub, so without a
+    #     floor a rebuild can re-resolve back into the broken 1.2x window once
+    #     the HF_HUB_DISABLE_XET=1 workaround is dropped. See
+    #     patches/dockerfile-hf-hub-floor.patch + UPSTREAM_HF_XET_BUG.md.
+    #     Always applied — no-op when the recipe leaves HF_HUB_MIN_VERSION
+    #     empty. MUST run LAST: the hunk is trailing-context-only on the
+    #     dist-packages split so the floor install stays the final pip action in
+    #     the builder stage (an earlier one could be undone by a later resolve).
+    if [[ -f "${PATCHES_DIR}/dockerfile-hf-hub-floor.patch" ]]; then
+        echo "Applying dockerfile-hf-hub-floor.patch..."
+        patch --dry-run -p1 < "${PATCHES_DIR}/dockerfile-hf-hub-floor.patch" \
+            || die "hf-hub-floor Dockerfile patch dry-run failed — upstream Dockerfile drifted; regenerate dockerfile-hf-hub-floor.patch"
+        patch -p1 < "${PATCHES_DIR}/dockerfile-hf-hub-floor.patch"
+        grep -q 'ARG HF_HUB_MIN_VERSION' container-build/Dockerfile.sglang-nightly \
+            || die "hf-hub-floor Dockerfile patch verification failed"
+        echo "hf-hub-floor Dockerfile patched"
+    fi
+
     # 3. Drop in the recipe file. run_build() parses it inline and calls
     #    `podman build` directly, bypassing container-build/build-image.sh
     #    (which uses `docker buildx build` — podman has no buildx subcommand).
@@ -1466,7 +1489,7 @@ run_build() {
     [[ -f "${recipe_file}" ]] || die "Recipe not found: ${recipe_file}"
 
     local R_DOCKERFILE R_TARGET R_BASE_IMAGE R_FLASHINFER_VERSION
-    local R_TRANSFORMERS_VERSION R_KERNELS_VERSION R_CUTLASS_DSL_VERSION R_AUDIO_DEPS R_ACCELERATE_DEPS R_SGLANG_VERSION R_SGLANG_REF R_IMAGE_TAG
+    local R_TRANSFORMERS_VERSION R_KERNELS_VERSION R_CUTLASS_DSL_VERSION R_AUDIO_DEPS R_ACCELERATE_DEPS R_HF_HUB_MIN_VERSION R_SGLANG_VERSION R_SGLANG_REF R_IMAGE_TAG
     local R_FLASH_MLA_REPO R_FLASH_MLA_REF R_DSV4_KERNEL_REPO R_DSV4_KERNEL_REF R_DSV4_KERNEL_ARCH
     # shellcheck disable=SC1090
     source <(
@@ -1484,6 +1507,7 @@ run_build() {
         # default-on: `-` (not `:-`) so an unset recipe still bakes accelerate,
         # while an explicit ACCELERATE_DEPS="" in a recipe opts out (stays empty).
         echo "R_ACCELERATE_DEPS='${ACCELERATE_DEPS-accelerate}'"
+        echo "R_HF_HUB_MIN_VERSION='${HF_HUB_MIN_VERSION:-}'"
         echo "R_SGLANG_VERSION='${SGLANG_VERSION}'"
         echo "R_SGLANG_REF='${SGLANG_REF}'"
         echo "R_FLASH_MLA_REPO='${FLASH_MLA_REPO:-}'"
@@ -1529,6 +1553,7 @@ run_build() {
     echo "  CUTLASS_DSL_VERSION  = ${R_CUTLASS_DSL_VERSION:-<unset, skipped>}"
     echo "  AUDIO_DEPS           = ${R_AUDIO_DEPS:-<unset, skipped>}"
     echo "  ACCELERATE_DEPS      = ${R_ACCELERATE_DEPS:-<empty, opted out>}"
+    echo "  HF_HUB_MIN_VERSION   = ${R_HF_HUB_MIN_VERSION:-<unset, hub left as resolved>}"
     echo "  SGLANG_VERSION       = ${R_SGLANG_VERSION}"
     echo "  SGLANG_REF           = ${R_SGLANG_REF}"
     echo "  FLASH_MLA_REPO       = ${R_FLASH_MLA_REPO:-<unset>}"
@@ -1565,6 +1590,7 @@ run_build() {
         --build-arg "CUTLASS_DSL_VERSION=${R_CUTLASS_DSL_VERSION:-}" \
         --build-arg "AUDIO_DEPS=${R_AUDIO_DEPS:-}" \
         --build-arg "ACCELERATE_DEPS=${R_ACCELERATE_DEPS}" \
+        --build-arg "HF_HUB_MIN_VERSION=${R_HF_HUB_MIN_VERSION:-}" \
         --build-arg "SGLANG_VERSION=${R_SGLANG_VERSION}" \
         --build-arg "SGLANG_REF=${R_SGLANG_REF}" \
         --build-arg "FLASH_MLA_REPO=${R_FLASH_MLA_REPO:-}" \
