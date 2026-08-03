@@ -16,6 +16,8 @@
     env: yes
     job: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games"
 
+# crictl ships with k3s, so this cron only makes sense on an actual cluster node --
+# on a group member with install_k3s:false it would just fail twice a month.
 - name: crictl prune cronjobs
   cron:
     name: "{{ item.name }}"
@@ -27,6 +29,7 @@
     disabled: "{{ item.disabled }}"
   with_items:
     - { name: "prune cri images on disk", cmd: "crictl rmi --prune", minute: "0", hour: "17", weekday: "*", day: "1,15", disabled: "no" }
+  when: install_k3s | default(false) | bool
 
 - name: add crontabs on k3smaster
   cron:
