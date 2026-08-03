@@ -30,6 +30,24 @@ instead of FP32 for indexer score, #30645 top-k v2 fix) but none of it adds an
 arch-independent `torch` paged-MQA-logits backend. No change to this doc's
 conclusions.
 
+Re-checked 2026-08-03 (morning): PR #31480 still **OPEN**, no new commits or
+comments since 2026-07-16 (`updatedAt` unchanged). `mergeStateStatus` had
+progressed `BLOCKED` → `DIRTY` with `mergeable: CONFLICTING` — i.e. the PR
+needed a rebase against current main, the same state its companion PR #31481
+has been in since 2026-07-28. `DSAPagedMQALogitsBackend` on `main` fetched
+again and confirmed unchanged (still only DEEPGEMM / CUTEDSL / AITER, no
+`torch` value). SGLang still at v0.5.16, no new release. Content/design
+conclusions unchanged.
+
+Re-checked 2026-08-03 (afternoon, post-rebase): the rebase flagged above is
+DONE for #31480 — branch `dsa-indexer-torch-triton-backend` rebased onto
+current main and force-pushed ~10:35 UTC (same single commit content, new
+head `5480d1d28d`, `committedDate` 2026-08-03). Live state now
+`mergeable: MERGEABLE`, `mergeStateStatus: BLOCKED` (i.e. only awaiting
+review, no conflict), `reviewDecision: REVIEW_REQUIRED`, no new comments.
+Companion PR #31481 was NOT rebased and remains `DIRTY`/`CONFLICTING` — the
+two PRs have diverged in merge-readiness; #31481 still needs its own rebase.
+
 ## Proposed PR title
 
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
@@ -167,6 +185,10 @@ Indexer-Backend, kein Beifang).
 
 
 ## STATUS 2026-07-16: Branch gebaut + GPU-validiert, bereit zum Einreichen
+
+> [Historischer Schnappschuss von VOR dem Einreichen — noch am selben Tag als
+> PR #31480 gepusht/gefiled (siehe Status oben); "NICHT gepusht" unten gilt
+> nicht mehr. Seit 2026-08-03 zudem auf aktuellen main rebased (`5480d1d28d`).]
 
 Branch `dsa-indexer-torch-triton-backend` im Fork-Worktree
 `../sglang-wt-indexer` (von upstream/main 1f34911de7), EIN Commit
