@@ -367,6 +367,13 @@ small (~50 MB) and the node has fast local storage.
   unmerged, last updated 2026-07-14), and #45660 (closed, unmerged). None of the three is merged,
   so upstream still has no landed fix for Trigger 2, and this doc's conclusion is unchanged: the
   `copy-ui-tui` workaround status and the rest of the tracked merges/closures all still hold.
+- **Re-verified 2026-08-03:** new release **v2026.7.30** (v0.19.1, published 2026-07-30) — a
+  generic rollup with no curated changelog (details deferred to v0.20.0); its notes call out no
+  TUI/dashboard/npm-install fix. All tracked refs unchanged: issue #45657 (Trigger 2) still OPEN
+  with exactly the same 3 comments (latest the 2026-07-27 bot triage), none of the candidate fix
+  PRs (#45732 / #45671 / #45660) merged, all previously tracked merges/closures identical, and
+  the `copy-ui-tui` initContainer still commented out in
+  `roles/k8s_infra/templates/hermes/hermes_agent_deployment.yaml.j2`. Conclusions unchanged.
 
 ## Action Items
 
