@@ -25,6 +25,17 @@ was reachable, just unreached. INERT for NVIDIA MoE-only NVFP4 (excluded
 attention -> UnquantizedLinearMethod), for MIXED_PRECISION (modelopt_mixed, not
 modelopt_fp4), and for FP8/etc (the ternary already took the else branch). No
 model-name gate: qwen3_5.py is imported only for the Qwen3.5 arch.
+
+[2026-08-03] UPSTREAMED: this fix (together with p51) was submitted as
+sgl-project/sglang PR #31220 ("Qwen3.5-MoE: support modelopt_fp4 checkpoints
+that quantize attention (+ load baked FP8 KV scales)") and MERGED 2026-07-30
+(commit c4af6cf26397). Merged AFTER the v0.5.16 tag cut (2026-07-25), so it
+ships in the next release (> v0.5.16). Upstream removes the forced-None
+ternary entirely (vs this patch's `if False` rewrite), so on an image
+containing the merged fix the OLD anchor stops matching and the runner logs
+an anchor-drift warning -- that warning is the retire signal. Retire p50+p51
+via RETIRED_PATCHES.md on the image bump to the first release containing
+c4af6cf26397.
 """
 
 from _patchlib import Patch
