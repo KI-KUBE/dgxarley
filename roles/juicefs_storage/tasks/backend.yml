@@ -9,332 +9,450 @@
 # Valkey/exporter tasks additionally gate to the primary.
 
 # --- Preflight: validate the distributed topology (primary only) ------------
-- name: Preflight — validate distributed RustFS topology
-  ansible.builtin.assert:
-    that:
-      - juicefs_rustfs_raid_level in ['raid0', 'raid5', 'raid6']
-      - juicefs_primary_node in (juicefs_rustfs_members | map(attribute='node') | list)
-      - (juicefs_rustfs_total_drives | int) >= 4
-      - (juicefs_rustfs_parity | int) * 2 <= (juicefs_rustfs_set_drive_count | int)
-      - (juicefs_rustfs_total_drives | int) % (juicefs_rustfs_set_drive_count | int) == 0
-    fail_msg: >-
-      Invalid distributed RustFS topology. Requires: raid_level in raid0/raid5/raid6;
-      the primary (juicefs_primary_node={{ juicefs_primary_node }}) present among
-      juicefs_rustfs_members; >=4 total drives (have {{ juicefs_rustfs_total_drives }});
-      parity*2 <= set_drive_count ({{ juicefs_rustfs_parity }}*2 vs
-      {{ juicefs_rustfs_set_drive_count }}); and total drives an integer multiple
-      of set_drive_count.
+# ── INSTALL ────────────────────────────────────────────────────────────────
+# Wrapped in a block so the teardown at the bottom of this file stays reachable
+# on a host that is no longer a storage node (main.yml widens its import gate
+# for exactly that case). Same one-file install+teardown shape the k8s_infra
+# components use.
+- name: JuiceFS backend (Valkey + RustFS) — install
   when:
-    - juicefs_rustfs_distributed | bool
-    - inventory_hostname == juicefs_primary_node
-
-# --- This host must have a disk entry in members (sole disk source) ---------
-- name: Assert this RustFS node has a disk entry in juicefs_rustfs_members
-  ansible.builtin.assert:
-    that: juicefs_rustfs_local_disks | length > 0
-    fail_msg: >-
-      {{ inventory_hostname }} runs RustFS but has no matching entry in
-      juicefs_rustfs_members (which is the sole disk source, single-node included).
-      Add one, e.g.:
-        - node: {{ inventory_hostname }}
-          disks: [{ path: <mountpoint>, uuid: "<blkid-UUID>", fstype: ext4 }]
-
-# --- Optional fstab management (juicefs_manage_fstab) -----------------------
-# Own /etc/fstab for the RustFS disk(s): UUID-keyed entry + mount NOW, so the
-# mountpoint assert below passes on a fresh node. Only entries WITH a uuid are
-# touched (single-node's synthetic disk has none -> skipped, mount by hand).
-# `nofail` keeps a missing/rearranged USB from wedging the boot.
-- name: Mount RustFS USB-SSD(s) via fstab (UUID-keyed)
-  ansible.posix.mount:
-    src: "UUID={{ item.uuid }}"
-    path: "{{ item.path }}"
-    fstype: "{{ item.fstype | default('ext4') }}"
-    opts: "{{ item.options | default('defaults,nofail') }}"
-    # dump/passno per disk (both default 0). Set passno to match a pre-existing
-    # hand-written fstab line (e.g. 2) to keep the entry byte-identical on first run.
-    dump: "{{ item.dump | default('0') }}"
-    passno: "{{ item.passno | default('0') }}"
-    state: mounted
-  loop: "{{ juicefs_rustfs_local_disks }}"
-  loop_control:
-    label: "{{ item.path }}"
-  when:
-    - juicefs_manage_fstab | bool
-    - item.uuid is defined
-
-# --- Disk safety ------------------------------------------------------------
-# Every RustFS data dir must sit on a real mountpoint (never the OS disk). In
-# distributed mode a node may carry several disks, so check each.
-- name: Check each RustFS storage path is a mountpoint
-  ansible.builtin.command: "mountpoint -q {{ item }}"
-  loop: "{{ juicefs_rustfs_local_mounts }}"
-  register: _disk_mp
-  changed_when: false
-  failed_when: false
-
-- name: Fail if any RustFS storage disk is not a separate mountpoint
-  ansible.builtin.assert:
-    that: item.rc == 0
-    fail_msg: >-
-      {{ item.item }} is not a mountpoint. Mount the USB-SSD there first — this
-      role refuses to write RustFS object data onto the OS disk. Override with
-      juicefs_require_disk_mount=false only for throwaway tests.
-  loop: "{{ _disk_mp.results }}"
-  loop_control:
-    label: "{{ item.item }}"
-  when: juicefs_require_disk_mount | bool
-
-# --- Valkey (metadata engine) — PRIMARY node only ---------------------------
-- name: Deploy Valkey metadata engine (primary only)
-  when: inventory_hostname == juicefs_primary_node
+    - not (juicefs_backend_teardown | default(false) | bool)
+    - inventory_hostname in juicefs_rustfs_nodes
   block:
-    - name: Install Valkey
-      ansible.builtin.apt:
-        name: "{{ juicefs_valkey_apt_package }}"
-        state: present
-        update_cache: true
-        cache_valid_time: 3600
+    - name: Preflight — validate distributed RustFS topology
+      ansible.builtin.assert:
+        that:
+          - juicefs_rustfs_raid_level in ['raid0', 'raid5', 'raid6']
+          - juicefs_primary_node in (juicefs_rustfs_members | map(attribute='node') | list)
+          - (juicefs_rustfs_total_drives | int) >= 4
+          - (juicefs_rustfs_parity | int) * 2 <= (juicefs_rustfs_set_drive_count | int)
+          - (juicefs_rustfs_total_drives | int) % (juicefs_rustfs_set_drive_count | int) == 0
+        fail_msg: >-
+          Invalid distributed RustFS topology. Requires: raid_level in raid0/raid5/raid6;
+          the primary (juicefs_primary_node={{ juicefs_primary_node }}) present among
+          juicefs_rustfs_members; >=4 total drives (have {{ juicefs_rustfs_total_drives }});
+          parity*2 <= set_drive_count ({{ juicefs_rustfs_parity }}*2 vs
+          {{ juicefs_rustfs_set_drive_count }}); and total drives an integer multiple
+          of set_drive_count.
+      when:
+        - juicefs_rustfs_distributed | bool
+        - inventory_hostname == juicefs_primary_node
 
-    - name: Deploy managed valkey.conf
-      ansible.builtin.template:
-        src: valkey.conf.j2
-        dest: /etc/valkey/valkey.conf
-        owner: valkey
-        group: valkey
-        mode: "0640"
-      notify: restart valkey
-      no_log: true  # contains requirepass
+    # --- This host must have a disk entry in members (sole disk source) ---------
+    - name: Assert this RustFS node has a disk entry in juicefs_rustfs_members
+      ansible.builtin.assert:
+        that: juicefs_rustfs_local_disks | length > 0
+        fail_msg: >-
+          {{ inventory_hostname }} runs RustFS but has no matching entry in
+          juicefs_rustfs_members (which is the sole disk source, single-node included).
+          Add one, e.g.:
+            - node: {{ inventory_hostname }}
+              disks: [{ path: <mountpoint>, uuid: "<blkid-UUID>", fstype: ext4 }]
 
-    # --- Boot hardening for the bind-scoped Valkey -------------------------
-    # valkey.conf binds a SPECIFIC address (juicefs_valkey_bind_addresses). That
-    # address may not exist yet at service start — the Debian unit only orders
-    # itself After=network.target, which is reached long before an interface is
-    # configured, and on the k3s master the storage address lives on an OVS VLAN
-    # interface that comes up comparatively late.
-    #
-    # THE BIND ITSELF IS ALREADY SAFE: the common role sets
-    # net.ipv4.ip_nonlocal_bind=1 on every k3sserver host, so binding a
-    # not-yet-configured address succeeds and the socket picks up traffic once the
-    # address appears. Everything below is defense in depth for that, and stands on
-    # its own for the RETRY RATE (see below), which is the part that actually earns
-    # its keep. If ip_nonlocal_bind is ever turned off, the ordering here is what is
-    # left, so keep both.
-    #
-    # Restart=always (already in the vendor unit) does NOT save this: it ships with
-    # RestartSec=100ms and the default StartLimitBurst=5 per 10s, so five retries
-    # are spent within half a second and the unit then stays `failed` for good —
-    # and with the metadata engine dead, every JuiceFS mount in the cluster stalls.
-    #
-    # ORDERING NARROWS THE WINDOW, THE RETRY LOOP CLOSES IT. Neither ordering
-    # anchor is a guarantee that the address exists:
-    #   * network-online.target — measured on this master, netplan invokes
-    #     `systemd-networkd-wait-online --any -i heidk8.101 -i <usb-nic>`, so the
-    #     target can be reached while the OVS VLAN interface carrying the storage
-    #     address is still unconfigured. It is NOT the interface we need.
-    #   * openvswitch-switch.service — its completion means ovsdb-server +
-    #     ovs-vswitchd are up, i.e. the bridge/port CAN exist; the address is then
-    #     configured by systemd-networkd a moment later.
-    # There is no "address X is up" unit to order against, so the actual safety
-    # net is RestartSec=5s + StartLimitIntervalSec=0 (same rationale as the FUSE
-    # mount unit): retry forever, a few seconds apart, until the bind succeeds.
-    # Wants= pulls the unit into the transaction, After= orders us behind it —
-    # both are needed, either alone is useless here.
-    - name: Ensure the Valkey systemd drop-in dir exists
-      ansible.builtin.file:
-        path: "/etc/systemd/system/{{ juicefs_valkey_apt_package }}.service.d"
-        state: directory
-        mode: "0755"
+    # --- Optional fstab management (juicefs_manage_fstab) -----------------------
+    # Own /etc/fstab for the RustFS disk(s): UUID-keyed entry + mount NOW, so the
+    # mountpoint assert below passes on a fresh node. Only entries WITH a uuid are
+    # touched (single-node's synthetic disk has none -> skipped, mount by hand).
+    # `nofail` keeps a missing/rearranged USB from wedging the boot.
+    - name: Mount RustFS USB-SSD(s) via fstab (UUID-keyed)
+      ansible.posix.mount:
+        src: "UUID={{ item.uuid }}"
+        path: "{{ item.path }}"
+        fstype: "{{ item.fstype | default('ext4') }}"
+        opts: "{{ item.options | default('defaults,nofail') }}"
+        # dump/passno per disk (both default 0). Set passno to match a pre-existing
+        # hand-written fstab line (e.g. 2) to keep the entry byte-identical on first run.
+        dump: "{{ item.dump | default('0') }}"
+        passno: "{{ item.passno | default('0') }}"
+        state: mounted
+      loop: "{{ juicefs_rustfs_local_disks }}"
+      loop_control:
+        label: "{{ item.path }}"
+      when:
+        - juicefs_manage_fstab | bool
+        - item.uuid is defined
 
-    - name: Harden Valkey boot ordering + restart rate (drop-in)
-      ansible.builtin.copy:
-        dest: "/etc/systemd/system/{{ juicefs_valkey_apt_package }}.service.d/10-juicefs.conf"
-        mode: "0644"
-        content: |
-          # Managed by Ansible (juicefs_storage) — do not edit.
-          # See tasks/backend.yml for the rationale.
-          [Unit]
-          After=network-online.target openvswitch-switch.service
-          Wants=network-online.target openvswitch-switch.service
-          StartLimitIntervalSec=0
+    # --- Disk safety ------------------------------------------------------------
+    # Every RustFS data dir must sit on a real mountpoint (never the OS disk). In
+    # distributed mode a node may carry several disks, so check each.
+    - name: Check each RustFS storage path is a mountpoint
+      ansible.builtin.command: "mountpoint -q {{ item }}"
+      loop: "{{ juicefs_rustfs_local_mounts }}"
+      register: _disk_mp
+      changed_when: false
+      failed_when: false
 
-          [Service]
-          RestartSec=5s
-      notify:
-        - reload systemd
-        - restart valkey
+    - name: Fail if any RustFS storage disk is not a separate mountpoint
+      ansible.builtin.assert:
+        that: item.rc == 0
+        fail_msg: >-
+          {{ item.item }} is not a mountpoint. Mount the USB-SSD there first — this
+          role refuses to write RustFS object data onto the OS disk. Override with
+          juicefs_require_disk_mount=false only for throwaway tests.
+      loop: "{{ _disk_mp.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: juicefs_require_disk_mount | bool
 
-    - name: Enable and start Valkey
-      ansible.builtin.systemd:
-        name: "{{ juicefs_valkey_apt_package }}"
-        daemon_reload: true
-        enabled: true
-        state: started
-
-    # --- Valkey metrics exporter (gated by juicefs_metrics_enabled) ----------
-    # oliver006/redis_exporter via the noble apt package (1.54 — old vs upstream
-    # 1.86, but plenty for dashboard 763 + the redis_up alert; Valkey is supported
-    # upstream). Scraped by the in-cluster Prometheus (job `juicefs-valkey` in
-    # roles/k8s_infra/tasks/monitoring/prometheus.yml); iptables opens the port
-    # from k3snodes (common role). Like the other <x>_enabled gates in this repo,
-    # flipping the flag OFF only skips install — it deletes/stops nothing.
-    - name: Configure Valkey metrics exporter
-      when: juicefs_metrics_enabled | default(false) | bool
+    # --- Valkey (metadata engine) — PRIMARY node only ---------------------------
+    - name: Deploy Valkey metadata engine (primary only)
+      when: inventory_hostname == juicefs_primary_node
       block:
-        - name: Install prometheus-redis-exporter (Valkey metrics)
+        - name: Install Valkey
           ansible.builtin.apt:
-            name: prometheus-redis-exporter
+            name: "{{ juicefs_valkey_apt_package }}"
             state: present
             update_cache: true
             cache_valid_time: 3600
 
-        - name: Configure prometheus-redis-exporter (Valkey auth + listen port)
+        - name: Deploy managed valkey.conf
           ansible.builtin.template:
-            src: etc_default_prometheus-redis-exporter.j2
-            dest: /etc/default/prometheus-redis-exporter
-            owner: root
-            group: root
-            mode: "0600"
-          notify: restart redis exporter
-          no_log: true  # contains the Valkey requirepass
+            src: valkey.conf.j2
+            dest: /etc/valkey/valkey.conf
+            owner: valkey
+            group: valkey
+            mode: "0640"
+          notify: restart valkey
+          no_log: true  # contains requirepass
 
-        - name: Enable and start prometheus-redis-exporter
+        # --- Boot hardening for the bind-scoped Valkey -------------------------
+        # valkey.conf binds a SPECIFIC address (juicefs_valkey_bind_addresses). That
+        # address may not exist yet at service start — the Debian unit only orders
+        # itself After=network.target, which is reached long before an interface is
+        # configured, and on the k3s master the storage address lives on an OVS VLAN
+        # interface that comes up comparatively late.
+        #
+        # THE BIND ITSELF IS ALREADY SAFE: the common role sets
+        # net.ipv4.ip_nonlocal_bind=1 on every k3sserver host, so binding a
+        # not-yet-configured address succeeds and the socket picks up traffic once the
+        # address appears. Everything below is defense in depth for that, and stands on
+        # its own for the RETRY RATE (see below), which is the part that actually earns
+        # its keep. If ip_nonlocal_bind is ever turned off, the ordering here is what is
+        # left, so keep both.
+        #
+        # Restart=always (already in the vendor unit) does NOT save this: it ships with
+        # RestartSec=100ms and the default StartLimitBurst=5 per 10s, so five retries
+        # are spent within half a second and the unit then stays `failed` for good —
+        # and with the metadata engine dead, every JuiceFS mount in the cluster stalls.
+        #
+        # ORDERING NARROWS THE WINDOW, THE RETRY LOOP CLOSES IT. Neither ordering
+        # anchor is a guarantee that the address exists:
+        #   * network-online.target — measured on this master, netplan invokes
+        #     `systemd-networkd-wait-online --any -i heidk8.101 -i <usb-nic>`, so the
+        #     target can be reached while the OVS VLAN interface carrying the storage
+        #     address is still unconfigured. It is NOT the interface we need.
+        #   * openvswitch-switch.service — its completion means ovsdb-server +
+        #     ovs-vswitchd are up, i.e. the bridge/port CAN exist; the address is then
+        #     configured by systemd-networkd a moment later.
+        # There is no "address X is up" unit to order against, so the actual safety
+        # net is RestartSec=5s + StartLimitIntervalSec=0 (same rationale as the FUSE
+        # mount unit): retry forever, a few seconds apart, until the bind succeeds.
+        # Wants= pulls the unit into the transaction, After= orders us behind it —
+        # both are needed, either alone is useless here.
+        - name: Ensure the Valkey systemd drop-in dir exists
+          ansible.builtin.file:
+            path: "/etc/systemd/system/{{ juicefs_valkey_apt_package }}.service.d"
+            state: directory
+            mode: "0755"
+
+        - name: Harden Valkey boot ordering + restart rate (drop-in)
+          ansible.builtin.copy:
+            dest: "/etc/systemd/system/{{ juicefs_valkey_apt_package }}.service.d/10-juicefs.conf"
+            mode: "0644"
+            content: |
+              # Managed by Ansible (juicefs_storage) — do not edit.
+              # See tasks/backend.yml for the rationale.
+              [Unit]
+              After=network-online.target openvswitch-switch.service
+              Wants=network-online.target openvswitch-switch.service
+              StartLimitIntervalSec=0
+
+              [Service]
+              RestartSec=5s
+          notify:
+            - reload systemd
+            - restart valkey
+
+        - name: Enable and start Valkey
           ansible.builtin.systemd:
-            name: prometheus-redis-exporter
+            name: "{{ juicefs_valkey_apt_package }}"
+            daemon_reload: true
             enabled: true
             state: started
 
-# --- RustFS (S3 object store) — every storage node --------------------------
-- name: Create rustfs system group
-  ansible.builtin.group:
-    name: "{{ juicefs_rustfs_user }}"
-    system: true
+        # --- Valkey metrics exporter (gated by juicefs_metrics_enabled) ----------
+        # oliver006/redis_exporter via the noble apt package (1.54 — old vs upstream
+        # 1.86, but plenty for dashboard 763 + the redis_up alert; Valkey is supported
+        # upstream). Scraped by the in-cluster Prometheus (job `juicefs-valkey` in
+        # roles/k8s_infra/tasks/monitoring/prometheus.yml); iptables opens the port
+        # from k3snodes (common role). Like the other <x>_enabled gates in this repo,
+        # flipping the flag OFF only skips install — it deletes/stops nothing.
+        - name: Configure Valkey metrics exporter
+          when: juicefs_metrics_enabled | default(false) | bool
+          block:
+            - name: Install prometheus-redis-exporter (Valkey metrics)
+              ansible.builtin.apt:
+                name: prometheus-redis-exporter
+                state: present
+                update_cache: true
+                cache_valid_time: 3600
 
-- name: Create rustfs system user
-  ansible.builtin.user:
-    name: "{{ juicefs_rustfs_user }}"
-    group: "{{ juicefs_rustfs_user }}"
-    system: true
-    shell: /usr/sbin/nologin
-    home: /var/lib/rustfs
-    create_home: false
+            - name: Configure prometheus-redis-exporter (Valkey auth + listen port)
+              ansible.builtin.template:
+                src: etc_default_prometheus-redis-exporter.j2
+                dest: /etc/default/prometheus-redis-exporter
+                owner: root
+                group: root
+                mode: "0600"
+              notify: restart redis exporter
+              no_log: true  # contains the Valkey requirepass
 
-- name: Ensure RustFS data dir(s) exist on the USB-SSD(s)
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: directory
-    owner: "{{ juicefs_rustfs_user }}"
-    group: "{{ juicefs_rustfs_user }}"
-    mode: "0750"
-  loop: "{{ juicefs_rustfs_local_data_dirs }}"
+            - name: Enable and start prometheus-redis-exporter
+              ansible.builtin.systemd:
+                name: prometheus-redis-exporter
+                enabled: true
+                state: started
 
-- name: Set rustfs arch
-  ansible.builtin.set_fact:
-    juicefs_rustfs_arch: "{{ 'aarch64' if ansible_architecture == 'aarch64' else 'x86_64' }}"
+    # --- RustFS (S3 object store) — every storage node --------------------------
+    - name: Create rustfs system group
+      ansible.builtin.group:
+        name: "{{ juicefs_rustfs_user }}"
+        system: true
 
-- name: Read installed rustfs version marker
-  ansible.builtin.command: cat /var/lib/juicefs_storage/rustfs.version
-  register: _rustfs_marker
-  changed_when: false
-  failed_when: false
+    - name: Create rustfs system user
+      ansible.builtin.user:
+        name: "{{ juicefs_rustfs_user }}"
+        group: "{{ juicefs_rustfs_user }}"
+        system: true
+        shell: /usr/sbin/nologin
+        home: /var/lib/rustfs
+        create_home: false
 
-- name: Install rustfs binary
-  when: (_rustfs_marker.stdout | default('')) != juicefs_rustfs_version
-  block:
-    - name: Ensure unzip is present
-      ansible.builtin.apt:
-        name: unzip
-        state: present
-
-    - name: Download rustfs zip
-      ansible.builtin.get_url:
-        url: "https://github.com/rustfs/rustfs/releases/download/{{ juicefs_rustfs_version }}/rustfs-linux-{{ juicefs_rustfs_arch }}-{{ juicefs_rustfs_libc }}-v{{ juicefs_rustfs_version }}.zip"
-        dest: /tmp/rustfs.zip
-        mode: "0644"
-        force: true
-
-    - name: Prepare rustfs unzip dir
+    - name: Ensure RustFS data dir(s) exist on the USB-SSD(s)
       ansible.builtin.file:
-        path: /tmp/rustfs-unzip
+        path: "{{ item }}"
         state: directory
-        mode: "0755"
+        owner: "{{ juicefs_rustfs_user }}"
+        group: "{{ juicefs_rustfs_user }}"
+        mode: "0750"
+      loop: "{{ juicefs_rustfs_local_data_dirs }}"
 
-    - name: Unzip rustfs
-      ansible.builtin.unarchive:
-        src: /tmp/rustfs.zip
-        dest: /tmp/rustfs-unzip
-        remote_src: true
+    - name: Set rustfs arch
+      ansible.builtin.set_fact:
+        juicefs_rustfs_arch: "{{ 'aarch64' if ansible_architecture == 'aarch64' else 'x86_64' }}"
 
-    - name: Locate the rustfs binary in the archive
-      ansible.builtin.find:
-        paths: /tmp/rustfs-unzip
-        patterns: rustfs
-        file_type: file
-        recurse: true
-      register: _rustfs_found
-
-    - name: Fail if rustfs binary not found in archive
-      ansible.builtin.fail:
-        msg: "rustfs binary not found inside the downloaded archive — check the asset name/version."
-      when: _rustfs_found.files | length == 0
+    - name: Read installed rustfs version marker
+      ansible.builtin.command: cat /var/lib/juicefs_storage/rustfs.version
+      register: _rustfs_marker
+      changed_when: false
+      failed_when: false
 
     - name: Install rustfs binary
-      ansible.builtin.copy:
-        src: "{{ _rustfs_found.files[0].path }}"
-        dest: /usr/local/bin/rustfs
-        remote_src: true
-        mode: "0755"
+      when: (_rustfs_marker.stdout | default('')) != juicefs_rustfs_version
+      block:
+        - name: Ensure unzip is present
+          ansible.builtin.apt:
+            name: unzip
+            state: present
 
-    - name: Record rustfs version marker
-      ansible.builtin.copy:
-        content: "{{ juicefs_rustfs_version }}"
-        dest: /var/lib/juicefs_storage/rustfs.version
+        - name: Download rustfs zip
+          ansible.builtin.get_url:
+            url: "https://github.com/rustfs/rustfs/releases/download/{{ juicefs_rustfs_version }}/rustfs-linux-{{ juicefs_rustfs_arch }}-{{ juicefs_rustfs_libc }}-v{{ juicefs_rustfs_version }}.zip"
+            dest: /tmp/rustfs.zip
+            mode: "0644"
+            force: true
+
+        - name: Prepare rustfs unzip dir
+          ansible.builtin.file:
+            path: /tmp/rustfs-unzip
+            state: directory
+            mode: "0755"
+
+        - name: Unzip rustfs
+          ansible.builtin.unarchive:
+            src: /tmp/rustfs.zip
+            dest: /tmp/rustfs-unzip
+            remote_src: true
+
+        - name: Locate the rustfs binary in the archive
+          ansible.builtin.find:
+            paths: /tmp/rustfs-unzip
+            patterns: rustfs
+            file_type: file
+            recurse: true
+          register: _rustfs_found
+
+        - name: Fail if rustfs binary not found in archive
+          ansible.builtin.fail:
+            msg: "rustfs binary not found inside the downloaded archive — check the asset name/version."
+          when: _rustfs_found.files | length == 0
+
+        - name: Install rustfs binary
+          ansible.builtin.copy:
+            src: "{{ _rustfs_found.files[0].path }}"
+            dest: /usr/local/bin/rustfs
+            remote_src: true
+            mode: "0755"
+
+        - name: Record rustfs version marker
+          ansible.builtin.copy:
+            content: "{{ juicefs_rustfs_version }}"
+            dest: /var/lib/juicefs_storage/rustfs.version
+            mode: "0644"
+
+        - name: Clean up rustfs download artifacts
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop:
+            - /tmp/rustfs.zip
+            - /tmp/rustfs-unzip
+
+    - name: Ensure /etc/rustfs exists
+      ansible.builtin.file:
+        path: /etc/rustfs
+        state: directory
+        mode: "0750"
+
+    - name: Deploy RustFS credential env file
+      ansible.builtin.template:
+        src: rustfs.env.j2
+        dest: /etc/rustfs/rustfs.env
+        owner: root
+        group: "{{ juicefs_rustfs_user }}"
+        mode: "0640"
+      notify: restart rustfs
+      no_log: true
+
+    - name: Deploy rustfs systemd unit
+      ansible.builtin.template:
+        src: rustfs.service.j2
+        dest: /etc/systemd/system/rustfs.service
         mode: "0644"
+      register: _rustfs_unit
+      notify:
+        - reload systemd
+        - restart rustfs
 
-    - name: Clean up rustfs download artifacts
+    - name: Enable and start RustFS
+      ansible.builtin.systemd:
+        name: rustfs
+        daemon_reload: "{{ _rustfs_unit is changed }}"
+        enabled: true
+        state: started
+
+    # Apply pending Valkey/RustFS config restarts NOW, before the format step runs —
+    # otherwise a freshly apt-installed Valkey is still on its default config (no
+    # requirepass) and `juicefs format` (which authenticates) would fail. In
+    # distributed mode this also brings every RustFS node up before the primary
+    # formats, so the cluster has reached quorum by the time format's S3 wait passes.
+    - name: Apply backend config before formatting
+      ansible.builtin.meta: flush_handlers
+
+# ── TEARDOWN (decommission a FORMER storage node) ──────────────────────────
+# Opt-in via -e juicefs_backend_teardown=true. Removes what backend.yml
+# installs: the Valkey metadata engine, the metrics exporter and the RustFS
+# server, plus their credential files (both /etc/rustfs/rustfs.env and
+# /etc/default/prometheus-redis-exporter carry secrets, which is the main
+# reason this exists rather than leaving the leftovers dormant).
+#
+# WHY: moving juicefs_primary_node to another host silently orphans the old
+# one. `<x>_enabled: false`-style gating only skips install, so the old node
+# keeps a disabled-but-installed Valkey sitting on a STALE copy of the
+# filesystem metadata (/var/lib/valkey). Nothing points at it, but anything
+# that ever starts that service serves a phantom filesystem on 6379.
+# Concretely: spark4 after the 2026-07-30 move to k3smaster.
+#
+# SELF-PROTECTING: skips any host that is a CURRENT storage node, so
+# `ansible-playbook storage.yml -e juicefs_backend_teardown=true` over the whole
+# cluster cleans every former node and leaves the live backend untouched.
+# --limit is still the safer habit.
+#
+# DELIBERATELY NOT TOUCHED:
+#   - the FUSE client (juicefs-<fs>.service, /usr/local/bin/juicefs,
+#     /var/lib/jfs-cache). A former storage node normally stays a mount CLIENT
+#     (spark4 does). Removing the mount is mount.yml's business, not this.
+#   - the object data itself (<disk>/rustfs on the old USB-SSD). If that disk
+#     is still attached it holds the pre-migration objects; throwing those away
+#     is a separate, deliberate decision, not a side effect of decommissioning.
+- name: JuiceFS backend — teardown (former storage node)
+  when:
+    - juicefs_backend_teardown | default(false) | bool
+    - inventory_hostname not in juicefs_rustfs_nodes
+    - inventory_hostname != juicefs_primary_node
+  block:
+    - name: Stop and disable the backend services
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - "{{ juicefs_valkey_apt_package }}"
+        - rustfs
+        - prometheus-redis-exporter
+      # A unit that was never installed here (or already removed) is not an
+      # error: this runs on hosts in unknown states of decommissioning.
+      failed_when: false
+
+    - name: Remove the backend unit, config and credential files
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
       loop:
-        - /tmp/rustfs.zip
-        - /tmp/rustfs-unzip
+        - /etc/systemd/system/rustfs.service
+        - "/etc/systemd/system/{{ juicefs_valkey_apt_package }}.service.d/10-juicefs.conf"
+        - "/etc/systemd/system/{{ juicefs_valkey_apt_package }}.service.d"
+        - /etc/rustfs                              # rustfs.env: S3 root credentials
+        - /etc/default/prometheus-redis-exporter   # carries the Valkey requirepass
+        - /etc/valkey/valkey.conf                  # carries the Valkey requirepass
+        - /var/lib/valkey                          # STALE filesystem metadata
+        - /var/lib/juicefs_storage/rustfs.version  # version marker only, not the client's juicefs.version
+        - /usr/local/bin/rustfs
+      register: _jfs_teardown_removed
 
-- name: Ensure /etc/rustfs exists
-  ansible.builtin.file:
-    path: /etc/rustfs
-    state: directory
-    mode: "0750"
+    - name: Reload systemd after removing the units
+      ansible.builtin.systemd:
+        daemon_reload: true
 
-- name: Deploy RustFS credential env file
-  ansible.builtin.template:
-    src: rustfs.env.j2
-    dest: /etc/rustfs/rustfs.env
-    owner: root
-    group: "{{ juicefs_rustfs_user }}"
-    mode: "0640"
-  notify: restart rustfs
-  no_log: true
+    # Packages are kept by default: apt removal is the one step that can drag
+    # unrelated things along, and a dormant package with no config, no data and
+    # a disabled unit is harmless. Flip to purge a node completely.
+    - name: Purge the backend packages and the rustfs system user
+      when: juicefs_backend_teardown_purge_packages | default(false) | bool
+      block:
+        - name: Remove the backend apt packages
+          ansible.builtin.apt:
+            name:
+              - "{{ juicefs_valkey_apt_package }}"
+              - valkey-tools
+              - prometheus-redis-exporter
+            state: absent
+            purge: true
+            autoremove: false
 
-- name: Deploy rustfs systemd unit
-  ansible.builtin.template:
-    src: rustfs.service.j2
-    dest: /etc/systemd/system/rustfs.service
-    mode: "0644"
-  register: _rustfs_unit
-  notify:
-    - reload systemd
-    - restart rustfs
+        - name: Remove the rustfs system user
+          ansible.builtin.user:
+            name: "{{ juicefs_rustfs_user }}"
+            state: absent
+            remove: false
 
-- name: Enable and start RustFS
-  ansible.builtin.systemd:
-    name: rustfs
-    daemon_reload: "{{ _rustfs_unit is changed }}"
-    enabled: true
-    state: started
+        - name: Remove the rustfs system group
+          ansible.builtin.group:
+            name: "{{ juicefs_rustfs_user }}"
+            state: absent
 
-# Apply pending Valkey/RustFS config restarts NOW, before the format step runs —
-# otherwise a freshly apt-installed Valkey is still on its default config (no
-# requirepass) and `juicefs format` (which authenticates) would fail. In
-# distributed mode this also brings every RustFS node up before the primary
-# formats, so the cluster has reached quorum by the time format's S3 wait passes.
-- name: Apply backend config before formatting
-  ansible.builtin.meta: flush_handlers
+    - name: Report what the teardown removed
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: removed
+          {{ _jfs_teardown_removed.results | selectattr('changed') | map(attribute='item') | list | default([]) }}
+          (packages purged: {{ juicefs_backend_teardown_purge_packages | default(false) | bool }})
+
+- name: Note the hosts the backend teardown deliberately skipped
+  ansible.builtin.debug:
+    msg: >-
+      {{ inventory_hostname }} is a CURRENT storage node
+      (primary={{ juicefs_primary_node }}) — backend teardown skipped on purpose.
+  when:
+    - juicefs_backend_teardown | default(false) | bool
+    - inventory_hostname in juicefs_rustfs_nodes or inventory_hostname == juicefs_primary_node

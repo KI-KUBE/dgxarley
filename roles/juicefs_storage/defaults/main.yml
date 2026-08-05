@@ -58,6 +58,24 @@ juicefs_valkey_bind_addresses: >-
 # mountpoint (so RustFS data never lands on the OS disk by accident). Test override.
 juicefs_require_disk_mount: true
 
+# --- Backend teardown (decommissioning a FORMER storage node) ---------------
+# Moving juicefs_primary_node to another host leaves the old one with a
+# disabled-but-installed Valkey + RustFS, their credential files, and a STALE
+# copy of the filesystem metadata in /var/lib/valkey. Nothing points there, but
+# anything that ever starts that Valkey serves a phantom filesystem on 6379.
+# Opt-in cleanup, same shape as the <x>_teardown flags in k8s_infra/k8s_dgx:
+#   ansible-playbook storage.yml -e juicefs_backend_teardown=true --limit spark4
+# The teardown block (tasks/backend.yml) SKIPS any current storage node, so a
+# cluster-wide run cleans the former nodes and leaves the live backend alone.
+# It deliberately does NOT touch the FUSE client (a former storage node usually
+# stays a mount client) nor the object data on the old disk.
+juicefs_backend_teardown: false
+# Also apt-purge valkey-server / valkey-tools / prometheus-redis-exporter and
+# drop the rustfs system user. Off by default: package removal is the one step
+# that can drag unrelated things along, and a dormant package with no config,
+# no data and a disabled unit is harmless.
+juicefs_backend_teardown_purge_packages: false
+
 # --- Distributed RustFS (multi-node erasure coding) -------------------------
 # Single-node (default) vs distributed multi-node object store.
 #   OFF  -> exact single-node behaviour: RustFS on juicefs_primary_node only, a

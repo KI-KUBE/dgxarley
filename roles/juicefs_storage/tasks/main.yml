@@ -19,7 +19,13 @@
   # RustFS runs on every storage node (juicefs_rustfs_nodes = the single node in
   # single mode, the full set in distributed mode). Valkey + the metrics exporter
   # are gated to the primary INSIDE backend.yml (metadata stays single-node).
-  when: inventory_hostname in juicefs_rustfs_nodes
+  # The juicefs_backend_teardown arm widens this gate on purpose: a FORMER
+  # storage node is by definition no longer in juicefs_rustfs_nodes, so without
+  # it the teardown block in backend.yml could never reach the very hosts it
+  # exists for. install/teardown are separated by the two blocks inside the file.
+  when: >-
+    inventory_hostname in juicefs_rustfs_nodes
+    or juicefs_backend_teardown | default(false) | bool
   tags: [juicefs_backend]
 
 - name: Format the JuiceFS filesystem (idempotent, once)
