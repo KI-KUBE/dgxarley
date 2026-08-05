@@ -41,6 +41,33 @@
       {{ 'unset (even split)' if (sglang_pp_layer_partition | string | length == 0)
          else sglang_pp_layer_partition }}
 
+# DSPARK couples gamma to the verify window: SGLang requires
+# speculative_num_draft_tokens == dspark_block_size + 1 and raises at boot
+# otherwise. Because launch.sh always passes num_draft_tokens explicitly, an
+# overridden gamma that the profile forgets to pair would only surface as a
+# crash-looping head. Catch it here. Empty block_size = auto-infer from the
+# checkpoint, in which case SGLang cross-checks the pair itself.
+- name: Validate DSPARK gamma / draft-token pairing ({{ inst.prefix }})
+  ansible.builtin.assert:
+    that:
+      - (sglang_speculative_dspark_block_size | string | length == 0) or
+        ((sglang_speculative_num_draft_tokens | int) ==
+         (sglang_speculative_dspark_block_size | int) + 1)
+    fail_msg: >-
+      Instance '{{ inst.prefix }}': DSPARK requires speculative_num_draft_tokens
+      == speculative_dspark_block_size + 1, but the profile has
+      num_draft_tokens={{ sglang_speculative_num_draft_tokens }} vs
+      block_size={{ sglang_speculative_dspark_block_size }}
+      (expected {{ (sglang_speculative_dspark_block_size | int) + 1 }}).
+    success_msg: >-
+      {{ inst.prefix }}: DSPARK gamma
+      {{ 'auto (from checkpoint dspark_block_size)'
+         if (sglang_speculative_dspark_block_size | string | length == 0)
+         else sglang_speculative_dspark_block_size ~ ' with ' ~ sglang_speculative_num_draft_tokens ~ ' draft tokens' }}
+  when:
+    - sglang_speculative_enabled | bool
+    - (sglang_speculative_algo | upper) == 'DSPARK'
+
 # Guard: refuse to deploy if KIKUBE has taken over management of SGLang.
 # The KIKUBE product layer (dgxarley-custom) sets kikube.io/managed-by=kikube
 # on all resources it manages. Once that annotation is present on the Service,
@@ -115,6 +142,11 @@
         # DSV4 DSA indexer via TileLang (8-16x faster than torch, CUDA-graph-capturable;
         # requires the tilelang-0.1.8 indexer compat patch baked into the image).
         SGLANG_OPT_USE_TILELANG_INDEXER: "{{ '1' if sglang_opt_use_tilelang_indexer | bool else '0' }}"
+        # Server-wide default reasoning effort for the DeepSeek-V4 chat encoder
+        # ("high"/"max"/empty). Env-only upstream, there is no server arg; empty
+        # means the card's "low" level, NOT "model default". See the knob's
+        # comment in defaults/main/sglang.yml.
+        SGLANG_DSV4_REASONING_EFFORT: "{{ sglang_dsv4_reasoning_effort }}"
         # Diagnostic: when "1", launch.sh activates dsv4_memprobe.py (logs CUDA-
         # allocator / RSS / swap deltas around the post-weight-load lifecycle).
         # Off by default; enable for a run via -e sglang_memprobe=1.
@@ -137,6 +169,9 @@
         SGLANG_SPECULATIVE_DRAFT_MODEL_PATH: "{{ sglang_speculative_draft_model_path }}"
         SGLANG_SPECULATIVE_DRAFT_MODEL_QUANTIZATION: "{{ sglang_speculative_draft_model_quantization }}"
         SGLANG_SPECULATIVE_MOE_RUNNER_BACKEND: "{{ sglang_speculative_moe_runner_backend }}"
+        # DSPARK-only; empty for every other algo (launch.sh omits the flags).
+        SGLANG_SPECULATIVE_DSPARK_BLOCK_SIZE: "{{ sglang_speculative_dspark_block_size | string }}"
+        SGLANG_SPECULATIVE_DSPARK_SPS_TABLE_PATH: "{{ sglang_speculative_dspark_sps_table_path }}"
         SGLANG_SPECULATIVE_ADAPTIVE: "{{ sglang_speculative_adaptive | string | lower }}"
         SGLANG_SPECULATIVE_ADAPTIVE_CONFIG_JSON: "{{ sglang_speculative_adaptive_config | to_json }}"
         # GDN ReplaySSM ring spec-verify (>=0.5.16, PR #28695). Only read inside

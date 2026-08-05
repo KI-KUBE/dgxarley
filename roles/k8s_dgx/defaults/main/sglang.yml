@@ -66,6 +66,25 @@ sglang_speculative_num_draft_tokens: "{{ sglang_model_profiles[_sglang_active_mo
 # Draft/nextn MoE runner backend (e.g. DSV4 on SM121 needs "marlin" — its default
 # nextn path hardcodes an sm100 trtllm kernel). Empty → not passed (inherits target).
 sglang_speculative_moe_runner_backend: "{{ sglang_model_profiles[_sglang_active_model].speculative_moe_runner_backend | default('') }}"
+# --- DSPARK-only speculative knobs (DeepSeek-V4-Flash-0731 and later) --------
+# DSpark's draft block size gamma. Empty (the norm) -> SGLang auto-infers it from
+# the target checkpoint's dspark_block_size, which is where it belongs: the draft
+# head is bundled in the checkpoint. Set ONLY to deviate from the checkpoint.
+# HARD COUPLING: SGLang requires speculative_num_draft_tokens == gamma + 1 and
+# raises at boot otherwise (arg_groups/speculative_hook.py::_handle_dspark).
+# Since this launcher always passes num_draft_tokens explicitly, overriding
+# gamma here means overriding speculative_num_draft_tokens in the same profile.
+# sglang_instance.yml asserts the pair rather than letting the pod crash-loop.
+sglang_speculative_dspark_block_size: "{{ sglang_model_profiles[_sglang_active_model].speculative_dspark_block_size | default('') }}"
+# Path (INSIDE the container) to a pre-profiled DSpark SPS cost table (JSON),
+# built offline with `python -m sglang.benchmark.dspark_sps_profiler`. Consumed
+# by the ragged-verify scheduler to size its per-request verify budget. Empty ->
+# SGLang uses an uninitialized flat constant-SPS table, and per upstream's own
+# help text the budget then degenerates to verify-all, i.e. that scheduler
+# contributes nothing (DSpark itself still works). There is no ConfigMap mount
+# for this: point it at a path the pod already sees, e.g. somewhere under
+# /root/.cache/huggingface (the shared JuiceFS mount).
+sglang_speculative_dspark_sps_table_path: "{{ sglang_model_profiles[_sglang_active_model].speculative_dspark_sps_table_path | default('') }}"
 # Draft model path for EAGLE/EAGLE3. Empty = use model's own MTP heads (NEXTN).
 # For external draft models: set to the HF model ID (e.g. "togethercomputer/Aurora-Spec-Minimax-M2.5").
 sglang_speculative_draft_model_path: "{{ sglang_model_profiles[_sglang_active_model].speculative_draft_model_path | default('') }}"
@@ -152,6 +171,16 @@ sglang_debug_tensor_dump_layers: "{{ sglang_model_profiles[_sglang_active_model]
 sglang_mem_fraction_static: "{{ sglang_model_profiles[_sglang_active_model].mem_fraction_static }}"
 sglang_reasoning_parser: "{{ sglang_model_profiles[_sglang_active_model].reasoning_parser | default('') }}"
 sglang_tool_call_parser: "{{ sglang_model_profiles[_sglang_active_model].tool_call_parser | default('') }}"
+# SERVER-WIDE default reasoning effort for the DeepSeek-V4 chat encoder. NOT a
+# server arg: the only lever upstream exposes is the env SGLANG_DSV4_REASONING_
+# EFFORT, which serving_chat reads when a request omits reasoning_effort.
+# Valid: "high", "max", or empty. The encoder rejects everything else, and
+# serving_chat silently maps any other value (INCLUDING the OpenAI protocol
+# default "medium") to None, which is the model card's "low" level. So empty
+# here does not mean "model default", it means low.
+# Only consumed by models whose chat encoding resolves to dsv4 (arch
+# DeepseekV4* or tool_call_parser deepseekv4); inert everywhere else.
+sglang_dsv4_reasoning_effort: "{{ sglang_model_profiles[_sglang_active_model].reasoning_effort | default('') }}"
 # --chat-template value from the profile: a BUILT-IN template name OR a path to a
 # .jinja file that exists INSIDE THE CONTAINER (e.g. a baked-in sglang example
 # template). Empty ("") -> no flag -> SGLang uses the model tokenizer's own

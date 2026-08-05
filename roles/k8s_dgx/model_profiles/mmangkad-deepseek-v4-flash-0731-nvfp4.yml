@@ -198,6 +198,14 @@ _model_profile:
     # tool-call name also pins the dsv4 chat encoder (see point 3 above).
     reasoning_parser: "deepseek-v4"
     tool_call_parser: "deepseekv4"
+    # Server-wide default effort for the dsv4 chat encoder, applied to any
+    # request that omits reasoning_effort. Only "high" / "max" / empty are
+    # accepted; serving_chat maps everything else (including OpenAI's default
+    # "medium") to None, which is the card's "low". Empty therefore means low,
+    # not "model default". "high" is the middle of the card's three levels; the
+    # published benchmark numbers were produced with "max", which also burns the
+    # most tokens. Per-request reasoning_effort still overrides this.
+    reasoning_effort: "high"
     # This repo's generation_config.json: temperature=1.0, top_p=1.0
     # (do_sample=true, no top_k). The base card additionally recommends
     # top_p=0.95 for AGENTIC use, 1.0 otherwise, so the file value is kept.

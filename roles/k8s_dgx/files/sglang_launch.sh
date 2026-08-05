@@ -466,6 +466,27 @@ if [ "$SGLANG_SPECULATIVE_ENABLED" = "true" ]; then
   if [ -n "$SGLANG_SPECULATIVE_MOE_RUNNER_BACKEND" ]; then
     args+=(--speculative-moe-runner-backend "$SGLANG_SPECULATIVE_MOE_RUNNER_BACKEND")
   fi
+  # DSPARK-only knobs (DeepSeek-V4-Flash-0731 and later). Both empty by default;
+  # SGLang ignores neither silently nor gracefully if passed for another algo, so
+  # they stay strictly opt-in via the profile.
+  #  - block-size = the draft block gamma. Unset -> inferred from the target
+  #    checkpoint's dspark_block_size. When set, the profile MUST also set
+  #    speculative_num_draft_tokens to gamma+1 (asserted in sglang_instance.yml).
+  #  - sps-table-path = pre-profiled cost table for the ragged-verify budget,
+  #    built offline with sglang.benchmark.dspark_sps_profiler. Must be a path
+  #    that exists INSIDE the container (nothing mounts it for you).
+  if [ -n "$SGLANG_SPECULATIVE_DSPARK_BLOCK_SIZE" ]; then
+    args+=(--speculative-dspark-block-size "$SGLANG_SPECULATIVE_DSPARK_BLOCK_SIZE")
+  fi
+  if [ -n "$SGLANG_SPECULATIVE_DSPARK_SPS_TABLE_PATH" ]; then
+    if [ -f "$SGLANG_SPECULATIVE_DSPARK_SPS_TABLE_PATH" ]; then
+      args+=(--speculative-dspark-sps-table-path "$SGLANG_SPECULATIVE_DSPARK_SPS_TABLE_PATH")
+    else
+      # Do NOT pass a missing path: SGLang would fail the launch over an
+      # optional throughput knob. Warn and fall back to the flat default table.
+      echo "[launch] WARNING: dspark sps table '$SGLANG_SPECULATIVE_DSPARK_SPS_TABLE_PATH' not found in the container -> ignoring (ragged-verify falls back to verify-all)"
+    fi
+  fi
   # WORKAROUND (SGLang 0.5.9): sharded_state + speculative decoding crash.
   # The draft model's ModelRunner inherits load_format=sharded_state from
   # server_args. ShardedStateLoader then fails with KeyError because the
