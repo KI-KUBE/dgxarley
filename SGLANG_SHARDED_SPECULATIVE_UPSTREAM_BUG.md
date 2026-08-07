@@ -126,6 +126,35 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 i
 > target's own instance is untouched"), so the shared `server_args` object is
 > no longer mutated on `main`.
 
+> **Re-verified 2026-08-07:** relocated AGAIN — third move in a month, still
+> `main`-only (SGLang still at v0.5.16, so "present in every release up to and
+> including v0.5.16" stays true). A 6-unit "config close-out" stack merged
+> 2026-08-06 02:28–02:32 UTC
+> ([#33487](https://github.com/sgl-project/sglang/pull/33487)–[#33492](https://github.com/sgl-project/sglang/pull/33492);
+> carrier [#33486](https://github.com/sgl-project/sglang/pull/33486) was a
+> review/CI-only vehicle, closed unmerged by design). Units #33491/#33492
+> **delete** `_draft_load_format_fields()` and `draft_server_args_copy()`
+> from `draft_worker_common.py` entirely (the file keeps only
+> `DraftWorkerBundle` & friends, no load-format logic);
+> `maybe_init_draft_worker()` (now `scheduler.py:902`) passes
+> `server_args=self.server_args` straight through, no copy/override. The
+> authoritative location is now
+> `python/sglang/srt/model_executor/model_runner.py`:
+> `ModelRunner._resolve_draft_load_format()` (lines 1256-1267; returns `None`
+> unless `get_spec().speculative_draft_load_format` is set) +
+> `_load_format_scope()` (lines 1244-1254; `None` →
+> `contextlib.nullcontext()`, i.e. the draft falls through to the main
+> model's `load_format` incl. `sharded_state`), consumed in `__init__` (line
+> 324) and the load paths (lines 674, 1066-1098). The root-cause gate is
+> byte-for-byte the same conditional — and #33491 adds a unit test
+> `test_an_unset_draft_load_format_leaves_the_load_config_alone` that pins
+> the inherit-when-unset behaviour as INTENTIONAL upstream. The only
+> auto-default for `speculative_draft_load_format` remains the
+> `runai_streamer` object-storage case (`server_args.py:7271-7277`), nothing
+> for `sharded_state`. Our `--speculative-draft-load-format auto` +
+> `--speculative-draft-model-path` workaround remains required and unchanged.
+> Issue #32202 still open, no new activity.
+
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`
 
