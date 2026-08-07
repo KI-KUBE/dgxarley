@@ -374,6 +374,15 @@ small (~50 MB) and the node has fast local storage.
   PRs (#45732 / #45671 / #45660) merged, all previously tracked merges/closures identical, and
   the `copy-ui-tui` initContainer still commented out in
   `roles/k8s_infra/templates/hermes/hermes_agent_deployment.yaml.j2`. Conclusions unchanged.
+- **Re-verified 2026-08-07:** new release **v2026.8.3** (v0.20.0, "The Herald Release",
+  published 2026-08-03) — release notes grepped for
+  `tui|npm|lockfile|reinstall|EACCES|package-lock|workspace lock` and the four tracked
+  issue/PR numbers: zero hits (the only startup-related item, PR #71637 `hermes -w`
+  14s → 1.8s, is a warm-start optimization, not the workspace-lockfile bug). Issue #45657
+  (Trigger 2) still OPEN with exactly the same 3 comments (`updatedAt` unchanged,
+  2026-07-27); #45671 still open unmerged, #45732/#45660 still closed unmerged; all
+  previously tracked merges/closures identical; `copy-ui-tui` initContainer still
+  commented out. Conclusions unchanged — Trigger 2 remains unfixed upstream.
 
 ## Action Items
 
