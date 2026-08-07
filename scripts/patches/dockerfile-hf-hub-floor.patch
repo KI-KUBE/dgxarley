@@ -13,7 +13,7 @@ the sglang/vllm shard Jobs, the pod model-download initContainers), while
 `hf_hub_download` was fine because it goes through HEAD. hf_xet was never at
 fault. Fixed by huggingface_hub PR #4595 ("[Download] Reject redacted Xet
 hashes from tree cache", merged 2026-07-28, closes xet-core#895), released in
-huggingface_hub v1.26.0 on 2026-07-30. Full history: UPSTREAM_HF_XET_BUG.md.
+huggingface_hub v1.26.0 on 2026-07-30. Full history: FIXED_UPSTREAM_HF_XET_BUG.md.
 
 Neither `huggingface_hub` nor `hf_xet` is pinned anywhere in the build (the
 scitrera Dockerfile installs whatever the sglang/transformers/flashinfer
@@ -63,7 +63,7 @@ scitrera/cuda-containers.
 +# stage, after the sglang install, so no earlier step can downgrade it. Gated by
 +# HF_HUB_MIN_VERSION (empty = leave hub alone, so every older recipe is
 +# unaffected). Deliberately WITH deps: a floor bump may need a newer filelock or
-+# fsspec, and --no-deps would leave that unsatisfied. See UPSTREAM_HF_XET_BUG.md.
++# fsspec, and --no-deps would leave that unsatisfied. See FIXED_UPSTREAM_HF_XET_BUG.md.
 +ARG HF_HUB_MIN_VERSION=""
 +RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
 +    if [ -n "$HF_HUB_MIN_VERSION" ]; then \
