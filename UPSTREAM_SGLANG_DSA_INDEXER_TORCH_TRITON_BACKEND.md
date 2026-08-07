@@ -48,6 +48,23 @@ review, no conflict), `reviewDecision: REVIEW_REQUIRED`, no new comments.
 Companion PR #31481 was NOT rebased and remains `DIRTY`/`CONFLICTING` — the
 two PRs have diverged in merge-readiness; #31481 still needs its own rebase.
 
+Re-checked 2026-08-07: the afternoon entry above was itself overtaken the
+same day — #31480 got a SECOND force-push (head now `685784f5ae`,
+`committedDate` 2026-08-03T12:40Z, still a single commit), and #31481 WAS
+rebased after all (2026-08-03 ~11:15 UTC, see its own doc), so the two PRs
+are back in sync. At ~13:03 UTC the author commented on #31480: "Rebased
+onto current main; 17/17 kernel tests pass on GB10 (SM121). Could a
+maintainer add the `run-ci` label and take a look? Companion PR: #31481."
+As of 2026-08-07: **no maintainer response, no `run-ci` label** (`labels`
+still empty), no reviews, `mergeable: MERGEABLE`, `mergeStateStatus:
+BLOCKED`, `reviewDecision: REVIEW_REQUIRED`, no new pushes. The
+`pr-gate`/`call-gate` checks show FAILURE with all substantive jobs SKIPPED —
+that is the label-gate mechanism, not a real test failure.
+`DSAPagedMQALogitsBackend` on `main` re-fetched: still only
+DEEPGEMM / CUTEDSL / AITER, no `torch` value. SGLang still at v0.5.16.
+(External-interest footnote: third-party fork `AMD-AGI/Infera` PR #79,
+2026-08-03, cross-references this PR.)
+
 ## Proposed PR title
 
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
