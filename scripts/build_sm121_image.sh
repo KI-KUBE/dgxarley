@@ -1437,7 +1437,7 @@ apply_patches() {
     #     huggingface_hub v1.26.0; nothing in the build pins hub, so without a
     #     floor a rebuild can re-resolve back into the broken 1.2x window once
     #     the HF_HUB_DISABLE_XET=1 workaround is dropped. See
-    #     patches/dockerfile-hf-hub-floor.patch + UPSTREAM_HF_XET_BUG.md.
+    #     patches/dockerfile-hf-hub-floor.patch + FIXED_UPSTREAM_HF_XET_BUG.md.
     #     Always applied — no-op when the recipe leaves HF_HUB_MIN_VERSION
     #     empty. MUST run LAST: the hunk is trailing-context-only on the
     #     dist-packages split so the floor install stays the final pip action in
