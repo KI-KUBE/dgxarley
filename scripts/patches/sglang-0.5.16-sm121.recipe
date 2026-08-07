@@ -380,7 +380,7 @@ ACCELERATE_DEPS="accelerate"
 # hf_xet weiter → "Task error: Unable to parse string as hex hash value" bei
 # jedem frischen snapshot_download eines gated Modells (hf_preload-Job,
 # Shard-Jobs, Model-Download-initContainer). hf_xet war nie schuld. Fix: hub PR
-# #4595, released in v1.26.0 (2026-07-30). Siehe UPSTREAM_HF_XET_BUG.md.
+# #4595, released in v1.26.0 (2026-07-30). Siehe FIXED_UPSTREAM_HF_XET_BUG.md.
 # Weder hub noch hf_xet sind sonst irgendwo im Build gepinnt, dieses Image hat
 # 1.26.0 also nur zufällig (Build-Datum 2026-08-02, verifiziert: `hub 1.26.0`).
 # Solange der Cluster noch HF_HUB_DISABLE_XET=1 setzt (hf_hub_disable_xet), ist
