@@ -123,6 +123,22 @@ that file since 2026-06-27 is a pure ruff-format-width change, no functional edi
 remains open and uncommented since it was filed. The HAProxy TLS sidecar workaround remains
 required.
 
+**2026-08-07 re-verify — still broken at v1.95.0 (latest stable, 2026-08-03):** LiteLLM
+shipped **v1.94.1** and **v1.95.0** (both stable, 2026-08-03; prereleases up to
+v1.97.0-dev.1 as of 2026-08-05) — none of the release notes mention ollama, `ssl_verify`
+or embedding fixes. The bug is byte-identical on current `main`: `handler.py` line 82
+still calls `litellm.module_level_aclient.post(url=api_base, json=data)` with no
+`ssl_verify`, `[TODO]` comment unchanged; the only commits touching the file (2026-08-01,
+2026-08-04) are lint/ruff-enforcement passes with no functional change. Issue #30778
+still open with 0 comments (untouched since 2026-06-18). **Two candidate fix PRs exist
+but are stale and unmerged** (not previously listed here):
+[#30810](https://github.com/BerriAI/litellm/pull/30810) ("fix(custom_httpx): propagate
+ssl_verify through aiohttp handler + retry path (#30778)") and
+[#30848](https://github.com/BerriAI/litellm/pull/30848) ("fix: propagate ssl_verify in
+AsyncHTTPHandler retry paths and BaseLLMAIOHTTPHandler") — both open, both idle since
+2026-06-20, no maintainer engagement. The HAProxy TLS sidecar workaround remains
+required.
+
 **Partial mitigation**: Setting `litellm.ssl_verify = False` **globally before the first embedding call** may work, because the singleton `HTTPHandler` picks up `litellm.ssl_verify` at creation time via `get_ssl_configuration()`. However, this is fragile — it depends on initialization order, and per-request `ssl_verify=false` (as used in our model config) is still silently dropped for the ollama embedding path.
 
 ## Upstream Fix
