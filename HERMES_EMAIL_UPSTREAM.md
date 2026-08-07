@@ -439,6 +439,27 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 >   When it does ship, the re-sync will have to fold the same `os.getenv` → `_get_esecret`
 >   change into the `[PATCH-6]` `try/finally` region.
 
+> **2026-08-07 check — the divergence HAS shipped: new release v2026.8.3 contains the
+> scoped-secret adapter. Re-sync trigger is now armed on a real tag:**
+> - **Latest release:** **v2026.8.3** (v0.20.0, "The Herald Release", published
+>   2026-08-03T16:57:52Z — hours after the entries above were written). Its
+>   `plugins/platforms/email/adapter.py` is blob `f224202b…`, 52592 bytes — **byte-identical
+>   to `main`'s `ff89f1b862` divergence** flagged above. So the next `hermes.image_tag` bump
+>   (v2026.7.30 → v2026.8.3 or later) fires the mandatory re-sync: fold the
+>   `os.getenv` → `_get_esecret` scoped-secret change into the `[PATCH-6]` `try/finally`
+>   region — the same resolution already built and validated for #28702's merge commit
+>   `70de728cb` (see the 2026-08-03 follow-up above), so the conflict shape is known.
+> - **Keel caveat (same trap as last time):** the hermes Deployments run `keel.sh/policy:
+>   minor` with a 24h poll, and v0.19.1 → v0.20.0 is a minor bump — the running pods may
+>   already have pulled v2026.8.3 while the pinned default still says v2026.7.30. Check the
+>   live pod image before assuming "pinned deployment unaffected", and before any `--tags
+>   hermes` re-run (which would roll BACK to the pinned tag).
+> - **`main` has NOT diverged further:** `ff89f1b862` (2026-08-02) is still the newest commit
+>   touching the adapter (re-checked 2026-08-05 and 2026-08-07).
+> - **PRs #28697 / #28699 / #28702** all still `open`, `merged: false`, heads unchanged
+>   (`6bd60442` / `c05d0e06` / `70de728cb`), all `MERGEABLE`/`BLOCKED`. No maintainer
+>   activity since the 2026-08-03 push.
+
 1. Download the new upstream file:
 
    ```bash
