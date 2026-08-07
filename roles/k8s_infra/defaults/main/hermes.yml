@@ -76,7 +76,32 @@ hermes:
   #  * Only notable base-image change: a source-built SQLite 3.53.4 replaces
   #    Debian's 3.46 (WAL-reset corruption bug). Touches state.db under the
   #    NFS-backed /opt/data, nothing patch-related.
-  image_tag: "v2026.7.30"            # agent image (nousresearch/hermes-agent)
+  # Bumped v2026.7.30 -> v2026.8.3 (2026-08-07). Same keel drift as last time:
+  # keel had pulled this tag on 2026-08-04, so the pods already ran it while
+  # these defaults still said v2026.7.30 — without the bump the next --tags
+  # hermes run would roll the image BACK. Re-verified at that tag:
+  #  * plugins/platforms/email/adapter.py DIVERGED for the first time since
+  #    v2026.7.7.2 (md5 1facb7c380a6eec8c996df27c846e9ec, 52592 bytes — the
+  #    2026-08-02 commit ff89f1b862 the old patch header warned about landed
+  #    here), so hermes_email_gateway_patched.py WAS re-synced. The upstream
+  #    delta is one mechanical refactor (PR #50094: every EMAIL_* read goes
+  #    through profile-scoped _get_esecret/_esecret_int/_esecret_bool helpers,
+  #    utils.env_int/env_bool -> utils.is_truthy_value); NO [PATCH-N] section
+  #    was touched. plugin.yaml + __init__.py stay byte-identical, so the
+  #    ConfigMap subPath mount target is unchanged.
+  #    NOTE the pods ran 8.3 with the OLD (7.7.2-based) patch for three days
+  #    without breaking: utils.env_int/env_bool still exist at 8.3, so the
+  #    stale copy imported fine — it merely lacked the scoped reads, which
+  #    only matter under gateway profile multiplexing.
+  #  * hermes_health_patch.py still required AND still applies: _check_auth is
+  #    unchanged in shape (api_server.py grew 315600 -> 325515 bytes, but the
+  #    anchor holds), /health + /health/detailed still run through it, and
+  #    _probe_gateway_health still issues a bare urllib GET with no
+  #    Authorization header. Confirmed live in the running 8.3 pod: patch
+  #    banner in the gateway log, 0 "rejected invalid API key".
+  #  * Unchanged: image contract, dashboard CLI flags, BASIC_AUTH/TERMINAL_CWD/
+  #    API_SERVER_KEY/EMAIL_*/MATRIX_* env, gateway.lock/gateway_state.json.
+  image_tag: "v2026.8.3"             # agent image (nousresearch/hermes-agent)
   # NOTE: the venv site-packages dir (mount point for the hermes_health_patch
   # .py/.pth) is NOT configured here — it carries a pythonX.Y segment that bumps
   # with the base image. hermes.yml probes the actual image ONCE at deploy time
