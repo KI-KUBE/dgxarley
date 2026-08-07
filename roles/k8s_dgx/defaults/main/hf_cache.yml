@@ -46,7 +46,7 @@ hf_preload_image: "python:3.14-slim"
 # huggingface_hub floor for the Job, mirroring HF_HUB_MIN_VERSION in
 # scripts/patches/sglang-0.5.16-sm121.recipe. 1.26.0 carries the xet fix for
 # "Unable to parse string as hex hash value" (hub PR #4595,
-# UPSTREAM_HF_XET_BUG.md), which is why hf_hub_disable_xet went back to 0 on
+# FIXED_UPSTREAM_HF_XET_BUG.md), which is why hf_hub_disable_xet went back to 0 on
 # 2026-08-03. Keep the two in lockstep: a Job image below this floor would
 # re-open that crash on gated repos. Empty = install whatever pip resolves.
 hf_preload_hub_min_version: "1.26.0"
