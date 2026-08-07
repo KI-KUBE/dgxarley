@@ -30,7 +30,10 @@
 > dummy-extend sparse-prefill Crash unter DP breakable CUDA graph), **#32246**
 > (Fix nvfp4 online scale mit pcg), **#32288** (Fix stale flashinfer-MLA-
 > Fallback vergiftet spec-verify capture, trtllm_mla + tc_piecewise). Neues
-> **Known Issue #31125**: Temp-0-Nondeterminismus unter DP-Attention mit
+> Known Issue [Korrektur 2026-08-07: **#31125 ist der gemergte Stopgap-PR**
+> (2026-07-14), kein offenes Issue — es gibt KEIN offenes Tracking-Issue für
+> das Problem selbst, siehe Referenztabelle]: Temp-0-Nondeterminismus unter
+> DP-Attention mit
 > breakable prefill CUDA graph auf der DSV4-Flash-**FP4**-Recipe (unser
 > Checkpoint ist FP8, trifft uns also nur bei einem Wechsel), upstream nur per
 > deaktiviertem Determinismus-Test entschärft, kein echter Fix. **Unvalidiert
@@ -562,6 +565,19 @@ Stale-bot closure here does not mean the underlying gap is fixed.
 **Update 2026-08-03:** #26647 has now gone the same way — auto-closed by the
 stale-bot 2026-07-29 (one day after the previous check), unresolved, no fix
 landed. No issue in this Flash-stabilization cluster remains genuinely open.
+**Update 2026-08-07:** correction to the reference table — **#31125 is a
+merged PR (2026-07-14), not an open Known Issue**: it is itself the stopgap
+(disables the flaky DSV4-Flash FP4 BCG determinism test; the nondeterminism
+comes from #30898's idle-rank dummy extend). No separate open tracking issue
+for the underlying nondeterminism exists. Also noted, informational only: new
+issue [#33636](https://github.com/sgl-project/sglang/issues/33636) "[NVIDIA]
+DeepSeek V4 Perf Tracking" (opened 2026-08-05) cross-references our PR
+#31480 but explicitly scopes OUT "SM120/SM121, ROCm, NPU, XPU, CPU" — no
+impact on this cluster; and #32750 (PP + PD + DSpark hidden-state shape
+mismatch, referenced from the #23602 roadmap thread) is unrelated to
+anything tracked here. All other tracked refs re-verified unchanged
+(`kv_lora_rank: int = 512` still on transformers main; #26324 still open,
+idle since 2026-06-15; SGLang still at v0.5.16).
 
 ---
 
@@ -584,7 +600,7 @@ landed. No issue in this Flash-stabilization cluster remains genuinely open.
 | #25526 | DSv4 Flash + HiCache breakable piecewise CUDA graph | **closed 2026-07-17 (stale-bot, unresolved)**, no fix landed |
 | #26647 | Mooncake HiCache fails with DeepSeek-V4-Flash hybrid cache | **closed 2026-07-29 (stale-bot, unresolved)**, no fix landed |
 | #24111 | About pre-converted FP8 checkpoints (sgl-project/DeepSeek-V4-Flash-FP8) | **closed 2026-07-11 (stale-bot, unresolved)**, no fix landed |
-| #31125 | Known Issue (v0.5.16): temp-0 nondeterminism under DP attention + breakable prefill CUDA graph on the DSV4-Flash FP4 recipe | **open**, determinism test disabled as a stopgap, not fixed |
+| PR #31125 | Disable flaky DSV4-Flash FP4 BCG determinism test (nondeterminism from #30898 idle-rank dummy extend) | **merged 2026-07-14** — this PR IS the stopgap (disables the test); the underlying temp-0 nondeterminism under DP attention + breakable prefill CUDA graph has NO open tracking issue and is not fixed (corrected 2026-08-07: was mislabeled here as an open Known Issue) |
 | DeepGEMM #317 | DeepSeek-V4 on SM120: `tf32_hc_prenorm_gemm` + `paged_mqa_logits` kernels missing | **closed 2026-04-30 (declined, no SM120 HW; community PR #318 open)** |
 | #23657 | DSv4 compressed attention: no SM120 fallback for Lightning Indexer | **closed 2026-06-16** |
 | #25181 | `SGLANG_OPT_FP8_WO_A_GEMM` default-on | merged (v0.5.12) |
