@@ -51,7 +51,7 @@ if ! hub_ok 2>/dev/null; then
   [ -n "$HF_HUB_MIN_VERSION" ] && spec="huggingface_hub[hf_xet]>=$HF_HUB_MIN_VERSION"
   echo "[preload] installing $spec"
   # hf_xet is required because hf_hub_disable_xet is back to 0 (the hex-hash
-  # crash is fixed from hub 1.26.0 on, see UPSTREAM_HF_XET_BUG.md).
+  # crash is fixed from hub 1.26.0 on, see FIXED_UPSTREAM_HF_XET_BUG.md).
   # --break-system-packages only for Debian/Ubuntu system pythons that mark
   # themselves externally managed (PEP 668); the official python images do not.
   pip3 install --no-cache-dir -q "$spec" \
