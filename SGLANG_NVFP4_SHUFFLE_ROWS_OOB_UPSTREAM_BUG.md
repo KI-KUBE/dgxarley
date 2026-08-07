@@ -119,16 +119,20 @@ in this file (`_shuffle_rows_torch`, `scaled_fp4_experts_quant`, `cutlass_moe_fp
 below) is now historical for any SGLang image built from v0.5.16 onward, resolved by
 the buggy code being deleted, not by an in-place fix.
 
-**Practical consequence for our cluster.** Our default SGLang image is currently pinned
+**Practical consequence for our cluster.** ~~Our default SGLang image is currently pinned
 to `xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121` (`roles/k8s_dgx/defaults/main/sglang.yml`),
 which still contains the buggy `jit_kernel/nvfp4.py`. Our `torch.empty` to `torch.zeros`
 monkey patch (`roles/k8s_dgx/files/sglang_patches/p26_cutlass_moe_zeroinit.py`) is
-therefore **still required as long as the image stays on 0.5.15.post1 or earlier**. Once
-the cluster image is bumped to 0.5.16 or later, `p26_cutlass_moe_zeroinit.py` becomes a
-no-op patch target (the anchor it greps for no longer exists in the file, since the file
-itself is gone) and can be dropped from the patch chain. Do not remove the patch before
-the image bump actually happens, and do not change the pinned image as part of this doc
-update, an image bump is a separate deploy decision.
+therefore **still required as long as the image stays on 0.5.15.post1 or earlier**.~~
+**Update 2026-08-07: the image bump HAS happened** — `default_sglang_image` is
+`xomoxcc/dgx-spark-sglang:0.5.16-sm121` since commit `5371537` (2026-08-03). Per the
+paragraph's own threshold, `p26_cutlass_moe_zeroinit.py` is now a **no-op** on the live
+image (its anchor file `jit_kernel/nvfp4.py` is gone — re-confirmed 404 on `main` and on
+the v0.5.16 tag): the patch self-noops with an anchor-drift warning at pod start (by
+`_patchlib.py` design, never raises). It is still auto-discovered by the
+`p[0-9][0-9]_*.py` fileglob in `sglang_instance.yml`, i.e. dead weight in the patch
+chain. **Follow-up:** retire p26 via `RETIRED_PATCHES.md` — a config change, so per
+house rules only with explicit approval; this doc update does not touch the patch chain.
 
 Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, v0.5.13, and **v0.5.14** (released 2026-06-26 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
 
