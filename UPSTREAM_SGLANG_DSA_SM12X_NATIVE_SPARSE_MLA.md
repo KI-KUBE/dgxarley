@@ -31,6 +31,23 @@ gates the plain-layout early return purely on `dsa_prefill_backend` /
 touch either file's SM12x gating logic. No change to this doc's conclusions,
 rebase is a submission-mechanics item, not a content one.
 
+Re-checked 2026-08-07: the rebase flagged above is DONE — #31481 was rebased
+onto current main and force-pushed 2026-08-03 ~11:15 UTC (single commit, new
+head `0864022c3d`). Author comment at ~13:03 UTC: "Rebased onto current main
+and re-validated: 11/11 CI-safe unit tests, 5/5 SM121 kernel tests on GB10
+(kwarg semantics checked against the pinned flashinfer 0.6.15.post1 sources,
+live-tested on 0.6.16). Could a maintainer add the `run-ci` label so the
+suites actually run? Review welcome. Companion PR: #31480." (Companion
+#31480 was rebased the same day, head `685784f5ae` — both PRs back in sync.)
+As of 2026-08-07: **no maintainer response, no `run-ci` label** (only the
+pre-existing `deepseek` label, on the PR since 2026-07-16), no reviews;
+`mergeable: MERGEABLE`, `mergeStateStatus: BLOCKED`, `reviewDecision:
+REVIEW_REQUIRED`, no new pushes. `dsa_backend.py::_forward_trtllm` re-fetched
+from `main`: still hardcodes `backend="trtllm-gen"` (line ~3264, drifted from
+~2967 by unrelated merges). flashinfer `mla/_sparse_mla_sm120.py` unchanged
+(still `@supported_compute_capability([120, 121])`). SGLang still at v0.5.16,
+flashinfer stable at v0.6.16.post2 (2026-08-06, tvm-ffi ABI hotfix only).
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
