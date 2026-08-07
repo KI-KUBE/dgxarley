@@ -2,9 +2,10 @@
 
 ## Status
 
-**FIXED upstream (huggingface_hub v1.26.0, 2026-07-30) — workaround still
-deployed, in-cluster verification pending** (first diagnosed 2026-07-13,
-resolved upstream 2026-07-28). The bug turned out NOT to be in `hf_xet` at
+**FIXED upstream (huggingface_hub v1.26.0, 2026-07-30) — workaround DROPPED
+2026-08-03, in-cluster verification PASSED (confirmed 2026-08-07). CLOSED.**
+(First diagnosed 2026-07-13, resolved upstream 2026-07-28.) The bug turned
+out NOT to be in `hf_xet` at
 all: `huggingface_hub`'s tree-listing cache (PR
 [#4394](https://github.com/huggingface/huggingface_hub/pull/4394)) passed a
 **redacted placeholder `xetHash` (64×`*`)** from the Hub `/tree` API straight
@@ -14,11 +15,13 @@ to `hf_xet` on **gated repos**, and `hf_xet` correctly rejected it with the
 2026-07-28, closes `xet-core#895`), released in **huggingface_hub v1.26.0**
 (2026-07-30). Our affected repos (e.g.
 `nvidia/Llama-4-Scout-17B-16E-Instruct-NVFP4`) are gated — exactly the fixed
-scenario. **Next step:** run the faithful reproduction below against
-`huggingface_hub >= 1.26.0` without `HF_HUB_DISABLE_XET`; if clean, flip
-`hf_hub_disable_xet: 0` in the vault and move this doc to
-`FIXED_UPSTREAM_HF_XET_BUG.md` (see "How to know when to drop the
-workaround"). Until then the workaround stays in place.
+scenario. The workaround was removed in commit `f901876` (2026-08-03):
+`hf_hub_disable_xet: 0` in `group_vars/all/vault/huggingface.yml` (dummy in
+`main/` flipped to match), XET re-enabled for all download containers. The
+subsequent in-cluster downloads against `huggingface_hub 1.26.0` with XET
+active ran clean — no "hex hash" crash. Doc renamed to
+`FIXED_UPSTREAM_HF_XET_BUG.md`; kept for the diagnosis history and the
+`HF_HUB_MIN_VERSION` floor rationale.
 
 **Version state in-cluster (checked 2026-08-03):** the live image
 `xomoxcc/dgx-spark-sglang:0.5.16-sm121` (built 2026-08-02) already carries
@@ -244,16 +247,19 @@ are apples-to-oranges (they take the `hf_hub_download` path, which works).
 
 ## How to know when to drop the workaround
 
-**The trigger has fired (2026-08-03): huggingface_hub v1.26.0 contains the
-fix.** The fixing component is `huggingface_hub` (any `hf_xet` version is
-fine):
+**DONE — all three steps completed.** The trigger fired 2026-08-03
+(huggingface_hub v1.26.0 contains the fix; the fixing component is
+`huggingface_hub`, any `hf_xet` version is fine):
 
-1. Rebuild an image OR test in a throwaway container with
-   `huggingface_hub >= 1.26.0`.
-2. Run the faithful reproduction above **without** `HF_HUB_DISABLE_XET`.
-3. If shard 2 downloads cleanly → set `hf_hub_disable_xet: 0` in
-   `group_vars/all/vault/huggingface.yml` and redeploy; delete this file or move it
-   to `FIXED_UPSTREAM_HF_XET_BUG.md` with the fixing version recorded.
+1. ~~Rebuild an image OR test in a throwaway container with
+   `huggingface_hub >= 1.26.0`.~~ Live image 0.5.16-sm121 ships hub 1.26.0
+   (+ recipe floor `HF_HUB_MIN_VERSION=1.26.0`).
+2. ~~Run the faithful reproduction above **without** `HF_HUB_DISABLE_XET`.~~
+   In-cluster downloads with XET re-enabled ran clean (verified, 2026-08-07).
+3. ~~If clean → set `hf_hub_disable_xet: 0` in
+   `group_vars/all/vault/huggingface.yml` and redeploy; move this doc to
+   `FIXED_UPSTREAM_HF_XET_BUG.md`.~~ Flag flipped in commit `f901876`
+   (2026-08-03); doc renamed 2026-08-07.
 
 ## Changelog
 
@@ -305,3 +311,15 @@ fine):
   `pyproject.toml` (control node does not import hub at all). Workaround
   `hf_hub_disable_xet: 1` still deployed; the in-cluster reproduction is still
   the open step before flipping it.
+- **2026-08-03 (commit `f901876`)** — workaround dropped:
+  `hf_hub_disable_xet: 0` in `group_vars/all/vault/huggingface.yml` (public
+  dummy in `main/` flipped to match), re-enabling XET for every
+  HF-downloading container. Same commit added the unrelated
+  `hf_xet_reconstruct_write_sequentially` knob for the JuiceFS HDD backend.
+- **2026-08-07** — in-cluster verification confirmed PASSED: downloads on
+  gated repos with XET active against `huggingface_hub 1.26.0` ran clean, no
+  "hex hash" crash. Upstream re-checked 2026-08-05 and 2026-08-07: hub
+  v1.26.0 still latest, `xet-core#895` closed with no reopen/regression
+  reports; `hf_xet` stable v1.6.0 released 2026-08-03 (no relevance — hub was
+  the fixed component). Doc renamed `UPSTREAM_HF_XET_BUG.md` →
+  `FIXED_UPSTREAM_HF_XET_BUG.md`. Bug closed.
