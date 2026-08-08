@@ -12,7 +12,7 @@ deinstall_apparmor: false
 # `bottom-musl_<version>-1_<arch>.deb`; arch is derived from ansible_architecture
 # (x86_64→amd64 on k3smaster, aarch64→arm64 on the sparks).
 # curl -s https://api.github.com/repos/ClementTsang/bottom/releases/latest | jq -r '.tag_name'
-bottom_version: "0.14.4"
+bottom_version: "0.14.7"
 
 # yq (mikefarah/yq, the Go YAML processor — NOT the apt kislyuk jq-wrapper).
 # Ships only a static binary (no .deb), so it's fetched to /usr/local/bin. Pin
