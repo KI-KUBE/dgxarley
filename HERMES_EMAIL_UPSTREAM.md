@@ -495,6 +495,16 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 >   charset fix. Given the data-loss severity, pulling `_safe_decode()`
 >   forward as an out-of-band edit to the local patch is worth considering
 >   before any tag bump (config change — needs explicit approval, not done).
+> - **Follow-up same day (2026-08-09, approved):** both points above are now
+>   resolved. (a) The charset fix was forward-ported into
+>   `hermes_email_gateway_patched.py` as section **`[PATCH-9]`**
+>   (`[PATCH-8]` was already taken by the Sent-APPEND section) — remove that
+>   section at the next tag re-sync once the baseline contains
+>   `65f407184d`. (b) All three PRs were rebased again onto current `main`
+>   (`2446c8bb67`, which includes `65f407184d`): new heads #28697
+>   `0249e60835`, #28699 `8c517fcd6e`, #28702 `5e6f9d217e` — all clean
+>   rebases, own diffs byte-identical (range-diff verified), pushed
+>   `--force-with-lease` to the fork, all still `MERGEABLE`/`BLOCKED`.
 
 1. Download the new upstream file:
 

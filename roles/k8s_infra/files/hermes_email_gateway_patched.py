@@ -97,6 +97,26 @@ mechanical refactor, PR #50094 / the #59076 hunks; no [PATCH-N] section touched)
     parity (an unscoped IMAP host under multiplexing would archive a secondary
     profile's reply into the default profile's mailbox).
 
+Forward-ported ahead of the pinned tag (2026-08-09): upstream main commit
+65f407184d (2026-08-08, "fix(email): never let unknown or malformed charsets
+abort the IMAP fetch", closes #35901/#55381/#55383) is NOT YET in any release
+tag as of v2026.8.3, but the underlying bug is real and worth having early:
+an unknown or malformed charset label previously raised ``LookupError`` out
+of ``bytes.decode()`` (``errors="replace"`` only guards decode failures, not
+a missing codec), which aborted the *entire* IMAP fetch batch and silently
+dropped every other message in it. Forward-ported byte-for-byte as
+[PATCH-9] (note: [PATCH-8] was already taken by the pre-existing
+_standalone_send() Sent-APPEND section above, so this forward-port is
+[PATCH-9], not [PATCH-8]): new module-level ``_CHARSET_ALIASES`` dict +
+``_safe_decode()`` helper inserted after ``check_email_requirements()``,
+consumed by ``_decode_header_value()`` (``decode_header()`` now wrapped in
+try/except, and the per-part decode call site routed through
+``_safe_decode()``) and all three ``_extract_text_body()`` payload-decode
+call sites (text/plain, text/html fallback, non-multipart). REMOVE
+[PATCH-9] at the next image-tag re-sync once the pinned tag's baseline
+already contains 65f407184d — diff the three touched functions against the
+new tag first to confirm before deleting.
+
 Adds three behaviours that upstream lacks:
 
   1.  Two-stage IMAP folder lifecycle:
@@ -147,6 +167,12 @@ patch sections re-applied:
   [PATCH-8] _standalone_send() (plugin glue): APPEND to Sent via the shared
             helper, so the out-of-process cron / `hermes send` path archives
             too (parity with EmailAdapter; imap_tls preserved via _open_imap_conn)
+  [PATCH-9] forward-port of upstream main 65f407184d (2026-08-08), NOT yet in
+            any release tag: module-level _CHARSET_ALIASES + _safe_decode()
+            inserted after check_email_requirements(); consumed by
+            _decode_header_value() and the three _extract_text_body()
+            payload-decode call sites. REMOVE at the next image-tag re-sync
+            once the pinned tag's baseline already contains the fix.
 
 Upstreaming note: all of these behaviours are being upstreamed —
   - Sent-folder APPEND ([PATCH-3] shared _imap_append_to_sent helper +
@@ -486,13 +512,73 @@ def check_email_requirements() -> bool:
     return all([addr, pwd, imap, smtp])
 
 
+# ------------------------------------------------------------------
+# [PATCH-9] dgxarley forward-port of upstream main commit 65f407184d
+# (2026-08-08, "fix(email): never let unknown or malformed charsets abort
+# the IMAP fetch", NousResearch/hermes-agent#35901/#55381/#55383). This fix
+# is NOT YET in any release tag as of the v2026.8.3 sync baseline this file
+# is pinned to. REMOVE this whole section (helpers below + the call-site
+# edits inside _decode_header_value() and _extract_text_body()) at the next
+# image-tag re-sync once the pinned tag's baseline already contains the
+# upstream fix — diff those three functions against the new tag first.
+# ------------------------------------------------------------------
+
+_CHARSET_ALIASES = {
+    # Aliases seen in the wild that Python's codec registry doesn't know.
+    # "unknown-8bit" / "x-unknown" are RFC 1428 placeholders some MTAs (QQ
+    # Mail among them) emit when the original charset was lost (#35901).
+    "unknown-8bit": "utf-8",
+    "unknown": "utf-8",
+    "x-unknown": "utf-8",
+    "default": "utf-8",
+    "ansi_x3.110-1983": "latin-1",
+    "cp-850": "cp850",
+    "gb2312": "gb18030",  # superset; avoids failures on GBK extensions
+    "gbk": "gb18030",
+    "ks_c_5601-1987": "cp949",
+}
+
+
+def _safe_decode(payload: bytes, charset: "Optional[str]") -> str:
+    """Decode *payload* without ever raising.
+
+    Unknown or malformed charset labels (``unknown-8bit``, misspelled names,
+    attacker-controlled garbage) previously raised ``LookupError`` from
+    ``bytes.decode`` — ``errors="replace"`` only guards decode errors, not a
+    missing codec — which aborted the whole IMAP fetch and dropped every
+    message in the batch (#35901, #55381, #55383). Fall back through a small
+    alias table, then UTF-8, then latin-1 (which never fails).
+    """
+    label = (charset or "utf-8").strip().strip("\"'").lower() or "utf-8"
+    label = _CHARSET_ALIASES.get(label, label)
+    for candidate in (label, "utf-8"):
+        try:
+            return payload.decode(candidate, errors="replace")
+        except (LookupError, ValueError):
+            continue
+    return payload.decode("latin-1", errors="replace")
+
+
+# ------------------------------------------------------------------
+# End of [PATCH-9] helpers. See _decode_header_value() and
+# _extract_text_body() below for the call-site edits (also [PATCH-9]).
+# ------------------------------------------------------------------
+
+
 def _decode_header_value(raw: str) -> str:
-    """Decode an RFC 2047 encoded email header into a plain string."""
-    parts = decode_header(raw)
+    """Decode an RFC 2047 encoded email header into a plain string.
+
+    Never raises: malformed encoded-words or unknown charsets degrade to
+    replacement characters instead of crashing the fetch loop (#55381).
+    """
+    try:
+        parts = decode_header(raw)
+    except Exception:  # malformed RFC 2047 structure  [PATCH-9]
+        return raw
     decoded = []
     for part, charset in parts:
         if isinstance(part, bytes):
-            decoded.append(part.decode(charset or "utf-8", errors="replace"))
+            decoded.append(_safe_decode(part, charset))  # [PATCH-9]
         else:
             decoded.append(part)
     return " ".join(decoded)
@@ -510,8 +596,7 @@ def _extract_text_body(msg: email_lib.message.Message) -> str:
             if content_type == "text/plain":
                 payload = part.get_payload(decode=True)
                 if payload:
-                    charset = part.get_content_charset() or "utf-8"
-                    return payload.decode(charset, errors="replace")
+                    return _safe_decode(payload, part.get_content_charset())  # [PATCH-9]
         # Fallback: try text/html and strip tags
         for part in msg.walk():
             content_type = part.get_content_type()
@@ -521,15 +606,13 @@ def _extract_text_body(msg: email_lib.message.Message) -> str:
             if content_type == "text/html":
                 payload = part.get_payload(decode=True)
                 if payload:
-                    charset = part.get_content_charset() or "utf-8"
-                    html = payload.decode(charset, errors="replace")
+                    html = _safe_decode(payload, part.get_content_charset())  # [PATCH-9]
                     return _strip_html(html)
         return ""
     else:
         payload = msg.get_payload(decode=True)
         if payload:
-            charset = msg.get_content_charset() or "utf-8"
-            text = payload.decode(charset, errors="replace")
+            text = _safe_decode(payload, msg.get_content_charset())  # [PATCH-9]
             if msg.get_content_type() == "text/html":
                 return _strip_html(text)
             return text
