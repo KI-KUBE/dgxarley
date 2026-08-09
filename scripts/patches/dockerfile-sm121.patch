@@ -100,9 +100,22 @@ Apply to: container-build/Dockerfile.sglang-nightly in the local
 clone of scitrera/cuda-containers. The sm121 branch in that clone
 carries this patch; see scripts/build_sm121_image.sh.
 
+10. ARG SGL_KERNEL_DIR (default "sgl-kernel") — where the sgl-kernel source
+   tree lives inside the sglang checkout. SGLang RFC #29630 finished in
+   v0.5.17 and MOVED the whole tree from sgl-kernel/ at the repo root to
+   python/sglang/kernels/aot/ (same "sglang-kernel" package name and
+   version, same CMakeLists.txt/Makefile, just relocated). Three places
+   consume it: the SGLANG_VERSION sed on the kernel pyproject, the four
+   post-apply `grep -q '<marker>' <dir>/CMakeLists.txt` verifications, and
+   the `cd <dir>` of the wheel build. The default reproduces the previous
+   hardcoded paths byte-for-byte, so every pre-v0.5.17 recipe is unaffected;
+   the v0.5.17 recipe sets SGL_KERNEL_DIR=python/sglang/kernels/aot and
+   pairs it with the *-v0.5.17 CMakeLists patch variants (whose diff headers
+   carry the new path). Without it the build dies at `cd sgl-kernel`.
+
 --- a/container-build/Dockerfile.sglang-nightly
 +++ b/container-build/Dockerfile.sglang-nightly
-@@ -12,6 +12,26 @@
+@@ -12,6 +12,34 @@
  ARG SGLANG_VERSION=""
  ARG SGLANG_REF="main"
  ARG BUILD_JOBS=2
@@ -126,10 +139,18 @@ carries this patch; see scripts/build_sm121_image.sh.
 +ARG APPLY_SGL_KERNEL_SKIP_FLASHMLA=1
 +ARG APPLY_SGL_KERNEL_SM121=1
 +ARG APPLY_SGL_KERNEL_SM121_DEBUG=0
++# dgxarley: where the sgl-kernel source tree lives inside the sglang checkout.
++#   <= v0.5.16  sgl-kernel/ at the repo root
++#   >= v0.5.17  python/sglang/kernels/aot/ (RFC #29630 relocated it; same
++#               "sglang-kernel" package, same CMakeLists.txt, same Makefile)
++# Consumed by the version sed, the CMakeLists patch verifications and the
++# wheel build below. Recipe knob: SGL_KERNEL_DIR. The default keeps every
++# pre-v0.5.17 recipe byte-identical.
++ARG SGL_KERNEL_DIR=sgl-kernel
  ARG CUDA_ARCHITECTURES=121
  ARG TORCH_CUDA_ARCH_LIST="12.1a"
  ARG NVCC_GENCODE="-gencode=arch=compute_121,code=sm_121"
-@@ -25,19 +45,40 @@
+@@ -25,19 +53,40 @@
  ENV PIP_CONSTRAINT=/tmp/torch-constraints.txt \
      UV_CONSTRAINT=/tmp/torch-constraints.txt
  
@@ -183,7 +204,17 @@ carries this patch; see scripts/build_sm121_image.sh.
      ln -s /usr/lib/$(dpkg-architecture -qDEB_HOST_MULTIARCH)/openmpi /opt/openmpi && \
      rm -rf /var/lib/apt/lists/*
  
-@@ -95,9 +136,53 @@
+@@ -87,17 +136,61 @@
+ # Patch version in pyproject.toml if SGLANG_VERSION is set (for nightly wheel versioning)
+ RUN if [ -n "${SGLANG_VERSION}" ]; then \
+         sed -i "s/^version = .*/version = \"${SGLANG_VERSION}\"/" python/pyproject.toml; \
+-        if [ -f sgl-kernel/pyproject.toml ]; then \
+-            sed -i "s/^version = .*/version = \"${SGLANG_VERSION}\"/" sgl-kernel/pyproject.toml; \
++        if [ -f "${SGL_KERNEL_DIR}/pyproject.toml" ]; then \
++            sed -i "s/^version = .*/version = \"${SGLANG_VERSION}\"/" "${SGL_KERNEL_DIR}/pyproject.toml"; \
+         fi; \
+     fi
+ 
  ENV SETUPTOOLS_SCM_PRETEND_VERSION_FOR_SGLANG=${SGLANG_VERSION} \
      SETUPTOOLS_SCM_PRETEND_VERSION=${SGLANG_VERSION}
  
@@ -209,7 +240,7 @@ carries this patch; see scripts/build_sm121_image.sh.
 +        echo "=== Applying sgl-kernel-arch-prune.patch ==="; \
 +        patch --dry-run -p1 < /tmp/sgl-kernel-arch-prune.patch; \
 +        patch -p1 < /tmp/sgl-kernel-arch-prune.patch; \
-+        grep -q 'dgxarley sgl-kernel-arch-prune.patch' sgl-kernel/CMakeLists.txt; \
++        grep -q 'dgxarley sgl-kernel-arch-prune.patch' "${SGL_KERNEL_DIR}/CMakeLists.txt"; \
 +    else \
 +        echo "=== Skipping sgl-kernel-arch-prune.patch (APPLY_SGL_KERNEL_ARCH_PRUNE=${APPLY_SGL_KERNEL_ARCH_PRUNE}) ==="; \
 +    fi; \
@@ -217,7 +248,7 @@ carries this patch; see scripts/build_sm121_image.sh.
 +        echo "=== Applying sgl-kernel-disable-fa3.patch ==="; \
 +        patch --dry-run -p1 < /tmp/sgl-kernel-disable-fa3.patch; \
 +        patch -p1 < /tmp/sgl-kernel-disable-fa3.patch; \
-+        grep -q 'dgxarley sgl-kernel-disable-fa3.patch' sgl-kernel/CMakeLists.txt; \
++        grep -q 'dgxarley sgl-kernel-disable-fa3.patch' "${SGL_KERNEL_DIR}/CMakeLists.txt"; \
 +    else \
 +        echo "=== Skipping sgl-kernel-disable-fa3.patch (APPLY_SGL_KERNEL_DISABLE_FA3=${APPLY_SGL_KERNEL_DISABLE_FA3}) ==="; \
 +    fi; \
@@ -225,7 +256,7 @@ carries this patch; see scripts/build_sm121_image.sh.
 +        echo "=== Applying sgl-kernel-skip-sm90-target.patch ==="; \
 +        patch --dry-run -p1 < /tmp/sgl-kernel-skip-sm90-target.patch; \
 +        patch -p1 < /tmp/sgl-kernel-skip-sm90-target.patch; \
-+        grep -q 'dgxarley sgl-kernel-skip-sm90-target.patch' sgl-kernel/CMakeLists.txt; \
++        grep -q 'dgxarley sgl-kernel-skip-sm90-target.patch' "${SGL_KERNEL_DIR}/CMakeLists.txt"; \
 +    else \
 +        echo "=== Skipping sgl-kernel-skip-sm90-target.patch (APPLY_SGL_KERNEL_SKIP_SM90_TARGET=${APPLY_SGL_KERNEL_SKIP_SM90_TARGET}) ==="; \
 +    fi; \
@@ -233,14 +264,23 @@ carries this patch; see scripts/build_sm121_image.sh.
 +        echo "=== Applying sgl-kernel-skip-flashmla.patch ==="; \
 +        patch --dry-run -p1 < /tmp/sgl-kernel-skip-flashmla.patch; \
 +        patch -p1 < /tmp/sgl-kernel-skip-flashmla.patch; \
-+        grep -q 'dgxarley sgl-kernel-skip-flashmla.patch' sgl-kernel/CMakeLists.txt; \
++        grep -q 'dgxarley sgl-kernel-skip-flashmla.patch' "${SGL_KERNEL_DIR}/CMakeLists.txt"; \
 +    else \
 +        echo "=== Skipping sgl-kernel-skip-flashmla.patch (APPLY_SGL_KERNEL_SKIP_FLASHMLA=${APPLY_SGL_KERNEL_SKIP_FLASHMLA}) ==="; \
 +    fi
  
  # Copy any pre-built sgl-kernel wheels from build context (may be empty)
  COPY wheel-cache/ /data/wheel-cache/
-@@ -185,6 +270,59 @@
+@@ -111,7 +204,7 @@
+         cp /data/wheel-cache/sgl*kernel-*.whl /data/wheels/; \
+     else \
+         echo "=== Building sgl-kernel from source ===" && \
+-        cd sgl-kernel && \
++        cd "${SGL_KERNEL_DIR}" && \
+         make install-deps && \
+         uv build --wheel \
+           -Cbuild-dir=build \
+@@ -185,6 +278,59 @@
          uv pip install -U transformers --pre; \
      fi
  
@@ -300,7 +340,7 @@ carries this patch; see scripts/build_sm121_image.sh.
  # Break up dist-packages into smaller layers to avoid hitting Docker layer size limits
  COPY stages/directory_split2.sh /opt/directory_split2.sh
  RUN chmod +x /opt/directory_split2.sh && \
-@@ -203,25 +341,50 @@
+@@ -203,25 +349,50 @@
      TRITON_PTXAS_PATH=/usr/local/cuda/bin/ptxas
  
  # runtime base installs
@@ -368,7 +408,7 @@ carries this patch; see scripts/build_sm121_image.sh.
  # Copy Python dependencies from builder (split into 4 layers for size management)
  COPY --from=builder /usr/local/lib/python3.12/dist-packages-1/ /usr/local/lib/python3.12/dist-packages/
  COPY --from=builder /usr/local/lib/python3.12/dist-packages-2/ /usr/local/lib/python3.12/dist-packages/
-@@ -235,6 +398,12 @@
+@@ -235,6 +406,12 @@
  WORKDIR /data/sglang
  RUN apt-get clean && rm -rf /var/lib/apt/lists/*
  

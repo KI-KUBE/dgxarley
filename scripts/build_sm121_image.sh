@@ -79,7 +79,32 @@ BRANCH_NAME="sm121"
 # source patches (PRs #22929/#22928) are also applied — the underlying
 # build steps and SM121 sgl-kernel patches are identical.
 #
-# Next line (v0.5.16 — NOT production yet, needs GPU validation):
+# Next line (v0.5.17 — NOT BUILT yet, needs GPU validation):
+#   sglang-0.5.17-sm121.recipe         — SGLang v0.5.17 (released 2026-08-08,
+#                                        582 PRs). THE structural change: RFC
+#                                        #29630 finished and MOVED the whole
+#                                        sgl-kernel/ tree to python/sglang/
+#                                        kernels/aot/ (same "sglang-kernel"
+#                                        package, same CMakeLists). First recipe
+#                                        to set SGL_KERNEL_DIR (Dockerfile side:
+#                                        version sed, patch verification, wheel
+#                                        build cd) and SGL_KERNEL_PATCH_VARIANT=
+#                                        "-v0.5.17" (four repathed, zero-fuzz
+#                                        CMakeLists patches). Without both the
+#                                        build dies at `cd sgl-kernel`.
+#                                        SECOND driver: flashinfer 0.6.16 →
+#                                        0.6.16.post3 (post2 = tvm-ffi v0.1.13-
+#                                        post2 ABI hotfix, upstream-recommended;
+#                                        post3 = SM90-only revert, inert here).
+#                                        Deps otherwise identical to v0.5.16
+#                                        (transformers 5.12.1 / kernels 0.14.1 /
+#                                        cutlass-dsl 4.6.1 / torch 2.11 upstream
+#                                        → no base-image rebuild). marlin +
+#                                        tilelang-v0.5.16 patches re-verified
+#                                        against v0.5.17 (2026-08-09).
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.17-sm121
+#
+# Previous line (v0.5.16 — current production default_sglang_image):
 #   sglang-0.5.16-sm121.recipe         — SGLang v0.5.16 (released 2026-07-25).
 #                                        Renamed 2026-08-02 from
 #                                        sglang-0.5.16-dev-sm121; the `-dev` tag
@@ -214,13 +239,22 @@ BRANCH_NAME="sm121"
 #RECIPE_NAME="sglang-0.5.15.post1-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121"
 
-# v0.5.16 (2026-07-28, renamed off `-dev` 2026-08-02): next production line,
-# still NOT GPU-validated — the ref removes the NVFP4 cutlass/triton MoE runners
+# v0.5.17 (2026-08-09): next line, NOT YET BUILT and NOT GPU-validated. Two
+# drivers: SGLang v0.5.17 (2026-08-08) and flashinfer 0.6.16 → 0.6.16.post3
+# (tvm-ffi ABI hotfix). THE structural change is RFC #29630 finishing: the
+# sgl-kernel/ tree MOVED to python/sglang/kernels/aot/, so this recipe is the
+# first to set SGL_KERNEL_DIR + SGL_KERNEL_PATCH_VARIANT="-v0.5.17". Full delta
+# and open risks in the recipe header.
+RECIPE_NAME="sglang-0.5.17-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.17-sm121"
+
+# v0.5.16 (2026-07-28, renamed off `-dev` 2026-08-02): CURRENT production line
+# (default_sglang_image). The ref removes the NVFP4 cutlass/triton MoE runners
 # and moves three runtime-patch targets. Full delta + open risks in the recipe
 # header. The `-dev` Docker Hub tag is the older flashinfer-0.6.16rc3 artefact
-# and must NOT be overwritten; this pin now builds :0.5.16-sm121 with 0.6.16 final.
-RECIPE_NAME="sglang-0.5.16-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.16-sm121"
+# and must NOT be overwritten; this pin builds :0.5.16-sm121 with 0.6.16 final.
+#RECIPE_NAME="sglang-0.5.16-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.16-sm121"
 
 # Rollback: previous production line (v0.5.15). flashinfer 0.6.14 + cutlass-dsl
 # 4.6.0; SGLang deps identical to post1. The 0.5.15.post1 recipe only bumps
@@ -438,6 +472,31 @@ recipe_value() {
 # selected under the CANONICAL name, so the Dockerfile step never changes.
 recipe_tilelang_variant() {
     recipe_value TILELANG_PATCH_VARIANT
+}
+
+# Suffix of the sgl-kernel CMakeLists source patches this recipe wants, e.g.
+# "-v0.5.17". Empty selects the blanket "-mainahead" mechanism (SGL_KERNEL_MAINAHEAD=1)
+# or, failing that, the canonical files. Same install-under-canonical-name
+# indirection as the -mainahead siblings, so the Dockerfile step never changes.
+#
+# Why a second suffix knob next to SGL_KERNEL_MAINAHEAD: on v0.5.17 the four
+# CMakeLists patches are content-identical to the -mainahead generation but had
+# to move to a NEW PATH (RFC #29630 relocated sgl-kernel/ to
+# python/sglang/kernels/aot/), which the patch header carries. An explicit
+# per-recipe suffix keeps that fork visible in the recipe instead of hiding it
+# behind a boolean. Pair it with SGL_KERNEL_DIR (below), which re-points the
+# Dockerfile side.
+recipe_sgl_kernel_variant() {
+    recipe_value SGL_KERNEL_PATCH_VARIANT
+}
+
+# Directory of the sgl-kernel source tree inside the sglang checkout, passed
+# through to the Dockerfile as ARG SGL_KERNEL_DIR. Defaults to the historical
+# "sgl-kernel"; v0.5.17+ recipes set python/sglang/kernels/aot.
+recipe_sgl_kernel_dir() {
+    local d
+    d="$(recipe_value SGL_KERNEL_DIR)"
+    printf '%s' "${d:-sgl-kernel}"
 }
 
 usage() {
@@ -1174,6 +1233,23 @@ apply_patches() {
         && grep -qE '^SGL_KERNEL_MAINAHEAD=1' "${PATCHES_DIR}/${RECIPE_NAME}.recipe"; then
         sgl_kernel_variant="-mainahead"
     fi
+    # An explicit SGL_KERNEL_PATCH_VARIANT WINS over the -mainahead boolean: the
+    # v0.5.17 variants already carry the mainahead content, so a recipe that sets
+    # both (0.5.17 keeps SGL_KERNEL_MAINAHEAD=1 as documentation of provenance)
+    # must not fall back to the older, wrong-path siblings. Validate up front —
+    # a typo'd suffix would otherwise silently install the canonical patches and
+    # only surface as a dry-run abort deep inside the container build.
+    local sgl_kernel_variant_explicit
+    sgl_kernel_variant_explicit="$(recipe_sgl_kernel_variant)"
+    if [[ -n "${sgl_kernel_variant_explicit}" ]]; then
+        sgl_kernel_variant="${sgl_kernel_variant_explicit}"
+        local _v
+        for _v in sgl-kernel-arch-prune sgl-kernel-disable-fa3 \
+                  sgl-kernel-skip-sm90-target sgl-kernel-skip-flashmla; do
+            [[ -f "${PATCHES_DIR}/${_v}${sgl_kernel_variant}.patch" ]] \
+                || die "Recipe sets SGL_KERNEL_PATCH_VARIANT='${sgl_kernel_variant}' but ${_v}${sgl_kernel_variant}.patch does not exist"
+        done
+    fi
     # tilelang-compat variant: same install-under-canonical-name indirection as
     # the sgl-kernel -mainahead siblings above, but keyed on the recipe's
     # TILELANG_PATCH_VARIANT and scoped to that ONE patch (the -mainahead
@@ -1542,6 +1618,13 @@ run_build() {
     local effective_base_image="${EFFECTIVE_BASE_IMAGE:-${R_BASE_IMAGE}}"
     local effective_base_source="${BASE_IMAGE_SOURCE:-recipe default}"
 
+    # Where the sgl-kernel tree sits inside the checkout. Recipe knob with a
+    # default that reproduces the pre-v0.5.17 layout, so this is a no-op for
+    # every older recipe. Must match the path carried by the CMakeLists patch
+    # variants selected via SGL_KERNEL_PATCH_VARIANT in apply_patches().
+    local effective_sgl_kernel_dir
+    effective_sgl_kernel_dir="$(recipe_sgl_kernel_dir)"
+
     echo "Recipe values:"
     echo "  DOCKERFILE           = ${R_DOCKERFILE}"
     echo "  TARGET               = ${R_TARGET}"
@@ -1563,6 +1646,7 @@ run_build() {
     echo "  DSV4_KERNEL_ARCH     = ${R_DSV4_KERNEL_ARCH:-<unset>}"
     echo "  IMAGE_TAG            = ${IMAGE_TAG}"
     echo "  BUILD_JOBS           = ${BUILD_JOBS} (overrides Dockerfile ARG default of 2)"
+    echo "  SGL_KERNEL_DIR       = ${effective_sgl_kernel_dir}  (recipe SGL_KERNEL_DIR; v0.5.17+ relocated the tree)"
     echo "  sgl-kernel patches:"
     echo "    sm121 JIT kernel   = $([ "${APPLY_SM121_CORE}" = "1" ] && echo APPLY || echo 'skip  (target removed upstream by PR #30448 on SGLang >= v0.5.16)')  (recipe APPLY_SGL_KERNEL_SM121 / --no-sm121-core)"
     echo "    sm121-debug        = $([ ${APPLY_SM121_DEBUG} -eq 1 ] && echo APPLY || echo skip)  (--sm121-debug opts in; runtime-gated by SGL_SM121_DEBUG_CUTLASS env)"
@@ -1575,6 +1659,7 @@ run_build() {
     echo "    dsv4-nvfp4 PR25820 = (handled in apply_patches() — recipe-gated via APPLY_DSV4_NVFP4_PR25820, see log above)"
     echo "    tilelang-018-compat= (handled in apply_patches() — folded into APPLY_DSV4_NVFP4_PR25820 gate, see log above)"
     echo "    tilelang variant   = $(recipe_tilelang_variant || true)  (empty = canonical file; recipe TILELANG_PATCH_VARIANT)"
+    echo "    sgl-kernel variant = $(recipe_sgl_kernel_variant || true)  (empty = -mainahead/canonical; recipe SGL_KERNEL_PATCH_VARIANT)"
 
     # The build context is container-build/ (contains Dockerfile + patches/
     # subdir). Podman streams it to the remote build host over the socket;
@@ -1603,6 +1688,7 @@ run_build() {
         --build-arg "APPLY_SGL_KERNEL_DISABLE_FA3=${APPLY_DISABLE_FA3}" \
         --build-arg "APPLY_SGL_KERNEL_SKIP_SM90_TARGET=${APPLY_SKIP_SM90_TARGET}" \
         --build-arg "APPLY_SGL_KERNEL_SKIP_FLASHMLA=${APPLY_SKIP_FLASHMLA}" \
+        --build-arg "SGL_KERNEL_DIR=${effective_sgl_kernel_dir}" \
         --build-arg "APPLY_SGL_KERNEL_SM121=${APPLY_SM121_CORE}" \
         --build-arg "APPLY_SGL_KERNEL_SM121_DEBUG=${APPLY_SM121_DEBUG}" \
         -t "${IMAGE_TAG}" \
