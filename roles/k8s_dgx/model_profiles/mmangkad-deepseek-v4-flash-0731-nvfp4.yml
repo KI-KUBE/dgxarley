@@ -248,4 +248,4 @@ _model_profile:
     # image can at best serve it non-speculatively, and only if the CSA/HCA arch
     # keys are understood (v0.5.15 has those). Built from
     # scripts/patches/sglang-0.5.16-sm121.recipe via scripts/build_sm121_image.sh.
-    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.16-sm121"
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.17-sm121"
