@@ -76,14 +76,42 @@
 #      (unchanged from v0.5.16, PR #30448).
 #
 # ── OPEN RISKS, validate before this recipe is promoted ──────────────────────
-#   A. RUNTIME patches (roles/k8s_dgx/files/sglang_patches/) NOT yet run against
-#      a built image. STATIC pre-check 2026-08-09: all 38 target module paths
-#      referenced by the patch set still exist at v0.5.17, INCLUDING p34's
-#      v0.5.16 alt-target srt/mem_cache/kv_cache_configurator.py — so unlike the
-#      0.5.16 bump there is no known relocation. That says nothing about the
-#      ANCHOR STRINGS. Run scripts/verify_sglang_image.sh (bare / glm / hy3)
-#      before serving anything: drift is logged as a warning and never crashes
-#      the pod, so a deploy would SILENTLY run without the affected fixes.
+#   A. RUNTIME patches (roles/k8s_dgx/files/sglang_patches/).
+#      ✅ RESOLVED 2026-08-09 — acceptance gate CLEAN on the built image
+#         (scripts/verify_sglang_image.sh docker.io/xomoxcc/dgx-spark-sglang:
+#         0.5.17-sm121 spark5): bare / glm / hy3 each 0 ANCHOR-DRIFT, model
+#         registry no regression, baseline the usual 2 upstream failures
+#         (bailing_moe_linear / bailing_moe_nextn, optional vllm dep).
+#      The FIRST gate run failed with 5 drifts, fixed as follows. Note the two
+#      DIFFERENT kinds again — "0 drift" is not the same as "all fixes live":
+#        RE-TARGETED (patch applies, fix is live on v0.5.17):
+#          p11  SafeTensorsFileLoader gained an `enable_gds` parameter, so the
+#               call is now `nogds=not enable_gds`. replace_any over both
+#               spellings, both collapse to the unconditional nogds=True (GB10
+#               has no GDS and the caller never threads enable_gds through).
+#          p30  dsa_backend.py's import cluster: BaseIndexerMetadata moved out
+#               of dsa_indexer.py into dsa_indexer_metadata.DSAIndexerMetadata.
+#               Anchor split into a head variant + shared tail; the injected
+#               paged_mqa_logits_backend import is unchanged (that module did
+#               NOT move). p30's other 4 edits were unaffected.
+#          p34  _fuse_rope_for_trtllm_mla: the dsa backend flags moved from
+#               get_server_args() onto get_exec().kernel. Third variant added
+#               (get_global_server_args() / get_server_args() / get_exec()
+#               .kernel). THIS IS THE LIVE-PROVEN GLM-5.2 DSA PATH — without it
+#               the SM12x sparse kernel gets an fp8 query it rejects.
+#        SELF-GATED OFF on >= v0.5.17 (fix is UPSTREAM now, patch no-ops):
+#          p50 + p51  sgl-project/sglang PR #31220 (commit c4af6cf26397, merged
+#               2026-07-30, first release v0.5.17) landed BOTH halves: the
+#               forced-None modelopt_fp4 ternary is gone and qwen3_5.py defines
+#               and applies QWEN3_5_KV_SCALE_MAPPER itself in all four
+#               load_weights(). Their docstrings called this the retire signal,
+#               but they are GATED (target_contains probe), not deleted: one
+#               ConfigMap feeds instances pinned to 0.5.13 … 0.5.17 and the
+#               older ones still need both edits. Delete them once no model
+#               profile pins a pre-v0.5.17 image.
+#      Cross-image regression checked, not assumed: all five patches re-run
+#      against v0.5.16 sources still apply (p50/p51 gates stay OPEN there), and
+#      every one of them is idempotent on a second run against both trees.
 #   B. INHERITED from v0.5.16, still open: moe_runner_backend cutlass / triton
 #      for NVFP4 is gone (#30448) — nvidia/Qwen3.5-397B-A17B-NVFP4 (cutlass) and
 #      Minimax-M2.5 @ PP=4 (triton) need re-testing or re-pinning; and

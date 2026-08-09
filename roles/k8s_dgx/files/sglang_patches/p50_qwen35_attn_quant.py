@@ -38,9 +38,24 @@ via RETIRED_PATCHES.md on the image bump to the first release containing
 c4af6cf26397.
 """
 
-from _patchlib import Patch
+from _patchlib import Patch, target_contains
 
-patch = Patch(name="allow quantized attention for uniform-NVFP4 modelopt_fp4", target="sglang/srt/models/qwen3_5.py")
+QWEN3_5 = "sglang/srt/models/qwen3_5.py"
+
+# GATE (2026-08-09, v0.5.17): the forced-None ternary this patch neutralises is
+# GONE upstream — c4af6cf26397 removed it, so on >= v0.5.17 there is nothing to
+# unblock and the anchor legitimately no longer exists. Probing for the ternary
+# itself (rather than deleting the patch) is what keeps ONE ConfigMap correct
+# across instances that pin DIFFERENT images: profiles still on 0.5.16 and older
+# need this fix, and there it applies unchanged. On >= v0.5.17 the runner logs
+# one honest "gate not matched" line instead of an ANCHOR-DRIFT work item.
+# DELETE p50 (and p51) via RETIRED_PATCHES.md once no model profile pins a
+# pre-v0.5.17 image any more.
+patch = Patch(
+    name="allow quantized attention for uniform-NVFP4 modelopt_fp4",
+    target=QWEN3_5,
+    when=target_contains(QWEN3_5, 'quant_config.get_name() == "modelopt_fp4"'),
+)
 
 OLD = '            if quant_config and quant_config.get_name() == "modelopt_fp4"'
 NEW = "            if False  # [patch]: let is_layer_excluded() decide (allow quantized attention)"

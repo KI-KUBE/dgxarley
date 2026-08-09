@@ -320,20 +320,38 @@ patch_dsa_backend = Patch(
     target="sglang/srt/layers/attention/dsa_backend.py",
 )
 
-OLD_BACKEND_IMPORT = """from sglang.srt.layers.attention.dsa.dsa_indexer import BaseIndexerMetadata
-from sglang.srt.layers.attention.dsa.dsa_topk_backend import (
+MARKER_BACKEND = "# [patch] _sgl_dsa_torch_fallback_backend_"
+
+# The import block this hooks onto was respelled in v0.5.17: the metadata base
+# class moved out of dsa_indexer.py into its own module
+# (dsa_indexer_metadata.DSAIndexerMetadata, replacing dsa_indexer.
+# BaseIndexerMetadata). Only the neighbouring line changed, the anchor is still
+# the top of the same import cluster and the injected import is identical.
+# paged_mqa_logits_backend.py itself did NOT move, so the import we add is
+# valid on both layouts. Both spellings must keep working (one ConfigMap,
+# instances on different pinned images), hence replace_any.
+_BACKEND_IMPORT_TAIL = """from sglang.srt.layers.attention.dsa.dsa_topk_backend import (
     DSATopKBackend,
     TopkTransformMethod,
 )"""
-NEW_BACKEND_IMPORT = """# [patch] _sgl_dsa_torch_fallback_backend_
-from sglang.srt.layers.attention.dsa.dsa_indexer import BaseIndexerMetadata
-from sglang.srt.layers.attention.dsa.dsa_topk_backend import (
-    DSATopKBackend,
-    TopkTransformMethod,
-)
+_BACKEND_IMPORT_ADD = """
 from sglang.srt.layers.attention.dsa.paged_mqa_logits_backend import (
     DSAPagedMQALogitsBackend,
 )"""
+
+
+def _backend_import_variant(head: str) -> tuple[str, str]:
+    old = head + "\n" + _BACKEND_IMPORT_TAIL
+    new = MARKER_BACKEND + "\n" + old + _BACKEND_IMPORT_ADD
+    return old, new
+
+
+BACKEND_IMPORT_VARIANTS = [
+    # <= v0.5.16
+    _backend_import_variant("from sglang.srt.layers.attention.dsa.dsa_indexer import BaseIndexerMetadata"),
+    # >= v0.5.17
+    _backend_import_variant("from sglang.srt.layers.attention.dsa.dsa_indexer_metadata import DSAIndexerMetadata"),
+]
 OLD_BACKEND_INIT = """        self.dsa_topk_backend: DSATopKBackend = DSATopKBackend(
             model_runner.server_args.dsa_topk_backend
         )"""
@@ -450,7 +468,7 @@ NEW_BACKEND_REFRESH = """    def _refresh_paged_mqa_schedule_metadata(
 
 @patch_dsa_backend.run
 def apply_dsa_backend(p: Patch) -> None:
-    p.replace(OLD_BACKEND_IMPORT, NEW_BACKEND_IMPORT, what="4a-import")
+    p.replace_any(BACKEND_IMPORT_VARIANTS, marker=MARKER_BACKEND, what="4a-import")
     p.replace(OLD_BACKEND_INIT, NEW_BACKEND_INIT, what="4b-init")
     p.replace(OLD_BACKEND_SITE_A, NEW_BACKEND_SITE_A, what="4c-site-A")
     p.replace(OLD_BACKEND_SITE_B, NEW_BACKEND_SITE_B, what="4d-site-B")

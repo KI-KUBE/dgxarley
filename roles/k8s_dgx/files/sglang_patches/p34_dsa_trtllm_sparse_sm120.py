@@ -243,14 +243,18 @@ def apply_forward_mla(p: Patch) -> None:
     # flashinfer_gather path used, live-proven with the packed pool). SM100
     # keeps the fused path. The second call site (extra cos_sin_cache args for
     # the attention call) is gated by the same function, so it stays consistent.
-    # v0.5.16 renamed the accessor get_global_server_args() -> get_server_args()
-    # here; the logic is otherwise identical. Both spellings must keep working
-    # (one ConfigMap, instances on different pinned images), hence replace_any.
+    # The accessor in front of .dsa_{decode,prefill}_backend was respelled twice:
+    #   <= v0.5.15.post1  get_global_server_args()
+    #   v0.5.16           get_server_args()          (plain rename)
+    #   >= v0.5.17        get_exec().kernel          (the flags moved onto the
+    #                     execution context's kernel config, not just renamed)
+    # The logic is identical in all three. All spellings must keep working (one
+    # ConfigMap, instances on different pinned images), hence replace_any.
     def _rope_variant(accessor: str) -> tuple[str, str]:
         body = (
             f"            return (\n"
-            f'                {accessor}().dsa_decode_backend == "trtllm"\n'
-            f'                or {accessor}().dsa_prefill_backend == "trtllm"\n'
+            f'                {accessor}.dsa_decode_backend == "trtllm"\n'
+            f'                or {accessor}.dsa_prefill_backend == "trtllm"\n'
             f"            ) and get_attn_backend().kv_cache_dtype == torch.float8_e4m3fn\n"
         )
         old = '        if self.current_attention_backend in ("dsa", "nsa"):\n' + body
@@ -266,8 +270,9 @@ def apply_forward_mla(p: Patch) -> None:
 
     p.replace_any(
         [
-            _rope_variant("get_global_server_args"),  # <= 0.5.15.post1
-            _rope_variant("get_server_args"),  # >= 0.5.16
+            _rope_variant("get_global_server_args()"),  # <= 0.5.15.post1
+            _rope_variant("get_server_args()"),  # 0.5.16
+            _rope_variant("get_exec().kernel"),  # >= 0.5.17
         ],
         marker=MARKER,
         what="dsa fuse-rope off on SM12x",

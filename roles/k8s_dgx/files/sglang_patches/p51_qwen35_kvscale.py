@@ -91,9 +91,23 @@ left out of the PR -- no MTP checkpoint with baked attention KV scales to
 verify against), so p43/p44 stay needed independently of this retirement.
 """
 
-from _patchlib import Patch
+from _patchlib import Patch, target_contains
 
-patch = Patch(name="load baked FP8 KV scales", target="sglang/srt/models/qwen3_5.py")
+QWEN3_5 = "sglang/srt/models/qwen3_5.py"
+
+# GATE (2026-08-09, v0.5.17): c4af6cf26397 landed BOTH halves of PR #31220
+# upstream — qwen3_5.py now builds RadixAttention with quant_config and defines
+# + applies QWEN3_5_KV_SCALE_MAPPER in all four load_weights() itself. Probe for
+# the upstream mapper constant and skip when it is there: same reasoning as p50,
+# one ConfigMap serves images from 0.5.13 to 0.5.17 and the older ones still
+# need these edits. Note the probe is the UPSTREAM name, which happens to be
+# identical to the one this patch injects (the patch was written as the PR), so
+# it doubles as the already-applied guard.
+patch = Patch(
+    name="load baked FP8 KV scales",
+    target=QWEN3_5,
+    when=not target_contains(QWEN3_5, "QWEN3_5_KV_SCALE_MAPPER = WeightsMapper("),
+)
 
 MARKER_A = "# [patch]  A: RadixAttention quant_config"
 

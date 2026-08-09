@@ -61,11 +61,25 @@ NEW1 = (
     '    device = torch.device("cuda", torch.cuda.current_device())'
 )
 
-OLD2 = "        loader = SafeTensorsFileLoader(pg, device)"
+# Two spellings of the loader construction:
+#   <= v0.5.16  no nogds kwarg at all (GDS on whenever fastsafetensors has it)
+#   >= v0.5.17  nogds=not enable_gds, driven by the new `enable_gds: bool = True`
+#               parameter of fastsafetensors_weights_iterator
+# Both become the unconditional nogds=True: GB10 has no GPU Direct Storage, and
+# the caller does not thread enable_gds through, so the new parameter defaults
+# back to the exact behaviour this patch exists to prevent.
 NEW2 = "        loader = SafeTensorsFileLoader(pg, device, nogds=True)"
+OLD2_VARIANTS = [
+    ("        loader = SafeTensorsFileLoader(pg, device)", NEW2),
+    ("        loader = SafeTensorsFileLoader(pg, device, nogds=not enable_gds)", NEW2),
+]
 
 
 @patch.run
 def apply(p: Patch) -> None:
     p.replace(OLD1, NEW1, what="fastsafetensors pg/device (SingleGroup + local device)")
-    p.replace(OLD2, NEW2, what="fastsafetensors SafeTensorsFileLoader nogds=True")
+    p.replace_any(
+        OLD2_VARIANTS,
+        marker=NEW2,
+        what="fastsafetensors SafeTensorsFileLoader nogds=True",
+    )
