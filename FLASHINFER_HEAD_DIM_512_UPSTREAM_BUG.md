@@ -1,5 +1,27 @@
 # FlashInfer Upstream Bug: head_dim=512 not supported (Gemma-4 global attention)
 
+## Status 2026-08-09 (re-verify only, no change)
+
+SGLang **v0.5.17** released 2026-08-08 — the Gemma4 attention-backend
+allowlist re-confirmed byte-identical both in v0.5.17's
+`server_args.py:5449-5465` and on current `main` (tip `fcc5468c`,
+2026-08-09): still `("trtllm_mha", "triton", "ascend", "intel_xpu")`,
+`flashinfer` still hard-rejected; `attention_backend: triton` remains
+permanently mandatory for all four Gemma-4 profiles. Flashinfer releases
+since the 2026-08-03 entry: **v0.6.16.post2** (2026-08-06, tvm-ffi
+v0.1.13-post2 ABI hotfix only), **v0.6.16.post3** (2026-08-08, now GitHub
+"Latest"; single change = revert of the #3738 SM90 CUTLASS MoE backend,
+PR #4412) and pre-releases through **v0.6.17rc5** (2026-08-08, same SM90
+revert via #4411) — none touch `prefill.cuh`/`persistent.cuh` (no commits
+to either file since before 2026-08-01) or the head_dim=512 dispatch.
+Issue #3297 (closed) and PR #3576 (merged) unchanged, no new activity.
+**Adjacent but out of scope:** SGLang PR #25545 ("[Spec] Add `trtllm_mha`
+support for Gemma 4 MTP draft attention backend", merged 2026-08-01, ships
+in v0.5.17) touches only the Frozen-KV-MTP **draft** backend selection
+(`arg_groups/overrides.py`, `frozen_kv_mtp_*`), not the main-model
+allowlist tracked here — noted so it is not mistaken for movement on the
+open "trtllm_mha vs triton benchmark" follow-up below.
+
 ## Status 2026-08-03 (re-verify only, no change)
 
 All tracked refs re-checked against live upstream state; every state matches

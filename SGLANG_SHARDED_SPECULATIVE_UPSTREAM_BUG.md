@@ -155,6 +155,27 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 i
 > `--speculative-draft-model-path` workaround remains required and unchanged.
 > Issue #32202 still open, no new activity.
 
+> **Re-verified 2026-08-09:** SGLang **v0.5.17** released 2026-08-08 (tag
+> commit `b6a09f38f`, cut 2026-08-07T21:50 UTC; 582 PRs since v0.5.16). The
+> bug ships in it unchanged — "present in every release up to and including
+> v0.5.16" now reads **v0.5.17**. **Release-vs-main split:** the v0.5.17
+> release branch did NOT pick up the 2026-08-06 relocation stack
+> (#33487–#33492) — source-checked the v0.5.17 tag:
+> `draft_worker_common.py` still has `_draft_load_format_fields()` (line 67)
+> and `draft_server_args_copy()` (line 95), and `scheduler.py:901` still
+> calls `draft_server_args_copy` — i.e. the released artifact has the
+> 2026-08-03 code shape (PR stack #33334–#33338), while `main`'s
+> authoritative location remains `model_runner.py` as described in the
+> 2026-08-07 entry above. Line drift on `main` since then (unrelated DCP /
+> shared-experts-fusion commits `07297049e`/`ce1b9f88b`/`b61a06921`):
+> `_load_format_scope()` now :1242, `_resolve_draft_load_format()` now
+> :1254, `__init__` consumption line 322, load paths 672 / 1064-1096 —
+> logic verbatim. v0.5.17's Speculative-Decoding release notes contain no
+> fix for this bug; no new PRs touch `speculative_draft_load_format`.
+> Issue #32202 still open, 0 comments, untouched since 2026-07-23. Our
+> `--speculative-draft-load-format auto` + `--speculative-draft-model-path`
+> workaround remains required and unchanged.
+
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`
 
@@ -275,7 +296,9 @@ that point), but a latent bug if SGLang ever re-read `load_format` after draft
 worker initialization. Fixed on `main` by PR #33335 (2026-08-03): the draft
 worker is now built from a `deepcopy` of `server_args` and only the copy is
 overridden (see the 2026-08-03 re-verification entry above). Still present in
-every release up to and including v0.5.16.
+every release up to and including v0.5.16; **v0.5.17 (2026-08-08) is the first
+release to ship the deepcopy fix** (its release branch carries the 2026-08-03
+`draft_server_args_copy()` code shape, see the 2026-08-09 entry above).
 
 ## Impact
 

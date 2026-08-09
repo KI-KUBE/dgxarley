@@ -383,6 +383,25 @@ small (~50 MB) and the node has fast local storage.
   2026-07-27); #45671 still open unmerged, #45732/#45660 still closed unmerged; all
   previously tracked merges/closures identical; `copy-ui-tui` initContainer still
   commented out. Conclusions unchanged — Trigger 2 remains unfixed upstream.
+- **Re-verified 2026-08-09:** no new release since v2026.8.3; all previously tracked refs
+  unchanged (#45657 still OPEN with the same 3 comments, `updatedAt` 2026-07-27; #45671 still
+  open unmerged; #45732/#45660 still closed unmerged; `copy-ui-tui` still commented out).
+  Two new data points: (1) **new duplicate issue #81620** (filed 2026-08-08T08:56Z, "hermes
+  dashboard: repeated 'Installing TUI dependencies…' on every reconnect"), triaged the same
+  day by the AI-triage bot as a duplicate of #45657 — no new mechanism, but a fresh
+  independent confirmation the bug is live on v0.20.0. (2) A **third, independent root-cause
+  layer** surfaced on the previously untracked issue **#66978** ("_tui_need_npm_install
+  triggers npm install on every TUI launch", filed 2026-07-18; near-duplicate #66084,
+  2026-07-17 — both predate this doc's 08-07 cutoff and only name the same symptom): a
+  comment from 2026-08-08T21:56Z shows that `comparable()`'s field *blacklist*
+  (`{ideallyInert, peer}`) does not exclude npm-version-dialect metadata churn
+  (`dev`/`devOptional`/`libc`/`engines`/`hasInstallScript` — ~900 differing entries in that
+  repro), so even the closure-scoping fix in open PR **#67011** (filed 2026-07-18, unmerged,
+  last updated 2026-08-03) would still trigger a reinstall on every launch; the proposed
+  (locally verified by that reporter) fix is a field *whitelist*
+  (`{name, version, resolved, integrity, link}`) combined with closure scoping. This is a
+  more precise statement of why "Trigger 2 remains unfixed" than the PR-status tracking
+  alone. Conclusions unchanged; the `copy-ui-tui` workaround is unaffected either way.
 
 ## Action Items
 

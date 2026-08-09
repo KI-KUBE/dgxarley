@@ -158,6 +158,20 @@ GEGLU unblock path (PR #3744, shipped in flashinfer 0.6.15) is therefore
 still reachable only via our own custom pin, same as noted above, not via a
 stock SGLang dependency bump.
 
+**Re-verified 2026-08-09:** SGLang **v0.5.17** (released 2026-08-08) is now
+the latest release; it contains none of the four tracked PRs. #22929/#22928
+unchanged (idle since 2026-04-16), #22927 still `CONFLICTING`/dirty (as
+already flagged 07-28), #22615 unchanged (idle since 2026-06-20).
+Source-verified on the v0.5.17 tag: the Gemma4 attention-backend allowlist
+in `server_args.py:5449-5465` is unchanged (`trtllm_mha`, `triton`,
+`ascend`, `intel_xpu` — `triton` still mandatory), and
+`_handle_model_specific_adjustments` still exists under that name (line
+5039). v0.5.17's PR #25545 ("trtllm_mha for Gemma 4 **MTP draft** attention
+backend", merged 2026-08-01) touches only the Frozen-KV-MTP draft backend
+selection, not the main-model allowlist or the NaN-clamp/GEGLU items
+tracked here — not applicable (we don't run Gemma4 with speculative
+decoding). Conclusions unchanged.
+
 ## Affected models
 
 | Model                                         | Type                               | Quantization | Current status (`0.5.11-gemma4-sm121` image)                                                                                                |

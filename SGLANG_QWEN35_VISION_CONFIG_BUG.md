@@ -66,6 +66,16 @@
 > 2026-06-11. PR #22618 still **OPEN**, no activity since 2026-04-14. No
 > change to this doc's conclusions. Monkey-patch (`PATCH_GET_CONFIG_EOF`) in
 > `sglang_launch.sh` still required.
+>
+> **Re-verified 2026-08-09:** Checked against SGLang **v0.5.17** (released
+> 2026-08-08, now the latest release). `qwen3_5.py` on the v0.5.17 tag still
+> has no `from_dict`/`__post_init__` anywhere (only five plain `__init__`
+> methods), and no commits have touched the file since the 2026-07-28 check.
+> PR #22839 still **OPEN** (no activity since 2026-06-11), PR #22618 still
+> **OPEN** (no activity since 2026-04-14). v0.5.17's Qwen3.5 release-note
+> items (#31220, #31382, #32401, #32022) are all unrelated — none touch the
+> `sub_configs`/vision_config conversion. Root cause unchanged, monkey-patch
+> still required.
 
 
 ## Summary

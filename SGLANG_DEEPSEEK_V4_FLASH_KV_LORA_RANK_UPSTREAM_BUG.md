@@ -44,6 +44,13 @@
 > DSV4-Flash config-parse fix. `transformers` main still declares
 > `kv_lora_rank: int = 512` in `configuration_deepseek_v3.py`, unchanged.
 > Monkey-patch still required, no location change.
+>
+> **Re-verified 2026-08-09:** checked against **v0.5.17** (released
+> 2026-08-08, now the latest release; 582 PRs since v0.5.16). Release notes
+> contain no `kv_lora_rank` / DSV4-Flash config-parse fix. `transformers`
+> main still declares `kv_lora_rank: int = 512`
+> (`configuration_deepseek_v3.py:93`), unchanged. Monkey-patch still
+> required, no location change.
 
 
 ## Summary

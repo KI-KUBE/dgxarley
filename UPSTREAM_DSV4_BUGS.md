@@ -578,6 +578,19 @@ mismatch, referenced from the #23602 roadmap thread) is unrelated to
 anything tracked here. All other tracked refs re-verified unchanged
 (`kv_lora_rank: int = 512` still on transformers main; #26324 still open,
 idle since 2026-06-15; SGLang still at v0.5.16).
+**Update 2026-08-09:** SGLang **v0.5.17 released 2026-08-08** (582 PRs since
+v0.5.16) — release notes checked for every DSV4/DSA item (#31987 BCG on
+dsa/deepep, #31888 Q8KV8 sparse prefill, #29016 SM90 MegaMoE DSV4 FP8,
+#27657 DSV4 CP decode, #30240 DSV4 RunAI-streamer fix, #31017 top-k epsilon,
+#31901 HiSparse PD transfers, #32490/#31346 dsa backend-selection/fp8 fixes):
+**none touches `kv_lora_rank`, the `wqkv_a`/`fused_wqa_wkv` matcher (§2), or
+SM121 NVFP4 runner routing** — all tracked walls unchanged in v0.5.17.
+Source-re-confirmed: `wqkv_a` naming still present in
+`sglang/srt/models/deepseek_v4.py` on `main`; `kv_lora_rank: int = 512`
+still at `configuration_deepseek_v3.py:93` on transformers `main`. #33636
+got one new comment (2026-08-08, a user offering 8×B200 compute for a
+benchmark harness — informational, does not change its explicit SM120/SM121
+scope-out). #32750 and #26324: no new activity.
 
 ---
 

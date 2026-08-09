@@ -460,6 +460,42 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 >   (`6bd60442` / `c05d0e06` / `70de728cb`), all `MERGEABLE`/`BLOCKED`. No maintainer
 >   activity since the 2026-08-03 push.
 
+> **2026-08-09 check — synchronized PR rebase on 2026-08-07, and `main` diverged
+> FURTHER with a data-loss-relevant charset fix (not in any tag yet):**
+> - **All three PRs were rebased simultaneously 2026-08-07T17:05:53–17:06:03Z**
+>   (same pattern as the 2026-06-29 event): new heads #28697 `6bd60442` →
+>   `8e9790ce8f`, #28699 `c05d0e06` → `2ebfd651dd`, #28702 `70de728cb` →
+>   `c1e9f056d9`. #28702 is now a single linear commit (author-dated
+>   2026-05-19) — the merge-commit structure `70de728cb` recorded in the
+>   2026-08-03 follow-up is gone, but the content is unchanged (diff still
+>   +864/−101). All three still `open`, `mergeable: true` /
+>   `mergeable_state: blocked`, no new review comments — a routine
+>   rebase-onto-fresh-`main` (base `eaa53de4eb`, `main` HEAD at
+>   2026-08-07T16:52:16Z), not maintainer feedback.
+> - **New `main`-only adapter divergence:** commit `65f407184d`
+>   (2026-08-08T18:55:14Z, "fix(email): never let unknown or malformed
+>   charsets abort the IMAP fetch", fixes upstream #35901/#55381/#55383;
+>   +49/−9 on `plugins/platforms/email/adapter.py`). Adds `_safe_decode()`
+>   (charset alias table: `unknown-8bit`→utf-8, `gb2312/gbk`→gb18030,
+>   `ks_c_5601-1987`→cp949, …, then utf-8, then latin-1 fallback) and
+>   rewrites `_decode_header_value()` + `_extract_text_body()` to use it.
+>   **This is a real data-loss bug that our pinned patched file has too:**
+>   `hermes_email_gateway_patched.py` (lines ~489/501) uses
+>   `.decode(charset, errors="replace")` — `errors="replace"` only guards
+>   bad byte sequences, not an unknown/invalid codec *name*. A garbage
+>   charset label (e.g. QQ Mail's RFC1428 `unknown-8bit`) raises
+>   `LookupError`, aborting the whole fetch batch — and since UIDs are
+>   marked seen before fetch, those messages are **permanently dropped**.
+> - **Not in any release:** v2026.8.3 (still the latest tag, no new release)
+>   still carries adapter blob `f224202b…`/52592 bytes; current `main` blob
+>   is `8698dc93…`/54088 bytes (`main` HEAD `2446c8bb67`). The 2026-08-07
+>   rebase base predates `65f407184d`, so none of the three PR branches
+>   include the charset fix either. The next `hermes.image_tag` bump re-sync
+>   therefore folds in BOTH the scoped-secret change (entry above) AND this
+>   charset fix. Given the data-loss severity, pulling `_safe_decode()`
+>   forward as an out-of-band edit to the local patch is worth considering
+>   before any tag bump (config change — needs explicit approval, not done).
+
 1. Download the new upstream file:
 
    ```bash

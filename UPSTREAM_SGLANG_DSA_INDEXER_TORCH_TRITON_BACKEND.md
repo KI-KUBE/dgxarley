@@ -65,6 +65,17 @@ DEEPGEMM / CUTEDSL / AITER, no `torch` value. SGLang still at v0.5.16.
 (External-interest footnote: third-party fork `AMD-AGI/Infera` PR #79,
 2026-08-03, cross-references this PR.)
 
+Re-checked 2026-08-09: no change — still **no maintainer response, no
+`run-ci` label**, no reviews, no new pushes on #31480 (REST API:
+`mergeable: true`, `mergeable_state: "blocked"`, `updated_at` still
+2026-08-03T13:03:37Z; GraphQL transiently reports `UNKNOWN`/`UNKNOWN`
+merge state — the known lazy-cache artifact after `main` moved, here the
+**v0.5.17 release merge wave, 582 PRs, released 2026-08-08** — not a real
+event). `DSAPagedMQALogitsBackend` on `main` re-fetched: still only
+DEEPGEMM / CUTEDSL / AITER, no `torch` value; no merged PR since 08-07
+touches `paged_mqa_logits_backend.py` or `dsa_indexer.py` dispatch.
+v0.5.17 contains no fix for this gap.
+
 ## Proposed PR title
 
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused

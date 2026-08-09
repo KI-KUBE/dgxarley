@@ -48,6 +48,20 @@ from `main`: still hardcodes `backend="trtllm-gen"` (line ~3264, drifted from
 (still `@supported_compute_capability([120, 121])`). SGLang still at v0.5.16,
 flashinfer stable at v0.6.16.post2 (2026-08-06, tvm-ffi ABI hotfix only).
 
+Re-checked 2026-08-09: no change — still **no maintainer response, no
+`run-ci` label** (only the pre-existing `deepseek` label), no reviews, no
+new pushes on #31481 (REST API: `mergeable: true`, `mergeable_state:
+"blocked"`, `updated_at` still 2026-08-03T13:03:37Z; GraphQL transiently
+reports `UNKNOWN` merge state — lazy-cache artifact after the **v0.5.17
+release merge wave**, SGLang v0.5.17 released 2026-08-08, not a real
+event). `dsa_backend.py::_forward_trtllm` on `main` still hardcodes
+`backend="trtllm-gen"` (now line ~3268, continued drift from unrelated
+merges); flashinfer `mla/_sparse_mla_sm120.py` unchanged
+(`@supported_compute_capability([120, 121])` at all 4 sites). flashinfer
+stable is now **v0.6.16.post3** (2026-08-08; single change = SM90 CUTLASS
+MoE backend revert #4412, unrelated to sparse MLA). Neither v0.5.17 nor
+post3 changes any conclusion here.
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
