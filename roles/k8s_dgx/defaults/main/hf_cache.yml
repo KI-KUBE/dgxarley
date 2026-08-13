@@ -59,6 +59,7 @@ hf_preload_models:
 #  - "vroomfondel/Llama-4-Scout-17B-16E-Instruct-NVFP4-ModelOpt"
   - "vroomfondel/Ornith-1.0-35B-NVFP4-ModelOpt"
   - "vroomfondel/Qwen3-30B-A3B-NVFP4-ModelOpt"
+  - "vroomfondel/Shieldstral-1.0-3B-NVFP4-ModelOpt"  # 3.2 GB guardrail classifier — cheap to keep warm
   - "mistralai/Mistral-Small-4-119B-2603-NVFP4"
   - "mistralai/Mistral-Small-4-119B-2603-eagle"
   - "0xSero/glm-5.2-reap-504B-v2"

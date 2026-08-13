@@ -1,0 +1,221 @@
+---
+# Model profile: vroomfondel/Shieldstral-1.0-3B-NVFP4-ModelOpt
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# vroomfondel's NVIDIA-ModelOpt (0.45.0) NVFP4 export of mistralai/Shieldstral-1.0-3B
+# — a 3B policy-adaptive MULTIMODAL SAFETY CLASSIFIER (guardrail), not a chat model.
+# License Apache-2.0 (base is Apache-2.0). Base: Ministral-3-3B-Base-2512 + native
+# Pixtral vision encoder.
+#
+# ── ⚠️ THIS IS A GUARDRAIL, NOT AN ASSISTANT ─────────────────────────────────
+# Shieldstral reduces moderation to a binary yes/no QA task and answers in ONE
+# forward pass. The product is the yes/no LOGPROB, not the generated text. Callers
+# MUST hit /v1/chat/completions with:
+#     max_tokens=1, temperature=0.0, logprobs=true, top_logprobs=20
+# and renormalize P(yes) against P(no) → a continuous unsafe score. Message shape
+# (from the base card):
+#   system: 'Judge whether the Document meets the requirements based on the Query
+#            and the Instruction provided. Note that the answer can only be "yes"
+#            or "no".'
+#   user:   "<Instruct>: …\n\n<Query>: …\n\n<Document>: …"
+# One yes/no policy question per call. Do NOT wire this behind the `hermes-default`
+# LiteLLM alias or any assistant-facing route — it is a scorer, and it has no tool
+# calling and no reasoning trace.
+#
+# ── OPERATING THRESHOLDS (from the export's card, measured n=1000 on GB10) ────
+#   * TEXT: keep the reference threshold 0.5. Re-tuning gains only +0.5..+2.6 F1 and
+#     the argmax is unstable (jumps between 0.003 and 0.119 across indistinguishable
+#     builds) — do not read those as an operating point.
+#   * IMAGE: use ~0.2. That optimum is large (+7.5 F1 over 0.5), reproducible across
+#     builds (0.223 / 0.202) and sample sizes, and visible in the raw scores (unsafe
+#     IMAGES average P(unsafe) 0.59 vs 0.78-0.99 for unsafe TEXT). Not a quantization
+#     artifact — a BF16 serve of the source shows the same image optimum.
+#   * The <Instruct> wording is a CALIBRATION KNOB, not decoration: "strict … low
+#     tolerance" scored OpenAI-Moderation 68.5 F1 / 36.3% over-block, neutral wording
+#     80.0 F1 / 12.1% over-block on the SAME checkpoint and items (AUROC barely moved,
+#     0.953→0.948). Re-tune the threshold whenever the <Instruct> text changes; if
+#     scores look like quantization damage, check this FIRST.
+#   * IMAGES: cap the longest edge at 512px CLIENT-SIDE. Quality peaks there and is
+#     flat-to-decreasing above it (UnsafeBench F1: 336px 73.2 / 512px 75.6 / 768px 74.8
+#     / 1024px 74.4 / 1540px native 74.4), while cost is not: native 1540px is
+#     (1540/14/2)^2 = 3025 image tokens vs 324 at 512px — 9× the prefill for no gain.
+#     That prefill IS the serving cost for a guardrail invoked once per user turn.
+#
+# ── ARCHITECTURE (Mistral3ForConditionalGeneration, model_type mistral3) ──────
+#   * text (model_type ministral3): 26 layers, hidden 3072, intermediate 9216,
+#     head_dim 128, 32 attention heads / 8 KV heads (GQA), vocab 131072,
+#     tie_word_embeddings TRUE (no separate lm_head weight).
+#   * rope: YaRN factor 16 over original_max_position_embeddings 16384 (+
+#     llama_4_scaling_beta 0.1, rope_theta 1e6) → config advertises 262144. Mistral
+#     TRAINED to 32k and recommends staying there → context_length 32768 below.
+#   * vision: Pixtral, 24 layers, hidden 1024, patch 14, image_size 1540 — BF16.
+#   * DENSE (no MoE) → no moe_runner_backend / num_experts / ep_size keys, and the
+#     whole NVFP4-gated-MoE padding-crash matrix (reference_nvfp4_gated_moe_padding)
+#     does not apply.
+#
+# ── QUANT: FULL UNIFORM W4A4 (attention included) ────────────────────────────
+#   hf_quant_config.json: quant_algo NVFP4, group_size 16, producer modelopt 0.45.0,
+#   kv_cache_quant_algo NULL (no baked KV scales). config.json quantization_config:
+#   weights AND input_activations 4-bit float, static (dynamic:false) → W4A4.
+#   exclude_modules: lm_head, embed_tokens, multi_modal_projector*, vision_tower*
+#   — note it lists NO self_attn entry, i.e. q/k/v/o ARE quantized (verified in
+#   .quant_summary.txt: layers.N.self_attn.{q,k,v,o}_proj weight+input quantizers all
+#   enabled, vision_tower.* all disabled). 3.03B of 3.85B params quantized;
+#   3.2 GB on disk vs 7.7 GB BF16 (-58%).
+#   A more conservative FFN-only sibling exists (Shieldstral-1.0-3B-NVFP4-MLP-ModelOpt,
+#   4.3 GB, attention BF16). Paired over eight suites at n=1000 the two are NOT
+#   distinguishable: max |ΔAUROC| 0.001, mean -0.0005, and the gap SHRANK from n=200
+#   to n=1000 (noise, not systematic loss) → take this full build.
+#
+# ── ✅ VALIDATED ON THIS EXACT STACK (2026-08-10, DGX Spark GB10, 0.5.17-sm121) ──
+# Eight suites at n=1000, chat endpoint / max_tokens=1 / top_logprobs=20:
+#   WildGuardTest prompt-harm F1 87.7 (ref 88.1, AUROC 0.953) · response-harm 81.6
+#   (ref 80.4, 0.957) · refusal 91.0 (ref 90.3, 0.991) · ToxicChat 80.3 (ref 84.1,
+#   0.979) · XSTest 90.2 (0.981) · OpenAI-Moderation 81.2 (ref 81.4, 0.955) ·
+#   UnsafeBench(image) 78.9 @0.22 / 71.4 @0.5 (0.898) · HarmBench-vs-XSTest 95.2 (0.990).
+# Paired against a BF16 serve of the same source: ≤0.003 ΔAUROC on the seven text
+# suites, +0.017 on the image suite. THROUGHPUT is unmeasured (irrelevant shape here —
+# one token out, prefill-dominated).
+#
+# ── RUNS ON STOCK SGLANG 0.5.17 — NO RUNTIME PATCH NEEDED ────────────────────
+# Re-scored with every /patches script disabled: max |ΔAUROC| 0.004 vs the patched
+# run, mean +0.0008, yes/no coverage 1.000, no NaN, no device assert — measured
+# independently on BOTH published builds. In particular the GB10/sm121 CUTLASS
+# `admissible_archs` workaround that NVFP4 checkpoints usually need is NOT required:
+# it guards the tcgen05 MMA path taken by NVFP4 *MoE* kernels, and this model is dense.
+#
+# ── the #33671 trap is about the SOURCE repo, NOT this export ────────────────
+# mistralai/Shieldstral-1.0-3B ships BOTH weight layouts, and in v0.5.16/v0.5.17
+# ServerArgs._is_mistral_native_format() recognises HF weights only by the SHARDED
+# glob `model-*.safetensors`. Shieldstral's HF file is UNSHARDED (`model.safetensors`),
+# so detection falls through to load_format=mistral, reads Mistral-native weight names
+# and dies with KeyError: 'layers.0.attention.wk.weight'. Fixed by sglang PR #33671
+# (merged 2026-08-05, i.e. AFTER the v0.5.17 cut → in NEITHER v0.5.16 NOR v0.5.17);
+# serving the BF16 source on our image therefore needs an explicit --load-format auto.
+# THIS export is unaffected and needs NO load_format key: it ships no
+# consolidated*.safetensors at all, so _check_format's `has_consolidated and not
+# has_hf_weights` is False and load_format stays "auto" (verified against the v0.5.17
+# source of that function).
+#
+# ── >>> TP=1: THIS PROFILE IS A SINGLE-NODE INSTANCE, NOT A MAIN SELECTOR <<< ──
+# 3.2 GB of weights + a 6.5 GiB KV pool fit on ONE GB10 with room to spare (the card
+# fits the BF16 source in 16 GB), and a latency-critical guardrail should not pay
+# per-token QSFP all-reduce. So tp_size is 1 — which means this profile ONLY makes
+# sense behind its own `sglang_instances` entry with a single-element `nodes` list.
+#   ⚠ Selecting it as the MAIN `sglang_model` on the standard 4-spark layout does NOT
+#   fail the parallelism assert — it silently resolves to pp = nodes // tp = 4, i.e. a
+#   26-layer model pipelined across four nodes for a one-token forward pass. That is
+#   the worst possible shape here, and it is not caught by validation. Keep the
+#   selector line in group_vars/all/main/sglang.yml commented out.
+# TO DEPLOY, add an sglang_instances entry — nodes: [<one spark>], and (because it is
+# single-node) a matching `qsfp_sriov_assignments` key, else the head render dies on
+# _sglang_qsfp_ips: [[reference_sglang_singlenode_sriov_key]] /
+# [[reference_sglang_multi_instance]]. Co-tenancy on an already-serving spark needs
+# GPU time-slicing (already on, 4 replicas).
+# TP=4 would also be arithmetically valid (num_key_value_heads 8/4 = 2 per GPU, heads
+# 32/4, intermediate 9216/4, vision heads 16/4) if this ever has to run as the main
+# selector — restore tp_size: 4 and drop the QSFP note above in that case.
+_model_profile:
+  "vroomfondel/Shieldstral-1.0-3B-NVFP4-ModelOpt":
+    knowledge_cutoff: null       # not disclosed for Shieldstral / Ministral-3-3B-Base-2512
+    release_date: "2026-07-16"   # base mistralai/Shieldstral-1.0-3B publish date; NVFP4 export 2026-08-10 (modelopt 0.45.0)
+    info_url: "https://huggingface.co/vroomfondel/Shieldstral-1.0-3B-NVFP4-ModelOpt"
+    # ALTERNATIVES: FFN-only sibling  https://huggingface.co/vroomfondel/Shieldstral-1.0-3B-NVFP4-MLP-ModelOpt
+    #               BF16 source       https://huggingface.co/mistralai/Shieldstral-1.0-3B  (needs --load-format auto, see #33671 note)
+    #
+    # SM121 sgl-kernel build required for NVFP4 on GB10. This is the image the card's
+    # eight-suite validation ran on — keep them in lockstep when bumping.
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.17-sm121"
+    # ModelOpt export (hf_quant_config.json, quant_algo NVFP4) → modelopt_fp4 loader.
+    # NOT compressed-tensors (that's the RecViking Mistral-Medium sibling, which is
+    # autodetected and deliberately carries no `quantization` key).
+    quantization: "modelopt_fp4"
+    # Lets transformers register the mistral3 / ministral3 model types if the base
+    # install doesn't know them. Same rationale as the Mistral-Medium-3.5 sibling.
+    trust_remote_code: true
+    # 32K = Mistral's TRAINED window; the config advertises 262144 via YaRN and the
+    # card explicitly recommends staying in the training range. Also a memory
+    # argument: with max_tokens=1 the KV cache is PREFILL-ONLY and never grows, so a
+    # 256K pool would reserve memory this deployment can never use. Raise only with a
+    # long-document moderation use case AND a re-run of the suites.
+    context_length: 32768
+    # No kv_cache_quant_algo in the checkpoint (unlike the vroomfondel Ornith/Qwen
+    # siblings, which BAKE FP8 KV) → nothing to load, so this is a pure serving
+    # choice. Deliberately NOT the family-standard fp8_e4m3: the card's validated
+    # eight-suite run served stock (KV auto), the score IS a logprob margin, and the
+    # KV pool is prefill-only on a 3B model — there is no memory to win here, so keep
+    # the numerics identical to the measured configuration.
+    kv_cache_dtype: "auto"
+    # ── KV pool sized EXPLICITLY, not by fraction ───────────────────────────────
+    # A fraction is the wrong lever for a co-tenant guardrail: 3.2 GB of weights
+    # leaves ~124 GB of the unified pool "free", so ANY fraction hands this 3B model
+    # a KV pool far larger than it can use and starves whatever else shares the GB10.
+    # So pin the absolute cap and let mem_fraction_static be the non-binding side:
+    # SGLang takes min(memory-derived, max_total_tokens) → max_total_tokens wins.
+    # Same pairing as chroma-core-qwen3-embedding-4b-fp8-dynamic.yml.
+    # ⚠ The two knobs are ONE setting. Dropping max_total_tokens while leaving the
+    # fraction high makes the pool grab ~the whole 128 GB.
+    #
+    # KV bytes/token (bf16 pool, see kv_cache_dtype):
+    #   2 (K+V) × 26 layers × 8 kv_heads × 128 head_dim × 2 B = 106,496 B = 0.102 MiB
+    # Pool size by max_total_tokens — at tp_size 1 this all lands on the ONE GPU
+    # (a larger tp would shard it by KV head, but see the TP=1 block in the header):
+    #   32K → 3.25 GiB   64K → 6.5 GiB   128K → 13.0 GiB   256K → 26.0 GiB
+    # → the instance footprint is ~3 GB weights + 6.5 GiB KV + graph/activation
+    #   overhead ≈ 11 GiB on one GB10, next to whatever else time-slices that node.
+    #
+    # 65536 is matched to the traffic shape, not to free memory: max_running_requests
+    # is 32 and a moderation call is a short <Instruct>/<Query>/<Document> (plus 324
+    # image tokens at the 512px cap), so 32 × ~2K is the realistic peak occupancy.
+    # It also still admits ONE request at the full 32768 window (32768 < 65536) — the
+    # floor that matters, since a pool smaller than context_length can never serve a
+    # max-length document. Raise to 131072 only if the 32-slot scheduler is measurably
+    # blocking on pool space; 0.9 leaves ~10% of the post-weight pool for CUDA-graph
+    # capture (cuda_graph_max_bs 32) + activations + the Pixtral preprocessing path,
+    # which is why this is not the embedding profile's 0.99.
+    mem_fraction_static: "0.9"
+    max_total_tokens: 65536
+    # No nccl_transport key on purpose (resolver default "socket", inert): at tp=1 on a
+    # single node there is no NCCL model-parallel traffic to carry over QSFP. Same as
+    # the other single-node profiles (qwen-qwen3-vl-8b, chroma-core-qwen3-embedding).
+    # Re-add `nccl_transport: roce` if tp_size ever goes back to 4.
+    tp_size: 1  # dense 3B on ONE GB10 — see the TP=1 block in the header before deploying
+    # DENSE → no moe_runner_backend. flashinfer attn + flashinfer_cutlass FP4 GEMM
+    # (cutlass is the only working FP4 GEMM path on SM121; flashinfer_cudnn is broken
+    # there). Same shape as the dense NVFP4 Mistral-Medium-3.5 / Ornith-9B siblings.
+    attention_backend: flashinfer
+    fp4_gemm_backend: flashinfer_cutlass
+    disable_deep_gemm: true        # DeepGemm targets FP8/ue8m0 scales, not NVFP4
+    # eager (disable_cuda_graph) is broken on cutlass fp4 paths (TURBOQUANT.md);
+    # piecewise graphs crash at startup on dense NVFP4 (fp4_quantize has no
+    # fake-tensor impl → dynamo trace fails, same as the dense gemma-4 sibling).
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    pp_async_batch_depth: 0
+    # Guardrail traffic is many small requests, each generating exactly ONE token, so
+    # decode batching matters more than usual. 32 matches the sibling seed and
+    # max_running_requests (default 32); raise both together if the moderation call
+    # rate ever saturates the instance.
+    cuda_graph_max_bs: 32
+    jit_max_jobs: 4
+    # Multimodal (Pixtral vision) attention backend. Empty → SGLang default, which is
+    # what the validated UnsafeBench/VLGuard image runs used. Bisect
+    # (sdpa / fa3 / triton_attn / flashinfer_cudnn) only if image requests crash.
+    mm_attention_backend: ""
+    # NOT a reasoning model and NOT a tool-calling model — it emits a single yes/no
+    # token. Leaving both parsers empty is deliberate: the "mistral" reasoning parser
+    # ([THINK]/[/THINK]) has nothing to split here, and a tool parser could only
+    # mangle the one token the caller reads the logprobs of.
+    reasoning_parser: ""
+    tool_call_parser: ""
+    # Greedy. The score comes from the logprobs at the FIRST generated position, so
+    # sampling must not perturb it. The caller still has to send max_tokens=1 +
+    # logprobs=true + top_logprobs=20 (see the GUARDRAIL note in the header) — those
+    # are per-request params, not launch flags.
+    recommended_sampling:
+      temperature: 0.0
+      top_p: 1.0
+    sampling_overrides: {}
+    # No MTP / EAGLE head in this export, and speculation is meaningless for a
+    # one-token forward pass anyway.
+    speculative_enabled: false
