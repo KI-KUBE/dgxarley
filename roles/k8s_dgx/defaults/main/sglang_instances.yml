@@ -131,8 +131,40 @@ _sglang_embed_instance:
   hostname: "sglang-embed"
   external_enabled: false  # in-cluster only (ClusterIP for litellm/honcho/hindsight)
 
+# ---------------------------------------------------------------------------
+# enable_guard_model (group_vars/all/main/sglang.yml) is the MASTER SWITCH for the
+# SAFETY-CLASSIFIER companion, default OFF. Same machinery as vision/coder/embed:
+# true → joins the deploy loop (key `guard` → prefix "sglang-guard"); false →
+# dropped AND a `--tags sglang` run tears down any running sglang-guard resources.
+#
+# Shieldstral-1.0-3B NVFP4 (full W4A4) — a policy-adaptive multimodal guardrail,
+# NOT a chat model. It answers one yes/no token per call and the PRODUCT is that
+# token's logprob, so callers must send max_tokens=1 + logprobs=true +
+# top_logprobs=20 and renormalize P(yes) vs P(no). Full serving contract, operating
+# thresholds (0.5 text / ~0.2 image) and the 512px image cap are in the model
+# profile header: model_profiles/vroomfondel-shieldstral-1.0-3b-nvfp4-modelopt.yml.
+#
+# SINGLE-NODE tp=1, and unlike `embed` NOT is_embedding: it is a generation model
+# served through the normal chat endpoint, so it runs the FULL files/sglang_launch.sh
+# (HAProxy sidecar and all). Needs NO QSFP and NO qsfp_sriov_assignments entry —
+# _sglang_inst_no_qsfp in sglang_instance.yml drops the Multus annotation, points
+# QSFP_IP_SPARK1 at 127.0.0.1 and sets NCCL_SOCKET_IFNAME=lo for any single-node
+# instance. One element in `nodes` → the assert forces pp=1, the worker loop
+# range(1,1) is empty (head-only Deployment) and wait-for-worker no-ops.
+# Placed on spark2 next to `embed` so the two small side services share a GPU and
+# leave spark3/spark4 to the vision companion — needs GPU time-slicing (on, 4
+# replicas). Footprint ~3 GB weights + 6.5 GiB KV (max_total_tokens 65536, pinned
+# in the profile) + graph/activation overhead ≈ 11 GiB.
+_sglang_guard_instance:
+  model: "vroomfondel/Shieldstral-1.0-3B-NVFP4-ModelOpt"
+  nodes: [2]               # single-node on spark2 (co-tenant of sglang-embed)
+  tp_size: 1               # tp*pp == #nodes (1) → pp forced to 1; empty worker loop
+  pp_size: 1
+  hostname: "sglang-guard"
+  external_enabled: false  # in-cluster only (ClusterIP for litellm / app-side moderation)
+
 # `default` is ALWAYS present (whole cluster, active sglang_model); `vision`,
-# `coder` and `embed` join only when their enable_*_model flag is true. To add
+# `coder`, `embed` and `guard` join only when their enable_*_model flag is true. To add
 # MORE instances define them like _sglang_vision_instance above and combine()
 # them in here.
 # NAMING: the instance KEY ("coder") → prefix/hostname "sglang-<key>", so it MUST
@@ -146,7 +178,9 @@ sglang_instances: >-
      | combine({'coder': _sglang_coder_instance}
                if (enable_coder_model | default(false) | bool) else {})
      | combine({'embed': _sglang_embed_instance}
-               if (enable_embedding_model | default(false) | bool) else {}) }}
+               if (enable_embedding_model | default(false) | bool) else {})
+     | combine({'guard': _sglang_guard_instance}
+               if (enable_guard_model | default(false) | bool) else {}) }}
 
 # Merged UNDER each sglang_instances entry (entry wins). _inst_key is the dict
 # key of the current instance, set by the loop in sglang.yml. Defaults that

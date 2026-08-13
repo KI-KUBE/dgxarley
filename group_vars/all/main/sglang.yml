@@ -180,3 +180,21 @@ enable_coder_model: false
 #           any running sglang-embed resources.
 # HOWTO: set the flag, then  ansible-playbook k8s_dgx.yml --tags sglang
 enable_embedding_model: false
+
+# === Guard model — MASTER SWITCH (default OFF) ===========================
+# enable_guard_model is the analogue of the three switches above for the SAFETY
+# CLASSIFIER companion (sglang-guard instance, single-node tp=1 on spark2; see
+# _sglang_guard_instance in roles/k8s_dgx/defaults/main/sglang_instances.yml).
+# Serves vroomfondel/Shieldstral-1.0-3B-NVFP4-ModelOpt — a guardrail, NOT a chat
+# model: one yes/no token per call, and the SCORE is that token's logprob. Callers
+# must send max_tokens=1 + logprobs=true + top_logprobs=20 and renormalize P(yes)
+# vs P(no); threshold 0.5 for text, ~0.2 for images (see the profile header).
+# Needs NO QSFP/SR-IOV assignment (single-node), but DOES need GPU time-slicing on
+# spark2, which is already on (nvidia_gpu_timeslice_replicas 4).
+# DEFAULT false — nothing in this cluster calls a moderation endpoint yet; flip it
+# only together with the consumer that is supposed to use it.
+#   true  → sglang-guard is deployed (ClusterIP only, no external ingress/DNS).
+#   false → dropped from the deploy loop, and a `--tags sglang` run TEARS DOWN
+#           any running sglang-guard resources.
+# HOWTO: set the flag, then  ansible-playbook k8s_dgx.yml --tags sglang
+enable_guard_model: false

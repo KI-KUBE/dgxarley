@@ -68,6 +68,20 @@
     - sglang_speculative_enabled | bool
     - (sglang_speculative_algo | upper) == 'DSPARK'
 
+# Does this instance need the QSFP fabric at all? NO when it is single-node:
+# nodes[0] is the only rank, there are no peers, so there is no NCCL traffic to
+# carry — and its sriov_key typically has no qsfp_sriov_assignments entry, so
+# evaluating _sglang_qsfp_ips / the VF index would fail ("dict object has no
+# attribute '<key>'"). In PF mode (qsfp_sriov_enabled false) it would be worse
+# than useless: the 'qsfp-direct' host-device CNI would MOVE the physical QSFP
+# interface into this pod and take it away from the real multi-node instance.
+# This SUBSUMES the former is_embedding guard (an embedding instance is always
+# single-node) and additionally covers non-embedding single-node instances such
+# as the `guard` classifier. Multi-node instances are unaffected.
+- name: Resolve QSFP requirement for this instance ({{ inst.prefix }})
+  ansible.builtin.set_fact:
+    _sglang_inst_no_qsfp: "{{ (inst.is_embedding | default(false)) or ((_sglang_active_nnodes | int) == 1) }}"
+
 # Guard: refuse to deploy if KIKUBE has taken over management of SGLang.
 # The KIKUBE product layer (dgxarley-custom) sets kikube.io/managed-by=kikube
 # on all resources it manages. Once that annotation is present on the Service,
@@ -274,7 +288,12 @@
         # runtimes that check env-var presence, not value). Re-add with "1"
         # only when debugging device-side asserts; see sglkernel-fix.md.
         # CUDA_LAUNCH_BLOCKING: "1"
-        NCCL_SOCKET_IFNAME: "{{ nccl_socket_ifname }}"
+        # net1 is the Multus-injected QSFP interface. A single-node instance gets
+        # NO Multus annotation (see _sglang_inst_no_qsfp), so net1 does not exist
+        # in that pod and NCCL would fail its bootstrap interface lookup. It has
+        # exactly one rank and no peers, so loopback is the correct — and only
+        # meaningful — choice there. (Matches QSFP_IP_SPARK1=127.0.0.1 below.)
+        NCCL_SOCKET_IFNAME: "{{ 'lo' if _sglang_inst_no_qsfp | bool else nccl_socket_ifname }}"
         # NCCL transport: controlled by sglang_nccl_transport (roce/socket).
         # With apply: true, the ConfigMap is fully replaced — keys from the
         # inactive mode vanish automatically (no strategic merge residue).
@@ -780,12 +799,13 @@
               # template only.
               sglang_instance: "{{ _inst_key }}"
             annotations:
-              # Embedding instances need NO QSFP/Multus (single-node, no NCCL) →
-              # omit the network annotation entirely (runs on the default pod net).
-              # `omit` also short-circuits the qsfp_sriov_assignments[sriov_key]
-              # lookup, which would KeyError for the embed instance (no assignment)
-              # when qsfp_sriov_enabled is globally true.
-              k8s.v1.cni.cncf.io/networks: "{{ omit if (inst.is_embedding | default(false)) else ('[{\"name\":\"qsfp-vf' ~ qsfp_sriov_assignments[_sglang_active_sriov_key].vf ~ '\",\"ips\":[\"' ~ _sglang_qsfp_ips[0] ~ '/24\"]}]' if qsfp_sriov_enabled | default(false) else 'qsfp-direct') }}"
+              # Single-node instances (embed, guard) need NO QSFP/Multus — no peer
+              # ranks, no NCCL → omit the network annotation entirely (they run on
+              # the default pod net). `omit` also short-circuits the
+              # qsfp_sriov_assignments[sriov_key] lookup, which would KeyError for
+              # those instances (they have no assignment) when qsfp_sriov_enabled is
+              # globally true. See _sglang_inst_no_qsfp at the top of this file.
+              k8s.v1.cni.cncf.io/networks: "{{ omit if _sglang_inst_no_qsfp | bool else ('[{\"name\":\"qsfp-vf' ~ qsfp_sriov_assignments[_sglang_active_sriov_key].vf ~ '\",\"ips\":[\"' ~ _sglang_qsfp_ips[0] ~ '/24\"]}]' if qsfp_sriov_enabled | default(false) else 'qsfp-direct') }}"
               kubectl.kubernetes.io/default-container: sglang
               # SGLang Prometheus scrape — HEAD only (workers run no HTTP server).
               # Port = inst.port (HAProxy-fronted; /metrics passes through the L4 TCP
@@ -940,17 +960,20 @@
                     value: "{{ sglang_ep | string }}"
                   - name: NNODES
                     value: "{{ _sglang_active_nnodes | string }}"
-                  # QSFP/NCCL peer IPs are meaningless for a single-node embed
-                  # instance (no workers, no NCCL), AND its sriov_key ("embed") is
+                  # QSFP/NCCL peer IPs are meaningless for a single-node instance
+                  # (no workers, no NCCL), AND its sriov_key ("embed" / "guard") is
                   # absent from qsfp_sriov_assignments, so evaluating _sglang_qsfp_ips
                   # would fail ("dict has no attribute 'embed'"). Guard with
-                  # is_embedding — the lazy `X if cond else Y` never evaluates the
-                  # _sglang_qsfp_ips branch when embedding. The embed launcher
-                  # ignores these vars anyway. Same guard as the QSFP annotation above.
+                  # _sglang_inst_no_qsfp — the lazy `X if cond else Y` never evaluates
+                  # the _sglang_qsfp_ips branch then. Both consumers cope: the embed
+                  # launcher ignores these vars entirely, and sglang_launch.sh binds
+                  # --nccl-init-addr to 127.0.0.1 (fine for a 1-rank store) while its
+                  # peer-ping loop no-ops on an empty QSFP_PEER_IPS. Same guard as the
+                  # QSFP annotation above.
                   - name: QSFP_IP_SPARK1
-                    value: "{{ '127.0.0.1' if (inst.is_embedding | default(false)) else _sglang_qsfp_ips[0] }}"
+                    value: "{{ '127.0.0.1' if _sglang_inst_no_qsfp | bool else _sglang_qsfp_ips[0] }}"
                   - name: QSFP_PEER_IPS
-                    value: "{{ '' if (inst.is_embedding | default(false)) else (_sglang_qsfp_ips[1:] | join(',')) }}"
+                    value: "{{ '' if _sglang_inst_no_qsfp | bool else (_sglang_qsfp_ips[1:] | join(',')) }}"
                   - name: NCCL_PORT
                     value: "{{ inst.nccl_port | string }}"
                   - name: SGLANG_PORT
