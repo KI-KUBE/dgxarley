@@ -107,11 +107,18 @@
 #   26-layer model pipelined across four nodes for a one-token forward pass. That is
 #   the worst possible shape here, and it is not caught by validation. Keep the
 #   selector line in group_vars/all/main/sglang.yml commented out.
-# TO DEPLOY, add an sglang_instances entry — nodes: [<one spark>], and (because it is
-# single-node) a matching `qsfp_sriov_assignments` key, else the head render dies on
-# _sglang_qsfp_ips: [[reference_sglang_singlenode_sriov_key]] /
-# [[reference_sglang_multi_instance]]. Co-tenancy on an already-serving spark needs
-# GPU time-slicing (already on, 4 replicas).
+# THAT INSTANCE EXISTS: `_sglang_guard_instance` (key `guard` → prefix "sglang-guard",
+# nodes [2], tp=1/pp=1, ClusterIP-only), gated by `enable_guard_model` (default OFF).
+#   ansible-playbook k8s_dgx.yml --tags sglang     # after flipping the flag
+# It needs NO qsfp_sriov_assignments entry: sglang_instance.yml derives
+# `_sglang_inst_no_qsfp` for ANY single-node instance and then drops the Multus
+# annotation, points QSFP_IP_SPARK1 at 127.0.0.1 and sets NCCL_SOCKET_IFNAME=lo —
+# that guard used to key on is_embedding only, which is exactly the render crash in
+# [[reference_sglang_singlenode_sriov_key]]. Co-tenancy on spark2 rides on GPU
+# time-slicing (already on, 4 replicas). See [[reference_sglang_multi_instance]].
+# NOTE there is no `pp_size` key in this file on purpose — pp is INSTANCE-level only
+# (sglang_pp reads inst.pp_size, never the profile) and a 1-node instance derives
+# pp = nodes // tp = 1 anyway. The instance still pins pp_size: 1 explicitly.
 # TP=4 would also be arithmetically valid (num_key_value_heads 8/4 = 2 per GPU, heads
 # 32/4, intermediate 9216/4, vision heads 16/4) if this ever has to run as the main
 # selector — restore tp_size: 4 and drop the QSFP note above in that case.
