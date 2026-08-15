@@ -130,3 +130,21 @@ anchors, and update the two heredoc blocks in `sglang_launch.sh`. Verify with th
   `llama4.py`), neither touching the patched code. No upstream issue or PR
   matching these five fixes found since 2026-07-13. All five patches remain
   required, unchanged.
+- **2026-08-15** - Re-verified against SGLang **v0.5.17** (tag `b6a09f38f`,
+  2026-08-08, no new release since the 2026-07-28 check). `llama4.py` is
+  byte-identical to v0.5.16. `mllama4.py` has exactly one diff vs v0.5.16, an
+  unrelated `RuntimeContext` rename (`get_server_args()` to `get_mm()`),
+  touching none of the five patched anchors. All five anchors individually
+  re-confirmed present and unfixed on v0.5.17: `_handle_expert_scale_params`
+  (`mllama4.py:859`, still no `loaded_weight.dim()==3` branch, still
+  broadcasts a single scale per expert loop); `permute_qk_weight_for_rotary`
+  (`mllama4.py:618`, still `attn_out = self.language_model.config.hidden_size`
+  and still `modules[-1] == "weight"` only, no `weight_scale` branch, for both
+  k and q); the `RadixAttention` construction in `Llama4Attention`
+  (`llama4.py:304`, still without `quant_config=quant_config` unlike the
+  sibling q/k/v/o layers); `_handle_scale_remapping` (`mllama4.py:736`, still
+  returns a bare bool without copying `loaded_weight`). A search for
+  `mllama4` NVFP4, `permute_qk_weight_for_rotary`, `_handle_expert_scale_params`,
+  and "Llama4 NVFP4 permute" turned up zero results, no upstream tracking has
+  appeared. The doc's "TODO: file upstream (needs sign-off)" item remains
+  outstanding.
