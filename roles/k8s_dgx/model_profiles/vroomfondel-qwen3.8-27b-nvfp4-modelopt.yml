@@ -2,14 +2,34 @@
 # Model profile: vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 #
-# STATUS 2026-08-15: FIRST CONTACT from this repo. The TARGET checkpoint was
-#   quantized and smoke-tested by its own quantizer on a single Spark
-#   (GB10/sm121, SGLang 0.5.17, four probes coherent, one word problem solved
-#   correctly, finish_reason=stop) but it has never been deployed through this
-#   role, and DSPARK has never executed on this cluster at all (the only other
-#   DSPARK profile, mmangkad-deepseek-v4-flash-0731-nvfp4.yml, ships it
-#   disabled). Treat both the arch and the speculator as unvalidated here.
-#   Gate acceptance on GSM8K plus an eyeballed tail, not on a clean boot.
+# STATUS 2026-08-15 (UPDATED, same day): the DSPARK path below is now MEASURED,
+#   end to end, on a single Spark (GB10/sm121, SGLang 0.5.17) via the kikube
+#   quantizer's serve path -- NOT yet through this Ansible role, which remains
+#   the one unvalidated hop.
+#     * drafter RadixArk/Qwen3.8-27B-DSpark loads in 18.5 s (2.95 GB), reports
+#       gamma=7, verify_num_draft_tokens=8, markov_head=VanillaMarkov, and draft
+#       CUDA-graph capture (prefill+decode+verify) completes.
+#     * full GSM8K, all 1319 items, 5-shot, chat endpoint, max_tokens 16384,
+#       temperature 0.6, concurrency 16:  97.42% (1285/1319), strict == flexible
+#       exactly, ZERO errors and ZERO empty responses. 65.4 min.
+#     * speculation health: mean accept len 3.77 of a ceiling of 8, accept rate
+#       0.38-0.42 over 415 decode batches, ~186 tok/s aggregate at 11-13
+#       concurrent (~15 tok/s per stream). The value scattering around half the
+#       ceiling is the GOOD case; an accept len pinned AT 8 would have meant the
+#       verify stage stopped rejecting, i.e. silent corruption.
+#     * no same-settings run WITHOUT speculation was measured, so no speedup
+#       factor is claimed.
+#   >>> THE NEXTN ALTERNATIVE BELOW IS NOT A WORKING FALLBACK ON THIS BUILD <<<
+#   NEXTN on the in-checkpoint MTP head killed the scheduler on the first real
+#   request with a FlashInfer exception (fast_prefill_plan -> call_begin_forward
+#   -> update_single_wrapper -> init_forward_metadata_out_graph). The same
+#   checkpoint serves fine with speculation OFF, so the fault is specific to the
+#   NEXTN path rather than to speculation in general. Caveat: the two compared
+#   runs also differed in context length (32768 vs 65536) and the crashed
+#   container's log was lost before the final exception line could be captured,
+#   so this is narrowed, not proven. Do not switch to NEXTN expecting it to work.
+#   Still ungated: the IMAGE path (text-only calibration) and this role's own
+#   deploy hop.
 #
 # WHAT THIS CHECKPOINT IS (verified against HF 2026-08-15, repo created the
 # same day):
@@ -207,6 +227,20 @@ _model_profile:
     # dspark_worker_v2. Set it only if you switch to the NEXTN variant below.
     #
     # ═══ ALTERNATIVE: NEXTN on the in-checkpoint MTP head ═══
+    # >>> MEASURED 2026-08-15: THIS DOES NOT WORK ON THIS BUILD. <<<
+    # Tried with exactly the values below (steps 2, topk 1, draft tokens 3,
+    # extra_buffer, spec_v2 on) against this target on GB10/sm121 + SGLang
+    # 0.5.17: the scheduler died on the FIRST real request with a FlashInfer
+    # exception in fast_prefill_plan -> call_begin_forward ->
+    # update_single_wrapper -> init_forward_metadata_out_graph. With speculation
+    # OFF the same checkpoint serves fine, and DSPARK above ran a full 65-minute
+    # GSM8K without incident, so the fault sits on the NEXTN path specifically.
+    # Not fully proven (the compared runs also differed in context length, and
+    # the crashed container's log was lost before the final exception line), but
+    # do not reach for this as a fallback: it is a known failure, not a spare.
+    # Also note enable_spec_v2 below is a NO-OP on 0.5.17 -- the server logs
+    # "SGLANG_ENABLE_SPEC_V2 has been removed: speculative decoding always runs
+    # the V2 worker. Use --disable-overlap-schedule ...".
     # The checkpoint carries the base model's native MTP head
     # (mtp_num_hidden_layers 1, 15 mtp.* tensors, present and BF16 because
     # hf_quant_config excludes mtp* and transformers drops mtp.* at load, so

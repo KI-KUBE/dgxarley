@@ -116,6 +116,22 @@ context (`Indexer(MultiPlatformOp)` -> `Indexer(DSANPUIndexerMixin,
 BaseFusedOp)`); own diffstat unchanged (8 files, +1022/-12). REST now reports
 `mergeable: true` / `"blocked"` (checks/review gating, not a conflict).
 
+Second follow-up same day (2026-08-15, approved): the GB10 stock-image test
+on spark5 (see UPSTREAM_SGLANG_DSA_SM12X_NATIVE_SPARSE_MLA.md for the full
+setup) produced two data points for THIS doc:
+- **p30 is NOT redundant on stock v0.5.17:** the stock CLI accepts only
+  `--dsa-paged-mqa-logits-backend auto|deepgemm|cutedsl|aiter`; our
+  profile's `torch` value (the choice p30 adds) fails argument parsing on
+  the unpatched image. The launch had to fall back to `auto` to boot.
+- With `auto`, the shrunk-config dummy-weight run (TP1, SM121, one full
+  DSA indexer layer exercised through a 4k-token prefill + decode) was
+  crash-free: no deepgemm "Unsupported architecture" assert appeared. The
+  resolved indexer backend is not logged at INFO level, so WHICH backend
+  `auto` picked on SM121 remains unconfirmed (the sgl-deep-gemm 0.1.5
+  SM120 kernels flagged above are a plausible but unverified explanation).
+  A DEBUG-level or source-instrumented run would pin it down; p30/p35 stay
+  in place regardless (p35 also carries the Triton fast-path perf win).
+
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
 > Triton fast path (unblocks DSA models on SM120/SM121)
 

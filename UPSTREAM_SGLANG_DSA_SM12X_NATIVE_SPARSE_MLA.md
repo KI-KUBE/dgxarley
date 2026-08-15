@@ -118,6 +118,41 @@ of #26928/#33075, or kept for coverage of the plain trtllm backend name
 for non-GLM DSA models / DeepSeek-V3.2 family, which the
 `is_glm_sm12_fp8` arm does not cover.
 
+Follow-up same day (2026-08-15, approved): **GB10 test executed on spark5**
+(podman, stock image `xomoxcc/dgx-spark-sglang:0.5.17-sm121` with NO
+`/patches` mount, verified patch-free via p34 marker grep; shrunk
+`0xSero/glm-5.2-reap-504B-v2` config `num_hidden_layers` 78 -> 7 keeping
+dense layers 0-2 + a complete full/shared indexer group at layers 3-6;
+`--load-format dummy`, TP1, `--kv-cache-dtype fp8_e4m3`, profile flags
+mirrored EXCEPT no `--dsa-prefill-backend`/`--dsa-decode-backend` and no
+speculative args). Results:
+- Auto-selection fired verbatim: "Set DSA backends for GLM FP8 KV Cache on
+  SM120/SM121: prefill=flashinfer_sparse_mla, decode=flashinfer_sparse_mla"
+  and `server_args` confirmed both fields. It is not just a default: the
+  validator `_validate_flashinfer_sparse_mla_backend`
+  (`sglang/kernels/ops/attention/flash_mla_sm120.py`) FORBIDS any other
+  backend for GlmMoeDsa + SM12x + fp8 KV, so the selection is exclusive.
+- Healthy in ~2m20s (weight load 2.97s, MoE autotune ~1m37s first-run,
+  decode CUDA-graph capture 3.05s, no crash, matching p34's
+  "captures directly under cuda-graph" claim).
+- 4 requests all HTTP 200: 3 short (max_new_tokens 32, finish_reason
+  length, garbage text as expected with dummy weights) + 1 long prefill
+  (prompt_tokens 4001, prefill 516 tok/s, decode ~5 tok/s). Zero
+  traceback/NaN/crash matches in the full log.
+- Verdict: stock v0.5.17 auto-selects AND successfully runs
+  flashinfer_sparse_mla on SM121 for our model class, **supporting p34
+  redundancy** for the DSA prefill/decode backend. Caveats: TP1, dummy
+  weights, 7-layer shrink (code-path validation, not quality); the real
+  confirmation is a TP4 cluster run with real weights (approval-gated,
+  not done). p34 retirement decision therefore still pending.
+- Side finding for the indexer doc: stock v0.5.17's
+  `--dsa-paged-mqa-logits-backend` accepts only `auto|deepgemm|cutedsl|
+  aiter`; the profile's `torch` value (added by p30) does not parse on
+  stock, so p30 is NOT redundant. With `auto` the run was crash-free
+  (no deepgemm "Unsupported architecture" assert), but the resolved
+  indexer backend is not logged at INFO level (inconclusive which one ran).
+  Test artifacts kept at spark5:/root/gb10-test-p34/ (configs + logs only).
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
