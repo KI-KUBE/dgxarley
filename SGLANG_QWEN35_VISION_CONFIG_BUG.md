@@ -76,6 +76,19 @@
 > items (#31220, #31382, #32401, #32022) are all unrelated — none touch the
 > `sub_configs`/vision_config conversion. Root cause unchanged, monkey-patch
 > still required.
+>
+> **Re-verified 2026-08-15:** SGLang **v0.5.17** (released 2026-08-08) remains
+> the latest release, no newer tag exists. `qwen3_5.py` is byte-identical
+> between `main` and the v0.5.17 tag; the last content-changing commit is
+> still the 2026-04-16 transformers 5.5.3 upgrade (34fef07a). No
+> `from_dict`/`__post_init__` anywhere in the file, which now has six plain
+> `__init__` methods (the 2026-08-09 entry counted five, a minor correction).
+> The file's own comment at lines 126-129 still documents the exact bypass
+> mechanism, a `kw_only=True` dataclass auto-`__init__` in transformers
+> v5.5.3+ that skips dict-to-config conversion, without shipping a fix. PR
+> #22839 still **OPEN**, no activity since 2026-06-11. PR #22618 still
+> **OPEN**, no activity since 2026-04-14. Monkey-patch
+> (`PATCH_GET_CONFIG_EOF`) in `sglang_launch.sh` still required.
 
 
 ## Summary
