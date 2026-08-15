@@ -176,6 +176,20 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 i
 > `--speculative-draft-load-format auto` + `--speculative-draft-model-path`
 > workaround remains required and unchanged.
 
+> **Re-verified 2026-08-15:** SGLang still at **v0.5.17** (released 2026-08-08),
+> no new release since the 2026-08-09 check. Bug unchanged, workaround
+> unchanged. Issue #32202 still open, 0 comments, idle since 2026-07-23. Line
+> numbers on `main` drifted again (+~55 lines each, from an unrelated
+> in-flight config-bag refactor series, latest commits `1ab713c33` /
+> `97279980c`, merged 2026-08-15, `main` HEAD `0c072235f` at
+> 2026-08-15T09:20:30Z): `ModelRunner.__init__` consumption line 322 -> 331;
+> remote-instance-transfer check 672 -> 676; load-path block 1064-1098 ->
+> 1074-1106; `_load_format_scope()` :1242 -> :1297; `_resolve_draft_load_format()`
+> :1254 -> :1309. Logic byte-for-byte identical. `draft_worker_common.py` had
+> one unrelated touching commit (`fde9ad253`, 2026-08-11, Muse Glimmer model
+> support) that does not affect the load-format logic. No new issues or PRs
+> matching `draft_load_format` since 2026-08-08.
+
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`
 
