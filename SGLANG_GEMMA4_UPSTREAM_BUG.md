@@ -172,6 +172,34 @@ selection, not the main-model allowlist or the NaN-clamp/GEGLU items
 tracked here — not applicable (we don't run Gemma4 with speculative
 decoding). Conclusions unchanged.
 
+**Re-verified 2026-08-15:** SGLang still **v0.5.17** (released 2026-08-08),
+still the latest release; no new Gemma4-touching PR since 08-09. All four
+tracked PRs unchanged: #22929 OPEN, idle since 2026-04-16; #22928 OPEN, idle
+since 2026-04-16; #22927 OPEN, idle since 2026-04-16; #22615 OPEN,
+REVIEW_REQUIRED, idle since 2026-06-20. The Gemma4 attention-backend
+allowlist is byte-identical on the v0.5.17 tag (this doc's cited lines still
+exact there) but has drifted on `main` HEAD (`0c072235`, 2026-08-15T09:20:30Z)
+to lines 5601/5606 (allowlist tuple/assert) and 5163
+(`_handle_model_specific_adjustments`), matching the line-number drift
+documented today in `FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md`. No change to
+this doc's bottom line: `attention_backend: triton` remains permanently
+mandatory for all four Gemma-4 profiles.
+
+**Cross-reference (clearly scoped, does not change the bottom line):**
+flashinfer PR [#3684](https://github.com/flashinfer-ai/flashinfer/pull/3684)
+("asymmetric VO-split NVFP4 paged prefill for Gemma-4 on SM120/121") merged
+to flashinfer `main` 2026-08-13T01:14:01Z as commit `8f9ad2000d`. This is a
+**different subsystem** than the MoE-GEMM blockers tracked in this doc:
+#22929/#22928/#22927 are about `cutlass_moe_fp4` per-expert weight loading,
+GEGLU activation, and E4M3 block-scale NaN; #22615 is about the fp8
+KV-shared-layer crash. PR #3684's split-KV NaN fix is for **NVFP4 KV cache**
+attention, not MoE GEMM scales, do not conflate the two. It is
+author-validated via vLLM only (RTX 5090/RTX PRO 6000 SM120, GB10/DGX Spark
+SM121), has no SGLang-side adoption PR, and is not in any flashinfer stable
+release (merged after v0.6.17). No change to this doc's bottom line: NVFP4
+Gemma4 on SM121 remains blocked on #22928/#22927 for the reasons already
+tracked above, independent of #3684.
+
 ## Affected models
 
 | Model                                         | Type                               | Quantization | Current status (`0.5.11-gemma4-sm121` image)                                                                                                |
