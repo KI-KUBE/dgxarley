@@ -81,6 +81,19 @@ pass remains reproducible on this release. PR #27968 and Issue #27951 are still 
 with no comments since 2026-06-15. PR #21872 remains OPEN and stagnant. Workaround
 (`moe_runner_backend: triton`) unchanged and still the correct cluster configuration.
 
+**Re-verified 2026-08-15:** SGLang **v0.5.17** (tag `b6a09f38f`, 2026-08-08) is
+still the latest release, no new release since the 2026-07-28 check.
+Source-confirmed on the v0.5.17 tag: `Fp8MoEMethod.create_moe_runner` in
+`fp8.py` still ends in the `# TODO(cwan): refactor other backends` branch
+(comment now at line 2293, `self.runner = MoeRunner(...)` at line 2291);
+vanilla `Fp8MoEMethod` still never sets `self.runner` for
+`flashinfer_cutlass`/`flashinfer_cutedsl`. Bug unchanged, only line drift from
+~2098 (v0.5.16) to ~2265-2293 (v0.5.17). PR #27968 is still OPEN, idle since
+2026-06-11; Issue #27951 is still OPEN, idle since 2026-06-19; PR #21872 is
+still OPEN, idle since 2026-04-01. Workaround (`moe_runner_backend: triton`)
+unchanged. Cluster image is now `xomoxcc/dgx-spark-sglang:0.5.17-sm121` (repo
+commit `59d7912`).
+
 Adjacent open work:
 
 - [PR #21872](https://github.com/sgl-project/sglang/pull/21872)
