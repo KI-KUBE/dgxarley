@@ -315,7 +315,10 @@ support:
 Where NVFP4 V4 does run (e.g. Pro on B200), it is buggy:
 - [#26324](https://github.com/sgl-project/sglang/issues/26324) — `flashinfer_trtllm`
   MoE runner **asserts on DeepSeek-V4-Flash NVFP4 on B200** (and corrupts
-  MiniMax-M2.7-NVFP4 output).
+  MiniMax-M2.7-NVFP4 output). **Closed 2026-08-15 (stale-bot, unresolved)** —
+  no fix commits landed, last substantive human comment still 2026-06-15
+  (nvpohanh). Same pattern as #25165/#23743/#25526/#26647/#24111: the
+  tracking issue is gone, the underlying assert is not fixed.
 - [#25704](https://github.com/sgl-project/sglang/issues/25704) (closed) — DeepSeek-V4
   **Pro** NVFP4 on B200: non-speculative decode produces **NaN (TP=8) or garbage
   tokens** (DP+DeepEP); **only EAGLE works**.
@@ -591,6 +594,16 @@ still at `configuration_deepseek_v3.py:93` on transformers `main`. #33636
 got one new comment (2026-08-08, a user offering 8×B200 compute for a
 benchmark harness — informational, does not change its explicit SM120/SM121
 scope-out). #32750 and #26324: no new activity.
+**Update 2026-08-15:** no new SGLang release. **#26324 closed by the
+stale-bot 2026-08-15, unresolved** (no fix commits, see the updated
+reference table and §4). #33636 gained 5 comments between 2026-08-09 and
+2026-08-12, all B200/MegaMoE/CP topics (W4A8 vs W4A4 validation, PR #34277,
+PRs #31687/#32042/#33672 listed, shared-KV CP #32059 validation, plus a
+maintainer note about low-quality LLM-generated posts) — none touches
+SM120/SM121 scope, still informational only. #32750 idle since 2026-08-06.
+All other tracked issues/PRs unchanged: every previously-closed stale-bot
+closure re-confirmed, and merged PRs #25763/#25820/#26209/#30272/#31125
+unchanged.
 
 ---
 
@@ -606,7 +619,7 @@ scope-out). #32750 and #26324: no new activity.
 | #25820 | [NVIDIA] Support NVFP4 MoE for DeepSeek-V4 | **merged 2026-06-22 (main); im offiziellen v0.5.14-Release seit 2026-06-26; default `flashinfer_trtllm_routed`, B200-only, kein SM120/121-Test; `APPLY_DSV4_NVFP4_PR25820=1` bei v0.5.14+-Image obsolet** |
 | #26209 | Add FP4 Indexer for DeepSeek V4 | **merged 2026-06-02; im offiziellen v0.5.13-GitHub-Release seit 2026-06-13** |
 | PR #30272 | Implement SM120 DeepSeek V4 flashinfer_mxfp4 moe runner backend + TP2 | **merged, in v0.5.16 (2026-07-25)**; SM120-specific, prüfenswert für SM121/GB10, see §3, not yet tested here |
-| #26324 | flashinfer_trtllm MoE runner asserts on DeepSeek-V4-Flash NVFP4 (B200) | open (unchanged, last activity 2026-06-15) |
+| #26324 | flashinfer_trtllm MoE runner asserts on DeepSeek-V4-Flash NVFP4 (B200) | **closed 2026-08-15 (stale-bot, unresolved)**, no fix landed (last substantive comment 2026-06-15, nvpohanh) |
 | #25704 | V4-Pro NVFP4 B200: NaN/garbage except EAGLE | closed |
 | #25165 | main branch broke with deepseek v4 flash deployment | **closed (stale, unresolved)** — auto-closed by stale-bot 2026-07-13, no fix landed |
 | #23743 | [Tracking] DeepSeek V4 Flash GB200 serving fixes | **closed (stale, unresolved)** — auto-closed by stale-bot 2026-07-14, no fix landed |
