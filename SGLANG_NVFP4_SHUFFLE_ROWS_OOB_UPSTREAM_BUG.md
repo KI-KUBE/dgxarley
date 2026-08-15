@@ -134,6 +134,17 @@ the v0.5.16 tag): the patch self-noops with an anchor-drift warning at pod start
 chain. **Follow-up:** retire p26 via `RETIRED_PATCHES.md` — a config change, so per
 house rules only with explicit approval; this doc update does not touch the patch chain.
 
+**Re-verified 2026-08-15:** still resolved by removal on **v0.5.17** as well
+(tag `b6a09f38f`, 2026-08-08, no new SGLang release since the 2026-07-28
+check). `python/sglang/jit_kernel/nvfp4.py` still returns 404 via the GitHub
+contents API on the v0.5.17 tag, and `cutlass_moe.py` still has no
+`cutlass_moe_fp4` function (only `cutlass_fused_experts_fp8` remains). Our
+cluster image has since been bumped again to
+`xomoxcc/dgx-spark-sglang:0.5.17-sm121` (repo commit `59d7912`);
+`p26_cutlass_moe_zeroinit.py` remains a self-noop on this image too, its
+anchor still absent. The standing follow-up (retire p26 via
+`RETIRED_PATCHES.md`, needs approval) remains open.
+
 Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, v0.5.13, and **v0.5.14** (released 2026-06-26 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
 
 The final root cause (uninitialized `torch.empty` on `a_map`) was identified
