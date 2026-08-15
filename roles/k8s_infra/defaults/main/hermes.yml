@@ -101,7 +101,49 @@ hermes:
   #    banner in the gateway log, 0 "rejected invalid API key".
   #  * Unchanged: image contract, dashboard CLI flags, BASIC_AUTH/TERMINAL_CWD/
   #    API_SERVER_KEY/EMAIL_*/MATRIX_* env, gateway.lock/gateway_state.json.
-  image_tag: "v2026.8.3"             # agent image (nousresearch/hermes-agent)
+  # Bumped v2026.8.3 -> v2026.8.13 (2026-08-15, v0.20.1). Real re-sync, not a
+  # byte-identical check:
+  #  * plugins/platforms/email/adapter.py DIVERGED again (blob 317eae72,
+  #    60496 bytes). Upstream restructured _fetch_new_messages() (split the
+  #    per-message parsing into a new _parse_fetched_message() method, added
+  #    partial-batch dispatch + seen-after-fetch UID marking + a same-process
+  #    reconnect UID-baseline snapshot restore, commit a7f0abc845) and
+  #    connect() (typed terminal-vs-transient failure classification, commit
+  #    91bc822330), and routed IMAP fetch failures through the fatal-error
+  #    hook (commit 9b8da52f41). hermes_email_gateway_patched.py was
+  #    re-synced: [PATCH-1]..[PATCH-8] rewoven onto the new anchors (the
+  #    [PATCH-5] Working-folder MOVE moved from inline in the fetch loop to
+  #    the caller, right after the new _parse_fetched_message() call, since
+  #    that method no longer has the open `imap` handle; [PATCH-4]'s
+  #    process_existing conditional was composed as the "else" of upstream's
+  #    new is_reconnect/snapshot branch instead of replacing it). [PATCH-9]
+  #    (our 2026-08-09 forward-port of upstream 65f407184d, the charset/
+  #    _safe_decode fix) is RETIRED: the v2026.8.13 baseline now contains
+  #    that commit natively, confirmed byte-identical before deleting the
+  #    forward-port. Full account of every anchor move and how it was
+  #    handled is in the file's own header changelog.
+  #  * hermes_health_patch.py still required AND still applies: verified at
+  #    v2026.8.13 that gateway.platforms.api_server.APIServerAdapter.
+  #    _check_auth(self, request) is unchanged in shape, /health/detailed
+  #    still calls it explicitly, and /health stays unauthenticated by
+  #    construction (never calls _check_auth at all) — the patch's wrapper
+  #    is a no-op for that route and load-bearing for the other. No file
+  #    change needed.
+  #  * GATEWAY_HEALTH_URL / _probe_gateway_health (hermes_cli/web_server.py):
+  #    still present at v2026.8.13, still marked DEPRECATED ("scheduled for
+  #    removal"), still the only cross-container mechanism — unchanged from
+  #    the v2026.7.30 note above. Re-check on the next bump.
+  #  * HERMES_DASHBOARD_BASIC_AUTH_{USERNAME,PASSWORD,PASSWORD_HASH,SECRET}:
+  #    still read verbatim (env wins over config.yaml when set) at
+  #    v2026.8.13, so this deployment's mechanism is unaffected. NOTE the
+  #    provider itself moved from a hardcoded core feature into a bundled
+  #    plugin, plugins/dashboard_auth/basic/__init__.py (same #41112-style
+  #    plugin-migration pattern as the email adapter), which can ALSO be
+  #    configured via config.yaml `dashboard.basic_auth.*` now — we keep
+  #    using the env vars, no deployment change made.
+  #  * Unchanged: image contract, dashboard CLI flags, TERMINAL_CWD/
+  #    API_SERVER_KEY/EMAIL_*/MATRIX_* env, gateway.lock/gateway_state.json.
+  image_tag: "v2026.8.13"            # agent image (nousresearch/hermes-agent)
   # NOTE: the venv site-packages dir (mount point for the hermes_health_patch
   # .py/.pth) is NOT configured here — it carries a pythonX.Y segment that bumps
   # with the base image. hermes.yml probes the actual image ONCE at deploy time

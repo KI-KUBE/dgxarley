@@ -506,6 +506,49 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 >   rebases, own diffs byte-identical (range-diff verified), pushed
 >   `--force-with-lease` to the fork, all still `MERGEABLE`/`BLOCKED`.
 
+> **2026-08-15 check — release v2026.8.13 shipped the charset fix; tag bump +
+> re-sync + fresh PR rebases all executed same day (approved):**
+> - Upstream released **v2026.8.13** (v0.20.1, 2026-08-13). Its `adapter.py`
+>   (blob `317eae72`, 60496 bytes) is the FIRST tagged baseline containing
+>   `65f407184d` (charset/`_safe_decode`), plus three further fixes over the
+>   v2026.8.3 baseline: `a7f0abc845` (partial-batch dispatch, seen-after-fetch
+>   UIDs, reconnect UID-baseline restore via `_seen_uids_snapshot`),
+>   `9b8da52f41` (IMAP fetch failures surfaced through the fatal-error hook),
+>   `91bc822330` (terminal connect-failure classification / retry escalation).
+>   `main` additionally has `480342232a` (close leaked poller sockets,
+>   2026-08-15), in no tag yet, NOT ported (we sync to tags).
+> - **Re-sync done:** `hermes.image_tag` bumped `v2026.8.3` -> `v2026.8.13`;
+>   `hermes_email_gateway_patched.py` rebuilt on the v2026.8.13 baseline.
+>   **`[PATCH-9]` retired** (baseline now contains `65f407184d` natively,
+>   present exactly once, no duplicate). [PATCH-2]/[PATCH-3]/[PATCH-6]/
+>   [PATCH-7]/[PATCH-8] reapplied unchanged; **[PATCH-4] adapted** (our
+>   `process_existing` gate now nests inside upstream's new "first connect /
+>   no snapshot" branch, the `is_reconnect` snapshot-restore path stays pure
+>   upstream); **[PATCH-5] adapted** (upstream extracted per-message parsing
+>   into `_parse_fetched_message()`; the Working-folder MOVE now runs in the
+>   caller after a non-None parse result). Verified: ast OK, diff vs baseline
+>   contains only [PATCH-1..8], all four `config.extra` knobs still read.
+>   Rollout happens at the next `--tags hermes` run (not executed here).
+> - Side findings from the bump check: `GATEWAY_HEALTH_URL` still present and
+>   still deprecated at v2026.8.13 (still the only cross-container health
+>   mechanism); `HERMES_DASHBOARD_BASIC_AUTH_*` env vars unchanged, though
+>   BasicAuthProvider moved into a bundled plugin
+>   (`plugins/dashboard_auth/basic/`) with a new optional config.yaml
+>   alternative (env still wins, deployment unaffected);
+>   `hermes_health_patch.py` anchor unchanged.
+> - **PR status:** GitHub had flipped #28699/#28702 to `CONFLICTING`/`DIRTY`
+>   (heads unchanged; `main` moved under them, `a7f0abc845` colliding with our
+>   `connect()`/dispatch hunks). All three PRs re-rebased onto `main`
+>   `7a16840a` (2026-08-15): new heads #28697 `21715520f1` (clean,
+>   byte-identical own diff), #28699 `f98737b7f8` (one conflict in
+>   `connect()`, resolved by nesting `process_existing` under upstream's
+>   first-connect branch, mirroring the [PATCH-4] re-sync shape), #28702
+>   `3a916d7ff3` (two conflicts: folder-ensure moved inside upstream's
+>   try/finally before the `is_reconnect` branch; Working-MOVE relocated
+>   after `_parse_fetched_message()`, mirroring [PATCH-5]). All adapter tests
+>   pass in each clone, range-diff reviewed, pushed `--force-with-lease` to
+>   the fork, all three back to `MERGEABLE`/`BLOCKED`.
+
 1. Download the new upstream file:
 
    ```bash

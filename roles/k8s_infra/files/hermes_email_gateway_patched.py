@@ -15,34 +15,130 @@ Environment variables:
     EMAIL_ALLOWED_USERS — Comma-separated list of allowed sender addresses
 
 ------------------------------------------------------------------------------
-LOCAL PATCH (dgxarley) — synced to upstream tag v2026.8.3
-(plugins/platforms/email/adapter.py, md5 1facb7c380a6eec8c996df27c846e9ec,
-52592 bytes). Current for the pinned image (hermes.image_tag v2026.8.3).
+LOCAL PATCH (dgxarley) — synced to upstream tag v2026.8.13
+(plugins/platforms/email/adapter.py, blob 317eae72, 60496 bytes). Current for
+the pinned image (hermes.image_tag v2026.8.13).
+
+Re-synced 2026-08-15 (v2026.8.3 -> v2026.8.13, v0.20.1). This is a real
+re-sync, not a byte-identical check: upstream restructured _fetch_new_messages
+and connect() significantly. Summary of what changed and how it was handled:
+
+  1. PATCH-9 RETIRED. The v2026.8.13 baseline now contains upstream commit
+     65f407184d verbatim (module-level _CHARSET_ALIASES + _safe_decode(),
+     consumed by _decode_header_value() and all three _extract_text_body()
+     payload-decode sites) -- confirmed by diffing those three functions
+     against the new baseline before deleting anything. The forward-port
+     block (helpers + inline [PATCH-9] call-site comments) has been removed
+     from this file. No behavior changed: the baseline's version is
+     byte-identical to what we were carrying.
+
+  2. Three unrelated upstream fixes landed in this bump, none colliding with
+     our patches:
+       - a7f0abc845: partial-batch dispatch (a mid-fetch exception now
+         returns whatever was parsed so far instead of dropping the batch),
+         seen-after-fetch UID marking (a UID is only added to _seen_uids once
+         an IMAP response for it has arrived, not right after SEARCH), and a
+         reconnect UID-baseline restore (new class-level _seen_uids_snapshot
+         dict, keyed by address, restored on connect(is_reconnect=True) so a
+         same-process reconnect does not re-mark the whole mailbox seen and
+         silently skip mail that arrived during the outage).
+       - 9b8da52f41: IMAP fetch failures (not just IMAP connect failures) now
+         route through the fatal-error hook (_last_fetch_failed /
+         _last_fetch_error, surfaced from _check_inbox() via
+         _set_fatal_error() + _notify_fatal_error()), so the gateway's
+         reconnect/backoff machinery reacts to a broken mailbox check instead
+         of treating it as "nothing new".
+       - 91bc822330: connect() now classifies terminal vs transient failures
+         explicitly (smtplib.SMTPAuthenticationError -> non-retryable
+         email_auth_error; generic IMAP/SMTP failures -> retryable).
+     None of this is touched by our patches -- it is preserved verbatim.
+
+  3. ANCHOR MOVES caused by (2), and how each PATCH-N section was rewoven:
+       - _fetch_new_messages() split the per-message parsing out into a new
+         method, _parse_fetched_message(uid, raw_email), which returns
+         Optional[Dict] (None = silently-skipped automated sender) and can
+         raise (caller logs the UID and continues -- a poison message no
+         longer aborts the batch). [PATCH-5]'s INBOX -> Working MOVE used to
+         sit inline between body/attachment extraction and the results.append
+         call; it cannot live inside _parse_fetched_message() any more
+         because that method no longer has access to the open `imap` handle
+         nor a name that overlaps with the caller's `uid`. It was moved to
+         the CALLER (_fetch_new_messages), right after
+         "if parsed is not None:" and before "results.append(parsed)" --
+         same open `imap` connection, same gating (done_folder AND
+         working_folder AND a Message-ID present), same non-fatal
+         warn-and-continue on a failed MOVE, source_folder still injected
+         into the dict before it is appended. This preserves upstream's
+         per-message poison guard (a MOVE never runs for a message that
+         failed to parse) and the seen-after-fetch marking (untouched, still
+         happens before the parse/move step).
+       - connect()'s conditional pre-fill ([PATCH-4], process_existing) used
+         to be the only branch inside the try block; upstream now ALSO
+         branches on is_reconnect + a same-process _seen_uids_snapshot to
+         decide between "restore the previous baseline" and "mark everything
+         seen". These are orthogonal decisions -- is_reconnect/snapshot is
+         about surviving a same-process outage, process_existing is about
+         what a COLD start should do with a pre-existing backlog -- so they
+         were composed as outer/inner: is_reconnect+snapshot stays the
+         OUTER branch (upstream's new reconnect-restore behavior, verbatim,
+         untouched), and our process_existing conditional was moved INTO the
+         upstream "else" (first connect, or no snapshot yet) branch, in place
+         of upstream's unconditional mark-all-seen. Folder-ensure (Working /
+         Done / Sent CREATE) and routing the connection open through
+         self._open_imap() ([PATCH-4]'s other half) sit unchanged, just above
+         the imap.select("INBOX") call, before the branch.
+       - _fetch_new_messages() and connect() now build the IMAP connection
+         via self._open_imap() ([PATCH-3]'s wrapper) instead of upstream's
+         inline imaplib.IMAP4_SSL(...) + login() + _send_imap_id() sequence,
+         same as before this bump.
+       - _dispatch_message() is untouched by the upstream diff, so [PATCH-6]
+         (the try/finally around the drop-checks + handle_message, finalizing
+         the mail out of Working on every path) reapplied at the identical
+         anchor with no changes.
+       - [PATCH-1] (this docstring), [PATCH-2] (__init__ attributes),
+         [PATCH-3] (the _open_imap_conn / _imap_append_to_sent module-level
+         helpers and the _open_imap / _ensure_folder / _imap_move /
+         _search_message_id / _finalize_message / _append_to_sent instance
+         wrappers), [PATCH-7] (_send_email{,_with_attachment,_with_attachments}
+         Sent-folder APPEND) and [PATCH-8] (_standalone_send Sent-folder
+         APPEND) all sit on upstream code this diff does not touch and
+         reapplied unchanged at the same anchors.
+
+  4. Verification performed for this re-sync: `ast.parse()` on the new file;
+     a diff of the new file against the v2026.8.13 baseline was inspected
+     hunk-by-hunk to confirm it contains only [PATCH-1]..[PATCH-8] (no
+     [PATCH-9], nothing upstream reverted); grepped for the working_folder /
+     done_folder / sent_folder / process_existing config.extra reads (still
+     present, unchanged); confirmed _safe_decode / _CHARSET_ALIASES appear
+     exactly once (from the baseline, no leftover [PATCH-9] duplicate).
+
+The v2026.7.30 -> v2026.8.3 bump was the first real re-sync since v2026.7.7.2:
+the divergence the earlier header warned about (upstream main 2026-08-02,
+commit ff89f1b862, +1744 bytes) landed in that tag. It was purely the
+profile-scoped secret refactor (see the fold-in block below) and touched NO
+[PATCH-N] section. plugin.yaml (name: email-platform, hence the runtime
+module hermes_plugins.email_platform.adapter) and __init__.py were
+byte-identical at v2026.8.3 and remain so at v2026.8.13, so the ConfigMap
+subPath mount target is unchanged. The re-sync check stays mandatory on
+EVERY bump. See HERMES_EMAIL_UPSTREAM.md.
+
 The v2026.7.7.2 -> v2026.7.20 -> v2026.7.30 bumps were all BYTE-IDENTICAL
 re-checks (md5 39ed5d135762806451a944a9b279b8ad, 50848 bytes) and forced no
-[PATCH-N] work. The v2026.7.30 -> v2026.8.3 bump is the first real re-sync
-since v2026.7.7.2: the divergence the previous header warned about (upstream
-main 2026-08-02, commit ff89f1b862, +1744 bytes) landed in this tag. It is
-purely the profile-scoped secret refactor (see the fold-in block below) and
-touches NO [PATCH-N] section. plugin.yaml (name: email-platform, hence the
-runtime module hermes_plugins.email_platform.adapter) and __init__.py are
-byte-identical at v2026.8.3, so the ConfigMap subPath mount target is unchanged.
-The re-sync check stays mandatory on EVERY bump. See HERMES_EMAIL_UPSTREAM.md.
+[PATCH-N] work.
 
-FILE MOVED at this bump: upstream #41112/#3823 landed the plugin refactor that
-the v2026.6.19 patch header warned about — the adapter moved from
-gateway/platforms/email.py to plugins/platforms/email/adapter.py and the static
-_PLATFORMS["email"] dict was replaced by a register(ctx)→ctx.register_platform()
-plugin entry point (see the "Plugin migration glue" block at the bottom of this
-file). The ConfigMap subPath mount in hermes_webui_deployment.yaml.j2 was
-re-targeted to /opt/hermes/plugins/platforms/email/adapter.py to match. Previous
-sync target was v2026.6.19 (gateway/platforms/email.py, md5
-a3f7dc61f40388bf806481b189b48e00).
+FILE MOVED at the v2026.7.1 bump: upstream #41112/#3823 landed the plugin
+refactor -- the adapter moved from gateway/platforms/email.py to
+plugins/platforms/email/adapter.py and the static _PLATFORMS["email"] dict
+was replaced by a register(ctx)->ctx.register_platform() plugin entry point
+(see the "Plugin migration glue" block at the bottom of this file). The
+ConfigMap subPath mount in hermes_webui_deployment.yaml.j2 was re-targeted to
+/opt/hermes/plugins/platforms/email/adapter.py to match. Previous sync target
+was v2026.6.19 (gateway/platforms/email.py, md5 a3f7dc61f40388bf806481b189b48e00).
 
-Upstream changes folded in during the v2026.6.19 → v2026.7.1 re-sync (all are
+Upstream changes folded in during the v2026.6.19 -> v2026.7.1 re-sync (all are
 upstream-only; none collide with the [PATCH-N] logic):
   - Plugin migration: the register()/_build_adapter/_is_connected/
-    _standalone_send glue block at end of file (untouched — our patch never
+    _standalone_send glue block at end of file (untouched -- our patch never
     referenced the old _PLATFORMS dict).
   - SENDER AUTHENTICATION (GHSA-rxqh-5572-8m77): new module-level
     _domain_of / _domains_aligned / _verify_sender_authentication +
@@ -51,8 +147,8 @@ upstream-only; none collide with the [PATCH-N] logic):
     require_authenticated_sender) + _authserv_id, the _allow_all_senders /
     _allowlist_in_effect statics, the sender_authenticated/auth_reason keys in
     _fetch_new_messages' results dict, and the reject-gate in _dispatch_message.
-    Our [PATCH-5] source_folder key sits ALONGSIDE the two new auth keys in the
-    same results dict; our [PATCH-6] try/finally WRAPS the new reject-gate so an
+    Our [PATCH-5] source_folder key sits ALONGSIDE the two auth keys in the
+    same results dict; our [PATCH-6] try/finally WRAPS the reject-gate so an
     unauthenticated-From drop still finalizes the mail out of Working.
   - __init__ now parses ports via utils.env_int / env_bool and falls back to
     config.extra for address/imap_host/smtp_host; our [PATCH-2] extra.get()
@@ -61,10 +157,10 @@ upstream-only; none collide with the [PATCH-N] logic):
     guard (_set_fatal_error); [PATCH-4] only rewrites the IMAP-test body below
     that guard.
   - check_email_requirements() now .strip()s and treats blank as missing.
-  - `import time` was REMOVED upstream — re-added below (our _append_to_sent
+  - `import time` was REMOVED upstream -- re-added below (our _append_to_sent
     needs time.time() for imaplib.Time2Internaldate).
 
-Upstream changes folded in during the v2026.7.1 → v2026.7.7.2 re-sync (all are
+Upstream changes folded in during the v2026.7.1 -> v2026.7.7.2 re-sync (all are
 upstream-only robustness fixes; none collide with the [PATCH-N] logic, each sits
 on original context our patches leave untouched):
   - _fetch_new_messages: guard `raw_email = msg_data[0][1]` against
@@ -76,10 +172,10 @@ on original context our patches leave untouched):
     call _message_id_domain() instead of self._address.split('@')[1]. These are
     the same three methods our [PATCH-7] Sent-APPEND lives in; the msg_id line
     sits ABOVE each [PATCH-7] block, on original context.
-  Marked inline with [UPSTREAM v2026.7.7.2]. Our three PRs (#28697/#28699/#28702)
-  are still OPEN at this tag, so no [PATCH-N] section could be dropped.
+  Our three PRs (#28697/#28699/#28702) were still OPEN at that tag, so no
+  [PATCH-N] section could be dropped.
 
-Upstream changes folded in during the v2026.7.30 → v2026.8.3 re-sync (one
+Upstream changes folded in during the v2026.7.30 -> v2026.8.3 re-sync (one
 mechanical refactor, PR #50094 / the #59076 hunks; no [PATCH-N] section touched):
   - PROFILE-SCOPED SECRETS: every ``EMAIL_*`` read now goes through the new
     module-level _get_esecret() (alias _get_secret) / _esecret_int() /
@@ -92,30 +188,20 @@ mechanical refactor, PR #50094 / the #59076 hunks; no [PATCH-N] section touched)
     agent/secret_scope.py already exists at v2026.7.30, so the new import is not
     a hard forward-only dependency.
   - dgxarley EXTENSION of that refactor: our [PATCH-8] _standalone_send() block
-    reads EMAIL_IMAP_HOST / EMAIL_IMAP_PORT for the Sent-folder APPEND — upstream
+    reads EMAIL_IMAP_HOST / EMAIL_IMAP_PORT for the Sent-folder APPEND -- upstream
     has no such reads there, so they were converted to _get_secret() by hand for
     parity (an unscoped IMAP host under multiplexing would archive a secondary
     profile's reply into the default profile's mailbox).
 
-Forward-ported ahead of the pinned tag (2026-08-09): upstream main commit
-65f407184d (2026-08-08, "fix(email): never let unknown or malformed charsets
-abort the IMAP fetch", closes #35901/#55381/#55383) is NOT YET in any release
-tag as of v2026.8.3, but the underlying bug is real and worth having early:
-an unknown or malformed charset label previously raised ``LookupError`` out
-of ``bytes.decode()`` (``errors="replace"`` only guards decode failures, not
-a missing codec), which aborted the *entire* IMAP fetch batch and silently
-dropped every other message in it. Forward-ported byte-for-byte as
-[PATCH-9] (note: [PATCH-8] was already taken by the pre-existing
-_standalone_send() Sent-APPEND section above, so this forward-port is
-[PATCH-9], not [PATCH-8]): new module-level ``_CHARSET_ALIASES`` dict +
-``_safe_decode()`` helper inserted after ``check_email_requirements()``,
-consumed by ``_decode_header_value()`` (``decode_header()`` now wrapped in
-try/except, and the per-part decode call site routed through
-``_safe_decode()``) and all three ``_extract_text_body()`` payload-decode
-call sites (text/plain, text/html fallback, non-multipart). REMOVE
-[PATCH-9] at the next image-tag re-sync once the pinned tag's baseline
-already contains 65f407184d — diff the three touched functions against the
-new tag first to confirm before deleting.
+Forward-ported ahead of the pinned tag (2026-08-09 -> RETIRED 2026-08-15):
+upstream commit 65f407184d (2026-08-08, "fix(email): never let unknown or
+malformed charsets abort the IMAP fetch", closes #35901/#55381/#55383) was not
+in any release tag as of v2026.8.3, so it was forward-ported byte-for-byte as
+[PATCH-9] (module-level _CHARSET_ALIASES + _safe_decode(), consumed by
+_decode_header_value() and the three _extract_text_body() payload-decode call
+sites). The v2026.8.13 baseline now contains this commit natively (verified by
+diffing those three functions against the new baseline), so [PATCH-9] has been
+REMOVED from this file as of the 2026-08-15 re-sync -- see item 1 above.
 
 Adds three behaviours that upstream lacks:
 
@@ -132,7 +218,7 @@ Adds three behaviours that upstream lacks:
       hard-codes "ignore everything already there").
 
 All behavioural knobs are configured via config.yaml (NOT env), mirroring the
-upstream PRs — see the Upstreaming note below. They MUST be nested under an
+upstream PRs -- see the Upstreaming note below. They MUST be nested under an
 explicit ``extra:`` block (the loader only folds ``platforms.<name>.extra`` into
 config.extra; bare keys are dropped):
 
@@ -140,7 +226,7 @@ config.extra; bare keys are dropped):
                                                               Working stage → INBOX→Done)
   platforms.email.extra.done_folder        default "Hermes_Done"  ("" disables all
                                                               moves; mail stays in INBOX
-                                                              with \\Seen — also skips
+                                                              with \\Seen -- also skips
                                                               the Working stage)
   platforms.email.extra.sent_folder        default "Sent"   ("" disables IMAP APPEND)
   platforms.email.extra.process_existing   default true     (false = mark all
@@ -157,24 +243,24 @@ patch sections re-applied:
   [PATCH-3] new helpers: module-level _open_imap_conn (port-based SSL/STARTTLS)
             + _imap_append_to_sent (shared Sent APPEND); EmailAdapter._open_imap
             and _append_to_sent are thin instance wrappers over them. Plus
-            _ensure_folder, _imap_move, _finalize_message
-  [PATCH-4] connect(): conditional pre-fill + folder ensure + route through
-            _open_imap so 143/STARTTLS endpoints work
+            _ensure_folder, _imap_move, _search_message_id, _finalize_message
+  [PATCH-4] connect(): conditional pre-fill (composed with upstream's
+            is_reconnect/_seen_uids_snapshot restore, see item 3 above) +
+            folder ensure + route through _open_imap so 143/STARTTLS
+            endpoints work
   [PATCH-5] _fetch_new_messages(): route through _open_imap + INBOX→Working
-            MOVE per UID
+            MOVE per UID (now applied in the caller, after
+            _parse_fetched_message() returns, see item 3 above)
   [PATCH-6] _dispatch_message(): finalize MOVE after handle_message returns
   [PATCH-7] _send_email{,_with_attachment,_with_attachments}(): APPEND to Sent
   [PATCH-8] _standalone_send() (plugin glue): APPEND to Sent via the shared
             helper, so the out-of-process cron / `hermes send` path archives
             too (parity with EmailAdapter; imap_tls preserved via _open_imap_conn)
-  [PATCH-9] forward-port of upstream main 65f407184d (2026-08-08), NOT yet in
-            any release tag: module-level _CHARSET_ALIASES + _safe_decode()
-            inserted after check_email_requirements(); consumed by
-            _decode_header_value() and the three _extract_text_body()
-            payload-decode call sites. REMOVE at the next image-tag re-sync
-            once the pinned tag's baseline already contains the fix.
 
-Upstreaming note: all of these behaviours are being upstreamed —
+  [PATCH-9] RETIRED 2026-08-15 -- was the 65f407184d forward-port, now native
+            in the v2026.8.13 baseline. See the "Forward-ported" note above.
+
+Upstreaming note: all of these behaviours are being upstreamed --
   - Sent-folder APPEND ([PATCH-3] shared _imap_append_to_sent helper +
     [PATCH-7] adapter call sites + [PATCH-8] standalone path) in
     PR NousResearch/hermes-agent#28697.
@@ -512,17 +598,6 @@ def check_email_requirements() -> bool:
     return all([addr, pwd, imap, smtp])
 
 
-# ------------------------------------------------------------------
-# [PATCH-9] dgxarley forward-port of upstream main commit 65f407184d
-# (2026-08-08, "fix(email): never let unknown or malformed charsets abort
-# the IMAP fetch", NousResearch/hermes-agent#35901/#55381/#55383). This fix
-# is NOT YET in any release tag as of the v2026.8.3 sync baseline this file
-# is pinned to. REMOVE this whole section (helpers below + the call-site
-# edits inside _decode_header_value() and _extract_text_body()) at the next
-# image-tag re-sync once the pinned tag's baseline already contains the
-# upstream fix — diff those three functions against the new tag first.
-# ------------------------------------------------------------------
-
 _CHARSET_ALIASES = {
     # Aliases seen in the wild that Python's codec registry doesn't know.
     # "unknown-8bit" / "x-unknown" are RFC 1428 placeholders some MTAs (QQ
@@ -559,12 +634,6 @@ def _safe_decode(payload: bytes, charset: "Optional[str]") -> str:
     return payload.decode("latin-1", errors="replace")
 
 
-# ------------------------------------------------------------------
-# End of [PATCH-9] helpers. See _decode_header_value() and
-# _extract_text_body() below for the call-site edits (also [PATCH-9]).
-# ------------------------------------------------------------------
-
-
 def _decode_header_value(raw: str) -> str:
     """Decode an RFC 2047 encoded email header into a plain string.
 
@@ -573,12 +642,12 @@ def _decode_header_value(raw: str) -> str:
     """
     try:
         parts = decode_header(raw)
-    except Exception:  # malformed RFC 2047 structure  [PATCH-9]
+    except Exception:  # malformed RFC 2047 structure
         return raw
     decoded = []
     for part, charset in parts:
         if isinstance(part, bytes):
-            decoded.append(_safe_decode(part, charset))  # [PATCH-9]
+            decoded.append(_safe_decode(part, charset))
         else:
             decoded.append(part)
     return " ".join(decoded)
@@ -596,7 +665,7 @@ def _extract_text_body(msg: email_lib.message.Message) -> str:
             if content_type == "text/plain":
                 payload = part.get_payload(decode=True)
                 if payload:
-                    return _safe_decode(payload, part.get_content_charset())  # [PATCH-9]
+                    return _safe_decode(payload, part.get_content_charset())
         # Fallback: try text/html and strip tags
         for part in msg.walk():
             content_type = part.get_content_type()
@@ -606,13 +675,13 @@ def _extract_text_body(msg: email_lib.message.Message) -> str:
             if content_type == "text/html":
                 payload = part.get_payload(decode=True)
                 if payload:
-                    html = _safe_decode(payload, part.get_content_charset())  # [PATCH-9]
+                    html = _safe_decode(payload, part.get_content_charset())
                     return _strip_html(html)
         return ""
     else:
         payload = msg.get_payload(decode=True)
         if payload:
-            text = _safe_decode(payload, msg.get_content_charset())  # [PATCH-9]
+            text = _safe_decode(payload, msg.get_content_charset())
             if msg.get_content_type() == "text/html":
                 return _strip_html(text)
             return text
@@ -822,6 +891,15 @@ def _extract_attachments(
 class EmailAdapter(BasePlatformAdapter):
     """Email gateway adapter using IMAP (receive) and SMTP (send)."""
 
+    # Per-account snapshot of seen UIDs, surviving adapter recreation.
+    # The gateway's reconnect watcher builds a FRESH adapter instance for
+    # each retry; without this, connect(is_reconnect=True) would re-mark the
+    # entire mailbox seen and silently skip every message that arrived
+    # during the outage. Keyed by account address (multiplex gateways can
+    # run several email accounts in one process). Same-process only by
+    # design — after a full restart the usual mark-all-seen baseline applies.
+    _seen_uids_snapshot: Dict[str, set] = {}
+
     def __init__(self, config: PlatformConfig):
         super().__init__(config, Platform.EMAIL)
 
@@ -903,6 +981,11 @@ class EmailAdapter(BasePlatformAdapter):
         self._seen_uids: set = set()
         self._seen_uids_max: int = 2000  # cap to prevent unbounded memory growth
         self._poll_task: Optional[asyncio.Task] = None
+
+        # Track the last IMAP fetch attempt so the poll loop can distinguish
+        # "checked, nothing new" from "the check itself failed" (#80016).
+        self._last_fetch_failed: bool = False
+        self._last_fetch_error: str = ""
 
         # Map chat_id (sender email) -> last subject + message-id for threading
         self._thread_context: Dict[str, Dict[str, str]] = {}
@@ -1192,28 +1275,70 @@ class EmailAdapter(BasePlatformAdapter):
             self._ensure_folder(imap, self._sent_folder)
 
             imap.select("INBOX")
-            # [PATCH-4] Pre-fill _seen_uids ONLY when not opted in to processing
-            # existing INBOX mail. Upstream always pre-fills (= ignore everything
-            # already there); with process_existing=true (config.yaml) we leave
-            # the set empty so the next poll picks up the historical UNSEEN backlog.
-            if not self._process_existing:
-                status, data = imap.uid("search", None, "ALL")
-                if status == "OK" and data and data[0]:
-                    for uid in data[0].split():
-                        self._seen_uids.add(uid)
+            snapshot = self._seen_uids_snapshot.get(self._address)
+            if is_reconnect and snapshot is not None:
+                # [UPSTREAM v2026.8.13] Reconnect within the same process:
+                # restore the previous adapter's seen-UID baseline instead of
+                # re-marking the whole mailbox. Mail that arrived during the
+                # outage stays UNSEEN relative to the baseline and is
+                # dispatched by the next poll instead of being silently
+                # skipped. Orthogonal to our process_existing knob below —
+                # this branch only fires on a same-process RECONNECT, never
+                # on a cold start, so it composes cleanly with [PATCH-4].
+                self._seen_uids = set(snapshot)
                 self._trim_seen_uids()
+                imap.logout()
                 logger.info(
-                    "[Email] IMAP connection test passed. %d existing messages skipped.",
+                    "[Email] IMAP reconnect test passed. Restored %d seen UIDs; "
+                    "messages received during the outage will be processed.",
                     len(self._seen_uids),
                 )
             else:
-                logger.info(
-                    "[Email] IMAP connection test passed. process_existing=true — "
-                    "will process pre-existing UNSEEN mail on first poll."
-                )
-            imap.logout()
+                # [PATCH-4] First connect (or no snapshot yet): pre-fill
+                # _seen_uids ONLY when not opted in to processing existing
+                # INBOX mail. Upstream's fallback here always pre-fills (=
+                # ignore everything already there); with process_existing=true
+                # (config.yaml) we leave the set empty so the next poll picks
+                # up the historical UNSEEN backlog.
+                if not self._process_existing:
+                    status, data = imap.uid("search", None, "ALL")
+                    if status == "OK" and data and data[0]:
+                        for uid in data[0].split():
+                            self._seen_uids.add(uid)
+                    self._trim_seen_uids()
+                    imap.logout()
+                    logger.info(
+                        "[Email] IMAP connection test passed. %d existing messages skipped.",
+                        len(self._seen_uids),
+                    )
+                else:
+                    imap.logout()
+                    logger.info(
+                        "[Email] IMAP connection test passed. process_existing=true — "
+                        "will process pre-existing UNSEEN mail on first poll."
+                    )
+            # [UPSTREAM v2026.8.13] Keep the reconnect snapshot current after
+            # either branch above, so a later same-process reconnect restores
+            # whatever baseline this connect (cold-start or reconnect) landed
+            # on.
+            self._seen_uids_snapshot[self._address] = set(self._seen_uids)
         except Exception as e:
             logger.error("[Email] IMAP connection failed: %s", e)
+            # Always set an explicit fatal code (OOF-156): returning False
+            # with no error info made the gateway treat every IMAP failure —
+            # including permanently bad credentials — as transient, retrying
+            # forever with zero owner signal ("stuck retrying 22h").
+            # Kept retryable=True deliberately: imaplib raises the same
+            # generic IMAP4.error for bad credentials AND transient server
+            # NOs (e.g. Gmail's "too many simultaneous connections"), so a
+            # type-based terminal classification isn't safe here. Long-lived
+            # loops surface via the reconnect watcher's NEEDS_ATTENTION
+            # escalation instead.
+            self._set_fatal_error(
+                "email_imap_connect_error",
+                f"IMAP connection to {self._imap_host}:{self._imap_port} failed: {e}",
+                retryable=True,
+            )
             return False
 
         try:
@@ -1224,8 +1349,27 @@ class EmailAdapter(BasePlatformAdapter):
             finally:
                 smtp.quit()
             logger.info("[Email] SMTP connection test passed.")
+        except smtplib.SMTPAuthenticationError as e:
+            logger.error("[Email] SMTP authentication failed: %s", e)
+            # Typed auth failure (535 & friends): bad or revoked credentials
+            # can never self-heal, so drop out of the reconnect queue instead
+            # of retrying a dead password forever (OOF-156). Type-based only —
+            # SMTPAuthenticationError is unambiguous, unlike IMAP4.error above.
+            self._set_fatal_error(
+                "email_auth_error",
+                f"SMTP authentication failed for {self._address}: {e}. "
+                "Check EMAIL_PASSWORD (for Gmail/Outlook this must be an "
+                "app password, not the account password).",
+                retryable=False,
+            )
+            return False
         except Exception as e:
             logger.error("[Email] SMTP connection failed: %s", e)
+            self._set_fatal_error(
+                "email_smtp_connect_error",
+                f"SMTP connection to {self._smtp_host} failed: {e}",
+                retryable=True,
+            )
             return False
 
         self._running = True
@@ -1261,8 +1405,29 @@ class EmailAdapter(BasePlatformAdapter):
         # Run IMAP operations in a thread to avoid blocking the event loop
         loop = asyncio.get_running_loop()
         messages = await loop.run_in_executor(None, self._fetch_new_messages)
+        # [UPSTREAM v2026.8.13] Dispatch whatever the fetch managed to return
+        # BEFORE escalating a failure: on a mid-batch exception
+        # _fetch_new_messages returns the partial results, and dropping them
+        # here would lose those messages (their processing already marked
+        # them seen).
         for msg_data in messages:
             await self._dispatch_message(msg_data)
+        if self._last_fetch_failed:
+            # [UPSTREAM v2026.8.13] The IMAP check itself failed
+            # (connect/login/select/search/fetch), not just an empty inbox.
+            # Surface it through the fatal-error hook so the gateway's
+            # existing reconnect/backoff/status machinery re-establishes the
+            # mailbox instead of silently treating every failed check as
+            # "nothing new" (#80016). The handler runs in a detached task
+            # (gateway/run.py), so awaiting it from our own poll task is safe
+            # even though teardown cancels this task.
+            self._last_fetch_failed = False
+            self._set_fatal_error(
+                "email_imap_fetch_failed",
+                self._last_fetch_error or "IMAP fetch failed",
+                retryable=True,
+            )
+            await self._notify_fatal_error()
 
     def _fetch_new_messages(self) -> List[Dict[str, Any]]:
         """Fetch new (unseen) messages from IMAP. Runs in executor thread."""
@@ -1279,21 +1444,27 @@ class EmailAdapter(BasePlatformAdapter):
                 for uid in data[0].split():
                     if uid in self._seen_uids:
                         continue
+
+                    status, msg_data = imap.uid("fetch", uid, "(RFC822)")
+                    if status != "OK":
+                        # [UPSTREAM v2026.8.13] Transient per-UID fetch
+                        # refusal: leave the UID out of _seen_uids so the
+                        # next poll retries it.
+                        continue
+
+                    # [UPSTREAM v2026.8.13] IMAP fetch can return unexpected
+                    # structures (e.g. a single bytes item instead of a list
+                    # of tuples). Mark the UID seen once a response arrived
+                    # (even a malformed one) so a garbage response is skipped
+                    # once, not retried forever — but NOT before the fetch: a
+                    # connection failure above must leave the remaining batch
+                    # eligible for the next poll instead of permanently
+                    # skipping it (#80032 review).
                     self._seen_uids.add(uid)
                     # Trim periodically to prevent unbounded memory growth
                     if len(self._seen_uids) > self._seen_uids_max:
                         self._trim_seen_uids()
 
-                    status, msg_data = imap.uid("fetch", uid, "(RFC822)")
-                    if status != "OK":
-                        continue
-
-                    # [UPSTREAM v2026.7.7.2] IMAP fetch can return unexpected
-                    # structures (e.g. a single bytes item instead of a list of
-                    # tuples). Guard against IndexError / TypeError so one
-                    # malformed response doesn't abort the batch — the UID is
-                    # already in _seen_uids, so an abort would permanently skip
-                    # the remaining messages in this batch.
                     try:
                         raw_email = msg_data[0][1]
                     except (IndexError, TypeError):
@@ -1305,79 +1476,57 @@ class EmailAdapter(BasePlatformAdapter):
                     if not isinstance(raw_email, (bytes, bytearray)):
                         logger.warning("[Email] Non-bytes IMAP payload for UID %s, skipping", uid)
                         continue
-                    msg = email_lib.message_from_bytes(raw_email)
-
-                    sender_raw = msg.get("From", "")
-                    sender_addr = _extract_email_address(sender_raw)
-                    sender_name = _decode_header_value(sender_raw)
-                    # Remove email from name if present
-                    if "<" in sender_name:
-                        sender_name = sender_name.split("<")[0].strip().strip('"')
-
-                    subject = _decode_header_value(msg.get("Subject", "(no subject)"))
-                    message_id = msg.get("Message-ID", "")
-                    in_reply_to = msg.get("In-Reply-To", "")
-                    # Skip automated/noreply senders before any processing
-                    msg_headers = dict(msg.items())
-                    if _is_automated_sender(sender_addr, msg_headers):
-                        logger.debug("[Email] Skipping automated sender: %s", sender_addr)
+                    # [UPSTREAM v2026.8.13] Per-message processing guard: one
+                    # poison message (unparseable headers, pathological
+                    # attachment, DNS hiccup in SPF/DKIM verification) must
+                    # not abort the batch or escalate to a reconnect — it is
+                    # already marked seen above, so log the UID and move on
+                    # (#80032 review).
+                    try:
+                        parsed = self._parse_fetched_message(uid, raw_email)
+                    except Exception as parse_exc:
+                        logger.error(
+                            "[Email] Failed to process message UID %s, skipping: %s",
+                            uid,
+                            parse_exc,
+                        )
                         continue
-
-                    # Verify the From: domain is authenticated (SPF/DKIM/DMARC)
-                    # while the raw message — and its trusted
-                    # Authentication-Results header — is still in scope. The
-                    # verdict is consumed at dispatch where authorization is
-                    # decided. From: is attacker-controlled, so this is the only
-                    # place a spoof can be caught (GHSA-rxqh-5572-8m77).
-                    sender_authenticated, auth_reason = _verify_sender_authentication(
-                        msg, sender_addr, authserv_id=self._authserv_id
-                    )
-
-                    body = _extract_text_body(msg)
-                    attachments = _extract_attachments(msg, skip_attachments=self._skip_attachments)
-
-                    # [PATCH-5] Two-stage move: park the mail in
-                    # ``self._working_folder`` while the agent runs, so a
-                    # crash mid-processing leaves a visible "in-flight" trail.
-                    # Gated on the FULL lifecycle being enabled:
-                    #   - done_folder must be set, else there are no moves at all
-                    #     (done_folder="" = INBOX + \\Seen); moving to Working with
-                    #     no Done would strand the mail there.
-                    #   - a Message-ID must be present: the mail is re-located in
-                    #     Working by Message-ID for the final MOVE → Done (UIDs do
-                    #     not survive a MOVE), so without one it could not advance.
-                    # Mail that skips the Working move stays in INBOX and is moved
-                    # straight to Done by _finalize_message (when done is set).
-                    source_folder = "INBOX"
-                    if self._done_folder and self._working_folder and message_id:
-                        if self._imap_move(imap, uid, self._working_folder):
-                            source_folder = self._working_folder
-                        else:
-                            logger.warning(
-                                "[Email] Working-folder MOVE failed for UID %s "
-                                "— continuing with mail still in INBOX",
-                                uid,
-                            )
-
-                    results.append(
-                        {
-                            "uid": uid,
-                            "sender_addr": sender_addr,
-                            "sender_name": sender_name,
-                            "subject": subject,
-                            "message_id": message_id,
-                            "in_reply_to": in_reply_to,
-                            "body": body,
-                            "attachments": attachments,
-                            "date": msg.get("Date", ""),
-                            "sender_authenticated": sender_authenticated,
-                            "auth_reason": auth_reason,
-                            # [PATCH-5] Carries the folder where the mail now lives
-                            # so _dispatch_message → _finalize_message knows where
-                            # to look it up for the final MOVE → Done.
-                            "source_folder": source_folder,
-                        }
-                    )
+                    if parsed is not None:
+                        # [PATCH-5] Two-stage move: park the mail in
+                        # self._working_folder while the agent runs, so a
+                        # crash mid-processing leaves a visible "in-flight"
+                        # trail. Gated on the FULL lifecycle being enabled:
+                        #   - done_folder must be set, else there are no
+                        #     moves at all (done_folder="" = INBOX + \Seen);
+                        #     moving to Working with no Done would strand the
+                        #     mail there.
+                        #   - a Message-ID must be present: the mail is
+                        #     re-located in Working by Message-ID for the
+                        #     final MOVE -> Done (UIDs do not survive a
+                        #     MOVE), so without one it could not advance.
+                        # Mail that skips the Working move stays in INBOX and
+                        # is moved straight to Done by _finalize_message
+                        # (when done is set). Runs here (the caller), not
+                        # inside _parse_fetched_message, because it needs the
+                        # still-open `imap` connection and must not run for a
+                        # message that failed to parse or was silently
+                        # skipped (automated senders return None above).
+                        source_folder = "INBOX"
+                        if self._done_folder and self._working_folder and parsed["message_id"]:
+                            if self._imap_move(imap, uid, self._working_folder):
+                                source_folder = self._working_folder
+                            else:
+                                logger.warning(
+                                    "[Email] Working-folder MOVE failed for UID %s "
+                                    "— continuing with mail still in INBOX",
+                                    uid,
+                                )
+                        # [PATCH-5] Carries the folder where the mail now
+                        # lives so _dispatch_message -> _finalize_message
+                        # knows where to look it up for the final MOVE ->
+                        # Done.
+                        parsed["source_folder"] = source_folder
+                        results.append(parsed)
             finally:
                 try:
                     imap.logout()
@@ -1385,7 +1534,72 @@ class EmailAdapter(BasePlatformAdapter):
                     pass
         except Exception as e:
             logger.error("[Email] IMAP fetch error: %s", e)
+            # [UPSTREAM v2026.8.13] Surfaced via _check_inbox()'s fatal-error
+            # hook after this batch's partial results have been dispatched.
+            self._last_fetch_failed = True
+            self._last_fetch_error = str(e)
+        # [UPSTREAM v2026.8.13] Keep the reconnect snapshot current with every
+        # poll so a mid-outage adapter recreation restores an up-to-date
+        # baseline: stale snapshots would re-dispatch messages this instance
+        # already processed.
+        self._seen_uids_snapshot[self._address] = set(self._seen_uids)
         return results
+
+    def _parse_fetched_message(self, uid: bytes, raw_email: "bytes | bytearray") -> Optional[Dict[str, Any]]:
+        """Parse one fetched RFC822 payload into a dispatchable dict.
+
+        [UPSTREAM v2026.8.13] Returns ``None`` for messages that should be
+        silently skipped (automated/noreply senders). Raises on pathological
+        input — the caller's per-message guard logs the UID and continues, so
+        a poison message never aborts the batch or escalates to a reconnect.
+        Split out of the inline _fetch_new_messages loop body by the upstream
+        a7f0abc845 refactor; the [PATCH-5] Working-folder MOVE stays in the
+        caller (see the comment there) since this method has no `imap` handle.
+        """
+        msg = email_lib.message_from_bytes(raw_email)
+
+        sender_raw = msg.get("From", "")
+        sender_addr = _extract_email_address(sender_raw)
+        sender_name = _decode_header_value(sender_raw)
+        # Remove email from name if present
+        if "<" in sender_name:
+            sender_name = sender_name.split("<")[0].strip().strip('"')
+
+        subject = _decode_header_value(msg.get("Subject", "(no subject)"))
+        message_id = msg.get("Message-ID", "")
+        in_reply_to = msg.get("In-Reply-To", "")
+        # Skip automated/noreply senders before any processing
+        msg_headers = dict(msg.items())
+        if _is_automated_sender(sender_addr, msg_headers):
+            logger.debug("[Email] Skipping automated sender: %s", sender_addr)
+            return None
+
+        # Verify the From: domain is authenticated (SPF/DKIM/DMARC)
+        # while the raw message — and its trusted
+        # Authentication-Results header — is still in scope. The
+        # verdict is consumed at dispatch where authorization is
+        # decided. From: is attacker-controlled, so this is the only
+        # place a spoof can be caught (GHSA-rxqh-5572-8m77).
+        sender_authenticated, auth_reason = _verify_sender_authentication(
+            msg, sender_addr, authserv_id=self._authserv_id
+        )
+
+        body = _extract_text_body(msg)
+        attachments = _extract_attachments(msg, skip_attachments=self._skip_attachments)
+
+        return {
+            "uid": uid,
+            "sender_addr": sender_addr,
+            "sender_name": sender_name,
+            "subject": subject,
+            "message_id": message_id,
+            "in_reply_to": in_reply_to,
+            "body": body,
+            "attachments": attachments,
+            "date": msg.get("Date", ""),
+            "sender_authenticated": sender_authenticated,
+            "auth_reason": auth_reason,
+        }
 
     @staticmethod
     def _allow_all_senders() -> bool:
@@ -1570,9 +1784,8 @@ class EmailAdapter(BasePlatformAdapter):
     def _message_id_domain(self) -> str:
         """Domain part for generated Message-IDs.
 
-        [UPSTREAM v2026.7.7.2] EMAIL_ADDRESS may lack an ``@``
-        (misconfiguration); fall back to ``localhost`` instead of crashing
-        send with an IndexError.
+        EMAIL_ADDRESS may lack an ``@`` (misconfiguration); fall back to
+        ``localhost`` instead of crashing send with an IndexError.
         """
         if "@" in self._address:
             return self._address.rsplit("@", 1)[-1] or "localhost"
