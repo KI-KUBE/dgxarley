@@ -1,9 +1,12 @@
 #
-# SGLang v0.5.17 + our SM121 build patches. Next line, NOT YET BUILT and NOT
-# GPU-VALIDATED — production stays on sglang-0.5.16-sm121.recipe (the recipe
-# behind default_sglang_image) until this one has been through the acceptance
-# gate and a real serving run. Created 2026-08-09 to evaluate the v0.5.17 line
-# (released 2026-08-08, 582 PRs / 194 contributors).
+# SGLang v0.5.17 + our SM121 build patches. Created 2026-08-09 to evaluate the
+# v0.5.17 line (released 2026-08-08, 582 PRs / 194 contributors). The
+# FLASHINFER_VERSION=0.6.16.post3 form of this recipe WAS built, passed the
+# acceptance gate (OPEN RISK A) and is what default_sglang_image points at
+# today. As of the 2026-08-15 flashinfer bump to 0.6.17 the file again
+# describes a variant that is NOT YET BUILT and NOT GPU-VALIDATED: rebuild plus
+# acceptance gate plus a real serving run before it goes in front of anything,
+# and mind the IMAGE_TAG collision noted in the FLASHINFER_VERSION block.
 #
 # THE HEADLINE: the sgl-kernel TREE MOVED. RFC #29630 ("sweep dedicated kernels
 # into kernels.ops") finished in v0.5.17 and relocated the entire top-level
@@ -33,7 +36,8 @@
 #      names, so the Dockerfile step is unchanged. It WINS over
 #      SGL_KERNEL_MAINAHEAD (which stays 1 below purely as provenance: the
 #      -v0.5.17 files carry the mainahead content).
-#   4. FLASHINFER_VERSION 0.6.16 → 0.6.16.post3. See the block below.
+#   4. FLASHINFER_VERSION 0.6.16 → 0.6.17 (was 0.6.16.post3 from 2026-08-09
+#      until the 2026-08-15 bump). See the block below.
 #   5. TILELANG_PATCH_VARIANT stays "-v0.5.16" — the FILE NAME is a generation
 #      label, not a ref restriction; the variant was re-verified clean against
 #      v0.5.17 (see PATCH VERIFY).
@@ -132,8 +136,9 @@
 #      less CI coverage on this ref than on v0.5.16. And the FlashInfer
 #      rmsnorm+quant fusion for SM90/SM100/SM120 was landed AND reverted this
 #      cycle (#32994, #33455) — it is NOT in this release, so do not expect it.
-#   E. flashinfer is again ahead of SGLang's own pin (0.6.15.post1). Rollback
-#      order in the FLASHINFER_VERSION block.
+#   E. flashinfer is ahead of the v0.5.17 TAG's own pin (0.6.15.post1), but as
+#      of the 0.6.17 bump it MATCHES the pin SGLang main has already moved to
+#      (==0.6.17). Rollback order in the FLASHINFER_VERSION block.
 #   F. INHERITED: NVFP4 ATTENTION on SM121 (flashinfer #3897) is still only
 #      KERNEL-level verified (2026-07-28 on spark5), never validated end to end
 #      through SGLang with a real uniform-NVFP4 model. Judge output quality by
@@ -155,44 +160,81 @@ TARGET=runtime
 
 BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
 
-# flashinfer 0.6.16.post3 (2026-08-08). Patch bump over the 0.6.16 final that
-# the 0.5.16 image ships; the whole 0.6.16 SM121 rationale from that recipe
-# (#3897 NVFP4 attention on SM121, #3838 SM120 qk_correction/lse correctness,
-# #3960 GDN CuteDSL as sm_121a on DGX Spark, #3922 cutlass-dsl 4.6 API
-# migration) carries over UNCHANGED — the three post releases add no SM12x
-# feature work at all. What they DO add (compare v0.6.16...v0.6.16.post3 is
-# exactly 3 commits):
-#   • post1 — release-branch bookkeeping, no functional delta vs 0.6.16.
-#   • post2 — picks up the tvm-ffi v0.1.13-post2 ABI-compatibility hotfix.
-#     THIS is the reason for the bump. tvm-ffi is the FFI layer every flashinfer
-#     kernel binding loads through, and upstream explicitly recommends moving to
-#     it ("We recommend upgrading to this latest version").
-#   • post3 — reverts #3738 (SM90 CUTLASS MoE backend) + dependents #4025/#4080
-#     on the release branch. Hopper-only path, inert on GB10.
-# Wheels verified 2026-08-09 on https://flashinfer.ai/whl — all three packages
-# exist at 0.6.16.post3, including the one that matters for arm64:
-#   flashinfer-python    0.6.16.post3  (py3-none-any)
-#   flashinfer-cubin     0.6.16.post3  (py3-none-any)   ← not on PyPI, only here
-#   flashinfer-jit-cache 0.6.16.post3+cu130 manylinux_2_28_aarch64
+# flashinfer 0.6.17 (2026-08-11, GitHub "Latest"). Bumped 2026-08-15 from
+# 0.6.16.post3, which is what the first, acceptance-gated 0.5.17-sm121 image was
+# built on. The whole 0.6.16 SM121 rationale from the 0.5.16 recipe (#3897 NVFP4
+# attention on SM121, #3838 SM120 qk_correction/lse correctness, #3960 GDN
+# CuteDSL as sm_121a on DGX Spark, #3922 cutlass-dsl 4.6 API migration) carries
+# over UNCHANGED. What is NEW is that 0.6.17 adds SM12x KERNEL work on top, so
+# unlike the post1/post2/post3 bookkeeping bumps this one changes code we run.
 #
-# NOT taken: 0.6.17. It exists only as RCs (rc5 as of 2026-08-08) and the
-# stable-only pin policy from the 0.5.16 recipe stands. Worth taking the moment
-# it goes final — it carries real SM12x work: #4117 GDN WY decode on SM121,
-# #3903 trtllm_allreduce extended to SM12x, #4130 cute SM120 fused MoE (SwiGLU),
-# #4253 mm_fp4 SM120 NVFP4 dense GEMM synced to b12x HEAD, #4161 xqa flaky-test
-# fix "on spark".
+# The stable-only pin policy is satisfied: this recipe was written on 2026-08-09
+# when 0.6.17 existed only as RCs (rc5), it went final 2026-08-11. SGLang main
+# has meanwhile moved its own pyproject pin to flashinfer_python==0.6.17 (the
+# v0.5.17 TAG still says ==0.6.15.post1), so the pin now tracks where upstream
+# is going instead of running ahead of it.
+#
+# SM12x-relevant content, from the release notes and PR list (2026-08-15):
+#   #3932  b12x FP4 quantization NUMERICS FIX, plus a new input_global_scale
+#          that decouples weight from activation scale. Upstream's own summary:
+#          W4A4 serving on GB10/SM120/SM121 "now delivers the output quality its
+#          benchmark scores imply", two NVFP4 quantization bugs fixed. THE
+#          reason to take this release. It lands exactly on the open uniform-
+#          NVFP4 output-quality question (TURBOQUANT.md, the Hy3/HYV3 W4A4 NaN
+#          matrix), so re-run those quality checks instead of carrying the old
+#          verdicts forward.
+#   #4253  mm_fp4 SM120 NVFP4 dense GEMM synced to b12x HEAD.
+#   #4130  cute SM120 fused MoE (SwiGLU) via moe_gemm is_gated.
+#   #4117  GDN WY decode on SM121.
+#   #3903  trtllm_allreduce extended to SM12x (+ lamport buffer pointer packing).
+#   #4161  xqa flaky-test fix "on spark".
+#   #4380  DSV4 sparse-MLA top-k 192/256 consolidation (also in post4). Scoped
+#          to _DECODE_DSV4_DISPATCH; it does NOT touch _DECODE_DSV3_2_DISPATCH
+#          (the GLM_NSA path) or the four @supported_compute_capability([120,
+#          121]) decorators, so the p34/p35 GLM-5.2 DSA path is unaffected.
+#   #4411  the SM90 CUTLASS MoE revert (#3738 + dependents #4025/#4080) that
+#          post3 already carried as #4412. Hopper-only, inert on GB10.
+#   #4101  the CuTe-DSL RUNTIME FLOOR drops back to 4.5.2 (the version vLLM
+#          0.25.1 pins). That is a FLOOR, not a ceiling: CUTLASS_DSL_VERSION
+#          stays 4.6.1 and the 4.6.x-window rationale below is unaffected.
+#
+# SKIPPED on the way: 0.6.16.post4 (2026-08-10). Its only change is #4354, an
+# import fix for flashinfer.comm on Python 3.10/3.11; the image is Python 3.12,
+# so it is a no-op here either way, and 0.6.17 supersedes it.
+# tvm-ffi (the reason for the post2/post3 bump) does NOT regress: requires_dist
+# is identical between 0.6.16.post3 and 0.6.17 (apache-tvm-ffi>=0.1.6,<0.2 with
+# the 0.1.8 exclusions), i.e. the v0.1.13-post2 ABI hotfix comes from build-time
+# resolution, not from a flashinfer pin.
+#
+# Wheels verified 2026-08-15 on https://flashinfer.ai/whl, all three packages
+# exist at 0.6.17 including the one that matters for arm64:
+#   flashinfer-python    0.6.17  (py3-none-any)
+#   flashinfer-cubin     0.6.17  (py3-none-any)   <- not on PyPI, only here
+#   flashinfer-jit-cache 0.6.17+cu130 manylinux_2_28_aarch64
 #
 # ⚠️  MUST re-run the GB10 rmsnorm smoke test on the built image (see the
-#     CUTLASS_DSL_VERSION block): an ABI change in the FFI layer is precisely
-#     the class of change that can turn the CuTe-DSL dispatch into a silent
-#     CUDA-JIT fallback. Check _use_cuda_norm is False, not just that the
-#     output is finite.
-# Roll-back order: 0.6.16 (what 0.5.16-sm121 ships and is GPU-cleared on),
-# then 0.6.15.post1 (live-validated on 0.5.15.post1-sm121), then 0.6.15.post1
-# is also v0.5.17's own upstream pin.
+#     CUTLASS_DSL_VERSION block). The old reason stands (an FFI-layer ABI change
+#     can turn the CuTe-DSL dispatch into a silent CUDA-JIT fallback) and this
+#     release adds a second one: it resyncs the SM12x MoE and FP4 GEMM kernels
+#     wholesale. Check _use_cuda_norm is False, not just that the output is
+#     finite.
+# ⚠️  MUST re-measure NVFP4 throughput AND output quality. Do not carry over the
+#     numbers from the 0.6.16.post3 build of this recipe: #3932 changes FP4
+#     numerics and #4130/#4253 replace the SM120 MoE/GEMM kernels underneath the
+#     flashinfer_cutlass moe_runner_backend that the profiles pin.
+# ⚠️  IMAGE_TAG COLLISION: the tag at the bottom is unchanged and
+#     default_sglang_image already points at it, so a rebuild REPLACES the
+#     running production image content under the same name. That is the mutable-
+#     tag trap from reference_cutlass_dsl_wheel_swap. Give this build its own
+#     tag, or rebuild deliberately with the pods scaled down.
+# Roll-back order: 0.6.16.post3 (what the first 0.5.17-sm121 build shipped and
+# passed the acceptance gate on), then 0.6.16 (GPU-cleared on 0.5.16-sm121),
+# then 0.6.15.post1 (live-validated on 0.5.15.post1-sm121, and also the v0.5.17
+# tag's own upstream pin).
 # FLASHINFER_VERSION=0.6.15.post1
 # FLASHINFER_VERSION=0.6.16
-FLASHINFER_VERSION=0.6.16.post3
+# FLASHINFER_VERSION=0.6.16.post3
+FLASHINFER_VERSION=0.6.17
 
 # transformers 5.12.1 — exactly v0.5.17's pyproject pin (==5.12.1, unchanged
 # since v0.5.15). Do NOT bump past the SGLang ref (no perf benefit, transformers
