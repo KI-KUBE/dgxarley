@@ -117,6 +117,37 @@ pattern, byte-for-byte the same bug as documented). vLLM v0.26.0 release notes c
 no `moe_wna16`/qzeros/`expert_parallel` fix. vLLM PR #35598 is still OPEN, no activity
 since 2026-05-23. Bug (a) remains unpatched through vLLM v0.26.0.
 
+**Re-verified 2026-08-15:** SGLang **v0.5.17** (tag `b6a09f38f`, 2026-08-08) is
+still the latest release, no new SGLang release since the 2026-07-28 check.
+The v0.5.17 release notes contain no `moe_wna16`/qzeros/`flashinfer_cutlass`/
+`input_scale`/`expert_parallel` mentions. Source-confirmed on the v0.5.17 tag:
+`moe_wna16.py` still has `tp_rank = get_parallel().tp_rank` at line 458, and
+the unguarded `param.data[expert_id, ...]` indexing is unchanged in both the
+`w13_qzeros` branch (lines 500/502) and the `w2_qzeros` branch (line 504),
+byte-for-byte the same bug, only line-shifted from the doc's earlier v0.5.9
+reference (491-504). Bug (b), the `modelopt_quant.py` `else`-branch
+`input_scale` EP-slicing gap, drifted to ~line 2278 on v0.5.17
+(`w13_input_scale = layer.w13_input_scale.max(dim=-1).values.to(torch.float32)`,
+still no EP slice); the `_slice_scale()` helper (lines 2262-2272) remains
+confined to the `elif` `flashinfer_cutlass`/`trtllm` branch. On the vLLM side,
+**v0.27.0 released 2026-08-10** and **v0.27.1 released 2026-08-11** (latest):
+release notes have no `moe_wna16`/qzeros/`expert_parallel` hits, and
+`vllm/model_executor/layers/quantization/moe_wna16.py` on the v0.27.1 tag
+still has `tp_rank = get_tensor_model_parallel_rank()` at line 575 with the
+same unguarded pattern at lines 613-625, bug unchanged, line-shifted from the
+doc's 492-505. PR/issue states re-checked: vLLM #35598 still OPEN, idle since
+2026-05-23; SGLang #23531 still OPEN, idle since 2026-04-30; #21612 still
+OPEN, idle since 2026-03-29 (moot, SHARDED_STATE already fixed via #25820);
+#20963 still OPEN, idle since 2026-05-27; #21630/#20869 remain CLOSED
+(2026-06-18). Issue #24502 is still OPEN with new activity, three comments on
+2026-06-29/07-16/07-17 (`ronhuafeng`, `b8zhong`, `kenzhangwangshu`) converging
+on `flashinfer_cutedsl` + DeepEP + `low_latency` (#25525) as the intended path
+instead of `flashinfer_trtllm`. This is a Blackwell/DeepEP topic, not directly
+relevant to SM121/GB10, and offers no fix for the bugs tracked here. All three
+monkey-patches (p20, p23, p28) remain consistent with the current state. Our
+cluster image is now `xomoxcc/dgx-spark-sglang:0.5.17-sm121` (repo commit
+`59d7912`).
+
 - vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, not merged. Author rebased onto `main` on 2026-04-13 (commit `c56eae0e`, merge-from-main only, no code changes); prior rebase 2026-03-05. Still only the initial Gemini bot review from 2026-02-28 — no human reviewer has engaged (mergify[bot] flagged a merge conflict 2026-05-23; 5 reviewers requested, none engaged; re-verified 2026-06-11)
 - vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch. **Closed without merge 2026-04-25** by author (`weiguangli-io`) citing 8+ weeks with no maintainer review; offered to reopen if it becomes relevant. The sub-bug it fixed (kernel dispatch num_experts) remains unaddressed in vLLM `main`
 - SGLang: no upstream issue or PR filed
