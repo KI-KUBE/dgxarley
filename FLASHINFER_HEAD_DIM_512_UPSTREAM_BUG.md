@@ -1,5 +1,49 @@
 # FlashInfer Upstream Bug: head_dim=512 not supported (Gemma-4 global attention)
 
+## Status 2026-08-15 (re-verify, one new cross-reference)
+
+SGLang still **v0.5.17** (released 2026-08-08, still GitHub "Latest"); main
+HEAD at `0c072235` (2026-08-15T09:20:30Z). Two flashinfer releases shipped
+since the 2026-08-09 entry: **v0.6.16.post4** (2026-08-10, a Python 3.10/3.11
+`flashinfer.comm` import fix only, PR #4354) and **v0.6.17 stable**
+(2026-08-11, now GitHub "Latest", supersedes v0.6.16.post3/v0.6.17rc5;
+highlights are MoE EP production-readiness, an SM12x fused-MoE refresh with
+an FP4 accuracy fix, the unified MoE API for MXFP4, Kimi K3/MiniMax-M3
+decode, and Ulysses SP, plus the already-tracked SM90 CUTLASS MoE revert via
+PR #4411). Neither release touches this doc's tracked BF16/fp8 `head_dim=512`
+fix. Issue #3297 remains closed, PR #3576 remains merged, both unchanged. PR
+#25545 (merged 2026-08-01) remains out of scope, MTP-draft attention backend
+only, not the main-model allowlist tracked here.
+
+**New cross-reference:** flashinfer PR
+[#3684](https://github.com/flashinfer-ai/flashinfer/pull/3684)
+("feat(attention): asymmetric VO-split NVFP4 paged prefill (qk=512/vo=256)
+for Gemma-4 on SM120/121") merged to `main` 2026-08-13T01:14:01Z as commit
+`8f9ad2000d`, the first commit touching `prefill.cuh`/`persistent.cuh` since
+before 2026-08-01, i.e. it touches the exact watched files this doc tracks.
+It is **not** the same fix as #3576, though: it adds NVFP4 (4-bit) KV-cache
+attention for Gemma-4's asymmetric `head_dim_qk=512`/`head_dim_vo=256`
+global-attention layers, keys `CTA_TILE_Q` on `head_dim_qk`, adds a
+`DISPATCH_GQA_GROUP_SIZE` case for `group_size==6`, and fixes a standalone
+NVFP4 split-KV correctness bug (radix/prefix-cache accuracy cliff with 4-bit
+KV, split-KV gated off for NVFP4 dtype). Author-validated on RTX 5090/RTX PRO
+6000 (SM120) and GB10/DGX Spark (SM121) via vLLM, not SGLang; no SGLang-side
+adoption PR exists; not in any stable release (merged after v0.6.17), first
+appears in nightly `v0.6.18-20260813`. This is a **different KV dtype**
+(NVFP4) than this doc's tracked fix (Q=bf16, KV=bf16|fp8_e4m3), noted here
+using the same cross-reference pattern as the existing PR #25545 note, so it
+is not mistaken for movement on the tracked BF16/fp8 head_dim=512 gap. No
+cluster profile uses NVFP4 KV cache today (all `fp8_e4m3`), so no immediate
+action.
+
+Source-verified: the Gemma4 attention-backend allowlist in `server_args.py`
+is content byte-identical between the v0.5.17 tag and current `main` HEAD,
+but the line numbers have drifted since `main` grew from 9560 to 9861 lines:
+`_handle_model_specific_adjustments` is now at line 5163 on `main` (5039 on
+the tag), and the allowlist tuple/assert are now at 5601/5606 on `main`
+(5459/5464 on the tag). `attention_backend: triton` remains permanently
+mandatory for all four Gemma-4 profiles.
+
 ## Status 2026-08-09 (re-verify only, no change)
 
 SGLang **v0.5.17** released 2026-08-08 — the Gemma4 attention-backend

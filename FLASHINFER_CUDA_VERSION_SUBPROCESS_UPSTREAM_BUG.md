@@ -470,6 +470,22 @@ the reland #4280 merged 2026-07-30). **Patch 1
 (`p60_flashinfer_cuda_version.py`) remains mandatory; no upstream fix
 exists.**
 
+**Re-verified 2026-08-15:** `flashinfer/jit/cpp_ext.py:get_cuda_version()`
+**still** calls `subprocess.check_output([nvcc, "--version"])`
+unconditionally on the happy path, verified against `main` HEAD `8044d94b`
+(2026-08-15T05:34:10Z). Zero commits to the file since 2026-08-01. New
+releases since the 2026-08-03 check: **v0.6.16.post2**, **v0.6.16.post3**,
+**v0.6.16.post4** (2026-08-10), **v0.6.17rc5**, and **v0.6.17 stable**
+(2026-08-11, now GitHub "Latest"), none touch `cpp_ext.py`. **Patch 1
+remains mandatory; no upstream fix exists.**
+
+Housekeeping note: the cluster now runs
+`xomoxcc/dgx-spark-sglang:0.5.17-sm121`; recipe
+`scripts/patches/sglang-0.5.17-sm121.recipe` pins
+`FLASHINFER_VERSION=0.6.16.post3`. Stock SGLang v0.5.17's `pyproject.toml`
+pins `flashinfer_python==0.6.15.post1`, while SGLang `main` has already moved
+that pin to `==0.6.17`.
+
 **File locations updated (repo housekeeping, not an upstream change):** the
 runtime patches described throughout this document as living inside
 `sglang_launch.sh` (heredoc blocks `PATCH_FI_CUDA_VER_EOF` and
