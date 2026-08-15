@@ -76,7 +76,45 @@ DEEPGEMM / CUTEDSL / AITER, no `torch` value; no merged PR since 08-07
 touches `paged_mqa_logits_backend.py` or `dsa_indexer.py` dispatch.
 v0.5.17 contains no fix for this gap.
 
-## Proposed PR title
+Re-checked 2026-08-15: PR #31480 still **OPEN**, no new commits or comments
+since 2026-08-03, no `run-ci` label, `reviewDecision: REVIEW_REQUIRED`. REST
+API now reports `mergeable: false` / `mergeable_state: "dirty"` (was
+`"blocked"` on 2026-08-09): main has drifted since the 08-03 rebase, so
+#31480 needs another rebase (NOT done yet, pending approval). Companion
+#31481 remains `mergeable: true` / `"blocked"`. `DSAPagedMQALogitsBackend`
+on `main` unchanged (still only DEEPGEMM / CUTEDSL / AITER). Merged
+DSA-touching PRs since 08-08 (#32755, #33006, #34443, #34167) add no
+arch-independent backend. SGLang still at v0.5.17, no new release.
+
+New finding to flag (needs live verification, do NOT treat as resolved):
+this doc frames DeepGEMM's `auto` default as asserting "Unsupported
+architecture" on SM120/121 because deepseek-ai/DeepGEMM declined SM12x
+support (PR #318, still an unmerged PoC). But sglang actually vendors
+`sgl-deep-gemm` (fork `sgl-project/DeepGEMM`, tracking an NVIDIA-maintained
+`nv_dev` branch), which merged first-class SM120/SM121 support via DeepGEMM
+PR #324 on 2026-06-24, including dedicated `sm120_fp8_paged_mqa_logits.cuh`
+/ `sm120_fp4_paged_mqa_logits.cuh` kernels. Those SM120 paged-MQA-logits
+kernel files are present in the sgl-deep-gemm wheel from version 0.1.5
+(2026-07-24) onward, i.e. already in `sgl-deep-gemm==0.1.5.post1`, which
+v0.5.17's `pyproject.toml` pins (sglang `main` now pins `0.1.5.post3`,
+released 2026-08-15T01:11Z). UNVERIFIED whether sglang's JIT/dispatch layer
+actually selects these SM120 templates at runtime, or whether another gate
+still forces the assert; needs a live GB10 test (pending approval, do NOT
+claim it works). Note that p30/p35 may still be worth keeping for the
+Triton fast-path perf win even if deepgemm now boots.
+
+Follow-up same day (2026-08-15, approved): #31480 rebased onto current main
+`0c072235f` (2026-08-15). Old head `685784f5ae` -> new head `68cf312934`,
+pushed `--force-with-lease` to the vroomfondel fork. Single conflict in
+`python/sglang/srt/environ.py`: upstream's config-bag reorganization moved
+the DSA env-var section to a new "DSA backend (GLM 5 and DeepSeek V3.2)"
+location and inserted a new "DeepGEMM Mega MoE" section at the old spot; our
+`SGLANG_DSA_INDEXER_TRITON` field was re-inserted at the end of the relocated
+section. All other 7 touched files auto-merged clean; range-diff shows only
+that relocation plus an upstream base-class rename in `dsa_indexer.py` diff
+context (`Indexer(MultiPlatformOp)` -> `Indexer(DSANPUIndexerMixin,
+BaseFusedOp)`); own diffstat unchanged (8 files, +1022/-12). REST now reports
+`mergeable: true` / `"blocked"` (checks/review gating, not a conflict).
 
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
 > Triton fast path (unblocks DSA models on SM120/SM121)

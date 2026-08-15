@@ -62,6 +62,62 @@ stable is now **v0.6.16.post3** (2026-08-08; single change = SM90 CUTLASS
 MoE backend revert #4412, unrelated to sparse MLA). Neither v0.5.17 nor
 post3 changes any conclusion here.
 
+Re-checked 2026-08-15: PR #31481 still **OPEN**, no new commits or comments
+since 2026-08-03, `deepseek` label only, `reviewDecision: REVIEW_REQUIRED`,
+`mergeable: true` / `"blocked"` (no rebase needed). `dsa_backend.py::
+_forward_trtllm` on `main` still hardcodes `backend="trtllm-gen"` at line
+~3268 (no drift since 08-09). `flashinfer/mla/_sparse_mla_sm120.py` DID
+change: flashinfer PR #4380 (consolidate DSV4 sparse MLA top-k 192/256
+support) merged 2026-08-08T11:33Z (landed in v0.6.16.post4 / v0.6.17), but
+the diff is scoped entirely to `_DECODE_DSV4_DISPATCH` plus a new
+`ValueError` for unsupported decode shapes; it does NOT touch
+`_DECODE_DSV3_2_DISPATCH` (the GLM_NSA path this PR needs), the four
+`@supported_compute_capability([120, 121])` decorators, or model_type
+resolution. So correct the standing claim from "file unchanged" to
+"unchanged in the parts relevant to GLM/DSv3.2". flashinfer stable is now
+v0.6.17 (2026-08-11); release notes have nothing touching DSv3.2/GLM_NSA
+sparse-MLA dispatch.
+
+**MAJOR finding** (flag prominently, do NOT assert as fact until tested):
+upstream already solved this problem via a different code path, and it is
+in the v0.5.17 release. SGLang PR #26928 ("SM120 (Blackwell Desktop)
+support for GLM-5.1 inference", merged 2026-07-28T21:52:34Z) adds an
+opt-in DSA backend value `flashinfer_sparse_mla` (`dsa_backend.py`,
+`_forward_flashinfer_sparse_mla`) calling
+`flashinfer.mla.trtllm_batch_decode_with_kv_cache_mla` with
+`backend="sparse"`, `kv_scale_format="arbitrary_fp32"`, functionally the
+same flashinfer API and kwargs our PR #31481 proposes patching into
+`_forward_trtllm`, wired as a separate named backend instead of changing
+the default. Restricted to `GlmMoeDsaForCausalLM` + SM12x + FP8 E4M3 KV +
+page size 64, exactly our deployed model class
+(`0xSero/glm-5.2-reap-504B-v2`). Auto-selection wiring exists on `main` AND
+on the v0.5.17 tag (`sglang/srt/arg_groups/overrides.py::
+_dsa_split_backend_resolution`): for model_arch `GlmMoeDsaForCausalLM` +
+compute major 12 + `kv_cache_dtype fp8_e4m3` (non-ROCm), unless the user
+explicitly overrides `--dsa-prefill-backend`/`--dsa-decode-backend`, sglang
+automatically sets both to `flashinfer_sparse_mla`, bypassing the
+hardcoded `trtllm-gen` crash path by default for our exact configuration.
+Follow-up PR #33075 (merged 2026-08-11) fixed a HiSparse-validator
+conflict blocking this backend when `--enable-hisparse` is set, with live
+end-to-end validation on 2x8 RTX PRO 6000 (SM120) running GLM-5.2-NVFP4
+PD-disaggregated ("Set DSA backends for GLM FP8 KV Cache on SM120/SM121:
+prefill=flashinfer_sparse_mla, decode=flashinfer_sparse_mla").
+
+Honest accounting: every re-check from 07-28 through 08-09 missed this
+because they only re-verified that the trtllm-named backend
+(`_forward_trtllm`, hardcoded `backend="trtllm-gen"`) was unchanged, which
+was true but irrelevant since GLM-on-SM12x traffic is auto-routed around
+that function entirely as of 07-28.
+
+Implication (flag, do NOT assert as fact): a stock v0.5.17 image may
+already auto-select a working SM120/121 sparse-MLA path for our model
+without our p34 patch. A GB10 live test of unpatched v0.5.17 against the
+deployed model is required before concluding p34 is redundant (test
+pending explicit approval). PR #31481 may then be revised, closed in favor
+of #26928/#33075, or kept for coverage of the plain trtllm backend name
+for non-GLM DSA models / DeepSeek-V3.2 family, which the
+`is_glm_sm12_fp8` arm does not cover.
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
