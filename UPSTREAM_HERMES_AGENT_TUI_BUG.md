@@ -402,6 +402,16 @@ small (~50 MB) and the node has fast local storage.
   (`{name, version, resolved, integrity, link}`) combined with closure scoping. This is a
   more precise statement of why "Trigger 2 remains unfixed" than the PR-status tracking
   alone. Conclusions unchanged; the `copy-ui-tui` workaround is unaffected either way.
+- **Re-verified 2026-08-15:** new release **v2026.8.13** (v0.20.1, published 2026-08-13),
+  release notes contain no TUI/npm/lockfile/reinstall fix (grepped for
+  `tui|npm|lockfile|reinstall|EACCES|package-lock|workspace lock`, zero hits). All tracked
+  refs unchanged since 08-09: #66978 same 4 comments (`updatedAt` 2026-08-08T21:56Z), #81620
+  same duplicate-triage comment, #45657 idle since 2026-07-27, #67011 still OPEN unmerged
+  (`updatedAt` 2026-08-03), #45671 still OPEN unmerged, #45732/#45660 still closed unmerged.
+  Our `hermes.image_tag` was bumped to v2026.8.13 the same day (email-adapter re-sync,
+  separate doc); the deployment-level TUI mitigations (no `--tui`, `copy-ui-tui` commented
+  out, build-time `npm_config_install_links=false`) are unaffected by the bump. Conclusions
+  unchanged.
 
 ## Action Items
 
