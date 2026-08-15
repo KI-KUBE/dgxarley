@@ -1,0 +1,246 @@
+---
+# Model profile: vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# STATUS 2026-08-15: FIRST CONTACT from this repo. The TARGET checkpoint was
+#   quantized and smoke-tested by its own quantizer on a single Spark
+#   (GB10/sm121, SGLang 0.5.17, four probes coherent, one word problem solved
+#   correctly, finish_reason=stop) but it has never been deployed through this
+#   role, and DSPARK has never executed on this cluster at all (the only other
+#   DSPARK profile, mmangkad-deepseek-v4-flash-0731-nvfp4.yml, ships it
+#   disabled). Treat both the arch and the speculator as unvalidated here.
+#   Gate acceptance on GSM8K plus an eyeballed tail, not on a clean boot.
+#
+# WHAT THIS CHECKPOINT IS (verified against HF 2026-08-15, repo created the
+# same day):
+#   vroomfondel's NVIDIA-ModelOpt (0.45.0) export of Qwen/Qwen3.8-27B,
+#   `qformat: nvfp4` = UNIFORM W4A4 (E2M1, group 16, FP8 block scales) with FP8
+#   KV baked in. hf_quant_config.json: quant_algo NVFP4 (NOT MIXED_PRECISION),
+#   kv_cache_quant_algo FP8, exclude_modules = lm_head, embed_tokens,
+#   model.visual*, mtp*, and per GDN layer conv1d / in_proj_a / in_proj_b.
+#   Everything else is FP4, INCLUDING the full self_attn q/k/v/o on the 16
+#   full-attention layers AND the fused Gated-DeltaNet in_proj_qkv on all 48
+#   linear-attention layers. 20.6 GB over 3 shards. The 27-layer vision tower
+#   stays BF16 (text-only calibration), so the image path is the least
+#   validated surface of the build: check it against the BF16 source before
+#   relying on it. config.json pins dtype/torch_dtype bfloat16, so `--dtype
+#   auto` resolves bf16 (the same detail that kept the Qwen3.6 sibling's
+#   unquantized in_proj_ba from loading as fp16 and dying at graph capture).
+#
+# Architecture (Qwen3_5ForConditionalGeneration, model_type qwen3_5, i.e. the
+# DENSE VL member of the Qwen3.5 family, not the MoE one): 27B dense, 64 layers
+# with full_attention_interval 4, so layer_types is 48x linear_attention
+# (Gated DeltaNet) + 16x full_attention at indices 3, 7, ..., 63. hidden 5120,
+# intermediate 17408, 24 query heads / 4 KV heads, head_dim 256,
+# attn_output_gate, partial_rotary_factor 0.25, mrope (interleaved, sections
+# [11,11,10]), rope_theta 1e7, vocab 248320, max_position_embeddings 262144,
+# mtp_num_hidden_layers 1 (a native MTP head, see the NEXTN alternative at the
+# bottom). Multimodal: image + video pads via <|vision_start|>.
+#
+# ── SM121 / GB10 REVIEW (source-verified against v0.5.17, 2026-08-15) ────────
+#   1. DSPARK is arch-generic. speculative_hook.py::_handle_dspark has no arch
+#      allowlist (unlike deepseek_v4_hook.py, which restricts ITS arch to
+#      EAGLE/DSPARK), and the standalone-draft branch is present in v0.5.17
+#      ("DSpark dense speculative decoding requires setting
+#      --speculative-draft-model-path"). v0.5.16 has DSPARK too but v0.5.17 is
+#      what the quantizer smoke-tested the target on, so that is the floor.
+#   2. The DSpark kernels are portable. python/sglang/kernels/ops/speculative/
+#      dspark/* is pure Triton with a torch reference fallback selected by
+#      dispatch.py on device type, no sm90/sm100 gate anywhere. Same story for
+#      srt/speculative/dspark_components/.
+#   3. The draft attention backend allowlist is (flashinfer, fa3, fa4, triton,
+#      trtllm_mha, ascend) with a flashinfer fallback on CUDA, so the draft is
+#      fine on GB10. DO NOT copy the model card's `--attention-backend fa3`:
+#      FA3 is Hopper-only and would fail here.
+#   4. extra_buffer is supported for this arch. Qwen3_5ForConditionalGeneration
+#      is in arg_groups/overrides.py::_MAMBA_EXTRA_BUFFER_ARCHS, and
+#      supports_mamba_cache_extra_buffer() additionally requires
+#      linear_attn_backend == "triton", which is SGLang's default and which
+#      this repo has no knob for. Leave it alone.
+#   5. Two different "triton" knobs, do not confuse them: linear_attn_backend
+#      (the GDN kernel backend, must stay triton, see 4) and attention_backend
+#      (the full-attention backend, must be flashinfer here). The quantizer
+#      measured a forward-time crash in RadixLinearAttention.forward with
+#      attention_backend=triton on exactly this configuration, upstream
+#      sgl-project/sglang#29577, still open.
+#   6. p50_qwen35_attn_quant + p51_qwen35_kvscale were upstreamed as PR #31220
+#      and merged (c4af6cf26397) BEFORE the v0.5.17 cut, so the pinned image
+#      already contains them and both patches will log one honest "gate not
+#      matched" line at container start. That is expected, not drift. Still
+#      required from our patch set: p29_cutlass_mma_sm121 (arch-independent
+#      GB10 NVFP4 mma fix, applied for every NVFP4 model).
+#   7. Sanity check for the baked KV scales: the boot log must contain "Using
+#      FP8 KV cache but no scaling factors provided" ZERO times.
+#
+# ── RISKS, ordered by how likely they are to bite ────────────────────────────
+#   A. Uniform W4A4 on a Gated-DeltaNet hybrid degrades into word salad, not
+#      into a measurable accuracy drop, when a scale on the fused
+#      linear_attn.in_proj_qkv loads badly. Judge on generated text.
+#   B. DSpark first contact on this cluster, on an arch nobody has run DSpark
+#      on. The card's acceptance numbers (mean 3.39 over 1164 requests) were
+#      measured against the FP8 target on other hardware; a W4A4 target shifts
+#      the hidden states the draft was trained to predict, so expect LOWER
+#      acceptance here. The regression detector is the same as everywhere:
+#      `accept len` pinned at the ceiling (= speculative_num_draft_tokens = 8)
+#      means verify stopped rejecting anything, i.e. draft and target read the
+#      same wrong data, while throughput and startup look healthy.
+#   C. The image path is calibrated on text only (see above).
+#   D. GSM8K is still owed for the target itself; the quantizer ran four
+#      prompts, which is a smoke test, not an evaluation.
+_model_profile:
+  "vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt":
+    knowledge_cutoff: null  # not officially disclosed for the Qwen3.8-27B base
+    release_date: "2026-08-05"  # Qwen/Qwen3.8-27B base, HF API createdAt. This NVFP4 export 2026-08-15.
+    info_url: "https://huggingface.co/vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt"
+    # SM121 sgl-kernel build required for NVFP4 on GB10. 0.5.17 is the FLOOR:
+    # it is the release that carries the merged PR #31220 (quantized attention
+    # + baked KV scales for qwen3_5) this checkpoint depends on, and it is the
+    # version the target was smoke-tested on.
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.17-sm121"
+    nccl_transport: roce
+    # DSPARK requires pp_size == 1 (_handle_dspark raises otherwise), so TP is
+    # the only topology that can also speculate. TP=4 matches the standard
+    # head+3-worker deployment of this role. NOTE: at 20.6 GB the checkpoint
+    # fits one Spark, so TP=1 as its own sglang_instances entry is a legitimate
+    # alternative (that is how the quantizer smoke-tested it) and removes the
+    # inter-node hop from every verify step.
+    tp_size: 4
+    ep_size: 1
+    # Native 262K context, no YaRN needed.
+    context_length: 262144
+    # Uniform-NVFP4 unified ModelOpt checkpoint -> standard modelopt_fp4 loader,
+    # NOT modelopt_mixed (that is the nvidia MIXED_PRECISION uploads' path) and
+    # NOT compressed-tensors. First thing to confirm in the boot log.
+    quantization: "modelopt_fp4"
+    trust_remote_code: true
+    # FP8 KV baked into the checkpoint, on exactly the 16 full-attention layers.
+    kv_cache_dtype: "fp8_e4m3"
+    # Inherited from the Qwen3.6 W4A4 sibling. This is the post-weight KV
+    # reserve, not a fraction of total. On a hybrid the mamba pool is usually
+    # the parallelism ceiling before KV is, so if max_running_requests gets
+    # clamped low, raise mamba_full_memory_ratio rather than this.
+    mem_fraction_static: "0.6"
+    # flashinfer everywhere: the validated NVFP4 combination on this cluster,
+    # and mandatory for the full-attention layers here (see SM121 review 5).
+    attention_backend: flashinfer
+    fp4_gemm_backend: flashinfer_cutlass
+    disable_deep_gemm: true
+    disable_cuda_graph: false
+    disable_piecewise_cuda_graph: true
+    pp_async_batch_depth: 0
+    cuda_graph_max_bs: 32
+    jit_max_jobs: 4
+    # Dense model: no MoE knobs (no num_experts, no moe_runner_backend, no EPLB).
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
+    # <think>...</think> reasoning, and the qwen3_coder XML tool format
+    # (<tool_call><function=name><parameter=x>), both verified in the shipped
+    # chat_template.jinja. The template also accepts a reasoning_effort
+    # chat_template_kwarg with levels xhigh (its default), medium and low, and
+    # rejects anything else with an exception, so do not pass OpenAI's
+    # "medium"-by-another-name values through untranslated.
+    reasoning_parser: "qwen3"
+    tool_call_parser: "qwen3_coder"
+    # From the checkpoint's generation_config.json (do_sample true).
+    recommended_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+    # ═══ DSPARK speculative decoding (ACTIVE variant) ═══
+    # External draft: RadixArk/Qwen3.8-27B-DSpark, 1.36B BF16 (2.7 GB), 5 full
+    # -attention layers, GQA 40q/8kv, trained with SpecForge against
+    # Qwen/Qwen3.8-27B-FP8, confidence head = vanilla Markov rank 256, aux
+    # features pulled from target layers [4, 16, 28, 40, 52]. The model
+    # -download initContainer auto-appends speculative_draft_model_path, so the
+    # draft is fetched with the target, no hf_preload entry needed.
+    #
+    # Hard constraints from speculative_hook.py::_handle_dspark that our
+    # launcher passes explicitly and therefore must satisfy:
+    #   - speculative_num_draft_tokens MUST equal gamma + 1. The draft's
+    #     config.json says block_size 7, hence 8. A mismatch is a boot-time
+    #     ValueError, not a warning.
+    #   - speculative_num_steps and speculative_eagle_topk are forced to 1
+    #     (warning only), set here to keep the log clean.
+    #   - pp_size must be 1 (see tp_size above), device must be CUDA.
+    #
+    # speculative_dspark_block_size is deliberately LEFT UNSET. Empty means
+    # SGLang reads gamma from the draft checkpoint and then cross-checks it
+    # against the 8 below, so a future revision of the RadixArk repo that moves
+    # block_size turns into a loud boot error. Pinning 7 here would instead
+    # override the checkpoint silently and run the draft outside the window it
+    # was trained for.
+    speculative_enabled: true
+    speculative_algo: DSPARK
+    speculative_draft_model_path: "RadixArk/Qwen3.8-27B-DSpark"
+    speculative_num_steps: 1
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 8  # = draft block_size (7) + 1. HARD requirement, see above.
+    # The draft is a SEPARATE BF16 repo with no quant config of its own, so
+    # without this it would inherit the target's modelopt_fp4 and fail to build
+    # its weights. Unlike the in-checkpoint NEXTN case below, "unquant" is
+    # meaningful here precisely because the draft path is a different repo.
+    speculative_draft_model_quantization: "unquant"
+    # Required for speculation on this Gated-DeltaNet hybrid: the GDN state has
+    # to be rolled back per rejected draft token. Emitted by sglang_launch.sh as
+    # the current --mamba-radix-cache-strategy (the --mamba-scheduler-strategy
+    # spelling is a deprecated alias in 0.5.17). SGLang would resolve "auto" to
+    # extra_buffer for this arch anyway; stating it keeps the intent visible.
+    # Two asserts ride along and both hold at the defaults:
+    # mamba_track_interval (256) >= speculative_num_draft_tokens (8), and
+    # mamba_track_interval % page_size == 0.
+    mamba_scheduler_strategy: extra_buffer
+    # OPTIONAL, left OFF (repo default, unvalidated on GB10):
+    # enable_gdn_replayssm_spec: true -> --enable-gdn-replayssm-spec, i.e.
+    # upstream's enable_linear_replayssm_spec (PR #28695). It replaces the
+    # per-draft-token SSM snapshot with a ring buffer, upstream measuring
+    # 11.5 GB -> 1.8 GB speculative scratch per GPU on a comparable GDN model,
+    # which would come straight back as KV headroom via mem_fraction_static.
+    # Its gate names DSPARK explicitly (verified in v0.5.17 server_args:
+    # "requires the KDA fold-every-commit family (DSPARK/DFLASH)", and only for
+    # non-static ragged-verify modes), needs speculative_eagle_topk in {None,1}
+    # (satisfied) and does NOT conflict with extra_buffer (that restriction
+    # applies to the non-spec --enable-linear-replayssm, which is a different
+    # flag). Turning it on also forces mamba_ssm_dtype float32. A/B it against
+    # the accept-length and throughput baseline before making it a default.
+    # enable_spec_v2 deliberately NOT set: it only exports SGLANG_ENABLE_SPEC_V2
+    # for the NEXTN/EAGLE v2 path, while DSPARK always runs through its own
+    # dspark_worker_v2. Set it only if you switch to the NEXTN variant below.
+    #
+    # ═══ ALTERNATIVE: NEXTN on the in-checkpoint MTP head ═══
+    # The checkpoint carries the base model's native MTP head
+    # (mtp_num_hidden_layers 1, 15 mtp.* tensors, present and BF16 because
+    # hf_quant_config excludes mtp* and transformers drops mtp.* at load, so
+    # ModelOpt never sees it). That makes NEXTN available WITHOUT the 2.7 GB
+    # external draft. To switch, comment out the DSPARK block above and
+    # uncomment this one:
+    #
+    #   speculative_enabled: true
+    #   speculative_algo: NEXTN
+    #   speculative_num_steps: 2
+    #   speculative_eagle_topk: 1
+    #   speculative_num_draft_tokens: 3
+    #   speculative_draft_model_path: ""        # empty = use the in-checkpoint MTP head
+    #   speculative_draft_model_quantization: "unquant"
+    #   mamba_scheduler_strategy: extra_buffer
+    #   enable_spec_v2: true
+    #
+    # WHY IT IS NOT THE ACTIVE VARIANT. A BF16 MTP head on a modelopt_fp4
+    # target is exactly the configuration this repo already has a documented
+    # negative result for: see vroomfondel-qwen3.6-35b-a3b-nvfp4-modelopt.yml
+    # risk #2, where SGLang inherits the target's modelopt_fp4 onto the draft,
+    # allocates an FP4 draft buffer and then copies BF16 MTP weights into it.
+    # And "unquant" is a weaker lever on this path than it looks: for a draft
+    # that shares the TARGET's checkpoint, quant auto-detection re-reads the
+    # same hf_quant_config and can re-promote the draft to modelopt_fp4, which
+    # is why the Qwen3.6 line was eventually solved by surgically REQUANTIZING
+    # the MTP head (p43/p44 + the -MTP- export) rather than by a flag. p43/p44
+    # are inert for a BF16 MTP, so they will not rescue this variant either.
+    # Expect either a dim-mismatch at draft-weight load or a silent quality
+    # collapse; if it does boot, check `accept len` against the ceiling (3)
+    # before believing the throughput number.
+    # The honest ranking for a first run: DSPARK (external, self-consistent
+    # BF16 draft) first, this second, both behind a bare non-speculative boot.
+    #
+    # ROLLBACK to bare serving: set speculative_enabled to false. Every other
+    # key here stays valid; the speculative_* and mamba_scheduler_strategy keys
+    # become inert.

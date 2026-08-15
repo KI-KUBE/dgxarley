@@ -117,6 +117,8 @@ sglang_port: 8000
 # sglang_model: "vroomfondel/Qwen3.6-35B-A3B-NVFP4-MLP-Only-ModelOpt"  # ✅ RECOMMENDED re-quant (fix #1) for the ⛔ uniform-W4A4 sibling above — MLP-ONLY NVFP4 (experts FP4; linear_attn/dense/attn EXCLUDED, kept high-precision) → clears the in_proj_qkvz boot wall. 256 exp, TP4/EP1, 262K ctx, MTP/NEXTN. NOT YET VALIDATED
 sglang_model: "vroomfondel/Qwen3.6-35B-A3B-NVFP4-MTP-ModelOpt"  # ✅ SERVES (2026-07-24, 0.5.15.post1-sm121) — UNIFORM W4A4 + baked FP8 KV AND a surgically NVFP4-QUANTIZED MTP/NEXTN draft head (unique among the Qwen3.6 NVFP4 uploads); vision tower BF16. Needs FIVE patches (p50/p51/p43/p44 + p29); stock SGLang crashes. Acceptance/GSM8K not yet gated — research probe
 
+# --- Qwen3.8 ---
+# sglang_model: "vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt"        # 27B DENSE multimodal (Qwen3_5 arch: 48 Gated-DeltaNet + 16 full-attn layers), UNIFORM W4A4 NVFP4 (our own export, 20.6 GB) + baked FP8 KV, vision tower BF16, native BF16 MTP head. Speculation via the EXTERNAL DSpark draft RadixArk/Qwen3.8-27B-DSpark (gamma 7 -> 8 draft tokens); NEXTN on the built-in MTP head is documented as the alternative in the profile. FIRST CONTACT from this repo, DSPARK has never run on this cluster
 #
 # --- Qwen3-VL (multimodal companion) ---
 # sglang_model: "Qwen/Qwen3-VL-8B-Instruct-FP8"                  # 8B dense multimodal (vision), block-128 FP8, 256K ctx → ~9 GB, tp=1. Vision companion for the text-only Nemotron; run as its OWN instance (see sglang_instances). UNVALIDATED first-contact
