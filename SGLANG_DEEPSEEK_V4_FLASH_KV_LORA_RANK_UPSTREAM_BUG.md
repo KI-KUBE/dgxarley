@@ -51,6 +51,11 @@
 > main still declares `kv_lora_rank: int = 512`
 > (`configuration_deepseek_v3.py:93`), unchanged. Monkey-patch still
 > required, no location change.
+>
+> **Re-verified 2026-08-15:** no new SGLang release, v0.5.17 remains latest.
+> `transformers` shipped **v5.15.0** (2026-08-10), but `kv_lora_rank: int = 512`
+> is still present unchanged at `configuration_deepseek_v3.py:93` on both
+> `main` and the v5.15.0 tag. Monkey-patch still required.
 
 
 ## Summary
