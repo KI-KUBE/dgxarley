@@ -22,12 +22,12 @@
 #
 # BUILD: arm64-only, natively on a Spark (no QEMU), same remote-podman flow as
 # build_sm121_image.sh. From the x86 control host with a registered podman
-# connection to the arm64 build host (e.g. spark4):
-#   podman --connection spark4 build \
+# connection to the arm64 build host (default build host: spark5):
+#   podman --connection spark5 build \
 #     --build-arg BASE_IMAGE=xomoxcc/dgx-spark-sglang:0.5.17-sm121 \
 #     -f scripts/patches/dgx-spark-quant-sm121.Dockerfile \
 #     -t xomoxcc/dgx-spark-quant:0.5.17-sm121 .
-#   podman image scp spark4::xomoxcc/dgx-spark-quant:0.5.17-sm121
+#   podman image scp spark5::xomoxcc/dgx-spark-quant:0.5.17-sm121
 #   podman push xomoxcc/dgx-spark-quant:0.5.17-sm121
 # (Nothing here is built/pushed automatically -- this is a reviewable draft.)
 # ============================================================================
