@@ -24,22 +24,27 @@
 # build_sm121_image.sh. From the x86 control host with a registered podman
 # connection to the arm64 build host (e.g. spark4):
 #   podman --connection spark4 build \
-#     --build-arg BASE_IMAGE=xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121 \
+#     --build-arg BASE_IMAGE=xomoxcc/dgx-spark-sglang:0.5.17-sm121 \
 #     -f scripts/patches/dgx-spark-quant-sm121.Dockerfile \
-#     -t xomoxcc/dgx-spark-quant:0.5.15.post1-sm121 .
-#   podman image scp spark4::xomoxcc/dgx-spark-quant:0.5.15.post1-sm121
-#   podman push xomoxcc/dgx-spark-quant:0.5.15.post1-sm121
+#     -t xomoxcc/dgx-spark-quant:0.5.17-sm121 .
+#   podman image scp spark4::xomoxcc/dgx-spark-quant:0.5.17-sm121
+#   podman push xomoxcc/dgx-spark-quant:0.5.17-sm121
 # (Nothing here is built/pushed automatically -- this is a reviewable draft.)
 # ============================================================================
 
-ARG BASE_IMAGE=xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121
+ARG BASE_IMAGE=xomoxcc/dgx-spark-sglang:0.5.17-sm121
 FROM ${BASE_IMAGE}
 
 # WHAT THE BASE ALREADY SHIPS (verified on 0.5.14-sm121): nvidia-modelopt 0.45.0,
 # torch 2.12.0/cu132, transformers 5.8.1, datasets 5.0.0, huggingface-hub 1.23.0 +
-# the `hf` CLI, ninja, typer. So this image only has to add the two pieces the quant
-# scripts need that are genuinely MISSING: `accelerate` (device_map) and
-# `hf_transfer` (fast download). Everything else is reused as-is.
+# the `hf` CLI, ninja, typer. So this image only has to add the pieces the quant
+# scripts need that are genuinely MISSING: `hf_transfer` (fast download) plus the
+# non-serving extras below. Everything else is reused as-is.
+# NB: `accelerate` (device_map) USED to be missing, but since 0.5.15.post1 the sm121
+# recipes bake it into the base (`ACCELERATE_DEPS="accelerate"` via
+# dockerfile-accelerate.patch), so the install below is a no-op on such a base. It is
+# kept deliberately: it still covers a base built with ACCELERATE_DEPS="" and costs
+# nothing under the freeze constraint.
 # NB: on the 0.5.15+ base transformers is 5.12.1 (not 5.8.1); the freeze constraint
 # below reuses whatever the base ships, so this layer is unaffected by that drift.
 # The >=0.45 modelopt assert (step 3) is the real build-time gate.
