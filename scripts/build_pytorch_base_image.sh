@@ -20,7 +20,7 @@
 # 1. Preflight: verify the active pytorch-*-dev-v1.recipe is present, podman is
 #    installed locally, and the dedicated SSH identity for podman is usable.
 # 2. Ensure a registered podman connection to the arm64 build host (default
-#    spark4 — override via --remote-host / BUILD_PYTORCH_REMOTE_HOST).
+#    spark5 — override via --remote-host / BUILD_PYTORCH_REMOTE_HOST).
 #    Reuses the same connection name as build_sm121_image.sh.
 # 3. Clone or update scitrera/cuda-containers locally on x86 (shared clone
 #    with build_sm121_image.sh). Switch to a local 'sm121' branch, hard-
@@ -65,7 +65,7 @@
 #   not support ssh-agent or encrypted keys.
 # - git, rsync (for local cuda-containers clone management)
 #
-# Prerequisites on the remote build host (default spark4; --remote-host /
+# Prerequisites on the remote build host (default spark5; --remote-host /
 # BUILD_PYTORCH_REMOTE_HOST selects a different one)
 # ------------------------------------------------------------------------
 # - podman installed, podman.socket enabled as root
@@ -103,9 +103,9 @@ IMAGE_TAG="xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132"
 
 # Remote build host. Defaults match build_sm121_image.sh so the same
 # registered podman connection can be reused.
-REMOTE_HOST="${BUILD_PYTORCH_REMOTE_HOST:-root@spark4.local}"
+REMOTE_HOST="${BUILD_PYTORCH_REMOTE_HOST:-root@spark5.local}"
 PODMAN_CONNECTION="${BUILD_PYTORCH_PODMAN_CONNECTION:-${REMOTE_HOST##*@}}"
-# Shorten a DNS name to its first label (spark4.local -> spark4), but keep an
+# Shorten a DNS name to its first label (spark5.local -> spark5), but keep an
 # IPv4 address whole ("192.168.0.5" must NOT collapse to "192").
 if [[ ! "${PODMAN_CONNECTION}" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
     PODMAN_CONNECTION="${PODMAN_CONNECTION%%.*}"
@@ -183,7 +183,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --no-push) PUSH_IMAGE=0; shift ;;
         --remote-host)
-            [[ $# -ge 2 ]] || die "--remote-host requires a value (e.g. --remote-host root@spark4.local)"
+            [[ $# -ge 2 ]] || die "--remote-host requires a value (e.g. --remote-host root@spark5.local)"
             REMOTE_HOST="$2"
             shift 2
             ;;

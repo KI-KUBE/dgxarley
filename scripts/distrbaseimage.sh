@@ -24,6 +24,10 @@ set -euo pipefail
 IMAGE="${IMAGE:-scitrera/dgx-spark-sglang:0.5.12}"
 
 # Source spark (management address) holding the image in its podman store.
+# NOTE: stays spark4 even though images are built on spark5 by default — the
+# registry below is served over the QSFP mesh and spark5 is not on it. Either
+# build on a mesh node (spark1-4) for this path, or move the image into a mesh
+# node's podman store first.
 SOURCE="spark4.local"
 
 # QSFP address the registry listens on and targets pull from. Must match

@@ -17,41 +17,41 @@
 # Workflow (all steps run on the x86 control host)
 # -------------------------------------------------
 # 1. Preflight: verify patch files + podman + git + patch are available.
-# 2. Ensure a registered podman connection to the arm64 build host (spark4)
+# 2. Ensure a registered podman connection to the arm64 build host (spark5)
 #    that uses a dedicated unencrypted SSH key (Podman's Go SSH client cannot
 #    use ssh-agent or encrypted keys). Create it on demand if missing.
 # 3. Clone or update scitrera/cuda-containers locally on x86. Switch to a
 #    local 'sm121' branch, hard-reset to origin/main (idempotent), drop in
 #    the sgl-kernel patch + Dockerfile patch + recipe file.
 # 4. Invoke `podman --connection <name> build` — the build context is
-#    streamed from x86 to spark4 over the podman socket, the actual build
+#    streamed from x86 to spark5 over the podman socket, the actual build
 #    runs natively on arm64 (no QEMU), and the resulting image is stored
-#    in spark4's local podman image store. The x86 host never writes
-#    credentials to spark4.
-# 5. Streamed `podman image save | load` to pull the built image from spark4 back to x86.
+#    in spark5's local podman image store. The x86 host never writes
+#    credentials to spark5.
+# 5. Streamed `podman image save | load` to pull the built image from spark5 back to x86.
 # 6. `podman push` from x86 using the x86 host's pre-existing registry
-#    credentials. spark4 never has Docker Hub credentials.
+#    credentials. spark5 never has Docker Hub credentials.
 #
 # Prerequisites on the x86 control host
 # --------------------------------------
 # - podman (`apt install podman`)
 # - An unencrypted SSH key for podman: generate with
 #     ssh-keygen -t ed25519 -f ~/.ssh/id_podman -N ""
-#     ssh-copy-id -i ~/.ssh/id_podman root@spark4
+#     ssh-copy-id -i ~/.ssh/id_podman root@spark5
 #   The key MUST be unencrypted — podman's Go SSH client does not support
 #   ssh-agent or encrypted keys. Override via BUILD_SM121_SSH_IDENTITY.
 # - `podman login docker.io -u xomoxcc` already done on the x86 host.
 # - ~10 GB free disk for the image after the local copy.
 # - git, patch (cuda-containers clone + patch apply happens on x86).
 #
-# Prerequisites on spark4 (the build host)
+# Prerequisites on spark5 (the build host)
 # ----------------------------------------
 # - podman (`apt install podman`)
 # - podman.socket enabled as root:
 #     systemctl enable --now podman.socket
 #   This exposes /run/podman/podman.sock which the x86 client connects to.
 # - ~50 GB free disk (sgl-kernel layers + final image in local image store).
-# - NO credentials, NO clone, NO patches, NO local scripts. spark4 is a
+# - NO credentials, NO clone, NO patches, NO local scripts. spark5 is a
 #   dumb remote build runner.
 #
 
@@ -307,10 +307,10 @@ IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.17-sm121"
 #RECIPE_NAME="sglang-0.5.12-gemma4-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.12.post1-gemma4-sm121"
 
-# Remote build host (spark4, arm64). Uses a registered podman connection
+# Remote build host (spark5, arm64). Uses a registered podman connection
 # with a dedicated unencrypted SSH key. The connection name is derived from
 # this value by stripping the user@ prefix so that `podman system connection
-# list` shows a clean "spark4" entry.
+# list` shows a clean "spark5" entry.
 #
 # Both can also be set by flags (--remote-host / --podman-connection); the
 # derivation of the connection name from the host happens after argparse
@@ -372,7 +372,7 @@ NO_LOCAL_COPY=0
 #
 #   xomoxcc   xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
 #             Our locally-built 2.12/cu132 base (scripts/build_pytorch_base_image.sh).
-#             Only present on spark4's podman store — never published.
+#             Only present on spark5's podman store — never published.
 #             This is the recipe default and what you want for performance.
 #
 #   scitrera  scitrera/dgx-spark-pytorch-dev:2.12.0-v1-cu132
@@ -589,7 +589,7 @@ Options:
   --help       Show this help.
 
 Environment overrides:
-  BUILD_SM121_REMOTE_HOST        user@host for spark4 SSH.
+  BUILD_SM121_REMOTE_HOST        user@host for spark5 SSH.
                                  Default: ${REMOTE_HOST}
   BUILD_SM121_PODMAN_CONNECTION  Registered podman connection name.
                                  Default: derived from --remote-host
@@ -608,7 +608,7 @@ Environment overrides:
                                  and over the recipe default. Use for
                                  scripting when --base aliases are too coarse.
 
-The entire script runs on the x86 control host. spark4 is used purely as
+The entire script runs on the x86 control host. spark5 is used purely as
 a remote podman build runner — it holds no credentials, no clone, and no
 state between runs (except the local podman image store and layer cache,
 which persist and accelerate rebuilds).
@@ -684,10 +684,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Derive the podman connection name from REMOTE_HOST if the user didn't
-# set it explicitly. "root@spark4.local" -> "spark4".
+# set it explicitly. "root@spark5.local" -> "spark5".
 if [[ -z "${PODMAN_CONNECTION}" ]]; then
     PODMAN_CONNECTION="${REMOTE_HOST##*@}"
-    # Shorten a DNS name to its first label (spark4.local -> spark4), but keep an
+    # Shorten a DNS name to its first label (spark5.local -> spark5), but keep an
     # IPv4 address whole ("192.168.0.5" must NOT collapse to "192").
     if [[ ! "${PODMAN_CONNECTION}" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then
         PODMAN_CONNECTION="${PODMAN_CONNECTION%%.*}"
@@ -846,7 +846,7 @@ ensure_podman_connection() {
     else
         echo "Registering new podman connection..."
 
-        # Resolve the remote podman socket path. For root on spark4 this is
+        # Resolve the remote podman socket path. For root on spark5 this is
         # /run/podman/podman.sock; for rootless it would be
         # /run/user/<uid>/podman/podman.sock. We always SSH as root to the
         # cluster (per project convention), so root-socket is the default.
@@ -899,7 +899,7 @@ EOF
 # The recipes default to a locally-built xomoxcc base, e.g.
 #   BASE_IMAGE=xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132
 # which is NOT on Docker Hub — it's built locally via
-# scripts/build_pytorch_base_image.sh and kept in spark4's podman store.
+# scripts/build_pytorch_base_image.sh and kept in the build host's podman store.
 # If the sglang build runs before the base image exists, podman will try
 # to pull from docker.io and fail with a 404 after a long retry cycle.
 # Fail fast here instead with a clear diagnostic pointing at the fix.

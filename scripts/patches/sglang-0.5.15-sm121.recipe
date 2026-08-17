@@ -84,7 +84,7 @@
 # (#26324). The DSV4 model profiles pin flashinfer_cutlass explicitly.
 #
 # Voraussetzungen: xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132 Base
-# auf spark4 (scripts/build_pytorch_base_image.sh, siehe
+# auf dem Build-Host (scripts/build_pytorch_base_image.sh, siehe
 # ensure_base_image_present in build_sm121_image.sh).
 #
 DOCKERFILE=Dockerfile.sglang-nightly

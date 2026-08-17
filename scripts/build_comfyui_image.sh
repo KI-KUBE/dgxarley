@@ -114,7 +114,13 @@ BASE_IMAGE_OVERRIDE="${BUILD_COMFYUI_BASE_IMAGE:-}"
 EFFECTIVE_BASE_IMAGE=""
 BASE_IMAGE_SOURCE=""
 
-# Remote build host + podman connection. Same pattern as build_sm121_image.sh.
+# Remote build host + podman connection. Same pattern as build_sm121_image.sh,
+# but the default deliberately stays spark4 while the other build scripts moved
+# to spark5: this script also runs the throwaway registry on the build host
+# (REGISTRY_HOST below, a QSFP IP) and pulls into the build host's OWN k3s
+# containerd ("self" mode). spark5 is neither on the QSFP mesh nor a k3s node,
+# so pointing --remote-host at it breaks both steps. Build on spark5 only with
+# --no-k3s-distribute plus a registry host reachable from the control host.
 REMOTE_HOST="${BUILD_COMFYUI_REMOTE_HOST:-root@spark4.local}"
 PODMAN_CONNECTION="${BUILD_COMFYUI_PODMAN_CONNECTION:-}"
 PODMAN_SSH_IDENTITY="${BUILD_COMFYUI_SSH_IDENTITY:-${HOME}/.ssh/id_podman}"

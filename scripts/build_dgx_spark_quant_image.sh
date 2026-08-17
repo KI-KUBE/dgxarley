@@ -19,7 +19,7 @@
 # Workflow (all steps run on the x86 control host)
 # -------------------------------------------------
 # 1. Ensure a registered podman connection to the arm64 build host (default
-#    spark4) using a dedicated UNENCRYPTED SSH key (podman's Go SSH client
+#    spark5) using a dedicated UNENCRYPTED SSH key (podman's Go SSH client
 #    cannot use ssh-agent or encrypted keys). Created on demand if missing.
 # 2. Verify the BASE_IMAGE (the serving image) is present in the remote podman
 #    store, pulling it from Docker Hub if needed — fail fast with a clear hint
@@ -48,7 +48,7 @@
 # Prerequisites (identical to build_sm121_image.sh)
 # -------------------------------------------------
 # x86 control host: podman; an unencrypted SSH key for podman
-#   (ssh-keygen -t ed25519 -f ~/.ssh/id_podman -N "" ; ssh-copy-id -i ~/.ssh/id_podman root@spark4);
+#   (ssh-keygen -t ed25519 -f ~/.ssh/id_podman -N "" ; ssh-copy-id -i ~/.ssh/id_podman root@spark5);
 #   `podman login docker.io -u xomoxcc` already done.
 # Spark build host: podman + `systemctl enable --now podman.socket` (root socket).
 #
@@ -172,7 +172,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Derive the podman connection name from REMOTE_HOST if not set explicitly.
-# "root@spark4.local" -> "spark4"; an IPv4 literal is kept whole.
+# "root@spark5.local" -> "spark5"; an IPv4 literal is kept whole.
 if [[ -z "${PODMAN_CONNECTION}" ]]; then
     PODMAN_CONNECTION="${REMOTE_HOST##*@}"
     if [[ ! "${PODMAN_CONNECTION}" =~ ^[0-9]+(\.[0-9]+){3}$ ]]; then

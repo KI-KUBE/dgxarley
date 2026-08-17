@@ -51,7 +51,7 @@
 # --------
 # 1. Preflight: verify Dockerfile + podman + SSH identity.
 # 2. Ensure a registered podman connection to the arm64 build host
-#    (spark4). Reuses the same connection name as build_sm121_image.sh.
+#    (spark5). Reuses the same connection name as build_sm121_image.sh.
 # 3. podman build via the remote socket — the Dockerfile is just
 #    FROM + RUN pip install, so the build context is essentially empty
 #    and the build time is dominated by the pip download itself.
@@ -62,7 +62,7 @@
 #
 # Prerequisites: same as build_sm121_image.sh — unencrypted SSH key at
 # ~/.ssh/id_podman, podman on both ends, podman.socket enabled on
-# spark4 as root. See that script's header for the full setup walkthrough.
+# spark5 as root. See that script's header for the full setup walkthrough.
 #
 
 set -euo pipefail
@@ -84,7 +84,7 @@ IMAGE_TAG="${BUILD_CUDNN_IMAGE_TAG:-xomoxcc/dgx-spark-sglang:0.5.12-cudnn}"
 # podman connection can be reused. Both can also be set by flags
 # (--remote-host / --podman-connection); PODMAN_CONNECTION is derived in
 # the flag handler (not here) so a late --remote-host override propagates.
-REMOTE_HOST="${BUILD_CUDNN_REMOTE_HOST:-root@spark4.local}"
+REMOTE_HOST="${BUILD_CUDNN_REMOTE_HOST:-root@spark5.local}"
 PODMAN_CONNECTION="${BUILD_CUDNN_PODMAN_CONNECTION:-}"
 PODMAN_SSH_IDENTITY="${BUILD_CUDNN_SSH_IDENTITY:-${HOME}/.ssh/id_podman}"
 
@@ -160,7 +160,10 @@ Environment overrides (lower precedence than flags):
   BUILD_CUDNN_SSH_IDENTITY       Unencrypted SSH private key for podman.
                                  Default: ${PODMAN_SSH_IDENTITY}
 
-Typical iteration flow (build remote, distribute via registry, no x86 copy):
+Typical iteration flow (build remote, distribute via registry, no x86 copy).
+NOTE: distrcudnnimage.sh serves its throwaway registry over the QSFP mesh, so
+its --source must be a mesh node (spark1-4) — the default build host spark5 is
+NOT on the mesh. Build on the mesh node itself for this flow:
   ./scripts/build_cudnn_image.sh --remote-host root@spark4.local --no-local-copy
   ./scripts/distrcudnnimage.sh   --source spark4.local --registry-host 10.10.10.4
 EOF
@@ -444,7 +447,10 @@ Quick fi_cudnn sanity check (run inside the image on any spark):
 
 Next steps:
 
-1. Distribute to all 4 sparks via a throwaway registry on the build host:
+1. Distribute to all 4 sparks via a throwaway registry on the build host.
+   Only valid if the build host is on the QSFP mesh (spark1-4); the default
+   build host spark5 is NOT, so pass a mesh --source/--registry-host pair
+   (or push to Docker Hub and let the nodes pull from there):
      bash scripts/distrcudnnimage.sh --source ${PODMAN_CONNECTION}.local \\
                                      --registry-host 10.10.10.4
 

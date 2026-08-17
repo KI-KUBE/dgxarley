@@ -36,9 +36,12 @@ IMAGE_REF="${DISTR_CUDNN_IMAGE_TAG:-xomoxcc/dgx-spark-sglang:0.5.12-cudnn}"
 SRC_IMAGE="localhost/${IMAGE_REF}"
 IMAGE="docker.io/${IMAGE_REF}"
 
-# Source host: where the built image lives in podman. Defaults to spark4
-# (the historical build host); override with --source when the image was
-# built elsewhere.
+# Source host: where the built image lives in podman. Defaults to spark4;
+# override with --source when the image was built elsewhere.
+# NOTE: this default deliberately does NOT follow the spark5 build-host default
+# of build_cudnn_image.sh — the registry below is served over the QSFP mesh and
+# spark5 is not on it. Either build on a mesh node (spark1-4) for this path, or
+# move the image into a mesh node's podman store first.
 SOURCE="spark4.local"              # management address for outer ssh
 
 # Temporary registry address. Must be an IP/host reachable by ALL targets

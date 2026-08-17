@@ -68,9 +68,13 @@ IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"
 #SRC_IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.11-sm121"
 #IMAGE="docker.io/xomoxcc/dgx-spark-sglang:0.5.11-sm121"
 
-# Source host: where the built image lives in podman. Defaults to spark4
-# (the historical build host); override with --source when the image was
-# built elsewhere (e.g. spark3 after build_sm121_image.sh --remote-host).
+# Source host: where the built image lives in podman. Defaults to spark4;
+# override with --source when the image was built elsewhere (e.g. spark3 after
+# build_sm121_image.sh --remote-host).
+# NOTE: this default deliberately does NOT follow the spark5 build-host default
+# of build_sm121_image.sh — the registry below is served over the QSFP mesh and
+# spark5 is not on it. Either build on a mesh node (spark1-4) for this path, or
+# move the image into a mesh node's podman store first.
 SOURCE="spark4.local"              # management address for outer ssh
 
 # Temporary registry address. Must be an IP/host reachable by ALL targets
