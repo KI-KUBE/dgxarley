@@ -49,6 +49,14 @@ and GATEWAY_HEALTH_URL is still the only cross-container mechanism (still marked
 deprecated, still no replacement config key). Live proof in the running pod: the
 banner below appears in the gateway log and the log has 0 "rejected invalid API
 key" warnings.
+
+Re-verified 2026-08-17 at v2026.8.16 (v0.20.2), the currently pinned tag, by
+source inspection of the tag: gateway/platforms/api_server.py still defines
+APIServerAdapter._check_auth(self, request); /health/detailed still calls it
+while /health and its /v1/health alias never do; hermes_cli/web_server.py::
+_probe_gateway_health still builds a bare urllib.request.Request(path,
+method="GET") with no Authorization header. Both anchors hold, the mismatch is
+still unfixed, so this patch stays required and unchanged.
 """
 
 import sys

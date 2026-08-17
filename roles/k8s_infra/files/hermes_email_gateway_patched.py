@@ -15,11 +15,62 @@ Environment variables:
     EMAIL_ALLOWED_USERS — Comma-separated list of allowed sender addresses
 
 ------------------------------------------------------------------------------
-LOCAL PATCH (dgxarley) — synced to upstream tag v2026.8.13
-(plugins/platforms/email/adapter.py, blob 317eae72, 60496 bytes). Current for
-the pinned image (hermes.image_tag v2026.8.13).
+LOCAL PATCH (dgxarley) — synced to upstream tag v2026.8.16
+(plugins/platforms/email/adapter.py, blob 704524e4, 62120 bytes). Current for
+the pinned image (hermes.image_tag v2026.8.16).
 
-Re-synced 2026-08-15 (v2026.8.3 -> v2026.8.13, v0.20.1). This is a real
+Re-synced 2026-08-17 (v2026.8.13 -> v2026.8.16, v0.20.2). Small but NOT
+byte-identical: exactly one upstream commit touched this file, 480342232a
+("fix(gateway): close leaked poller sockets in weixin/email adapters",
+#79889), and both of its call sites land on our anchors.
+
+  1. NEW module-level _close_imap(imap) (upstream, verbatim, placed where
+     upstream put it: right after SMTP_CONNECT_TIMEOUT). It calls logout()
+     and, on ANY exception, chases it with shutdown(). Rationale (upstream's
+     own docstring, kept): IMAP4.logout() only guards against OSError, but a
+     broken connection makes _simple_command('LOGOUT') raise IMAP4.abort,
+     which is not an OSError -- so logout() propagates BEFORE its own
+     shutdown() and the TCP socket stays open, leaking one fd per failed
+     poll/connect until the process hits "[Errno 24] Too many open files".
+
+  2. connect() -- ANCHOR MOVE, [PATCH-4] rewoven. Upstream wrapped the whole
+     IMAP-test body in an inner try/finally (``imap = None`` ... ``finally:
+     if imap is not None: _close_imap(imap)``) and DROPPED the three
+     per-branch ``imap.logout()`` calls. Our block (the [PATCH-4]
+     folder-ensure CREATEs, the self._open_imap() routing, and the
+     process_existing conditional composed as the ``else`` of upstream's
+     is_reconnect/snapshot branch) was re-indented into that inner try
+     unchanged, and its three logout() calls were removed alongside
+     upstream's. The ``self._seen_uids_snapshot[...] = ...`` assignment stays
+     AFTER the inner try/finally, exactly where upstream put it.
+
+  3. _fetch_new_messages() -- ``imap: Optional[imaplib.IMAP4] = None`` added
+     above the outer try (upstream, for the annotation), and the finally's
+     ``try: imap.logout() except: pass`` replaced by ``_close_imap(imap)``.
+     [PATCH-3]'s self._open_imap() routing and [PATCH-5]'s Working-folder
+     MOVE sit on context this diff does not touch and are unchanged.
+
+  4. [PATCH-1] (this docstring), [PATCH-2], [PATCH-6], [PATCH-7] and
+     [PATCH-8] sit on code the upstream diff does not touch and reapplied
+     unchanged at identical anchors.
+
+  5. dgxarley EXTENSION of the fix: our OWN two IMAP teardowns -- the
+     module-level _imap_append_to_sent() ([PATCH-3]) and the instance
+     _finalize_message() ([PATCH-3]/[PATCH-6] lifecycle) -- carried the
+     identical leaky ``try: imap.logout() except: pass`` pattern. Upstream
+     never saw those call sites (they do not exist upstream), so both were
+     routed through _close_imap() for parity: same bug class, one leaked fd
+     per Sent-APPEND / per finalize MOVE against a broken connection.
+
+  6. Verification performed for this re-sync: ast.parse() on the new file;
+     black --check clean; a full diff of the new file against the v2026.8.16
+     baseline inspected hunk-by-hunk to confirm it contains only
+     [PATCH-1]..[PATCH-8] plus black reformatting and the [UPSTREAM] comment
+     markers (nothing upstream dropped or reverted); plugin.yaml and
+     __init__.py confirmed byte-identical to v2026.8.13, so the ConfigMap
+     subPath mount target is unchanged.
+
+Re-synced 2026-08-15 (v2026.8.3 -> v2026.8.13, v0.20.1). This was a real
 re-sync, not a byte-identical check: upstream restructured _fetch_new_messages
 and connect() significantly. Summary of what changed and how it was handled:
 
@@ -401,6 +452,30 @@ MAX_MESSAGE_LENGTH = 50_000
 SMTP_CONNECT_TIMEOUT = 30
 
 
+def _close_imap(imap: "imaplib.IMAP4") -> None:
+    """Best-effort teardown that guarantees the underlying socket is closed.
+
+    [UPSTREAM v2026.8.16]
+
+    ``IMAP4.logout()`` only guards against ``OSError`` internally: a broken
+    connection makes ``_simple_command('LOGOUT')`` raise ``IMAP4.abort``
+    (which is *not* an ``OSError``), so ``logout()`` propagates before its
+    own ``shutdown()`` call and the TCP socket stays open. On macOS, where
+    the default soft fd limit is 256 and pollers may run through a local
+    proxy, these abandoned sockets accumulate one per failed poll until the
+    gateway hits ``[Errno 24] Too many open files`` (#79889). Always chase a
+    failed ``logout()`` with ``shutdown()``, which closes the socket
+    unconditionally.
+    """
+    try:
+        imap.logout()
+    except Exception:
+        try:
+            imap.shutdown()
+        except Exception:
+            pass
+
+
 def _create_ipv4_connection(
     host: str,
     port: int,
@@ -565,10 +640,10 @@ def _imap_append_to_sent(
             else:
                 logger.debug("[Email] APPEND to %r ok", sent_folder)
         finally:
-            try:
-                imap.logout()
-            except Exception:
-                pass
+            # Same fd-leak guard upstream applied to its own IMAP teardowns in
+            # v2026.8.16 (#79889): logout() lets IMAP4.abort escape on a broken
+            # connection, leaving the socket open — one leaked fd per send.
+            _close_imap(imap)
     except Exception as e:  # noqa: BLE001 — Sent-folder mirror is best-effort
         logger.warning("[Email] APPEND to %r failed: %s", sent_folder, e)
 
@@ -1198,10 +1273,9 @@ class EmailAdapter(BasePlatformAdapter):
                     self._done_folder,
                 )
             finally:
-                try:
-                    imap.logout()
-                except Exception:
-                    pass
+                # Same fd-leak guard upstream applied to its own IMAP teardowns
+                # in v2026.8.16 (#79889).
+                _close_imap(imap)
         except Exception as e:  # noqa: BLE001
             logger.error("[Email] Finalize MOVE failed: %s", e)
 
@@ -1257,66 +1331,75 @@ class EmailAdapter(BasePlatformAdapter):
             return False
 
         try:
-            # Test IMAP connection — uses port-based SSL/STARTTLS auto-detect
-            # so Dovecot-style 143-with-STARTTLS endpoints work alongside the
-            # 993-implicit-SSL providers upstream targets exclusively.
-            imap = self._open_imap()
+            # [UPSTREAM v2026.8.16] The handle is closed in ``finally`` —
+            # before this, a failure in login/select/search left the TCP socket
+            # open with no owner, leaking one fd per connect attempt. Under the
+            # gateway's reconnect watcher (fresh adapter instance per retry)
+            # against an unreachable/proxied host this grew monotonically until
+            # fd exhaustion on macOS's 256 soft limit (#79889). The three
+            # per-branch ``imap.logout()`` calls this replaces are gone.
+            imap = None
+            try:
+                # Test IMAP connection — uses port-based SSL/STARTTLS auto-detect
+                # so Dovecot-style 143-with-STARTTLS endpoints work alongside the
+                # 993-implicit-SSL providers upstream targets exclusively.
+                imap = self._open_imap()
 
-            # [PATCH-4] Ensure our managed folders exist before any MOVE
-            # touches them. CREATE is idempotent (NO on "already exists"),
-            # so this is safe to run every reconnect. Working/Done are only
-            # created when the lifecycle is active (done_folder set) — with no
-            # Done there are no moves, so nothing to create. The Sent folder is
-            # independent (used by APPEND regardless of the lifecycle).
-            # _ensure_folder itself no-ops on an empty name.
-            if self._done_folder:
-                self._ensure_folder(imap, self._working_folder)
-                self._ensure_folder(imap, self._done_folder)
-            self._ensure_folder(imap, self._sent_folder)
+                # [PATCH-4] Ensure our managed folders exist before any MOVE
+                # touches them. CREATE is idempotent (NO on "already exists"),
+                # so this is safe to run every reconnect. Working/Done are only
+                # created when the lifecycle is active (done_folder set) — with no
+                # Done there are no moves, so nothing to create. The Sent folder is
+                # independent (used by APPEND regardless of the lifecycle).
+                # _ensure_folder itself no-ops on an empty name.
+                if self._done_folder:
+                    self._ensure_folder(imap, self._working_folder)
+                    self._ensure_folder(imap, self._done_folder)
+                self._ensure_folder(imap, self._sent_folder)
 
-            imap.select("INBOX")
-            snapshot = self._seen_uids_snapshot.get(self._address)
-            if is_reconnect and snapshot is not None:
-                # [UPSTREAM v2026.8.13] Reconnect within the same process:
-                # restore the previous adapter's seen-UID baseline instead of
-                # re-marking the whole mailbox. Mail that arrived during the
-                # outage stays UNSEEN relative to the baseline and is
-                # dispatched by the next poll instead of being silently
-                # skipped. Orthogonal to our process_existing knob below —
-                # this branch only fires on a same-process RECONNECT, never
-                # on a cold start, so it composes cleanly with [PATCH-4].
-                self._seen_uids = set(snapshot)
-                self._trim_seen_uids()
-                imap.logout()
-                logger.info(
-                    "[Email] IMAP reconnect test passed. Restored %d seen UIDs; "
-                    "messages received during the outage will be processed.",
-                    len(self._seen_uids),
-                )
-            else:
-                # [PATCH-4] First connect (or no snapshot yet): pre-fill
-                # _seen_uids ONLY when not opted in to processing existing
-                # INBOX mail. Upstream's fallback here always pre-fills (=
-                # ignore everything already there); with process_existing=true
-                # (config.yaml) we leave the set empty so the next poll picks
-                # up the historical UNSEEN backlog.
-                if not self._process_existing:
-                    status, data = imap.uid("search", None, "ALL")
-                    if status == "OK" and data and data[0]:
-                        for uid in data[0].split():
-                            self._seen_uids.add(uid)
+                imap.select("INBOX")
+                snapshot = self._seen_uids_snapshot.get(self._address)
+                if is_reconnect and snapshot is not None:
+                    # [UPSTREAM v2026.8.13] Reconnect within the same process:
+                    # restore the previous adapter's seen-UID baseline instead of
+                    # re-marking the whole mailbox. Mail that arrived during the
+                    # outage stays UNSEEN relative to the baseline and is
+                    # dispatched by the next poll instead of being silently
+                    # skipped. Orthogonal to our process_existing knob below —
+                    # this branch only fires on a same-process RECONNECT, never
+                    # on a cold start, so it composes cleanly with [PATCH-4].
+                    self._seen_uids = set(snapshot)
                     self._trim_seen_uids()
-                    imap.logout()
                     logger.info(
-                        "[Email] IMAP connection test passed. %d existing messages skipped.",
+                        "[Email] IMAP reconnect test passed. Restored %d seen UIDs; "
+                        "messages received during the outage will be processed.",
                         len(self._seen_uids),
                     )
                 else:
-                    imap.logout()
-                    logger.info(
-                        "[Email] IMAP connection test passed. process_existing=true — "
-                        "will process pre-existing UNSEEN mail on first poll."
-                    )
+                    # [PATCH-4] First connect (or no snapshot yet): pre-fill
+                    # _seen_uids ONLY when not opted in to processing existing
+                    # INBOX mail. Upstream's fallback here always pre-fills (=
+                    # ignore everything already there); with process_existing=true
+                    # (config.yaml) we leave the set empty so the next poll picks
+                    # up the historical UNSEEN backlog.
+                    if not self._process_existing:
+                        status, data = imap.uid("search", None, "ALL")
+                        if status == "OK" and data and data[0]:
+                            for uid in data[0].split():
+                                self._seen_uids.add(uid)
+                        self._trim_seen_uids()
+                        logger.info(
+                            "[Email] IMAP connection test passed. %d existing messages skipped.",
+                            len(self._seen_uids),
+                        )
+                    else:
+                        logger.info(
+                            "[Email] IMAP connection test passed. process_existing=true — "
+                            "will process pre-existing UNSEEN mail on first poll."
+                        )
+            finally:
+                if imap is not None:
+                    _close_imap(imap)
             # [UPSTREAM v2026.8.13] Keep the reconnect snapshot current after
             # either branch above, so a later same-process reconnect restores
             # whatever baseline this connect (cold-start or reconnect) landed
@@ -1432,6 +1515,7 @@ class EmailAdapter(BasePlatformAdapter):
     def _fetch_new_messages(self) -> List[Dict[str, Any]]:
         """Fetch new (unseen) messages from IMAP. Runs in executor thread."""
         results = []
+        imap: Optional[imaplib.IMAP4] = None
         try:
             imap = self._open_imap()
             try:
@@ -1528,10 +1612,10 @@ class EmailAdapter(BasePlatformAdapter):
                         parsed["source_folder"] = source_folder
                         results.append(parsed)
             finally:
-                try:
-                    imap.logout()
-                except Exception:
-                    pass
+                # [UPSTREAM v2026.8.16] _close_imap guarantees the socket dies
+                # even when logout() raises IMAP4.abort on a broken connection
+                # (#79889).
+                _close_imap(imap)
         except Exception as e:
             logger.error("[Email] IMAP fetch error: %s", e)
             # [UPSTREAM v2026.8.13] Surfaced via _check_inbox()'s fatal-error

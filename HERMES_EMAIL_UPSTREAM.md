@@ -549,6 +549,57 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 >   pass in each clone, range-diff reviewed, pushed `--force-with-lease` to
 >   the fork, all three back to `MERGEABLE`/`BLOCKED`.
 
+> **2026-08-17 check — release v2026.8.16 shipped the fd-leak fix; tag bump +
+> re-sync executed same day:**
+> - Upstream released **v2026.8.16** (v0.20.2, 2026-08-16). Exactly ONE commit
+>   touched `plugins/platforms/email/adapter.py` since v2026.8.13:
+>   `480342232a` ("fix(gateway): close leaked poller sockets in weixin/email
+>   adapters", #79889) — the commit the previous entry flagged as "on `main`,
+>   in no tag yet, NOT ported". New baseline blob `704524e4`, 62120 bytes.
+>   `plugin.yaml` and `__init__.py` are byte-identical, so the ConfigMap
+>   subPath mount target is unchanged.
+> - **What the commit does:** adds a module-level `_close_imap(imap)` that
+>   calls `logout()` and, on ANY exception, chases it with `shutdown()`.
+>   `IMAP4.logout()` only guards `OSError`, but a broken connection makes
+>   `_simple_command('LOGOUT')` raise `IMAP4.abort` (not an `OSError`), so
+>   `logout()` propagates before its own `shutdown()` and the socket stays
+>   open — one leaked fd per failed poll/connect until `[Errno 24] Too many
+>   open files`.
+> - **Re-sync done:** `hermes.image_tag` bumped `v2026.8.13` -> `v2026.8.16`;
+>   `hermes_email_gateway_patched.py` rebuilt on the v2026.8.16 baseline. Both
+>   upstream call sites land on our anchors, so this was a real reweave:
+>   **[PATCH-4] re-indented** into upstream's new inner `try/finally` in
+>   `connect()` (`imap = None` … `finally: if imap is not None:
+>   _close_imap(imap)`), with our three `imap.logout()` calls removed
+>   alongside upstream's and the `_seen_uids_snapshot` assignment left after
+>   the inner block; **`_fetch_new_messages()`** gained upstream's
+>   `imap: Optional[imaplib.IMAP4] = None` and its `finally` now calls
+>   `_close_imap(imap)` (the [PATCH-3] `_open_imap()` routing and the
+>   [PATCH-5] Working-MOVE are untouched by the diff).
+>   [PATCH-1/2/6/7/8] reapplied unchanged at identical anchors. **dgxarley
+>   extension:** our own two IMAP teardowns (`_imap_append_to_sent`,
+>   `_finalize_message` — both [PATCH-3] code that does not exist upstream)
+>   had the identical leaky `try: logout() except: pass` and were routed
+>   through `_close_imap` too. Verified: `ast.parse()` OK, `black --check`
+>   clean, full diff vs the v2026.8.16 baseline inspected hunk-by-hunk
+>   (only [PATCH-1..8] + black reformatting + `[UPSTREAM]` comment markers,
+>   nothing upstream dropped). Rollout happens at the next `--tags hermes`
+>   run (not executed here).
+> - Side findings from the bump check: `hermes_health_patch.py` **still
+>   required and unchanged** — `APIServerAdapter._check_auth(self, request)`
+>   still exists, `/health/detailed` still calls it while `/health` and the
+>   `/v1/health` alias never do, and `_probe_gateway_health` still sends a
+>   bare `urllib.request.Request(path, method="GET")` with no Authorization
+>   header. `GATEWAY_HEALTH_URL` still present, still deprecated, still the
+>   only cross-container mechanism. Dashboard CLI flags
+>   (`--host`/`--insecure`/`--port`/`--no-open`),
+>   `HERMES_DASHBOARD_BASIC_AUTH_*` reads, `gateway.lock`/
+>   `gateway_state.json` all unchanged.
+> - **PR status:** no work needed. `main` has contained `480342232a` since
+>   2026-08-15, and all three PRs were already rebased past it on 2026-08-16
+>   (heads #28697 `75775e5e91`, #28699 `16f1753624`, #28702 `aecb6942a5`);
+>   all three are `MERGEABLE`/`BLOCKED` as of this check.
+
 1. Download the new upstream file:
 
    ```bash

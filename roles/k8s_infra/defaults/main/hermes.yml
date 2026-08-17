@@ -143,7 +143,48 @@ hermes:
   #    using the env vars, no deployment change made.
   #  * Unchanged: image contract, dashboard CLI flags, TERMINAL_CWD/
   #    API_SERVER_KEY/EMAIL_*/MATRIX_* env, gateway.lock/gateway_state.json.
-  image_tag: "v2026.8.13"            # agent image (nousresearch/hermes-agent)
+  # Bumped v2026.8.13 -> v2026.8.16 (2026-08-17, v0.20.2). Small, single-commit
+  # re-sync of the email adapter:
+  #  * plugins/platforms/email/adapter.py DIVERGED (blob 704524e4, 62120 bytes)
+  #    by exactly ONE upstream commit, 480342232a ("fix(gateway): close leaked
+  #    poller sockets in weixin/email adapters", #79889): a new module-level
+  #    _close_imap() helper (logout(), and on ANY exception chase it with
+  #    shutdown(), because IMAP4.abort is not an OSError and escapes logout()
+  #    leaving the socket open — one leaked fd per failed poll/connect), plus
+  #    two call sites. Both call sites sit ON our patch anchors, so this was a
+  #    real reweave, not a byte-identical check:
+  #      - connect(): upstream wrapped the whole IMAP-test body in an inner
+  #        try/finally (`imap = None` ... `finally: if imap is not None:
+  #        _close_imap(imap)`) and DROPPED the three per-branch imap.logout()
+  #        calls. [PATCH-4] (folder-ensure + the process_existing conditional
+  #        composed as the else of upstream's is_reconnect/snapshot branch)
+  #        was re-indented into that inner try verbatim; its three logout()
+  #        calls were removed with upstream's.
+  #      - _fetch_new_messages(): `imap: Optional[imaplib.IMAP4] = None` added
+  #        and the finally's try/logout/except replaced by _close_imap(imap).
+  #        [PATCH-3]'s self._open_imap() routing and [PATCH-5]'s Working-folder
+  #        MOVE are untouched by the upstream diff.
+  #    [PATCH-1/2/6/7/8] sit on code this diff does not touch and reapplied
+  #    unchanged. Our OWN two IMAP teardowns ([PATCH-3] _imap_append_to_sent
+  #    and _finalize_message) had the identical leaky logout()/except pattern
+  #    and were routed through _close_imap too — same bug class, upstream just
+  #    never saw those call sites.
+  #  * plugins/platforms/email/{plugin.yaml,__init__.py} byte-identical, so the
+  #    ConfigMap subPath mount target is unchanged.
+  #  * hermes_health_patch.py still required AND still applies: at v2026.8.16
+  #    gateway/platforms/api_server.py still defines APIServerAdapter.
+  #    _check_auth(self, request), /health/detailed still calls it while
+  #    /health (and the /v1/health alias) never do, and hermes_cli/web_server.
+  #    py::_probe_gateway_health still issues a bare urllib Request with NO
+  #    Authorization header. No file change needed.
+  #  * GATEWAY_HEALTH_URL / _probe_gateway_health: still present, still marked
+  #    DEPRECATED ("scheduled for removal"), still the only cross-container
+  #    mechanism. Re-check on the next bump.
+  #  * Unchanged: image contract, dashboard CLI flags (--host/--insecure/
+  #    --port/--no-open), HERMES_DASHBOARD_BASIC_AUTH_* env reads (still in
+  #    plugins/dashboard_auth/basic/), TERMINAL_CWD/API_SERVER_KEY/EMAIL_*/
+  #    MATRIX_* env, gateway.lock/gateway_state.json.
+  image_tag: "v2026.8.16"            # agent image (nousresearch/hermes-agent)
   # NOTE: the venv site-packages dir (mount point for the hermes_health_patch
   # .py/.pth) is NOT configured here — it carries a pythonX.Y segment that bumps
   # with the base image. hermes.yml probes the actual image ONCE at deploy time
