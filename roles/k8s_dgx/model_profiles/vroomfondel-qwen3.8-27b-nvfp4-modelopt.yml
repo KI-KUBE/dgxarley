@@ -92,21 +92,40 @@
 #   7. Sanity check for the baked KV scales: the boot log must contain "Using
 #      FP8 KV cache but no scaling factors provided" ZERO times.
 #
-# ── RISKS, ordered by how likely they are to bite ────────────────────────────
-#   A. Uniform W4A4 on a Gated-DeltaNet hybrid degrades into word salad, not
-#      into a measurable accuracy drop, when a scale on the fused
-#      linear_attn.in_proj_qkv loads badly. Judge on generated text.
-#   B. DSpark first contact on this cluster, on an arch nobody has run DSpark
-#      on. The card's acceptance numbers (mean 3.39 over 1164 requests) were
-#      measured against the FP8 target on other hardware; a W4A4 target shifts
-#      the hidden states the draft was trained to predict, so expect LOWER
-#      acceptance here. The regression detector is the same as everywhere:
-#      `accept len` pinned at the ceiling (= speculative_num_draft_tokens = 8)
-#      means verify stopped rejecting anything, i.e. draft and target read the
-#      same wrong data, while throughput and startup look healthy.
-#   C. The image path is calibrated on text only (see above).
-#   D. GSM8K is still owed for the target itself; the quantizer ran four
-#      prompts, which is a smoke test, not an evaluation.
+# ── RISKS, reconciled against the measured run at the top of this file ───────
+# RETIRED by the 2026-08-15 measurement:
+#   A. "Uniform W4A4 on a Gated-DeltaNet hybrid degrades into word salad rather
+#      than into a measurable accuracy drop when a scale on the fused
+#      linear_attn.in_proj_qkv loads badly." This was the top risk and it is
+#      settled: 97.42% over all 1319 GSM8K items with strict == flexible and
+#      zero empty responses is not a build with a broken GDN path. Keep the
+#      failure MODE in mind for future re-quants of this arch (judge on
+#      generated text, not on a clean boot), but it is no longer an open
+#      question for THIS checkpoint.
+#   B. "Expect lower acceptance than the card." Confirmed and quantified, and
+#      the comparison is easy to get wrong: the card's headline 3.39 is the
+#      mean over 11 mixed workloads, its GSM8K cell is 4.57. We measured 3.77
+#      on GSM8K, so against the MATCHING workload the W4A4 target does cost
+#      acceptance, roughly 0.8 tokens per verify, exactly as predicted from the
+#      draft having been trained against the FP8 target. It is not a defect.
+#      The regression detector stays the same: `accept len` pinned AT the
+#      ceiling (= speculative_num_draft_tokens = 8) means verify stopped
+#      rejecting anything, i.e. draft and target read the same wrong data,
+#      while throughput and startup look healthy. 3.77 of 8 is the good case.
+#
+# STILL OPEN, ordered by how likely they are to bite:
+#   C. THIS ROLE'S DEPLOY HOP IS UNVALIDATED, and it is not a like-for-like
+#      repeat of the measured run: the measurement was single-Spark, while this
+#      profile ships tp_size 4, so every verify step gains an inter-node hop
+#      and the drafter runs distributed. Acceptance is a model property and
+#      should carry over; throughput is NOT and has to be re-measured.
+#   D. No same-settings run WITHOUT speculation exists, so the profile makes no
+#      speedup claim. Until that A/B is on record, "DSpark is worth it here" is
+#      an assumption, not a result.
+#   E. The image path is calibrated on text only (see above), so the vision
+#      surface remains the least validated part of the build.
+#   F. NEXTN on the in-checkpoint MTP head is a measured FAILURE on this build,
+#      not a fallback. See the ALTERNATIVE block below before reaching for it.
 _model_profile:
   "vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt":
     knowledge_cutoff: null  # not officially disclosed for the Qwen3.8-27B base
@@ -210,8 +229,9 @@ _model_profile:
     # mamba_track_interval % page_size == 0.
     mamba_scheduler_strategy: extra_buffer
     # OPTIONAL, left OFF (repo default, unvalidated on GB10):
-    # enable_gdn_replayssm_spec: true -> --enable-gdn-replayssm-spec, i.e.
-    # upstream's enable_linear_replayssm_spec (PR #28695). It replaces the
+    # enable_linear_replayssm_spec: true -> --enable-linear-replayssm-spec
+    # (PR #28695; both the flag and our knob were spelled ...gdn_replayssm_spec
+    # until upstream's v0.5.17 rename). It replaces the
     # per-draft-token SSM snapshot with a ring buffer, upstream measuring
     # 11.5 GB -> 1.8 GB speculative scratch per GPU on a comparable GDN model,
     # which would come straight back as KV headroom via mem_fraction_static.
