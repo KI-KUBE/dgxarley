@@ -191,9 +191,11 @@
         # GDN ReplaySSM ring spec-verify (>=0.5.16, PR #28695). Only read inside
         # the SGLANG_SPECULATIVE_ENABLED branch of launch.sh. Renamed 2026-08-17
         # from SGLANG_ENABLE_GDN_REPLAYSSM_SPEC to track upstream's v0.5.17
-        # rename; strategic-merge does NOT prune the old key from a live
-        # Deployment's env list, so an already-deployed instance keeps the stale
-        # (unread) entry until the Deployment is replaced.
+        # rename; strategic-merge does NOT prune a removed key from this
+        # ConfigMap's data, so an already-deployed instance would keep the stale
+        # (now unread) entry until the ConfigMap is deleted and recreated.
+        # Checked 2026-08-17: no live ConfigMap in ns sglang carries either key,
+        # so there is nothing to clean up right now.
         SGLANG_ENABLE_LINEAR_REPLAYSSM_SPEC: "{{ sglang_enable_linear_replayssm_spec | string | lower }}"
         SGLANG_MAMBA_SCHEDULER_STRATEGY: "{{ sglang_mamba_scheduler_strategy }}"
         SGLANG_MAMBA_FULL_MEMORY_RATIO: "{{ sglang_mamba_full_memory_ratio | string }}"
