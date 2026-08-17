@@ -522,8 +522,26 @@ if [ "$SGLANG_SPECULATIVE_ENABLED" = "true" ]; then
   # throughput parity. Only valid for GDN/linear-attention models with a LINEAR
   # draft chain (speculative_eagle_topk in {None, 1}); SGLang rejects other
   # configurations. Default off upstream and here.
-  if [ "$SGLANG_ENABLE_GDN_REPLAYSSM_SPEC" = "true" ]; then
-    args+=(--enable-gdn-replayssm-spec)
+  #
+  # ⚠ FLAG NAME IS VERSION-DEPENDENT, and unlike the --mamba-scheduler-strategy
+  # case below the two spellings do NOT overlap in every pinned image (checked
+  # against the tags, 2026-08-17):
+  #   v0.5.15  : neither, the feature does not exist
+  #   v0.5.16  : ONLY --enable-gdn-replayssm-spec (the field is literally named
+  #              enable_gdn_replayssm_spec there, which is where our old knob
+  #              name came from)
+  #   v0.5.17  : renamed to --enable-linear-replayssm-spec; the old spelling
+  #              survives as a DeprecatedStoreTrueAction alias that still sets
+  #              the dest but prints "is deprecated and will be removed".
+  # We emit the NEW name, which is correct for every image any profile currently
+  # pins (no profile pins 0.5.16, and the knob is off by default everywhere).
+  # If you ever pin a 0.5.16 image AND set enable_linear_replayssm_spec: true,
+  # this line has to go back to --enable-gdn-replayssm-spec or SGLang aborts on
+  # an unrecognized argument.
+  # The env var was SGLANG_ENABLE_GDN_REPLAYSSM_SPEC before 2026-08-17; renamed
+  # with the profile key and the role var to track the upstream rename.
+  if [ "$SGLANG_ENABLE_LINEAR_REPLAYSSM_SPEC" = "true" ]; then
+    args+=(--enable-linear-replayssm-spec)
   fi
 fi
 # --mamba-scheduler-strategy ist deprecated (Warnung seit mindestens 0.5.15,

@@ -189,8 +189,12 @@
         SGLANG_SPECULATIVE_ADAPTIVE: "{{ sglang_speculative_adaptive | string | lower }}"
         SGLANG_SPECULATIVE_ADAPTIVE_CONFIG_JSON: "{{ sglang_speculative_adaptive_config | to_json }}"
         # GDN ReplaySSM ring spec-verify (>=0.5.16, PR #28695). Only read inside
-        # the SGLANG_SPECULATIVE_ENABLED branch of launch.sh.
-        SGLANG_ENABLE_GDN_REPLAYSSM_SPEC: "{{ sglang_enable_gdn_replayssm_spec | string | lower }}"
+        # the SGLANG_SPECULATIVE_ENABLED branch of launch.sh. Renamed 2026-08-17
+        # from SGLANG_ENABLE_GDN_REPLAYSSM_SPEC to track upstream's v0.5.17
+        # rename; strategic-merge does NOT prune the old key from a live
+        # Deployment's env list, so an already-deployed instance keeps the stale
+        # (unread) entry until the Deployment is replaced.
+        SGLANG_ENABLE_LINEAR_REPLAYSSM_SPEC: "{{ sglang_enable_linear_replayssm_spec | string | lower }}"
         SGLANG_MAMBA_SCHEDULER_STRATEGY: "{{ sglang_mamba_scheduler_strategy }}"
         SGLANG_MAMBA_FULL_MEMORY_RATIO: "{{ sglang_mamba_full_memory_ratio | string }}"
         SGLANG_MAX_MAMBA_CACHE_SIZE: "{{ sglang_max_mamba_cache_size | string }}"

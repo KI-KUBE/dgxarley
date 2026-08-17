@@ -136,8 +136,11 @@ sglang_max_mamba_cache_size: "{{ sglang_model_profiles[_sglang_active_model].max
 # for speculative decoding on hybrid-attention models. Sets SGLANG_ENABLE_SPEC_V2=1.
 sglang_enable_spec_v2: "{{ sglang_model_profiles[_sglang_active_model].enable_spec_v2 | default(false) }}"
 
-# GDN ReplaySSM ring spec-verify → --enable-gdn-replayssm-spec (SGLang >=0.5.16,
-# PR #28695). Drops the per-draft SSM snapshot in favour of a ring buffer:
+# GDN ReplaySSM ring spec-verify → --enable-linear-replayssm-spec (SGLang
+# >=0.5.16, PR #28695). The flag was called --enable-gdn-replayssm-spec in
+# v0.5.16 and renamed in v0.5.17, where the old spelling lives on as a
+# deprecated alias; sglang_launch.sh emits the NEW name and carries the full
+# version matrix. Drops the per-draft SSM snapshot in favour of a ring buffer:
 # upstream measures 11.5 GB → 1.8 GB speculative scratch per GPU (6.4x) on
 # Qwen3.5-35B-A3B at TP1, at accuracy and throughput parity. Freed scratch is
 # headroom for a higher mem_fraction_static (= more KV reserve after weight load).
@@ -146,9 +149,16 @@ sglang_enable_spec_v2: "{{ sglang_model_profiles[_sglang_active_model].enable_sp
 # Ring length is tunable upstream via --linear-replayssm-cache-len (NOT wired
 # here — add a sibling knob if the default ring turns out to be the limit).
 # Default off (upstream default too); opt in per profile with
-# `enable_gdn_replayssm_spec: true`. UNVALIDATED on GB10: A/B against the
+# `enable_linear_replayssm_spec: true`. UNVALIDATED on GB10: A/B against the
 # 0.5.15.post1 accept-length/throughput baseline before making it a profile default.
-sglang_enable_gdn_replayssm_spec: "{{ sglang_model_profiles[_sglang_active_model].enable_gdn_replayssm_spec | default(false) }}"
+# RENAMED 2026-08-17 to follow upstream's v0.5.17 rename, at all three levels:
+# profile key enable_gdn_replayssm_spec -> enable_linear_replayssm_spec, role var
+# sglang_enable_gdn_replayssm_spec -> sglang_enable_linear_replayssm_spec, env
+# SGLANG_ENABLE_GDN_REPLAYSSM_SPEC -> SGLANG_ENABLE_LINEAR_REPLAYSSM_SPEC. No
+# profile set the old key, so nothing broke silently; a profile that still
+# carries the OLD key would now fall through to the default(false) below and
+# quietly lose the knob, so grep before resurrecting an old profile.
+sglang_enable_linear_replayssm_spec: "{{ sglang_model_profiles[_sglang_active_model].enable_linear_replayssm_spec | default(false) }}"
 
 # NOTE: you should never change the image directly here!
 sglang_image: "{{ sglang_model_profiles[_sglang_active_model].sglang_image | default(default_sglang_image) }}"
