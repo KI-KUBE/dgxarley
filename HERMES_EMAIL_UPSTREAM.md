@@ -600,6 +600,9 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 >   (heads #28697 `75775e5e91`, #28699 `16f1753624`, #28702 `aecb6942a5`);
 >   all three are `MERGEABLE`/`BLOCKED` as of this check.
 
+> **2026-08-21 check — no change, two new rollup releases confirmed clean, PR rebase cause clarified:**
+> Latest releases **v2026.8.16.2** (2026-08-17) and **v2026.8.18** (2026-08-18) are both changelog-deferred rollups; `plugins/platforms/email/adapter.py` is byte-identical to our pinned `v2026.8.16` baseline (blob `704524e4`, 62120 bytes) across both tags and current `main`, so no re-sync is needed. `main`'s adapter path was last touched by `480342232a` (2026-08-15, already folded in). PRs #28697/#28699/#28702 remain `OPEN`/`MERGEABLE`/`BLOCKED`, heads unchanged since 2026-08-17 (`75775e5e91`/`16f1753624`/`aecb6942a5`), no activity since. Clarification: the 2026-08-16/17 rebase that produced those heads was in response to an automated `Enough1122` AI-review pass posted 2026-08-15T18:47 on all three PRs (author addressed the points in the same rebase), not solely the `main` divergence past `480342232a` as the prior entry implied. Conclusions unchanged.
+
 1. Download the new upstream file:
 
    ```bash
