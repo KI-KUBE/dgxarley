@@ -486,6 +486,14 @@ Housekeeping note: the cluster now runs
 pins `flashinfer_python==0.6.15.post1`, while SGLang `main` has already moved
 that pin to `==0.6.17`.
 
+**Re-verified 2026-08-21:** `flashinfer/jit/cpp_ext.py:get_cuda_version()`
+still calls `subprocess.check_output([nvcc, "--version"])` unconditionally on
+the happy path, verified against `main` HEAD `4927c0e1`
+(2026-08-21T01:24:51Z). Zero commits to the file since 2026-08-01 (unchanged
+from the 2026-08-15 check). No new stable flashinfer release since v0.6.17
+(2026-08-11, still latest); nightlies have advanced to
+`nightly-v0.6.18-20260819`. Patch 1 remains mandatory; no upstream fix exists.
+
 **File locations updated (repo housekeeping, not an upstream change):** the
 runtime patches described throughout this document as living inside
 `sglang_launch.sh` (heredoc blocks `PATCH_FI_CUDA_VER_EOF` and

@@ -44,6 +44,48 @@ the tag), and the allowlist tuple/assert are now at 5601/5606 on `main`
 (5459/5464 on the tag). `attention_backend: triton` remains permanently
 mandatory for all four Gemma-4 profiles.
 
+## Status 2026-08-21 (re-verify; allowlist content changed on `main`, not yet released; new unrelated prefill.cuh commit)
+
+SGLang still **v0.5.17** (2026-08-08), still GitHub "Latest"; `main` HEAD is
+now `dad6fd0f` (2026-08-21T10:12:23Z, up from `0c072235` on 2026-08-15).
+flashinfer still **v0.6.17 stable** (2026-08-11) as latest, no new stable
+release since the 2026-08-15 check; flashinfer `main` HEAD is now `4927c0e1`
+(2026-08-21T01:24:51Z).
+
+PR #3684 (the NVFP4 asymmetric qk=512/vo=256 cross-reference, merged
+2026-08-13) remains merged and remains **out of any stable release** (no
+stable tag postdates the 2026-08-13 merge); still nightly-only
+(`nightly-v0.6.18-20260813` onward). No SGLang-side adoption PR exists.
+Issue #3297 and PR #3576 unchanged (closed / merged).
+
+One new commit touches `prefill.cuh` since the 2026-08-15 check: flashinfer
+PR [#4401](https://github.com/flashinfer-ai/flashinfer/pull/4401)
+("fix(attention): handle extreme negative logits in masked softmax", merged
+2026-08-20, commit `d7f2c646`). It fixes a NaN/sentinel-LSE bug in the
+online-softmax update for fully-masked rows (bottom-right aligned causal
+prefill, ragged one-key rows, empty split-KV chunks) by clamping the
+exponent difference at `-inf` before `exp2`. This is a different failure
+class than the `head_dim=512` register-budget `IsInvalid()` rejection
+tracked in this doc (numerics vs. compile-time dispatch rejection) and does
+not touch the dispatch table this doc watches. No action needed.
+
+**The SGLang Gemma4 attention-backend allowlist changed content on `main`
+(not yet in any release).** Commit `b6d76029` (2026-08-17, SGLang PR
+#22498, "[CPU] Add support for Gemma4 on Xeon") refactored the check to
+route through `self._resolved_attention_backends()` and expanded
+`accepted_backends` from `("trtllm_mha", "triton", "ascend", "intel_xpu")`
+to `("trtllm_mha", "triton", "ascend", "intel_xpu", "intel_amx")`, purely
+additive (adds a CPU/Xeon backend path), it does not remove `triton` or
+change flashinfer's exclusion. `_handle_model_specific_adjustments` is now
+at line 5268 on `main` (was 5163 on 2026-08-15); the allowlist/assert block
+is now at lines approximately 5697-5711 (assert message line 5710, was
+5601/5606). The **v0.5.17 tag** itself is unaffected and remains
+byte-identical to the finding quoted in the 2026-08-15 entry above
+(`server_args.py:5459/5464`, tuple without `intel_amx`). `attention_backend:
+triton` remains permanently mandatory for all four Gemma-4 profiles on our
+GPU cluster; this is line-number/CPU-backend housekeeping only, no action
+required.
+
 ## Status 2026-08-09 (re-verify only, no change)
 
 SGLang **v0.5.17** released 2026-08-08 — the Gemma4 attention-backend
