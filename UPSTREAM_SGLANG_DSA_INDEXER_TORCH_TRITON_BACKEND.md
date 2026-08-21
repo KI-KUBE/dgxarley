@@ -132,6 +132,45 @@ setup) produced two data points for THIS doc:
   A DEBUG-level or source-instrumented run would pin it down; p30/p35 stay
   in place regardless (p35 also carries the Triton fast-path perf win).
 
+Re-checked 2026-08-21: PR #31480 unchanged since 08-15, no new commits,
+comments or reviews (REST API: `mergeable: true`, `mergeable_state:
+"blocked"`, `updated_at` still 2026-08-15T10:12:46Z, head still
+`68cf312934`). No `run-ci` label, `reviewDecision: REVIEW_REQUIRED` still.
+`DSAPagedMQALogitsBackend`
+(`python/sglang/srt/layers/attention/dsa/paged_mqa_logits_backend.py`) on
+`upstream/main` has zero commits since the 08-15 base `0c072235f`; still
+only DEEPGEMM / CUTEDSL / AITER, `resolve()` still maps auto/deepgemm to
+DEEPGEMM unconditionally on non-ROCm, no `torch` value. SGLang still at
+v0.5.17 (2026-08-08), no new release. `sgl-deep-gemm` pin in
+`python/pyproject.toml` on `upstream/main` unchanged at `0.1.5.post3`;
+PyPI's latest published version is also still `0.1.5.post3` (no `post4`
+yet).
+
+New context on the sgl-deep-gemm SM120 paged-MQA-logits kernel flagged
+08-15: two open PRs against `deepseek-ai/DeepGEMM`'s `nv_dev` branch (the
+branch `sgl-project/DeepGEMM` tracks), neither merged, neither shipped in
+any sgl-deep-gemm release: #379 "SM120: fix FP8 MQA logits swizzle mode
+for head_dim < 128" (`kSwizzleMode` hardcoded to 128 misreads SMEM for
+head_dim 32/64; the author states the paged kernel's head_dim is currently
+always 128, so explicitly no behavior change there, meaning this bug does
+not affect our DSA cache layout, which hardcodes head_dim=128) and #406
+"Add SM120 heuristic calibration harness" (a calibration/sweep tool, no
+default constant changes). Neither is relevant to whether a torch/triton
+fallback is still needed.
+
+Only one merged sglang commit touches the indexer path in this window:
+f7cb328eb7 "[AMD][GLM5] Skip DSA decode indexer when kv_len <= index_topk"
+(merged 2026-08-17), but its new decode-skip branch is gated `if not
+_is_hip: return False`, i.e. no behavior change on CUDA/SM121, and it does
+not add or touch a paged-mqa-logits backend choice. No commit since
+`0c072235f` touches `paged_mqa_logits_backend.py` itself. No new sglang
+issue or PR found searching "dsa_paged_mqa_logits_backend torch" or
+"flashinfer_sparse_mla" proposing an arch-independent torch indexer
+backend.
+
+Conclusion unchanged: p30/p35 remain necessary on stock v0.5.17/current
+main; no upstream fix has landed or is imminent.
+
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
 > Triton fast path (unblocks DSA models on SM120/SM121)
 

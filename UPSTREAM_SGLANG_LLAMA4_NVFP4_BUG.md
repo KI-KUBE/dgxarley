@@ -148,3 +148,30 @@ anchors, and update the two heredoc blocks in `sglang_launch.sh`. Verify with th
   and "Llama4 NVFP4 permute" turned up zero results, no upstream tracking has
   appeared. The doc's "TODO: file upstream (needs sign-off)" item remains
   outstanding.
+- **2026-08-21** - SGLang v0.5.17 remains the latest release. `mllama4.py`/
+  `llama4.py` are byte-identical between v0.5.17 and upstream `main` (commit
+  `dad6fd0f04`); all five patched anchors unchanged at the same line numbers
+  logged on 2026-08-15. New upstream tracking found: **PR #35032**
+  ("[Fix] Llama4 NVFP4 checkpoint loading: fused expert scales and packed
+  q/k permute", author `kihan-lee`, filed 2026-08-16) independently fixes
+  patches 1 to 3 of our 5 (the fused 3D expert block-scale crash in
+  `_handle_expert_scale_params` and both halves of the
+  `permute_qk_weight_for_rotary` fix: real last-dim plus the missing
+  `weight_scale` permute for q/k), all in `mllama4.py` only. It does NOT
+  cover patches 4 to 5 (Block 2, KV-scale quality: the `RadixAttention`
+  `quant_config` fix and the `_handle_scale_remapping` copy fix) — those
+  remain untracked upstream. Author validated on a DGX Spark (GB10, SM121)
+  at tp=1: main dies at 0/14 shards without the fix, GSM8K goes from
+  "does not load" to 0.925 with it, and omitting only the weight_scale
+  permute drops accuracy to 0.485, corroborating this doc's own finding that
+  the scale desync silently corrupts output rather than crashing. PR #35032
+  also references issue #34192 (open, filed 2026-08-09, "Gemma4/Llama4
+  apply_router_weight_on_input is not supported for Flashinfer"), which
+  independently confirms the "Profile side" `moe_runner_backend: triton`
+  requirement noted at the top of this doc, and cites #9526 and #12649 as
+  earlier closed-unmerged attempts at the same fix (confirmed both CLOSED,
+  not merged). PR #35032 status as of 2026-08-21: OPEN, `mergeStateStatus`
+  BLOCKED (two AMD-only CI jobs failing, unrelated to our arch),
+  `reviewDecision` REVIEW_REQUIRED, no review comments yet. Not merged, so
+  our 5 local runtime patches in `sglang_launch.sh` remain required and
+  unaffected.

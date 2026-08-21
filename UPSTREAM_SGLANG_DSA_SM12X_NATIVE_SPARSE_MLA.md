@@ -153,6 +153,60 @@ speculative args). Results:
   indexer backend is not logged at INFO level (inconclusive which one ran).
   Test artifacts kept at spark5:/root/gb10-test-p34/ (configs + logs only).
 
+Re-checked 2026-08-21: PR #31481 unchanged since 08-03, no new commits,
+comments or reviews (REST API: `mergeable: true`, `mergeable_state:
+"blocked"`, `updated_at` still 2026-08-03T13:03:37Z, head still
+`0864022c3d`). Only the pre-existing `deepseek` label, `reviewDecision:
+REVIEW_REQUIRED` still. `dsa_backend.py::_forward_trtllm` on
+`upstream/main` still hardcodes `backend="trtllm-gen"` at line ~3268,
+unchanged position and content since 08-15 (zero commits touch that
+function). SGLang still at v0.5.17, no new release. flashinfer stable
+still v0.6.17 (2026-08-11); only nightly builds released since
+(`v0.6.18-2026081x` series), no new stable tag.
+
+New finding (does not change the redundancy question, but is new upstream
+activity in a file this doc tracks): sglang PR #32779 "[SM120&90] Add CUDA
+fused Triton sparse-MLA prefill backend for DSA" (opened 2026-07-29 by
+yunyang1999, not previously flagged in this doc, still OPEN) adds an
+opt-in `--dsa-prefill-backend triton_sparse_mla` and widens
+`_validate_flashinfer_sparse_mla_backend` in
+`python/sglang/kernels/ops/attention/flash_mla_sm120.py`, the exact
+validator our 08-15 GB10 test exercised, from `selected -
+{"flashinfer_sparse_mla"}` to `selected - {"flashinfer_sparse_mla",
+"triton_sparse_mla"}`. Per the PR's own code comment, `flashinfer_sparse_mla`
+stays the auto-selected default; `triton_sparse_mla` is only a validated
+alternative a user may select explicitly, so this does not change our
+finding that `flashinfer_sparse_mla` is auto-selected by default for
+GlmMoeDsa + SM12x + fp8 KV. As of today the PR is `mergeable: false`,
+`mergeable_state: "dirty"` (needs rebase), labels
+performance/run-ci/jit-kernel/GLM, review discussion active (maintainer
+nvpohanh asked 2026-08-12 whether the dispatch could be simplified, author
+yunyang1999 responded 2026-08-17 that a refactor folding
+`triton_sparse_mla` into the existing flashmla_sparse family is in
+progress). Not merged, not close to merge; flagged as upstream activity to
+watch, not a redundancy-relevant change.
+
+Also checked and ruled irrelevant: sglang PR #33022 "[ROCm] Use the AITER
+sparse-MLA kernel for DSA prefill and decode" (open, ROCm-specific, does
+not touch the SM12x/flashinfer_sparse_mla path) and flashinfer PR #4551
+"fix(sm120): explain sparse-MLA decode dispatch misses; add config query
+API" (open, not merged, a follow-up to #4380 that only improves error
+diagnostics for the DSV4 decode-dispatch path `_DECODE_DSV4_DISPATCH`,
+explicitly does not touch `_DECODE_DSV3_2_DISPATCH`, i.e. the GLM_NSA path
+this PR needs).
+
+`_dsa_split_backend_resolution` in `sglang/srt/arg_groups/overrides.py`
+re-verified unchanged (function body identical); the only overrides.py
+edits in this window, from the environ.py cleanup PRs #35060 and #34926,
+touch unrelated cutlass-MoE and megamoe env hooks, not the DSA
+auto-selection logic.
+
+p34 retirement decision remains pending: no TP4/real-weight confirmation
+run has been done since 08-15 (approval-gated, not requested this cycle).
+No upstream change alters the standing 08-15 verdict (stock v0.5.17
+auto-selects and runs flashinfer_sparse_mla; p34 redundancy supported at
+TP1/dummy-weight level only).
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
