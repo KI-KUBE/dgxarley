@@ -89,6 +89,14 @@
 > #22839 still **OPEN**, no activity since 2026-06-11. PR #22618 still
 > **OPEN**, no activity since 2026-04-14. Monkey-patch
 > (`PATCH_GET_CONFIG_EOF`) in `sglang_launch.sh` still required.
+>
+> **Re-verified 2026-08-21:** SGLang v0.5.17 (released 2026-08-08) remains
+> the latest release; no commits have touched
+> `python/sglang/srt/configs/qwen3_5.py` on `main` since the 2026-08-15
+> check. PR #22839 still **OPEN**, no activity since 2026-06-11 (now 10+
+> weeks). PR #22618 still **OPEN**, no activity since 2026-04-14. Root cause
+> unchanged, monkey-patch (`PATCH_GET_CONFIG_EOF`) in `sglang_launch.sh`
+> still required.
 
 
 ## Summary

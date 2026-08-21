@@ -190,6 +190,27 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 i
 > support) that does not affect the load-format logic. No new issues or PRs
 > matching `draft_load_format` since 2026-08-08.
 
+> **Re-verified 2026-08-21:** SGLang still at v0.5.17 (released 2026-08-08), no
+> new release since the 2026-08-15 check. Bug unchanged, workaround unchanged.
+> Issue #32202 still open, 0 comments, unchanged since 2026-07-23. No new
+> issues or PRs matching `draft_load_format` / "sharded_state speculative"
+> since 2026-08-08. Line numbers on `main` drifted again (`upstream/main` HEAD
+> now `dad6fd0f04`, 2026-08-21T18:12:23+08:00; last touching commit to
+> `model_runner.py` is `cba3c5d5ac`, 2026-08-17, "config: the per-instance
+> families read the bags (#35026)"): `ModelRunner.__init__` consumption line
+> 331 -> 330; remote-instance-transfer check 676 -> 670; load-path block
+> 1074-1106 -> 1066-1098; `_load_format_scope()` :1297 -> :1289;
+> `_resolve_draft_load_format()` :1309 -> :1301. Logic byte-for-byte
+> identical: `_resolve_draft_load_format()` still returns `None` unless
+> `speculative_draft_load_format` is explicitly set, so an unset value still
+> falls through to the main model's `load_format`. `draft_worker_common.py`
+> on `main` still holds only `DraftWorkerBundle` and worker-build helpers, no
+> load-format logic (2026-08-07 relocation to `model_runner.py` stands).
+> `scheduler.py:maybe_init_draft_worker()` now at line 926 (was 902 on
+> 2026-08-07), behavior unchanged. The `--speculative-draft-load-format auto`
+> + `--speculative-draft-model-path` workaround remains required and
+> unchanged.
+
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`
 

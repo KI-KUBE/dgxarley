@@ -200,6 +200,90 @@ release (merged after v0.6.17). No change to this doc's bottom line: NVFP4
 Gemma4 on SM121 remains blocked on #22928/#22927 for the reasons already
 tracked above, independent of #3684.
 
+**Re-verified 2026-08-21:** SGLang v0.5.17 remains the latest release, no new
+release. Major tracking change: all four PRs this doc tracks were closed
+unmerged between 2026-08-18 and 2026-08-19 (`mergedAt: null` for all):
+
+- **#22929** closed 2026-08-19T00:22:24Z by `hnyls2002`, citing supersession
+  by "merged PR #22079" (note: this doc's own prior tracking already
+  correctly attributes the weight-loading fix to #25054, merged 2026-05-21,
+  not #22079 which only added the triton PTX / kv-cache-dtype fix; the
+  maintainer's PR citation looks off, but the underlying claim, that
+  weight-loading is already fixed, was already tracked here as "partially
+  superseded by #25054". No practical change to this doc's conclusion.)
+- **#22928** closed 2026-08-18T22:03:57Z by `hnyls2002`: "Main has shifted
+  SM120 MoE away from the in-kernel GEGLU/FP4-clamp approach ... cutlass_moe.py
+  no longer exposes the call sites this PR patched."
+- **#22927** closed 2026-08-19T01:40:06Z by `hnyls2002`: "SM120/NVFP4 support
+  has been routed through a different mechanism on main - `is_sm120_supported()`
+  in server_args.py picks a Marlin/CUTLASS backend that avoids the E4M3-scale
+  NaN kernel entirely, rather than clamping inside the CUTLASS path."
+- **#22615** closed 2026-08-19T23:09:59Z by `kpham-sgl`, no closing comment
+  given.
+
+Source-verified on upstream `main` (commit `dad6fd0f04`, 2026-08-21T18:12+08)
+that the #22928/#22927 closing rationale does NOT hold for our SM120/121
+(GB10/DGX Spark) configuration:
+
+- `modelopt_quant.py:266`, `_SUPPORTED_ACT_STRS = ("silu", "relu2", "gelu")`,
+  unchanged, still no `gelu_tanh`/GEGLU.
+- `modelopt_quant.py:2392-2393`,
+  `assert not layer.moe_runner_config.is_gated, "The intermediate size
+  required padding, ..."`, unchanged text, in the CUTLASS weight-processing
+  branch (the `else` of the flashinfer_trtllm check).
+- The only code path that would route a gated NVFP4 MoE around that assert
+  onto `flashinfer_trtllm` is `_gemma4_overrides`
+  (`arg_groups/overrides.py:710-729`), and its auto-override at line 723 is
+  gated `if is_sm100_supported() and server_args.moe_runner_backend ==
+  "auto"`. `is_sm100_supported` (`utils/common.py`,
+  `device_capability_majors=[10]`) checks datacenter Blackwell (B200) only
+  and explicitly excludes SM120/121 (`is_sm120_supported` is the separate
+  `majors=[12]` check). Our Gemma-4 NVFP4 profiles leave `moe_runner_backend`
+  at auto (unset), so on SM121 this override never fires,
+  `enable_flashinfer_trtllm_moe` stays False, and the 26B-A4B MoE's 704
+  (non-128-aligned) intermediate_size still lands in the CUTLASS branch and
+  still trips the `is_gated` assert. The Marlin fallback the maintainer may
+  also have meant (`modelopt_quant.py` ~line 2485,
+  `(8, 0) <= capability < (10, 0)`) is SM80-SM90 only, also excluding
+  SM120/121. So the GEGLU/gated-MoE blocker (#22928) and the "different
+  mechanism" claimed for #22927 are both still reproducible on our hardware
+  as of today; only the tracking issue is gone.
+- For #22615 (fp8 KV cache + KV-shared layers): `triton_backend.py:1240`,
+  `if k is None and v is None:` still does `k = k_buffer[cache_loc]` with no
+  dequant to `q.dtype`, the exact bug the PR's `k = k.to(q.dtype)` fix
+  addressed. The underlying bug report, Issue #22277, was itself already
+  auto-closed by the stale bot on 2026-07-06 (confirmed then and now), so
+  both the bug report and its fix PR are now closed with zero merged code;
+  the crash remains reproducible on main.
+
+Net effect: NVFP4 Gemma-4 on SM121 remains exactly as blocked as before, but
+upstream now has no open issue or PR to point at for this cluster's specific
+SM120/121 gap; a fresh, hardware-specific issue may be worth filing (with the
+source citations above), since a naive read of the closed PRs' rationale
+would incorrectly suggest the blockers are gone.
+
+**Correction to the flashinfer #3684 cross-reference above:** SGLang-side
+adoption PRs DO exist. PR #29304 ("[Feature] NVFP4 KV cache: SM120 + SM121,
+Gemma-4 VO-split, FP4 prefix-cache correctness (builds on #21954)") and PR
+#29305 ("DiffusionGemma: retire Triton onto FA2 NVFP4 KV cache, stacked on
+#29304 + #28054") were both filed 2026-06-25, predating flashinfer PR
+#3684's 2026-08-13 merge; #29304's body says the flashinfer kernel work "is
+up as flashinfer-ai/flashinfer#3684 ... this PR is the SGLang orchestration
+that drives it," and a 2026-06-28 comment on #29305 says it is "parked as
+draft, blocked on #29304 which is itself blocked on
+flashinfer-ai/flashinfer#3684 + review." That flashinfer dependency landed
+2026-08-13, but neither SGLang PR has been updated since (#29304 last
+updated 2026-06-29, #29305 last updated 2026-06-28); both remain OPEN,
+`mergeStateStatus` DIRTY, `reviewDecision` REVIEW_REQUIRED, and no code from
+either has landed on main (`grep` for `SGLANG_FLASHINFER_VOSPLIT` and
+`vo_split` across `python/sglang/srt/` returns nothing). This is still a
+different subsystem (NVFP4 KV cache attention) from the MoE-GEMM blockers
+(#22928/#22927/#22929) tracked in this doc, so the bottom line is unchanged:
+NVFP4 Gemma4 MoE on SM121 remains blocked, `attention_backend: triton`
+remains mandatory. flashinfer's latest stable release also remains v0.6.17
+(no v0.6.18 stable yet, only nightly builds and rc tags up to v0.6.18rc7);
+commit `8f9ad2000d` (#3684) is not in any tagged flashinfer release yet.
+
 ## Affected models
 
 | Model                                         | Type                               | Quantization | Current status (`0.5.11-gemma4-sm121` image)                                                                                                |
