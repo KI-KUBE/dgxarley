@@ -604,6 +604,43 @@ SM120/SM121 scope, still informational only. #32750 idle since 2026-08-06.
 All other tracked issues/PRs unchanged: every previously-closed stale-bot
 closure re-confirmed, and merged PRs #25763/#25820/#26209/#30272/#31125
 unchanged.
+**Update 2026-08-21 (SGLang still v0.5.17, no new release; transformers
+v5.15.1 released 2026-08-19).** `transformers` v5.15.1 (patch release,
+2026-08-19) checked: `kv_lora_rank: int = 512` still present unchanged at
+`configuration_deepseek_v3.py:93` on both the v5.15.1 tag and `main`;
+release notes list only DFlash/MTP candidate-generator and image-processing
+fixes, nothing DeepSeek-V4-related. No new SGLang release since v0.5.17
+(2026-08-08).
+**New, load-bearing:** [PR #34926](https://github.com/sgl-project/sglang/pull/34926)
+"Clean deprecated DeepSeek V4 Environs" merged 2026-08-17 to `main` (not in
+v0.5.17, not yet released) removes the `SGLANG_TOPK_TRANSFORM_512_TORCH` env
+var entirely from `environ.py` and its two call sites in
+`layers/attention/dsv4/indexer.py`, the flag our Wall 7 workaround
+(`topk_transform_512_torch` profile key) sets. The torch fallback itself is
+not gone, just re-routed: both call sites now gate on
+`self.dsa_topk_backend.is_torch()`, the pre-existing CLI/server arg
+`--dsa-topk-backend` (`server_args.py`, choices `sgl-kernel` / `torch` /
+`flashinfer`, default `sgl-kernel`; documented since PR #31124, merged
+2026-07-14). Action needed at the next image bump past this commit (or the
+next SGLang release containing it): setting `SGLANG_TOPK_TRANSFORM_512_TORCH=1`
+will silently do nothing (code path deleted), Wall 7 must switch to plumbing
+`--dsa-topk-backend=torch` as a server arg instead of an env var. Not urgent
+today: v0.5.17 predates this commit and still honors the env var; `wqkv_a`
+naming (§2) is unchanged on `main`. The same PR also removed several
+unrelated deprecated env vars we don't use (`SGLANG_OPT_USE_DEEPGEMM_MEGA_MOE`,
+`SGLANG_OPT_FIX_MEGA_MOE_MEMORY`, `SGLANG_OPT_USE_JIT_KERNEL_FUSED_TOPK`,
+`SGLANG_PREP_IN_CUDA_GRAPH`, `SGLANG_OPT_USE_FUSED_STORE_CACHE`, others);
+Walls 2/4/5 env vars (`SGLANG_OPT_FP8_WO_A_GEMM`, `SGLANG_OPT_DEEPGEMM_HC_PRENORM`,
+`SGLANG_FP8_PAGED_MQA_LOGITS_TORCH`) are all still present, unchanged.
+#26324 (closed 2026-08-15, stale-bot) got one new human comment 2026-08-21
+(user `stewtong`, replying to nvpohanh/trevor-m); issue was NOT reopened,
+still closed. #33636 gained 4 comments 2026-08-12 through 2026-08-18 (PR
+list additions #31687/#32042/#33672; a "Shared-KV CP validated" comment
+from `stewtong` publicly flagged by maintainer `b8zhong` as likely
+low-quality/LLM-generated; a 2026-08-18 note from nvpohanh on host-mem-cache
+reuse and prefill chunk batching), all still B200/GB300/MegaMoE topics, no
+SM120/SM121 mention, still informational only. #32750 idle since 2026-08-06.
+#23602 roadmap idle since 2026-08-13. No other tracked ref changed.
 
 ---
 

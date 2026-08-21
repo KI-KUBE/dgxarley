@@ -148,6 +148,13 @@ monkey-patches (p20, p23, p28) remain consistent with the current state. Our
 cluster image is now `xomoxcc/dgx-spark-sglang:0.5.17-sm121` (repo commit
 `59d7912`).
 
+**Re-verified 2026-08-21:** No new SGLang release (still v0.5.17) or vLLM
+release (still v0.27.1) since the 2026-08-15 check; all tracked PRs/issues
+unchanged (vLLM #35598 OPEN idle since 2026-05-23, #36026 CLOSED; SGLang
+#23531/#21612/#20963 OPEN with no new activity, #21630/#20869/#21602/#21603
+CLOSED unchanged, #24502 OPEN with no new comments since 2026-07-17); all
+three monkey-patches (p20, p23, p28) remain required and unchanged.
+
 - vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, not merged. Author rebased onto `main` on 2026-04-13 (commit `c56eae0e`, merge-from-main only, no code changes); prior rebase 2026-03-05. Still only the initial Gemini bot review from 2026-02-28 — no human reviewer has engaged (mergify[bot] flagged a merge conflict 2026-05-23; 5 reviewers requested, none engaged; re-verified 2026-06-11)
 - vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch. **Closed without merge 2026-04-25** by author (`weiguangli-io`) citing 8+ weeks with no maintainer review; offered to reopen if it becomes relevant. The sub-bug it fixed (kernel dispatch num_experts) remains unaddressed in vLLM `main`
 - SGLang: no upstream issue or PR filed

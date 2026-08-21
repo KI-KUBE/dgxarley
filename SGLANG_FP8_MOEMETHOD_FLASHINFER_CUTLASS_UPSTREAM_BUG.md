@@ -94,6 +94,22 @@ still OPEN, idle since 2026-04-01. Workaround (`moe_runner_backend: triton`)
 unchanged. Cluster image is now `xomoxcc/dgx-spark-sglang:0.5.17-sm121` (repo
 commit `59d7912`).
 
+**Re-verified 2026-08-21:** SGLang v0.5.17 (tag `b6a09f38f`) remains the
+latest release, no new release. Source-confirmed on upstream `main` (commit
+`dad6fd0f04`, 2026-08-21): `Fp8MoEMethod.create_moe_runner` in `fp8.py` still
+ends in the `# TODO(cwan): refactor other backends` branch (comment now at
+line 2347, `self.runner = MoeRunner(...)` at line 2345, up from ~2291-2293 on
+v0.5.17). The allowlist gained a new `moe_runner_backend.is_hpc_ops()` entry,
+but `flashinfer_cutlass`/`flashinfer_cutedsl` remain excluded; vanilla
+`Fp8MoEMethod` still never sets `self.runner` for them. Issue #27951 was
+auto-closed by the stale bot on 2026-08-19 ("automatically closed due to
+inactivity"), not by a fix; this is administrative housekeeping, not a
+resolution, and the underlying `AttributeError` is unaffected. PR #27968
+remains OPEN, idle since 2026-06-11 (its `closes #27951` link is now moot
+since the issue self-closed independently of the PR merging). PR #21872
+remains OPEN, idle since 2026-04-01. Workaround (`moe_runner_backend:
+triton`) unchanged.
+
 Adjacent open work:
 
 - [PR #21872](https://github.com/sgl-project/sglang/pull/21872)
