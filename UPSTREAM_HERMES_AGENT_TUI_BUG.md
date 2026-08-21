@@ -412,6 +412,28 @@ small (~50 MB) and the node has fast local storage.
   separate doc); the deployment-level TUI mitigations (no `--tui`, `copy-ui-tui` commented
   out, build-time `npm_config_install_links=false`) are unaffected by the bump. Conclusions
   unchanged.
+- **Re-verified 2026-08-21:** two new releases since v2026.8.13, **v2026.8.16.2** (2026-08-17)
+  and **v2026.8.18** (2026-08-18), both changelog-deferred rollups; grepped for
+  `tui|npm|lockfile|reinstall|EACCES|package-lock|workspace lock`, zero hits on both. Fresh
+  third-party evidence landed on all four tracked issues since the 08-15 check: #45657 gained
+  two comments (jhon-triana 08-19, an independent full-install repro isolating the
+  npm-metadata-churn layer from workspace-scoping; mooserini 08-19, confirms the bug still
+  reproduces on v0.20.4/`main@13ce0c5c6` and offers a small salvage patch for a related
+  `_tui_need_rebuild` gap); #66978 gained the same mooserini cross-post; #81620 gained a
+  brand-new macOS repro (PhuWaisayarat, 2026-08-21) describing a second gap and a smaller fix;
+  #67011 (the closure-scoping fix PR) is still OPEN/unmerged (confirmed via API: `closed:false`,
+  `mergedAt:null`) but now has independent third-party validation (enzo-adami, 2026-08-15: clean
+  cherry-pick onto current `main`, `tests/hermes_cli/test_tui_npm_install.py` 27/27 PASS, ruff
+  clean) plus an automated AI code review (Enough1122, 08-16) and a draft follow-up PR for a
+  remaining composition gap. Trigger 2 is still unfixed upstream and the `copy-ui-tui` workaround
+  status is unchanged. Side checks at v2026.8.18: `plugins/dashboard_auth/{basic,drain,nous,
+  self_hosted}` unchanged; `HERMES_DASHBOARD_BASIC_AUTH_*` env vars confirmed present (a
+  `PASSWORD_HASH` alternative is now documented as preferred over our plaintext `PASSWORD`,
+  which remains a supported fallback, no action needed); `GATEWAY_HEALTH_URL` still present and
+  still explicitly deprecated with the same auth-gated `/health/detailed` to unauthenticated
+  `/health` fallback probe behavior; `hermes_health_patch.py`'s anchor
+  (`APIServerAdapter._check_auth` in `gateway/platforms/api_server.py`, `/health` unauthenticated,
+  `/health/detailed` authenticated) confirmed intact and still required.
 
 ## Action Items
 
