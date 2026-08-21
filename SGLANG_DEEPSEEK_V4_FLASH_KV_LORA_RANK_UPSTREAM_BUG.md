@@ -56,6 +56,13 @@
 > `transformers` shipped **v5.15.0** (2026-08-10), but `kv_lora_rank: int = 512`
 > is still present unchanged at `configuration_deepseek_v3.py:93` on both
 > `main` and the v5.15.0 tag. Monkey-patch still required.
+>
+> **Re-verified 2026-08-21:** transformers shipped a patch release v5.15.1
+> (2026-08-19); `kv_lora_rank: int = 512` is still present unchanged at
+> `configuration_deepseek_v3.py:93` on both `main` and the v5.15.1 tag
+> (release notes: DFlash/MTP candidate-generator + image-processing fixes
+> only, nothing DeepSeek-V4-related). SGLang still at v0.5.17 (no new
+> release). Monkey-patch still required.
 
 
 ## Summary

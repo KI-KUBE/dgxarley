@@ -154,6 +154,21 @@ provider stamping on embedding cache-hit spend logs) is unrelated, it touches
 spend logging, not the HTTP client path. The HAProxy TLS sidecar workaround
 remains required.
 
+**2026-08-21 re-verify, still broken; new stable release v1.97.0 (2026-08-16) ships no fix:**
+LiteLLM advanced from v1.96.2 to **v1.97.0** (stable, published
+2026-08-16T02:51Z; prereleases v1.98.0-rc.1/dev.2 and v1.99.0-dev.1/dev.2
+also exist but are not stable). Scanned the full v1.97.0 changelog (roughly
+100 merged PRs), none touch ollama, `ssl_verify`, or the embedding HTTP
+client path. The bug is byte-identical on current `main`:
+`litellm/llms/ollama/completion/handler.py` line 4 still carries the
+`[TODO]: migrate embeddings to a base handler as well.` comment, and line 82
+still calls `await litellm.module_level_aclient.post(url=api_base,
+json=data)` with no `ssl_verify` argument. No commits have touched the file
+since 2026-08-04. Issue #30778 remains open, 0 comments, untouched since
+filed 2026-06-18. PRs #30810 and #30848 remain open and unmerged, both idle
+since 2026-06-20, now over two months with no maintainer engagement. The
+HAProxy TLS sidecar workaround remains required.
+
 **Partial mitigation**: Setting `litellm.ssl_verify = False` **globally before the first embedding call** may work, because the singleton `HTTPHandler` picks up `litellm.ssl_verify` at creation time via `get_ssl_configuration()`. However, this is fragile — it depends on initialization order, and per-request `ssl_verify=false` (as used in our model config) is still silently dropped for the ollama embedding path.
 
 ## Upstream Fix
