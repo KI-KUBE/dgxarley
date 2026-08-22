@@ -1,0 +1,81 @@
+name: sync-upstream-strip-vault
+
+# Hält diesen Fork mit vroomfondel/dgxarley synchron und entfernt dabei
+# alle Vault-Secrets sowie alle geerbten Upstream-Workflows aus dem HEAD.
+# Ablauf pro Lauf:
+#   HEAD wird hart auf upstream/main gesetzt -> Vault-Secrets geloescht ->
+#   .github/workflows geleert und nur dieser Workflow wieder eingesetzt ->
+#   Sicherheits-Check -> force-push nach origin/main.
+# Damit ist main immer "upstream minus Vault-Secrets, mit dieser CI als
+# einzigem Workflow".
+#
+# Strip-Regel (explizit ueber Pfad/Name, NICHT ueber Dateiinhalt):
+#   - Split-Struktur: komplette Verzeichnisse namens "vault/"
+#     (group_vars/*/vault/*.yml, host_vars/*/vault/*.yml)
+#   - Altbestand:     einzelne Dateien namens vault.yml
+#   Bewusst namens-/pfadbasiert und nicht am git-crypt-Header festgemacht,
+#   damit die Regel auch nach dem geplanten Wechsel git-crypt -> SOPS
+#   greift (SOPS laesst die .yml-Dateien im Klartext-Rahmen, nur Werte
+#   sind verschluesselt -> kein Magic-Header mehr).
+
+on:
+  schedule:
+    - cron: '17 4 * * *'      # taeglich 04:17 UTC
+  workflow_dispatch:           # manueller Trigger im Actions-Tab
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # PAT mit workflow-Scope: der eingebaute GITHUB_TOKEN darf keine
+          # Dateien unter .github/workflows/ pushen und nicht force-pushen.
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - name: Auf Upstream syncen und Vault-Secrets strippen
+        run: |
+          set -euo pipefail
+          cp .github/workflows/sync-strip.yml /tmp/wf.yml   # eigene CI retten
+          git config user.name  "kikube-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git remote add upstream https://github.com/vroomfondel/dgxarley.git
+          git fetch --no-tags upstream main
+          git reset --hard upstream/main
+
+          # --- Vault-Secrets strippen -------------------------------------
+          # Split-Struktur: ganze vault/-Verzeichnisse entfernen ...
+          find . -path ./.git -prune -o -type d -name vault -print0 \
+            | xargs -0 -r rm -rf
+          # ... plus Altbestand einzelner vault.yml-Dateien.
+          find . -path ./.git -prune -o -type f -name vault.yml -print0 \
+            | xargs -0 -r rm -f
+
+          rm -rf .github/workflows                            # geerbte Upstream-Workflows entfernen
+          mkdir -p .github/workflows
+          cp /tmp/wf.yml .github/workflows/sync-strip.yml    # nur diese CI behalten
+          git add -A
+
+          # --- Sicherheits-Netz -------------------------------------------
+          # Vor dem force-push sicherstellen, dass KEIN vault-Pfad mehr im
+          # finalen Baum steckt. Falls doch: abbrechen statt Secrets public
+          # zu pushen (z. B. neue Verzeichnis-Konvention).
+          remaining="$(git ls-files -z \
+            | tr '\0' '\n' \
+            | grep -E '(^|/)vault/|(^|/)vault\.yml$' || true)"
+          if [ -n "$remaining" ]; then
+            echo "::error::ABBRUCH – vault-Pfade nach Strip noch vorhanden:" >&2
+            printf '%s\n' "$remaining" >&2
+            exit 1
+          fi
+
+          git commit -m "KI-KUBE public fork: strip vault secrets + keep sync CI"
+          git push --force origin HEAD:main
