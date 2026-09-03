@@ -282,6 +282,68 @@ touches `dsa_backend.py`/`overrides.py`/`environ.py` among ~50+ files but
 not `flash_mla_sm120.py` or the sparse-MLA dispatch; flagged as activity to
 watch only.
 
+> Re-checked 2026-09-02: PR #31481 head unchanged (`0864022c3d`), `updated_at`
+> unchanged (2026-08-03T13:03:37Z), still 2 comments, 0 reviews, only the
+> `deepseek` label, `reviewDecision: REVIEW_REQUIRED`. Mergeable state flipped
+> again: REST API now reports `mergeable: false` / `mergeable_state: "dirty"`
+> (was `true`/`"unstable"` on 08-28, confirmed on 3 repeated reads), i.e. main
+> has drifted since the 08-03 rebase and #31481 needs another rebase (not done,
+> pending approval, same recurring pattern as #31480's 08-15 and 08-28
+> entries). Likely driver: `overrides.py` (which
+> `_dsa_split_backend_resolution` lives in) took 6 more commits since the 08-28
+> baseline (`d56706459c`), mostly the ongoing "config bags"/platform-facts
+> refactor plus unrelated model work (qwen 3.8 rebase,
+> speculative-draft-capacity decoupling).
+
+> `dsa_backend.py::_forward_trtllm` on `upstream/main` still hardcodes
+> `backend="trtllm-gen"` at line 3269 (unchanged position/content; the only
+> commit touching the file since baseline is the same `7e751153eb`
+> platform-rename refactor noted in the companion doc).
+> `overrides.py::_dsa_split_backend_resolution` / `is_glm_sm12_fp8` diffed
+> directly (function body) between baseline and current `upstream/main`:
+> substantively byte-identical, only `is_npu()`/`is_xpu()`/`is_hip()` calls
+> renamed to `get_platform().is_npu`/`.is_xpu`/`.is_hip` properties (same
+> refactor). The GlmMoeDsaForCausalLM+SM12x+fp8_e4m3-KV auto-selection to
+> `flashinfer_sparse_mla` is unchanged. `flash_mla_sm120.py`: zero commits
+> since baseline.
+
+> PR #32779 has real forward progress: author pushed a "Merge branch 'main'
+> into dsa-triton-sparse-mla-prefill" today (2026-09-02, new head `56bfaf9527`,
+> up from `2a625a4396`), resolving the conflicts nvpohanh had asked about on
+> 08-24/08-27; `mergeable` flipped from `false`/`"dirty"` (08-28) to
+> `true`/`"blocked"` today. nvpohanh triggered `/rerun-failed-ci` today at
+> 11:55 UTC. Still 9 files changed (unchanged scope). Re-diffed the validator:
+> `_validate_flashinfer_sparse_mla_backend`'s `is_glm_sm12_fp8` arm is still
+> `selected - {"flashinfer_sparse_mla", "triton_sparse_mla"}` with
+> `flashinfer_sparse_mla` explicitly staying the auto-selected default (comment
+> unchanged), so this remains not redundancy-relevant, only upstream activity
+> to watch. Not merged, `reviewDecision: REVIEW_REQUIRED`, still only the one
+> empty-body `COMMENTED` review from b8zhong (2026-08-12), labels unchanged
+> (performance/run-ci/jit-kernel/GLM).
+
+> flashinfer bumped its stable release to v0.6.18 (2026-08-29, was v0.6.17
+> 08-11). Compared v0.6.17..v0.6.18 via the GitHub compare API: the only files
+> touching `sparse_mla_sm120` are a DSv4-only benchmark script (+39/-1,
+> unrelated to GLM_NSA/DSv3.2) and three `.cu` kernel files reported with 0
+> additions/0 deletions (no functional diff surfaced by the compare API);
+> `flashinfer/mla/_sparse_mla_sm120.py` (the Python dispatcher) does not appear
+> in the file list at all. Ruled not relevant to the redundancy question, same
+> pattern as prior releases.
+
+> SGLang still at v0.5.18 (2026-08-22), no new release. PR #36507
+> "GLM-5.3-Flash support" gained several new labels (including
+> `release-highlight`) and is landing piecewise (a component already merged as
+> `c66a285c94`, see companion doc); its diff touches `_forward_trtllm` (new
+> page-table padding / DCP LSE plumbing) but the `backend="trtllm-gen"`
+> hardcode itself and the `is_glm_sm12_fp8` selection are untouched; it adds a
+> new model family `Glm5NextForConditionalGeneration` to the DeepSeek-family
+> allowlist, unrelated to our tracked `GlmMoeDsaForCausalLM` class. Flagged as
+> activity to watch only.
+
+> p34 retirement decision remains pending: no TP4/real-weight confirmation run
+> since 08-15 (approval-gated, not requested this cycle). No upstream change
+> alters the standing 08-15 verdict.
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
