@@ -28,9 +28,15 @@ install: .venv
 	pip install -r requirements.txt
 	touch .venv/touchfile
 
+# `pytest` takes no path argument on purpose: an explicit target overrides
+# the testpaths = ["tests"] set in pyproject.toml, which made `pytest .`
+# also walk gitignored working dirs in the repo root (pytest does not read
+# .gitignore). An unpacked sdist there carries its own copy of
+# tests/test_base.py, and collecting both is an "import file mismatch"
+# error under the same module name.
 tests: .venv
 	@$(venv_activated)
-	pytest .
+	pytest
 
 lint: .venv
 	@$(venv_activated)
