@@ -325,6 +325,41 @@ thread (silent since 07-17, no maintainer response) rather than none. Net
 effect: NVFP4 Gemma-4 on SM121 remains exactly as blocked as documented;
 `attention_backend: triton` remains mandatory.
 
+**Re-verified 2026-09-02:** No new SGLang release since v0.5.18 (2026-08-22,
+still latest). flashinfer published a true stable **v0.6.18** release on
+2026-08-29T02:01:33Z (tag `v0.6.18`, no rc suffix, GitHub-flagged "Latest"),
+superseding the rc10 tag noted in the previous entry. Verified via `gh api
+compare/v0.6.18...8f9ad2000d`: commit `8f9ad2000d` (PR #3684) is an ancestor
+of the v0.6.18 tag, and the release notes explicitly credit "Gemma 4 gains
+asymmetric VO-split NVFP4 paged prefill on SM120/121" with a direct link to
+PR #3684. New development, not previously tracked: SGLang `main` bumped its
+own bundled flashinfer pin from 0.6.17 to **0.6.18** via PR #36954 ("[Deps]
+Bump FlashInfer to 0.6.18"), merged 2026-08-31, so `python/pyproject.toml`
+on `main` now reads `flashinfer_python[cu13]==0.6.18`. This is still
+unreleased, v0.5.18 (2026-08-22) predates the bump and remains the latest
+tagged/released SGLang, so no shipped SGLang build carries flashinfer 0.6.18
+yet. Source-verified on `main` (HEAD `f5866545`, 2026-09-02T13:39:54Z) that
+this changes nothing for the MoE-GEMM blocker tracked here:
+`modelopt_quant.py`'s `_SUPPORTED_ACT_STRS` is still `("silu", "relu2",
+"gelu")` (no `gelu_tanh`, now line 295, was 266), and the `is_gated` padding
+assert is unchanged in substance (now line 2751, was 2668). The repo
+underwent another structural refactor since 08-28: `_gemma4_overrides`
+moved from `arg_groups/overrides.py` to a new per-model file
+`arg_groups/model_overrides/gemma4.py`, and its SM100-only gate was renamed
+from `is_sm100_supported()` to `get_platform().is_sm100`, semantically
+identical, still excluding SM120/121, so the CUTLASS `is_gated` assert
+remains reachable on our hardware exactly as before. The Gemma4
+attention-backend allowlist assert similarly moved from `server_args.py`
+into `arg_groups/model_hook.py` (line 502), text unchanged: `trtllm_mha`,
+`triton`, `ascend`, `intel_xpu`, `intel_amx`, triton still accepted and
+mandatory. All four tracked PRs (#22929/#22928/#22927/#22615) remain CLOSED
+unmerged with no reopen and no new comments since their 2026-08-18/19
+closures. PRs #29304/#29305 remain OPEN, `mergeable_state: dirty`
+(REST-verified), no update since 2026-06-29/2026-06-28. Issue #30887
+remains OPEN, no new comment since 2026-07-17. No change to the bottom
+line: NVFP4 Gemma-4 MoE on SM121 remains blocked, `attention_backend:
+triton` remains mandatory for all four Gemma-4 profiles.
+
 ## Affected models
 
 | Model                                         | Type                               | Quantization | Current status (`0.5.11-gemma4-sm121` image)                                                                                                |
