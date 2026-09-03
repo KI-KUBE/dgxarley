@@ -130,6 +130,23 @@ zero merged code, same as before. PR #27968 remains OPEN, idle since
 2026-06-11; Issue #27951 remains CLOSED (stale, not fixed), unchanged since
 2026-08-19. Workaround (`moe_runner_backend: triton`) unchanged.
 
+**Re-verified 2026-09-02:** SGLang v0.5.18 (2026-08-22) remains the latest
+release, no new release. `fp8.py` untouched on `main` since the 2026-08-28
+check (270 commits total, none touching the file), so `create_moe_runner`
+still ends in the `# TODO(cwan): refactor other backends` branch for
+`flashinfer_cutlass`/`flashinfer_cutedsl`. PR #27968 remains OPEN, idle since
+2026-06-11; Issue #27951 remains CLOSED (stale, not fixed); PR #21872 remains
+CLOSED (stale-cap closure 2026-08-26, not fixed). **Context on the already
+logged PR #36275:** Issue #36264 ("`AttributeError: 'Fp8MoEMethod' object has
+no attribute 'moe_runner_config'`" with `flashinfer_trtllm_routed` MoE plus
+speculative decoding on hybrid NVFP4 checkpoints), opened and closed
+2026-08-26, is the report that PR #36275 (merged 2026-08-26, already noted in
+the 2026-08-28 entry above as adding an `_owns_moe_runner` flag) actually
+fixes. It is a different allowlist-gap bug in the same `Fp8MoEMethod` class
+(missing `moe_runner_config` for the `flashinfer_trtllm_routed`-delegate
+path under speculative decoding), not the `flashinfer_cutlass`/`self.runner`
+bug tracked by this doc. Workaround (`moe_runner_backend: triton`) unchanged.
+
 Adjacent open work:
 
 - [PR #21872](https://github.com/sgl-project/sglang/pull/21872)
