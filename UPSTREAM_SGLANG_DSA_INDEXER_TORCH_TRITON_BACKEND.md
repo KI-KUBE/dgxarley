@@ -260,6 +260,48 @@ REST/GraphQL now report `mergeable: MERGEABLE` / `mergeStateStatus: BLOCKED`
 (checks/review gating only, no conflict), `headRefOid` confirmed
 `6b2e62e259398b8e34b8eac5d92f6d6a7c9448ff` live on the PR.
 
+> Re-checked 2026-09-02: PR #31480 unchanged since 08-28 (head still
+> `6b2e62e259398b8e34b8eac5d92f6d6a7c9448ff`, `updated_at` 2026-08-28T10:48:29Z
+> reflects only the rebase-triggered CI run completing, not a new comment or
+> push), still 3 comments, 0 reviews, no `run-ci` label, `reviewDecision:
+> REVIEW_REQUIRED`. REST API: `mergeable: true`, `mergeable_state: "blocked"`
+> (stable since the 08-28 rebase, no new drift). `call-gate`/`pr-gate` still
+> shows FAILURE with substantive jobs SKIPPED (label-gate mechanism,
+> unchanged).
+
+> `DSAPagedMQALogitsBackend` (`paged_mqa_logits_backend.py`) on
+> `upstream/main`: exactly one commit touched the file since the 08-28 baseline
+> (`d56706459c`): `7e751153eb` ("[Config] Round 5.1: the published-side readers
+> ask the bags, and a platform fact gets one address", #37086), a pure API
+> rename (`is_sm100_supported()` -> `get_platform().is_sm100`), no behavior
+> change. Still only DEEPGEMM/CUTEDSL/AITER, no `torch` value.
+> `server_args.py`'s `dsa_paged_mqa_logits_backend` choices re-verified still
+> exactly `["auto", "deepgemm", "cutedsl", "aiter"]` (p30 not redundant,
+> unchanged).
+
+> Six commits touched `python/sglang/srt/layers/attention/dsa/` since baseline,
+> none adding an arch-independent paged-MQA-logits backend: the same
+> `7e751153eb` refactor above, `c66a285c94` ("[Kernel] GLM 5.3 Flash related
+> kernels, ported from #36507", merged), `9978aaec8b` ("[ROCm][Bugfix] Cap the
+> DSA MQA-logits budget at AITER's buffer_store limit", ROCm-only),
+> `b6c06e1efb` ("[DSA] Drop the redundant 512 from the top-k transform
+> entry-point names", cosmetic rename), `24c9251ac5` ("[AMD][Spec][PD] Enable
+> the PD DSA fused-TopK seed remap on ROCm", ROCm-only), `ec962fd12d` (fall
+> back to the process-group broadcast for DSA topk when PyNCCL is absent,
+> unrelated fallback path).
+
+> SGLang still at v0.5.18 (2026-08-22), no new release. PR #36507
+> "GLM-5.3-Flash support" is still open, unreviewed, no `run-ci` label, but is
+> landing piecewise (see `c66a285c94` above); its diff touches
+> `_forward_trtllm`/`dsa_backend.py` plumbing (page-table padding, DCP LSE) but
+> not `paged_mqa_logits_backend.py`, and adds a new model family
+> `Glm5NextForConditionalGeneration` to the DeepSeek-family allowlist without
+> altering the indexer-backend dispatch. No new sglang issue or PR found
+> searching "dsa_paged_mqa_logits_backend torch".
+
+> Conclusion unchanged: p30/p35 remain necessary on stock v0.5.18/current main;
+> no upstream fix has landed or is imminent.
+
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
 > Triton fast path (unblocks DSA models on SM120/SM121)
 
