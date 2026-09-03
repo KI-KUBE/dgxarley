@@ -344,6 +344,64 @@ watch only.
 > since 08-15 (approval-gated, not requested this cycle). No upstream change
 > alters the standing 08-15 verdict.
 
+> Follow-up same day (2026-09-03, approved): #31481 rebased onto current main
+> `a6001478f4` (2026-09-03). Old head `0864022c3d` -> new head `924c838c1d`,
+> pushed `--force-with-lease` to the vroomfondel fork. Old base was
+> `d48ab2d386` (2026-08-03); one file conflicted, `dsa_backend.py`, the same
+> platform-facts refactor pattern #31480 hit on 08-28: our added
+> `is_sm100_supported, is_sm120_supported` import collided with upstream
+> deleting both helpers from `sglang.srt.utils` entirely (folded into
+> `get_platform().is_sm100`/`.is_sm120`). Resolved by dropping the import and
+> reading `get_platform().is_sm120` live at the point of use instead of caching
+> it at module import time, per an upstream CI test that AST-scans all of
+> `srt/` and fails on exactly that pattern
+> (`test_platform_address_not_frozen.py`, "a module-level `_is_sm120 =
+> get_platform().is_sm120` defeats [override_platform] completely").
+
+> The other two files in the diff (`kv_cache_configurator.py`,
+> `forward_mla.py`) auto-merged without a textual conflict, but both still
+> referenced the now-deleted `is_sm120_supported` (module-level
+> `_is_sm120`/`_IS_SM120` constants) since upstream's deletion did not touch
+> the same lines. Git's clean auto-merge does not mean working code: both were
+> caught by grepping the full diff for the dead names post-rebase and fixed the
+> same way (live `get_platform().is_sm120`, no module-level caching). A
+> repo-wide AST scan for `X = get_platform().Y` at module scope (the exact
+> check the upstream CI test runs) came back empty on the rebased branch.
+
+> Three of the four new test files in this PR's own diff also referenced the
+> removed `_IS_SM120`/`is_sm120_supported` (as a `mock.patch.object` target or
+> a direct import) and one additionally still passed a `server_args=` kwarg to
+> `calculate_mla_kv_cache_dim`, which no longer accepts one (it now reads
+> `get_exec().kernel.dsa_prefill_backend`/`.dsa_decode_backend` from the
+> published config bag instead). Fixed `test_dsa_kv_cache_dim_sm12x.py` to
+> publish a dummy ServerArgs via `get_context().override_server_args(...)` (the
+> same sanctioned test hook `test_pool_configurator.py` uses) and to scope
+> SM120 via `override_platform(is_sm120=...)`; fixed
+> `test_dsa_backend_trtllm_sm12x_kwargs.py` and
+> `test_deepseek_mla_fuse_rope_trtllm_sm12x.py` by mocking `get_platform`
+> itself (same style already used there for `get_exec`/`get_attn_backend`). One
+> test constant, `flashinfer_gather`, was never a real `dsa_prefill_backend`
+> choice; swapped for `flashmla_sparse`.
+
+> Verification: no conflict markers repo-wide on the 7 changed files,
+> `ast.parse` clean on all 7, `git range-diff d48ab2d386..0864022c3d
+> upstream/main..HEAD` shows a single commit pair with the expected content
+> drift only (rest is pure context shift), diffstat vs the new merge-base
+> stayed essentially stable at 7 files (+862/-7, was +830/-7 at the old base;
+> the +32 delta is the dropped dead imports/constants plus the added
+> get_platform()-based lines, explanatory comments, and the rewritten mem_cache
+> test). `black`/`mypy` could not be run in this environment (no local
+> sglang/torch install); line lengths were checked by hand against the repo's
+> 88-char default and kept under it.
+
+> Pushed to `git@github.com:vroomfondel/sglang.git` (verified push remote
+> before pushing), confirmed live: `gh pr view 31481` now reports `headRefOid:
+> 924c838c1d56b4a6b36726d609cdbc65130e1de5`, `mergeable: MERGEABLE` /
+> `mergeStateStatus: BLOCKED` (REST: `mergeable: true` / `mergeable_state:
+> "blocked"`), i.e. back to checks/review gating only, no conflict, matching
+> #31480's post-rebase state pattern. Content/design conclusions of this doc
+> are unchanged; this was a submission-mechanics rebase only.
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
