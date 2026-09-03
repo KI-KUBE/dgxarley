@@ -608,6 +608,30 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 > - **`main` diverged again, not yet in any tag:** current `main` HEAD adapter.py is blob 89ead8a8, 62238 bytes (+118 vs the pinned baseline). The added content is two lines at the very end of `connect()`'s success path, right before `return True`: a comment plus `self._wire_plugin_handlers(None)`, from commit 272f4e4a ("feat(plugins): generalize native platform handler registration to every gateway platform"). This sits after our reweaved [PATCH-4] try/finally block and does not collide with any [PATCH-N] anchor, diff verified line-by-line (2 lines added, nothing else). Not in v2026.8.19 or v2026.8.27 yet. Watch on the next tag bump.
 > - **PRs #28697/#28699/#28702** remain OPEN/MERGEABLE/BLOCKED, heads unchanged since 2026-08-17 (75775e5e91/16f1753624/aecb6942a5), no new comments or reviews.
 
+> **2026-09-02 check, new release v2026.8.31 ships the previously-flagged main divergence (no
+> re-sync forced, pin unaffected), main diverged further today with a new TLS/security feature:**
+> - **Latest release:** v2026.8.31 (v0.21.0, "The Pantheon Release"), published 2026-08-31T19:29:49Z,
+>   a large feature rollup (roughly 5,800 commits since v0.20.0). `plugins/platforms/email/adapter.py`
+>   at this tag is blob 89ead8a8, 62238 bytes, exactly the main-only divergence flagged in the
+>   2026-08-28 entry (commit 272f4e4a, the two-line `self._wire_plugin_handlers(None)` addition at
+>   the end of `connect()`'s success path). This is the first tagged release containing that
+>   divergence, still outside any [PATCH-N] anchor as previously verified.
+> - **Deployment pin note:** `hermes.image_tag` in `roles/k8s_infra/defaults/main/hermes.yml` is
+>   now `v2026.8.27`, not `v2026.8.16` as the 2026-08-28 entry assumed (the repo was bumped since
+>   that check). `plugins/platforms/email/adapter.py` is byte-identical across v2026.8.16, v2026.8.19
+>   and v2026.8.27 (blob 704524e4, per the 2026-08-21 check), so that bump required no re-sync and
+>   the local patch stays clean at the current pin. v2026.8.31 (carrying the 272f4e4a divergence)
+>   has NOT been pinned, so no re-sync is forced yet.
+> - **main diverged further, same day as this check (2026-09-02), not yet in any tag:** two new
+>   commits touch the adapter, 92a9864517 (feat(email): configurable IMAP/SMTP transport security
+>   (tls/starttls/plain) and TLS verify toggle, +107/-11) and 4d02c78102 (refactor(email): single
+>   `_normalize_security` helper, loopback-scoped verify warning, tests + docs, +56/-63). Current
+>   `main` adapter.py is blob 228cad281f, 65847 bytes (+3727 vs the pinned v2026.8.27 baseline).
+>   This is a substantive new feature, not a small fix, watch for anchor collisions with
+>   [PATCH-2]/[PATCH-3]/[PATCH-6] (the connect()/SMTP/IMAP call sites) once it ships in a release.
+> - **PRs #28697/#28699/#28702** remain OPEN/MERGEABLE/BLOCKED, heads unchanged since 2026-08-17
+>   (75775e5e91/16f1753624/aecb6942a5), no new comments or reviews.
+
 1. Download the new upstream file:
 
    ```bash
