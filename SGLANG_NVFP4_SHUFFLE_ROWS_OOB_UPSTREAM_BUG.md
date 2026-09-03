@@ -155,6 +155,15 @@ remains a self-noop; the standing follow-up to retire p26 via
 
 **Re-verified 2026-08-28:** Still resolved by removal on **v0.5.18** (released 2026-08-22, tag commit `71de97b264b04dcd514cf904003028aefe9775c8`; no fix-in-place, this only confirms the deletion persists). Source-confirmed on the v0.5.18 tag: `python/sglang/jit_kernel/nvfp4.py` does not exist in the tree, and `sglang/srt/layers/moe/cutlass_moe.py` still has no `cutlass_moe_fp4` function (only `cutlass_fused_experts_fp8` remains). Same on `upstream/main` (HEAD `d56706459c8e52ec3ab1c41dae778e4fe03e0da3`, 2026-08-28). Cluster image unchanged at `xomoxcc/dgx-spark-sglang:0.5.17-sm121` (repo commit `59d7912`); `p26_cutlass_moe_zeroinit.py` remains a self-noop, its anchor still absent. `RETIRED_PATCHES.md` still does not exist. The standing follow-up to retire p26 via `RETIRED_PATCHES.md` remains open, still needs explicit approval per house rules.
 
+**Re-verified 2026-09-02:** Still resolved by removal, no new SGLang release
+since v0.5.18 (2026-08-22). Confirmed via GitHub contents API:
+`python/sglang/jit_kernel/nvfp4.py` still 404 on `main` (HEAD
+`f5866545186f27a8a01c1a083e8c32809b5506f3`), `cutlass_moe.py` still has zero
+occurrences of `cutlass_moe_fp4`. Cluster image unchanged at
+`xomoxcc/dgx-spark-sglang:0.5.17-sm121`; `p26_cutlass_moe_zeroinit.py` remains
+a self-noop. `RETIRED_PATCHES.md` still does not exist; the standing
+follow-up to retire p26 remains open, still needs explicit approval.
+
 Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, v0.5.13, and **v0.5.14** (released 2026-06-26 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
 
 The final root cause (uninitialized `torch.empty` on `a_map`) was identified
