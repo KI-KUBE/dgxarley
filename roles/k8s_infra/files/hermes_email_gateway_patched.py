@@ -15,9 +15,20 @@ Environment variables:
     EMAIL_ALLOWED_USERS — Comma-separated list of allowed sender addresses
 
 ------------------------------------------------------------------------------
-LOCAL PATCH (dgxarley) — synced to upstream tag v2026.8.16
-(plugins/platforms/email/adapter.py, blob 704524e4, 62120 bytes). Current for
-the pinned image (hermes.image_tag v2026.8.16).
+LOCAL PATCH (dgxarley) — synced to upstream tag v2026.8.31
+(plugins/platforms/email/adapter.py, 62238 bytes). Current for the pinned
+image (hermes.image_tag v2026.8.31).
+
+Re-synced 2026-09-03 (v2026.8.16 -> v2026.8.31). Upstream v2026.8.16 and
+v2026.8.27 are BYTE-IDENTICAL for this file, so the earlier bump to
+v2026.8.27 needed no work and the header simply went stale. From v2026.8.27
+to v2026.8.31 upstream changed exactly two lines: a call to the new
+BasePlatformAdapter._wire_plugin_handlers() at the very end of connect(),
+just before ``return True``. It touches none of our anchors, so all of
+[PATCH-1]..[PATCH-9] carry over unchanged; the call was reproduced verbatim
+at the same position. Note the method does NOT exist before v2026.8.31
+(it is defined in gateway/platforms/base.py only from that tag), so this
+file and hermes.image_tag must move together.
 
 Re-synced 2026-08-17 (v2026.8.13 -> v2026.8.16, v0.20.2). Small but NOT
 byte-identical: exactly one upstream commit touched this file, 480342232a
@@ -1458,6 +1469,11 @@ class EmailAdapter(BasePlatformAdapter):
         self._running = True
         self._poll_task = asyncio.create_task(self._poll_loop())
         print(f"[Email] Connected as {self._address}")
+        # [UPSTREAM v2026.8.31] Plugin-registered native handlers
+        # (ctx.register_platform_handler). _wire_plugin_handlers is new on
+        # BasePlatformAdapter in this release; do NOT keep this call if the
+        # image is ever rolled back below v2026.8.31, it would AttributeError.
+        self._wire_plugin_handlers(None)
         return True
 
     async def disconnect(self) -> None:

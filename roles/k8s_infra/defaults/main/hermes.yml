@@ -209,7 +209,7 @@ hermes:
   #    Authorization header. Re-check on the next bump.
   #  * plugins/dashboard_auth/basic/__init__.py is BYTE-IDENTICAL to v2026.8.16,
   #    so the HERMES_DASHBOARD_BASIC_AUTH_* env contract is unchanged.
-  image_tag: "v2026.8.27"            # agent image (nousresearch/hermes-agent)
+  image_tag: "v2026.8.31"            # agent image (nousresearch/hermes-agent)
   # NOTE: the venv site-packages dir (mount point for the hermes_health_patch
   # .py/.pth) is NOT configured here — it carries a pythonX.Y segment that bumps
   # with the base image. hermes.yml probes the actual image ONCE at deploy time
