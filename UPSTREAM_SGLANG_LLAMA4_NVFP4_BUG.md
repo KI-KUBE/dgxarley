@@ -186,3 +186,28 @@ anchors, and update the two heredoc blocks in `sglang_launch.sh`. Verify with th
   Not merged. Issue #34192 unchanged, still OPEN with 0 comments since
   2026-08-09. No new SM12x-related Llama4-NVFP4 issue or PR found. All five
   local patches in `sglang_launch.sh` remain required.
+- **2026-09-02** - SGLang v0.5.18 remains the latest release, no new release
+  since 2026-08-22. `mllama4.py`/`llama4.py` byte-identical to the 2026-08-28
+  check on `main` (HEAD `f5866545186f27a8a01c1a083e8c32809b5506f3`); all five
+  patched anchors unchanged at the same lines (`mllama4.py:618/736/859`,
+  `llama4.py:304`, `RadixAttention` construction still without
+  `quant_config=quant_config`). PR #35032 (loader fixes 1-3) remains OPEN,
+  unchanged, no activity since 2026-08-16, still `mergeStateStatus: BLOCKED`
+  on unrelated non-CUDA CI. **New, relevant to the "Profile side" workaround
+  note:** PR [#35504](https://github.com/sgl-project/sglang/pull/35504)
+  ("fix(moe): support Llama4 NVFP4 router input weights on SM120", author
+  `janbernloehr`, created 2026-08-19, first review activity 2026-08-31/09-01
+  so new since the 2026-08-28 check) fixes issue #34192 by adding top-1
+  router-weight pre-scaling to the FlashInfer CUTLASS MoE path and removing
+  the ModelOpt NVFP4 / FlashInfer CUTLASS assertions that reject
+  `apply_router_weight_on_input=True` for top-1 routing (Llama4's case,
+  top-k>1 and pre-quantized-dispatch configs stay explicitly rejected). If
+  merged and released, this would obsolete this doc's `moe_runner_backend:
+  triton` profile requirement for Llama-4-Scout NVFP4. Status as of today:
+  OPEN, `reviewDecision: REVIEW_REQUIRED`, 2 reviews (`nvpohanh`,
+  `janbernloehr`, both 2026-08-31), not merged. Issue #34192 itself
+  unchanged, still OPEN, 0 comments. Does not affect the 5 local
+  `sglang_launch.sh` runtime patches (those are load-path fixes, unrelated
+  to the MoE-runner assertion); the profile's `moe_runner_backend: triton`
+  pin stays correct until #35504 merges and ships in a release, re-check
+  next cycle.
