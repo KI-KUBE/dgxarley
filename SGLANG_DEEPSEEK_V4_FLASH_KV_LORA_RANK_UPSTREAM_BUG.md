@@ -74,6 +74,14 @@
 > neither release's changelog mentions DeepSeek-V3/V4 config or
 > `sub_configs`/`PretrainedConfig` auto-init changes (only unrelated
 > DeepSeekV2 test-OOM and vocab-size fixes). Monkey-patch still required.
+>
+> **Re-verified 2026-09-02:** no new transformers release since v5.16.1
+> (2026-08-26); no new SGLang release since v0.5.18 (2026-08-22). Direct
+> source check confirms `kv_lora_rank: int = 512` is still present, unchanged,
+> at `configuration_deepseek_v3.py:93` on both the v5.16.1 tag and
+> `transformers` `main`. Cross-reference: `UPSTREAM_DSV4_BUGS.md` §1/Wall 1
+> re-confirmed the same for this cycle. Monkey-patch still required, no
+> location change.
 
 
 ## Summary
