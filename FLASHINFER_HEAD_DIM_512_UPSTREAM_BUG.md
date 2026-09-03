@@ -1,5 +1,13 @@
 # FlashInfer Upstream Bug: head_dim=512 not supported (Gemma-4 global attention)
 
+## Status 2026-09-03 (flashinfer v0.6.18 stable ships PR #3684 NVFP4 cross-ref; SGLang Gemma4 allowlist relocated, content unchanged)
+
+flashinfer **v0.6.18 stable** released 2026-08-29T02:01:33Z, now GitHub "Latest," superseding v0.6.17 (2026-08-11) and folding in the content of the v0.6.18rc10 pre-release noted in the 2026-08-28 entry below. Its release notes explicitly list "Gemma 4 gains asymmetric VO-split NVFP4 paged prefill on SM120/121," citing PR #3684, the NVFP4 qk=512/vo=256 cross-reference this doc has tracked since 2026-08-15. That PR is now in a stable release, no longer nightly-only, but it remains the NVFP4 KV-cache path, distinct from this doc's tracked BF16/fp8 head_dim=512 register-budget rejection, so it changes nothing about the tracked bug. Two new commits touch `prefill.cuh` since the 2026-08-28 check (`72e5c3ab`, 2026-09-01, "cut NVFP4 KV dequant instructions..."; `558dd20d`, 2026-09-02, "count NVFP4 scale-factor staging in the batch smem budget"), both follow-ups to PR #3684's NVFP4 work, neither touching the FA2/FA3 `IsInvalid()` dispatch this doc tracks. No commits to `persistent.cuh` since 2026-08-28.
+
+SGLang remains **v0.5.18** (2026-08-22), still GitHub "Latest," no new release. `main` HEAD is now `f5866545` (2026-09-02T13:39:54Z). The Gemma4 attention-backend allowlist has been **relocated** (pure refactor, content unchanged) from `server_args.py:_handle_model_specific_adjustments` to `arg_groups/model_hook.py`, invoked via the override registry; source-verified on `main`: still `("trtllm_mha", "triton", "ascend", "intel_xpu", "intel_amx")`, `flashinfer` still excluded. `attention_backend: triton` remains permanently mandatory for all four Gemma-4 profiles.
+
+Issue #3297 remains closed (4 comments, unchanged), PR #3576 remains merged (2026-06-15), both unchanged. No action needed.
+
 ## Status 2026-08-28 (re-verify; SGLang v0.5.18 released, ships the intel_amx allowlist content flagged unreleased on 2026-08-21)
 
 SGLang released **v0.5.18** on 2026-08-22T00:09:15Z, superseding v0.5.17 (2026-08-08) as
