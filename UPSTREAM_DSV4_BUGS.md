@@ -738,6 +738,29 @@ validated bit-identical on GB10 2026-06-20), so nothing is emitted today; the
 knob is only a re-armable escape hatch, now with a perf cost attached if ever
 re-enabled.
 
+**Update 2026-09-02 (weekly audit, no new SGLang release).** SGLang remains at
+v0.5.18 (2026-08-22, 710 PRs since v0.5.17), no newer tag or release exists
+(`gh release list` / `gh api tags` both re-checked). Source re-confirmed at the
+v0.5.18 tag: `wqkv_a` naming unchanged in `srt/models/deepseek_v4.py` (§2),
+`SGLANG_TOPK_TRANSFORM_512_TORCH` confirmed absent from `main`'s `environ.py`
+(only `SGLANG_DSA_FUSE_TOPK` / the `--dsa-topk-backend` machinery remain),
+consistent with the 2026-08-28 Wall 7 migration note. Issue tracking: #26324
+(closed 2026-08-15, stale-bot) had no new activity since the 2026-08-21
+comment, still closed. #33636 gained no new comments after the 2026-08-25 one
+already recorded above (one `subscribed` timeline event 2026-08-27, no
+substance), still exclusively B200/GB300 topics, no SM120/SM121 mention,
+still informational only. #32750 idle since 2026-08-06. #23602 roadmap idle
+since 2026-08-13. #25165/#23743/#25526/#26647/#24111/#23724 all re-confirmed
+still closed, no reopen activity on any. New, informational only: [PR
+#35505](https://github.com/sgl-project/sglang/pull/35505) "[Deepseek-V4]
+Enable shared-experts fusion on the flashinfer_mxfp4 (trtllm-gen) MoE path"
+merged 2026-08-25 to `main` (not yet in any release), a follow-on to #30272
+(§3, the SM120 flashinfer_mxfp4 backend already flagged as worth checking for
+SM121) that fuses the shared expert into the MXFP4 MoE kernel. Not relevant
+to us today (checkpoint is FP8, not MXFP4/NVFP4-MoE) and not yet released,
+noted for when #30272's MXFP4 path is eventually evaluated. No wall status
+changes, no FIXED_ rename warranted this cycle.
+
 ---
 
 ## Upstream references
