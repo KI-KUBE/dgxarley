@@ -159,6 +159,18 @@ three monkey-patches (p20, p23, p28) remain required and unchanged.
 
 PR/issue state changes since 2026-08-21: SGLang PR [#21612](https://github.com/sgl-project/sglang/pull/21612) was auto-closed by the stale bot 2026-08-26 (no fix merged, "no updates in 149 days") — already moot for us since the SHARDED_STATE dispatch bug it targeted was separately fixed via PR #25820 (2026-06-22), so this closure changes no conclusion, only PR state (open to closed). vLLM PR [#35598](https://github.com/vllm-project/vllm/pull/35598) received a stale-bot warning comment on 2026-08-22 ("automatically closed if no further activity occurs within 30 days") but remains OPEN; no maintainer has engaged. SGLang #23531 (idle since 2026-04-30), #20963 (idle since 2026-05-27), and #24502 (idle since 2026-07-17) all unchanged. #21630/#20869/#21602/#21603 remain CLOSED unchanged. All three monkey-patches (p20, p23, p28) remain required and unchanged. Our cluster image is unchanged at `xomoxcc/dgx-spark-sglang:0.5.17-sm121`.
 
+**Re-verified 2026-09-02:** No new SGLang release (still v0.5.18, 2026-08-22)
+or vLLM release (still v0.28.0, 2026-08-26) since the 2026-08-28 check.
+`moe_wna16.py` untouched on both SGLang `main` (270 commits since 2026-08-28,
+none touching the file) and vLLM `main` (728 commits since v0.28.0, none
+touching the file); `modelopt_quant.py`'s `else`-branch EP-slicing gap also
+untouched. PR/issue states unchanged: SGLang #23531 OPEN idle since
+2026-04-30, #20963 OPEN idle since 2026-05-27, #24502 OPEN idle since
+2026-07-17, #21630/#20869/#21602/#21603/#21612 all CLOSED unchanged; vLLM
+#35598 OPEN, still no maintainer engagement since the 2026-08-22 stale-bot
+warning. All three monkey-patches (p20, p23, p28) remain required and
+unchanged. Cluster image unchanged at `xomoxcc/dgx-spark-sglang:0.5.17-sm121`.
+
 - vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, not merged. Author rebased onto `main` on 2026-04-13 (commit `c56eae0e`, merge-from-main only, no code changes); prior rebase 2026-03-05. Still only the initial Gemini bot review from 2026-02-28 — no human reviewer has engaged (mergify[bot] flagged a merge conflict 2026-05-23; 5 reviewers requested, none engaged; re-verified 2026-06-11)
 - vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch. **Closed without merge 2026-04-25** by author (`weiguangli-io`) citing 8+ weeks with no maintainer review; offered to reopen if it becomes relevant. The sub-bug it fixed (kernel dispatch num_experts) remains unaddressed in vLLM `main`
 - SGLang: no upstream issue or PR filed
