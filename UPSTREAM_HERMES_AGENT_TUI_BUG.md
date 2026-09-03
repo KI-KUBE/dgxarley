@@ -463,6 +463,22 @@ small (~50 MB) and the node has fast local storage.
   refrain no longer holds as of v2026.8.27. Action item: on the next `hermes.image_tag` bump to
   v2026.8.27 or later, re-verify EACCES is actually gone with a non-10000 UID (Action Items 1-4)
   before treating the workaround as permanently retirable.
+- **Re-verified 2026-09-02:** one new release since v2026.8.27, **v2026.8.31** (v0.21.0, "The
+  Pantheon Release", published 2026-08-31), a large feature rollup. Release notes grepped for
+  `tui|npm install|lockfile|reinstall|EACCES|package-lock|workspace lock|node_modules`: the only
+  hit is the "CLI & TUI" section heading itself, no npm-install or lockfile content, no
+  regression mentioned. Issue #66978 (Trigger 2 fix) remains CLOSED, not reopened
+  (closedAt/updatedAt unchanged since 2026-08-25). Issue #45657 remains OPEN with the same 10
+  comments (updatedAt unchanged since 2026-08-26). PR #67011 remains OPEN/unmerged (updatedAt
+  unchanged since 2026-08-16). **Deployment note:** `hermes.image_tag` in
+  `roles/k8s_infra/defaults/main/hermes.yml` is now `v2026.8.27`, not `v2026.8.16` as the
+  2026-08-28 entry assumed. v2026.8.27 is the release confirmed (2026-08-28 entry) to fully
+  contain both Trigger 2 fix commits (0c47cd5, 76d8f876f3), so the pinned deployment is already
+  running the fixed release. This makes the pending Action Item ("re-verify EACCES is actually
+  gone with a non-10000 UID before treating the workaround as permanently retirable") directly
+  actionable now, rather than waiting on a future bump. No config change made here, verification
+  and any `copy-ui-tui` initContainer removal still require explicit approval per this repo's
+  conventions.
 
 ## Action Items
 
