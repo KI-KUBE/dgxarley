@@ -118,6 +118,29 @@
 > release notes contain no `PretrainedConfig`/`sub_configs`/auto-init
 > changes. Monkey-patch (`PATCH_GET_CONFIG_EOF`) in `sglang_launch.sh` still
 > required.
+>
+> **Re-verified 2026-09-02:** No new SGLang release since v0.5.18
+> (2026-08-22, still latest). `python/sglang/srt/configs/qwen3_5.py` has no
+> commits since the 2026-08-20 window; confirmed byte-identical on `main`
+> HEAD (`f5866545`, 2026-09-02T13:39:54Z) to the 2026-08-28 check: still six
+> plain `__init__` methods, no `from_dict`/`__post_init__` anywhere. PR
+> **#22839** still **OPEN**, no activity since 2026-06-11 (now 12+ weeks).
+> PR **#22618** remains **CLOSED** (closed 2026-08-28 under the idle-PR
+> soft-cap policy), no reopen and no new timeline activity since the closing
+> comment. No transformers release since v5.16.0/v5.16.1 (2026-08-26); no
+> `huggingface/transformers` PR merged since then touches
+> `sub_configs`/`PretrainedConfig` auto-init. Root cause and monkey-patch
+> requirement unchanged. Aside, not this bug: `python/sglang/srt/models/qwen3_5.py`
+> (a different file, the GatedDeltaNet weight loader referenced in the
+> "Related issues" #22618 discussion) has dropped the
+> `quant_config.get_name() == "modelopt_fp4"` guard #22618 quoted, as part
+> of unrelated Qwen3.5/3.8 quant refactors (e.g. #31220, merged 2026-07-30,
+> predates this audit window and already correctly noted here as unrelated
+> to the vision_config bug). Whether this incidentally resolves #22618's
+> compressed-tensors symptom is unconfirmed; does not touch
+> `configs/qwen3_5.py` and does not change this doc's tracked bug.
+> Monkey-patch (`PATCH_GET_CONFIG_EOF`) in `sglang_launch.sh` still
+> required.
 
 
 ## Summary
