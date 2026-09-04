@@ -2,7 +2,13 @@
 SHELL := /usr/bin/bash
 .ONESHELL:
 
-venv_activated=if [ -z $${VIRTUAL_ENV+x} ]; then printf "activating venv...\n" ; source .venv/bin/activate ; else printf "venv already activated\n"; fi
+# Every tool is invoked through .venv/bin/* explicitly. The former
+# `source .venv/bin/activate` guard keyed on $$VIRTUAL_ENV, which a parent
+# shell can export without putting .venv/bin on PATH. The activation was
+# then skipped and black/mypy/pytest/hatch resolved to ~/.local/bin instead.
+VENV := .venv
+VENV_BIN := $(VENV)/bin
+PYTHON := $(VENV_BIN)/python
 
 help:
 	@printf "\ninstall\n\tinstall requirements\n"
@@ -24,8 +30,7 @@ install: .venv
 
 .venv/touchfile: requirements.txt
 	test -d .venv || python3.14 -m venv .venv
-	source .venv/bin/activate
-	pip install -r requirements.txt
+	$(VENV_BIN)/pip install -r requirements.txt
 	touch .venv/touchfile
 
 # `pytest` takes no path argument on purpose: an explicit target overrides
@@ -35,59 +40,49 @@ install: .venv
 # tests/test_base.py, and collecting both is an "import file mismatch"
 # error under the same module name.
 tests: .venv
-	@$(venv_activated)
-	pytest
+	$(VENV_BIN)/pytest
 
 lint: .venv
-	@$(venv_activated)
-	black .
+	$(VENV_BIN)/black .
 
 isort: .venv
-	@$(venv_activated)
-	isort .
+	$(VENV_BIN)/isort .
 
 tcheck: .venv
-	@$(venv_activated)
-	mypy .
+	$(VENV_BIN)/mypy .
 
 gitleaks: .venv .git/hooks/pre-commit
-	@$(venv_activated)
-	pre-commit run gitleaks --all-files
+	$(VENV_BIN)/pre-commit run gitleaks --all-files
 
 .git/hooks/pre-commit: .venv
-	@$(venv_activated)
-	pre-commit install
+	$(VENV_BIN)/pre-commit install
 
 commit-checks: .git/hooks/pre-commit
-	@$(venv_activated)
-	pre-commit run --all-files
+	$(VENV_BIN)/pre-commit run --all-files
 
 prepare: tests commit-checks
 
 PKG_SOURCES := dgxarley/*
-VERSION := $(shell $(venv_activated) > /dev/null 2>&1 && hatch version 2>/dev/null || echo HATCH_NOT_FOUND)
+VERSION := $(shell $(VENV_BIN)/hatch version 2>/dev/null || echo HATCH_NOT_FOUND)
 
 dist/dgxarley-$(VERSION).tar.gz dist/dgxarley-$(VERSION)-py3-none-any.whl dist/.touchfile: $(PKG_SOURCES) pyproject.toml
 	@printf "VERSION: $(VERSION)\n"
-	@$(venv_activated)
-	hatch build --clean
+	$(VENV_BIN)/hatch build --clean
 	@touch dist/.touchfile
 
 # Refuses to let a build artifact leave the machine if it contains git-crypt
 # protected paths or any file outside the published allowlist.
 # Gates both `pypibuild` and `pypipush`.
 distcheck: dist/dgxarley-$(VERSION).tar.gz dist/dgxarley-$(VERSION)-py3-none-any.whl
-	@$(venv_activated)
-	python repo_scripts/check_dist_secrets.py \
+	$(PYTHON) repo_scripts/check_dist_secrets.py \
 	  dist/dgxarley-$(VERSION).tar.gz \
 	  dist/dgxarley-$(VERSION)-py3-none-any.whl
 
 pypibuild: distcheck
 
 dist/.touchfile_push: dist/dgxarley-$(VERSION).tar.gz dist/dgxarley-$(VERSION)-py3-none-any.whl
-	@$(venv_activated)
 	$(MAKE) distcheck
-	hatch publish -r main
+	$(VENV_BIN)/hatch publish -r main
 	@touch dist/.touchfile_push
 
 pypipush: dist/.touchfile_push
