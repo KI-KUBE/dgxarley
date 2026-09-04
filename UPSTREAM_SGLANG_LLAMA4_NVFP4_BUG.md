@@ -211,3 +211,27 @@ anchors, and update the two heredoc blocks in `sglang_launch.sh`. Verify with th
   to the MoE-runner assertion); the profile's `moe_runner_backend: triton`
   pin stays correct until #35504 merges and ships in a release, re-check
   next cycle.
+- **2026-09-04** - SGLang v0.5.18 remains the latest release, no new release
+  since 2026-08-22. PR #35504 gained fresh activity since the 09-02 check:
+  reviewer `nvpohanh` posted `/tag-and-rerun-ci` on 2026-09-01, then today
+  asked the author directly, "@janbernloehr could you fix the conflicts?".
+  Source-confirmed via the REST API: `mergeable: false`,
+  `mergeable_state: dirty`, a real merge conflict against `main`, not just
+  the two AMD-only CI jobs noted on 2026-08-21/08-28. The author pushed a
+  style fixup (`4bee98856`, 08-31), a test entry point (`a08f2df3a`, 09-01),
+  and a merge-from-main commit (`bb02d04a4`, 09-02) on top of the original
+  `47b6b56e9`, but the conflict remains unresolved as of today. CI on the
+  current head is now broadly red, not just the AMD/NPU jobs previously
+  logged: base-b-test-1-gpu-large/small, base-b-test-2-gpu-large,
+  base-c-test-perf (NPU), build-test (xeon-spr), and the aggregate
+  finish/pr-test-finish/pr-gate checks are all failing, consistent with an
+  unresolved conflict blocking a clean build. `reviewDecision` still
+  REVIEW_REQUIRED, same 2 reviews from 2026-08-31, no new formal review,
+  state OPEN, not merged. PR #35032 (loader fixes 1-3) unchanged, no
+  activity since 2026-08-16, still BLOCKED on unrelated non-CUDA CI. Issue
+  #34192 unchanged, still OPEN, 0 comments since 2026-08-09. Net effect:
+  PR #35504 is further from merging than it was two days ago (a real
+  conflict, not just CI noise), despite the continued reviewer attention.
+  Does not affect the 5 local `sglang_launch.sh` runtime patches; the
+  profile's `moe_runner_backend: triton` pin stays correct, re-check next
+  cycle.
