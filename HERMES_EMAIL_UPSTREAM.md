@@ -632,6 +632,40 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 > - **PRs #28697/#28699/#28702** remain OPEN/MERGEABLE/BLOCKED, heads unchanged since 2026-08-17
 >   (75775e5e91/16f1753624/aecb6942a5), no new comments or reviews.
 
+> **2026-09-04 check, re-sync commit 5066c62134899370000bc998eac45624a3449b8f applied and verified,
+> pin now matches upstream, main unchanged since the 2026-09-02 check:**
+> - **Re-sync verified against v2026.8.31.** `hermes_email_gateway_patched.py`'s header now reads
+>   "synced to upstream tag v2026.8.31 (plugins/platforms/email/adapter.py, 62238 bytes)", matching
+>   this doc's recorded v2026.8.31 blob 89ead8a8, 62238 bytes exactly (confirmed via
+>   `gh api .../contents/plugins/platforms/email/adapter.py?ref=v2026.8.31`: sha
+>   89ead8a82a610514266a1dae1c43d7b009d212de, size 62238). The only content change from the prior
+>   v2026.8.27 baseline is the single divergence already flagged on 2026-08-28/09-02:
+>   `self._wire_plugin_handlers(None)` (commit 272f4e4a) reproduced verbatim at the end of
+>   `connect()`'s success path, immediately before `return True`. Confirmed against the raw tag
+>   content that this is exactly the last `return True` inside `connect()` (line 800-801 of
+>   v2026.8.31), not colliding with any [PATCH-N] anchor, matching the diff in commit 5066c62.
+>   Header also correctly notes v2026.8.16 and v2026.8.27 are byte-identical for this file, so the
+>   earlier pin bump needed no re-sync, consistent with the 2026-08-21/08-28 checks. [PATCH-1]..
+>   [PATCH-9] are otherwise untouched (the commit diff shows only the header rewrite plus the
+>   5-line addition).
+> - **Pin updated in the same commit:** `hermes.image_tag` in
+>   `roles/k8s_infra/defaults/main/hermes.yml` moved from `v2026.8.27` to `v2026.8.31`. Patch and
+>   pin are now in sync, no re-sync debt outstanding.
+> - **No new hermes-agent release since v2026.8.31** (still latest, published 2026-08-31).
+> - **`main` unchanged since the 2026-09-02 check:** no new commits touched
+>   `plugins/platforms/email/adapter.py` other than the two already recorded (92a9864517,
+>   4d02c78102, both 2026-09-02T11:3x). `main` adapter.py is still blob 228cad281f, 65847 bytes,
+>   still unreleased. The TLS/verify feature remains outside any [PATCH-N] anchor as previously
+>   assessed; still watch for collisions with [PATCH-2]/[PATCH-3]/[PATCH-6] once it ships in a
+>   release, re-sync will be needed then (this is a substantive feature, not a no-op like
+>   8.16->8.27).
+> - **PRs #28697/#28699/#28702** remain OPEN, heads unchanged since 2026-08-17 (75775e5e91/
+>   16f1753624/aecb6942a5), comment counts 5/3/5, no new activity. One status note: #28697's
+>   `mergeStateStatus` now reads DIRTY (previously grouped with the other two as MERGEABLE/
+>   BLOCKED), likely a recompute effect of the v2026.8.31 rollup landing on `main`, not a PR-side
+>   edit (head SHA and updatedAt unchanged). #28699 and #28702 remain BLOCKED. The actual
+>   `--tags hermes` rollout of this re-sync is a separate step, not covered by this audit entry.
+
 1. Download the new upstream file:
 
    ```bash
