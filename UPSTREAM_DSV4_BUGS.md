@@ -761,6 +761,77 @@ to us today (checkpoint is FP8, not MXFP4/NVFP4-MoE) and not yet released,
 noted for when #30272's MXFP4 path is eventually evaluated. No wall status
 changes, no FIXED_ rename warranted this cycle.
 
+**Update 2026-09-04 (audit).** No new SGLang release; v0.5.18 (2026-08-22)
+remains latest (`gh release list` re-checked). A `release/v0.5.19` branch
+exists on the repo (`gh api repos/sgl-project/sglang/branches/release/v0.5.19`,
+head `0bcd8223`), with a small number of cherry-picks already landing on it
+(AMD/NPU DSV4 fixes, e.g. #37862/#37857), but it carries no tag and no GitHub
+Release yet, so it is not a delivery vehicle. Issue tracking unchanged since
+2026-09-02: #26324 still closed, no activity since the 2026-08-21 comment.
+#33636 still open, no new comments since 2026-08-26 (`updatedAt` re-checked),
+still exclusively B200/GB300 topics, no SM120/SM121 mention. #32750 idle
+since 2026-08-06. #23602 idle since 2026-08-13.
+
+New and directly relevant this cycle, all merged to `main` after v0.5.18 and
+therefore UNRELEASED (nothing in v0.5.18 or in our deployed
+`xomoxcc/dgx-spark-sglang:0.5.17-sm121` image):
+
+- [PR #29927](https://github.com/sgl-project/sglang/pull/29927) "[SM120]
+  DeepSeek-V4: DeepGEMM paged-MQA indexer + FP4 MoE + page-split", merged
+  2026-09-02. Diff source-verified (`git show 19c30dff56`) to touch Walls 3,
+  4 and 5 directly:
+  - Wall 5 (`paged_mqa_logits` DeepGEMM SM121 gap): routes the sparse-MLA
+    indexer to DeepGEMM's paged-MQA-logits kernel instead of the torch
+    fallback our `fp8_paged_mqa_logits_torch: true` profile flag forces
+    today. Opt-in is `SGLANG_FP8_PAGED_MQA_LOGITS_TORCH=0
+    SGLANG_OPT_USE_TILELANG_INDEXER=0`.
+  - Wall 4 (DeepGEMM MHC-prenorm gate): `deep_gemm_wrapper/configurer.py`'s
+    exact-match `if sm_version == 120: return False` (the gate this doc has
+    tracked since PR #24692, §8) is replaced by a probe of DeepGEMM's
+    `m_grouped_fp8_fp4_gemm_nt_contiguous` entry point instead of a hard
+    disable. `models/deepseek_v4.py` additionally now gates the
+    `tf32_hc_prenorm_gemm` dispatch on `x.shape[0] >= 1024`
+    (`_HC_PRENORM_DEEPGEMM_MIN_TOKENS`, prefill-sized batches only);
+    `SGLANG_OPT_DEEPGEMM_HC_PRENORM` itself is unchanged and still required.
+    The probed entry point ships in DeepGEMM#324 ("sm120 support"), merged
+    upstream 2026-06-24, so any reasonably current vendored DeepGEMM build
+    should already have it, but this is not independently confirmed for our
+    image.
+  - Wall 3 (NVFP4 MoE / `flashinfer_cutlass` pin): the same configurer.py
+    probe plus a new `moe_runner/deep_gemm_sm120.py` "unblocks the DeepGEMM
+    FP4 MoE backend" per the PR body.
+  - Source-verified: every new SM120-only code path in this PR gates on
+    `is_sm120_supported()` (`major==12` device-capability check,
+    `srt/utils/common.py:290-294`) or `get_platform().is_sm120`
+    (`runtime_context.py:1782`, confirmed to alias the same function), the
+    same major-only SM120/SM121 convention this doc already relied on for
+    PR #24692 (§8). SM121/GB10 applicability is therefore INFERRED from
+    that convention, NOT independently tested on our hardware, and not yet
+    available in any released image.
+  - Split-out dependencies, both already merged and included in the same
+    unreleased window: [PR #35116](https://github.com/sgl-project/sglang/pull/35116)
+    "allocate the page-split buffer outside inference mode" (correctness
+    fix, merged 2026-08-25), and [PR #35118](https://github.com/sgl-project/sglang/pull/35118)
+    "hc-prenorm: fuse the combine step into a Triton kernel" (merged
+    2026-09-01, upstream-labeled "arch-independent"; the PR body measures it
+    at roughly 3% of the combined TPOT gain).
+- Wall 7-adjacent (topk_transform_512 / SM121 TVM path), both merged
+  2026-09-01, both unreleased: [PR #33237](https://github.com/sgl-project/sglang/pull/33237)
+  adds a `flashinfer` choice to `--dsa-topk-backend` (fused top-k via
+  FlashInfer, alongside the existing native/torch choices this doc already
+  tracks for Wall 7). [PR #36831](https://github.com/sgl-project/sglang/pull/36831)
+  is a pure rename ("drop the redundant 512 from the top-k transform
+  entry-point names"; diff touches kernel/bench/test files only, confirmed
+  NOT to touch `environ.py`, `SGLANG_DSA_TOPK_BACKEND` or
+  `SGLANG_DSA_FUSE_TOPK`), no functional effect on this doc's tracking.
+
+No wall status change and no FIXED_ rename warranted this cycle since none
+of the above is released yet. This is nonetheless the first upstream
+movement since the 2026-08-28 Wall 7 migration that touches Walls 3 through
+5 directly rather than being B200/GB300-only or informational-adjacent;
+worth a dedicated re-check against the actual merged diffs once a v0.5.19
+(or later) tag exists, before the next `sglang-0.5.1x-sm121.recipe` bump.
+
 ---
 
 ## Upstream references
