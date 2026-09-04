@@ -299,6 +299,37 @@ REST/GraphQL now report `mergeable: MERGEABLE` / `mergeStateStatus: BLOCKED`
 > altering the indexer-backend dispatch. No new sglang issue or PR found
 > searching "dsa_paged_mqa_logits_backend torch".
 
+> Re-checked 2026-09-04: PR #31480 unchanged since 08-28 (head still
+> `6b2e62e259398b8e34b8eac5d92f6d6a7c9448ff`, `updated_at`
+> 2026-08-28T10:48:29Z), still 3 comments, 0 reviews, no `run-ci` label.
+> REST/GraphQL: `mergeable: MERGEABLE` / `mergeStateStatus: BLOCKED` (a first
+> read returned transient `UNKNOWN`/`UNKNOWN`, GitHub's async
+> merge-computation cache; two immediate repeat reads confirmed the stable
+> value, not a real state change).
+
+> Two new commits touched `python/sglang/srt/layers/attention/dsa/` since the
+> 09-02 check: `ff1285cc28` ("[CP V1 Deprecation 2/5] Make strategy prefill
+> CP canonical", #36223, merged 2026-09-03) rewrites
+> `dsa/utils.py::is_dsa_enable_prefill_cp` to key off `is_hip()/is_npu()`
+> instead of `SGLANG_ENABLE_CP_V2`, and `28262c20df` (CI: replace
+> black-jupyter with ruff-format, #37210) is tooling-only. Neither touches
+> `paged_mqa_logits_backend.py` (zero new commits there since the 08-28
+> baseline `d56706459c`, still only the `7e751153eb` rename) or adds an
+> arch-independent backend value. p30 not redundant, unchanged.
+
+> PR #36507 "GLM-5.3-Flash support" is still open (`mergedAt: null`), gained
+> 4 more reviews (kpham-sgl x3, JustinTong0323 x2, all COMMENTED, none
+> APPROVED) and several substantive bring-up-bug comments through 09-03 (a
+> kpool top-k radix-clip defect report from bold84, a qkvbfg-fusion gate fix
+> from linkedlist771, a NEXTN embedding-OOB fix from BBuf, an
+> EAGLE+DP+chunked-prefill fix from rohash123, filed as separate PRs
+> #37540/#37744/#37728 against this branch). Diffed `dsa_backend.py`
+> directly: the hunk touching `_forward_trtllm` only adds a
+> `sparse_mla_top_k_lens` param and page-table-padding plumbing; the
+> `backend="trtllm-gen"` line and `is_glm_sm12_fp8` selection are untouched
+> context, confirming the 09-02 finding still holds. SGLang still v0.5.18, no
+> new release.
+
 > Conclusion unchanged: p30/p35 remain necessary on stock v0.5.18/current main;
 > no upstream fix has landed or is imminent.
 
