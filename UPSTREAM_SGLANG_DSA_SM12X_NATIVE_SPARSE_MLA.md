@@ -402,6 +402,38 @@ watch only.
 > #31480's post-rebase state pattern. Content/design conclusions of this doc
 > are unchanged; this was a submission-mechanics rebase only.
 
+> Re-checked 2026-09-04: PR #31481 unchanged since the 09-03 rebase (head
+> still `924c838c1d56b4a6b36726d609cdbc65130e1de5`, `updated_at`
+> 2026-09-03T09:40:10Z), still 2 comments, 0 reviews, only the `deepseek`
+> label, `mergeable: MERGEABLE` / `mergeStateStatus: BLOCKED` unchanged.
+> `dsa_backend.py`, `overrides.py` and `flash_mla_sm120.py` on
+> `upstream/main`: zero commits touched any of the three since the 09-03
+> rebase base (`a6001478f4`) through current tip `67248e04b4`.
+> `_forward_trtllm`'s `backend="trtllm-gen"` hardcode and the
+> `is_glm_sm12_fp8` auto-selection remain unchanged.
+
+> PR #32779 got a routine "Merge branch 'main' into
+> dsa-triton-sparse-mla-prefill" sync commit today (2026-09-04T07:17:26Z, new
+> head `74ad6930ef`, up from `56bfaf9527` on 09-02), the fourth such sync
+> merge since 08-31, no authored change. Diff scope unchanged (still the same
+> 9 files, +1365/-8 net vs main); re-diffed
+> `_validate_flashinfer_sparse_mla_backend`'s `is_glm_sm12_fp8` arm directly:
+> still `selected - {"flashinfer_sparse_mla", "triton_sparse_mla"}` with
+> `flashinfer_sparse_mla` explicitly staying the auto-selected default.
+> `mergeable: MERGEABLE` / `mergeStateStatus: BLOCKED` unchanged, still only
+> the one COMMENTED review from b8zhong (2026-08-12), labels unchanged
+> (performance/run-ci/jit-kernel/GLM). Not merged, not redundancy-relevant,
+> same as prior cycles.
+
+> flashinfer still v0.6.18 (2026-08-29), SGLang still v0.5.18 (2026-08-22),
+> no new releases. PR #36507 gained more labels and heavy piecewise-landing
+> activity (see companion doc for detail) but confirmed still not touching
+> the SM12x dispatch this doc tracks.
+
+> p34 retirement decision remains pending: no TP4/real-weight confirmation
+> run since 08-15 (approval-gated, not requested this cycle). No upstream
+> change alters the standing 08-15 verdict.
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
