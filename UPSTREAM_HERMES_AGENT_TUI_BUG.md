@@ -479,6 +479,18 @@ small (~50 MB) and the node has fast local storage.
   actionable now, rather than waiting on a future bump. No config change made here, verification
   and any `copy-ui-tui` initContainer removal still require explicit approval per this repo's
   conventions.
+- **Re-verified 2026-09-04:** `hermes.image_tag` in `roles/k8s_infra/defaults/main/hermes.yml`
+  bumped from `v2026.8.27` to `v2026.8.31` in commit 5066c62 (2026-09-03, the same commit that
+  re-synced the email gateway patch; unrelated to Trigger 2, an incidental bump). No new
+  hermes-agent release since v2026.8.31 (still latest, 2026-08-31). Confirmed via commit-graph
+  compare that v2026.8.31 is a strict linear descendant of v2026.8.27 (0 behind, 911 ahead) and of
+  both Trigger 2 fix commits (0c47cd5, 76d8f876f3, each 0 behind), so the pinned deployment still
+  contains the fix, no regression from this bump. Issue #66978 remains CLOSED, unchanged since
+  2026-08-25. Issue #45657 remains OPEN, same 10 comments, unchanged since 2026-08-26. PR #67011
+  remains OPEN/unmerged, head 95c061ff unchanged since 2026-08-16. No commits touched any TUI
+  npm-install path since the 2026-09-02 check. This makes the pending Action Item (EACCES
+  re-verification with a non-10000 UID) applicable to v2026.8.31 as well as v2026.8.27; the
+  verification itself remains deferred by the user and is NOT performed here.
 
 ## Action Items
 
