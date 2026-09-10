@@ -235,3 +235,30 @@ anchors, and update the two heredoc blocks in `sglang_launch.sh`. Verify with th
   Does not affect the 5 local `sglang_launch.sh` runtime patches; the
   profile's `moe_runner_backend: triton` pin stays correct, re-check next
   cycle.
+- **2026-09-10** - SGLang v0.5.19 released 2026-09-05, now the latest
+  release. `mllama4.py`/`llama4.py` are byte-identical between v0.5.18 and
+  v0.5.19 (confirmed via `git diff v0.5.18 v0.5.19 --`, zero output for
+  both files) and unchanged on upstream `main` (HEAD
+  `908226fea2df861769e2720161a75649ae4c6f92`, 2026-09-10); all five patched
+  anchors remain at the same lines already logged (`mllama4.py:618/736/859`,
+  `llama4.py:304`). PR #35032 (loader fixes 1-3) unchanged, no activity
+  since 2026-08-16, `mergeable: true` but `mergeable_state: blocked` on
+  unrelated non-CUDA CI. **PR #35504 moved significantly since the 09-04
+  entry:** the merge conflict reviewer nvpohanh flagged on 09-04 is now
+  resolved, the author merged `main` into the branch three more times
+  (09-07, 09-09, 09-10) and REST now reports `mergeable: true`; however
+  `mergeable_state` is now `blocked` for a different reason, CI is broadly
+  red across `base-b-test-1-gpu-large/small`, `base-b-test-2-gpu-large`,
+  `base-c-test-perf` (NPU), `pr-gate`, and the aggregate `finish` checks all
+  failing on the current head. Reviewer `b8zhong` posted an `APPROVED`
+  review on 2026-09-04, but `reviewDecision` is still `REVIEW_REQUIRED` (12
+  reviewers requested from the CODEOWNERS list, `ch-wan`, `BBuf`,
+  `Edwardf0t1`, `FlamingoPg`, `AniZpZ`, `HaiShaw`, `OrangeRedeng`,
+  `Alisehen`, `mmangkad`, `merrymercy`, `Ying1123`, `Fridge003`, `ispobock`,
+  none of whom have approved). nvpohanh re-ran CI three times (09-07,
+  09-08, 09-09) without success. Net: closer to mergeable (conflict gone)
+  but still blocked by broadly failing CI and an outstanding formal review
+  requirement, not merged. Issue #34192 unchanged, still OPEN, 0 comments
+  since 2026-08-09. Does not affect the 5 local `sglang_launch.sh` runtime
+  patches; the profile's `moe_runner_backend: triton` pin stays correct,
+  re-check next cycle.
