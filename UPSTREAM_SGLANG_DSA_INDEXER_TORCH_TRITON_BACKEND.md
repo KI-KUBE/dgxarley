@@ -333,6 +333,44 @@ REST/GraphQL now report `mergeable: MERGEABLE` / `mergeStateStatus: BLOCKED`
 > Conclusion unchanged: p30/p35 remain necessary on stock v0.5.18/current main;
 > no upstream fix has landed or is imminent.
 
+> Re-checked 2026-09-10: PR #31480 unchanged in content since 08-28 (head
+> still `6b2e62e259398b8e34b8eac5d92f6d6a7c9448ff`, `updated_at`
+> 2026-08-28T10:48:29Z, still 3 comments, 0 reviews, no `run-ci` label). But
+> `mergeable`/`mergeStateStatus` flipped from `MERGEABLE`/`BLOCKED` to
+> `CONFLICTING`/`DIRTY`, confirmed stable across two repeat `gh` reads 3s
+> apart (not the transient GraphQL `UNKNOWN` seen on 09-04). Real merge
+> conflict against current main, first observed this cycle.
+
+> Root cause: `server_args.py` (one of p30's two touched files) was
+> rewritten wholesale by the "[Config] Round 5/6" refactor series (multiple
+> commits since the 08-28 baseline, most recently `f1a512c51c` "msgspec.
+> Struct for the config tier" and `53dc77ff4e` "One writer for the
+> declaration stash", both merged this week) into a declarative
+> `A[...] / Arg(...) / NS(...)` field-descriptor system with
+> `resolvable=True` namespaces, replacing the plain-argparse style our
+> patch's diff targets. Structural rewrite, not a content collision.
+
+> `paged_mqa_logits_backend.py` itself saw zero new commits since the
+> 08-28 baseline (still only `7e751153eb`, the pure rename). Current
+> `DSA_PAGED_MQA_LOGITS_BACKEND_CHOICES` is still exactly `["auto",
+> "deepgemm", "cutedsl", "aiter"]`, no `torch` value added. p30 not
+> redundant, design conclusion unchanged. Only the rebase mechanics got
+> harder, the server_args.py hunk needs re-porting onto the new Arg/NS
+> declaration style, not just textual conflict resolution.
+
+> PR #36507 "GLM-5.3-Flash support" merged 2026-09-06 (`97c6978369`).
+> Confirmed via direct diff it does not touch `paged_mqa_logits_backend.py`
+> or the indexer-backend dispatch (it rewrites `dsa_backend.py` instead,
+> relevant to the companion doc, not this one).
+
+> SGLang released v0.5.19 on 2026-09-05 (a `release/v0.5.19` cherry-pick
+> branch, not a main snapshot, confirmed by its `[Cherry-pick to
+> release/v0.5.19]`-tagged commits). Confirmed it does NOT contain #29927
+> (SM120 DeepGEMM paged-MQA indexer, merged 2026-09-02, apparently too late
+> for the branch cut), a cross-reference note for the companion DSV4 doc,
+> not this doc's scope. Contains #26928 (SM120 GLM-5.1 baseline, already
+> known, unrelated to p30).
+
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
 > Triton fast path (unblocks DSA models on SM120/SM121)
 

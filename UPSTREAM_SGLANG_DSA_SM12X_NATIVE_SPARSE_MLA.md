@@ -434,6 +434,61 @@ watch only.
 > run since 08-15 (approval-gated, not requested this cycle). No upstream
 > change alters the standing 08-15 verdict.
 
+> Re-checked 2026-09-10: PR #31481 unchanged in content since the 09-03
+> rebase (head still `924c838c1d56b4a6b36726d609cdbc65130e1de5`,
+> `updated_at` 2026-09-03T09:40:10Z, still 2 comments, 0 reviews, only the
+> `deepseek` label). But `mergeable`/`mergeStateStatus` flipped from
+> `MERGEABLE`/`BLOCKED` to `CONFLICTING`/`DIRTY`, confirmed stable across
+> two repeat `gh` reads. Real merge conflict against current main, first
+> observed this cycle, same pattern as the companion indexer PR.
+
+> Root cause is heavy drift on the exact files p34 touches. PR #36507
+> "GLM-5.3-Flash support" merged 2026-09-06 (`97c6978369`, was still open
+> and unreviewed on 09-04) and rewrites large parts of `dsa_backend.py`
+> (new KPool imports, new `DSAMetadata` fields, new
+> `dsa_backend_kpool.py`/`kpool_plan.py` modules). Diffed directly: the
+> `_forward_trtllm` hunk it touches only adds a `sparse_mla_top_k_lens`
+> param and page-table-padding plumbing, already noted on 09-02/09-04. The
+> `backend="trtllm-gen"` line p34 patches (now around line 3570 on main)
+> remains untouched context. Also landed since 09-03: the CP V1
+> Deprecation series continued (`ed183d45ac` "Canonicalize prefill CP API
+> names", part 4/5, merged after 09-04) touching `dsa_backend.py`'s CP
+> branches, and a unified-cache reorg (`abed680320`, `0645398a32`) touching
+> the `kv_cache_configurator.py` area p34's change 1 lives in.
+
+> `calculate_mla_kv_cache_dim` (now in `kv_cache_configurator.py`) still
+> dispatches purely on `get_exec().kernel.dsa_prefill_backend` /
+> `dsa_decode_backend == "trtllm"` (the "plain iff a backend is named
+> trtllm" coupling this doc's change 1 exists to fix), no SM12x
+> special-casing added upstream. `overrides.py`'s `is_glm_sm12_fp8` block
+> (sets `flashinfer_sparse_mla` for GLM plus SM120/121 plus fp8 KV) is
+> unchanged despite several other commits touching that file. p34's design
+> conclusion is unchanged, still necessary. Only the rebase got harder, same
+> structural-drift pattern as p30, driven by the same broader refactor wave,
+> not a content collision here.
+
+> PR #32779 (Triton sparse MLA prefill): head advanced from `74ad6930ef`
+> (09-04) to `083eca458f` (latest, several more "fix conflicts" / "fix
+> lint" pings from nvpohanh through 09-09), still just the one COMMENTED
+> review from b8zhong (08-12), zero approvals, `run-ci` / `performance` /
+> `jit-kernel` / `GLM` labels unchanged. Its own `mergeable` flipped to
+> `CONFLICTING` and `mergeStateStatus` to `DIRTY` too (author still
+> wrestling with conflicts as of 09-10). Not merged. Re-diffed
+> `_validate_flashinfer_sparse_mla_backend` on the new head directly: the
+> `is_glm_sm12_fp8` arm is still `{"flashinfer_sparse_mla",
+> "triton_sparse_mla"}`, with `flashinfer_sparse_mla` staying the
+> auto-selected default. Not redundancy-relevant.
+
+> SGLang released v0.5.19 on 2026-09-05 (release/v0.5.19 cherry-pick
+> branch). Contains #26928 (SM120 GLM-5.1 baseline, already known). Does
+> NOT contain #29927 (SM120 DeepGEMM paged-MQA indexer, merged 2026-09-02)
+> or #36507 (merged 2026-09-06), both too late for the tag. Cross-reference
+> for the companion DSV4 doc.
+
+> p34 retirement decision remains pending: no TP4/real-weight confirmation
+> run since 08-15 (approval-gated, not requested this cycle). No upstream
+> change alters the standing 08-15 verdict.
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
