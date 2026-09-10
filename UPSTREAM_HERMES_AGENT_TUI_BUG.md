@@ -491,6 +491,20 @@ small (~50 MB) and the node has fast local storage.
   npm-install path since the 2026-09-02 check. This makes the pending Action Item (EACCES
   re-verification with a non-10000 UID) applicable to v2026.8.31 as well as v2026.8.27; the
   verification itself remains deferred by the user and is NOT performed here.
+- **Re-verified 2026-09-10:** new release **v2026.9.7** (v0.21.1, published 2026-09-07), release
+  notes grepped for `tui|npm install|lockfile|reinstall|EACCES|package-lock|workspace lock|
+  node_modules`: zero hits. Issue #66978 (Trigger 2 fix) remains CLOSED, unchanged since
+  2026-08-25. Issue #45657 remains OPEN, same 10 comments, unchanged since 2026-08-26.
+  **PR #67011 closed 2026-09-09T18:57Z, unmerged, as superseded:** a `hermes-autotriage` bot
+  comment confirms both its commits (0c47cd5260, already tracked as the Trigger 2 fix, plus
+  a96bad8e71 "fix(cli): scope TUI npm-install closure to all selected workspaces", dated
+  2026-07-19 and already an ancestor of both v2026.8.27 and v2026.8.31, so nothing new for our
+  pin) are already on `main`; a rebase of the PR branch onto `upstream/main` produced zero delta.
+  This is administrative cleanup, not a regression: the fix already shipped in the release this
+  doc tracked as fixed on 2026-08-28, and this closure just retires the now-redundant PR.
+  `hermes.image_tag` unchanged at `v2026.8.31` (no bump this cycle). Conclusions unchanged; the
+  Action Item (EACCES re-verification with a non-10000 UID) remains outstanding and deferred by
+  the user, not performed here.
 
 ## Action Items
 

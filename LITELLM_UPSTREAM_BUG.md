@@ -204,6 +204,24 @@ sidecar workaround remains required.
 
 **Partial mitigation**: Setting `litellm.ssl_verify = False` **globally before the first embedding call** may work, because the singleton `HTTPHandler` picks up `litellm.ssl_verify` at creation time via `get_ssl_configuration()`. However, this is fragile — it depends on initialization order, and per-request `ssl_verify=false` (as used in our model config) is still silently dropped for the ollama embedding path.
 
+**2026-09-10 re-verify, still broken; new stable release v1.100.0 (2026-09-06) ships no fix:**
+LiteLLM advanced from v1.99.0/v1.99.1 to **v1.100.0** (stable, published 2026-09-06T05:33:17Z).
+Prereleases v1.101.0-dev.1/dev.2, v1.101.0-rc.1/rc.2, and v1.102.0-dev.1 also exist but are not
+stable (rc.2 published 2026-09-10, the same day as this check). The two Docker-only maintenance
+releases already logged (v1.97.1, v1.99.1, both 2026-09-02) remain the only entries in that
+window. Scanned the v1.100.0 changelog: no entry mentions ollama. The one ssl_verify-related fix
+in the release, PR #38400 ("fix(aiohttp): honor global ssl_verify on the aiohttp_openai handler
+path"), touches only `litellm/llms/custom_httpx/aiohttp_handler.py` for the unrelated
+`aiohttp_openai/` model prefix's global `litellm_settings.ssl_verify`, a completely different code
+path from the `ollama/` embedding bug tracked here; it does not touch
+`litellm/llms/ollama/completion/handler.py` or `module_level_aclient`. The bug is byte-identical
+on current `main`: `litellm/llms/ollama/completion/handler.py` line 4 still carries the
+`[TODO]: migrate embeddings to a base handler as well.` comment, and line 98 still calls
+`await litellm.module_level_aclient.post(url=api_base, json=data)` with no `ssl_verify` argument.
+Issue #30778 remains open, 0 comments, untouched since filed 2026-06-18. PRs #30810 and #30848
+remain open and unmerged, both idle since 2026-06-20, now nearly three months with no maintainer
+engagement. The HAProxy TLS sidecar workaround remains required.
+
 ## Upstream Fix
 
 The embedding path in `litellm/llms/ollama/completion/handler.py` should stop using

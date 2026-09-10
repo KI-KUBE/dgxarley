@@ -832,6 +832,48 @@ movement since the 2026-08-28 Wall 7 migration that touches Walls 3 through
 worth a dedicated re-check against the actual merged diffs once a v0.5.19
 (or later) tag exists, before the next `sglang-0.5.1x-sm121.recipe` bump.
 
+**Update 2026-09-10 (audit).** SGLang v0.5.19 released 2026-09-05 (tag
+confirmed via `gh release list`), now the latest release, 786 PRs since
+v0.5.18. Checked whether it closes out the 2026-09-04 finding (#29927 for
+Walls 3/4/5): it does not. Ancestry check (`gh api compare`) shows the
+v0.5.19 tag is diverged from, not descended from, the #29927 merge commit
+(`19c30dff56`); the tag is bit-identical to the `release/v0.5.19` branch head
+(`0bcd8223`, unchanged since 09-04), which was cut from `main` before
+#29927/#35118 merged and only carries its own separate AMD/NPU cherry-picks
+since. Confirmed directly on the tag's file tree: `moe_runner/deep_gemm_sm120.py`
+(new file from #29927) is absent, and `deep_gemm_wrapper/configurer.py`
+still has the old exact-match `if sm_version == 120: return False` gate, not
+#29927's probe. Official release notes list #35116 and #33237 as included
+but do not mention #29927, #35118, or #36831. So of last cycle's four
+tracked PRs: #35116 (page-split buffer correctness fix) and #33237
+(flashinfer topk-backend choice, Wall 7-adjacent) ARE in v0.5.19; #29927
+(Walls 3, 4, 5) and #35118 (hc-prenorm Triton fusion) are still unreleased;
+#36831 remains a no-op rename either way. No wall status change, no FIXED_
+rename this cycle either.
+
+Issue tracking: #26324, #33636, #32750, #23602 all unchanged since 09-04
+(no new comments, `updated_at` unchanged on all four).
+
+New commits to `main` since 09-04 touching `models/deepseek_v4.py`,
+`layers/attention/dsv4/`, or `deep_gemm_wrapper/`: all AMD/HIP/NPU-specific
+(unified-KV pool/SWA ring accounting, oproj fp8 fusion, CP v1 deprecation)
+or explicitly SM100/103 (PR #30805, "Integrate TRT-LLM DSv4 Attention for
+SM100/103", merged 2026-09-10). Diff-checked the two non-AMD-tagged commits
+for `is_sm120`/`sm121` references: none found. Nothing new relevant to our
+SM121 walls.
+
+Incidental, not a tracked wall: v0.5.19 release notes (PR #35919) say the
+default MoE runner backend for FP4 DeepSeek-V4 checkpoints on SM90/SM100/SM120
+flips to `flashinfer_mxfp4` when `--moe-runner-backend` is left at `auto`;
+an explicit backend setting is preserved per the same note. Our model
+profiles always pin explicitly, so no effect today, worth remembering only
+if a future profile drops the explicit pin.
+
+Next check: once #29927/#35118 land in an actual tag (watch for v0.5.20 or
+a `release/v0.5.19` point release), re-verify Walls 3, 4, 5 against the
+released `deep_gemm_wrapper/configurer.py` and `moe_runner/deep_gemm_sm120.py`
+directly, same method as this cycle.
+
 ---
 
 ## Upstream references

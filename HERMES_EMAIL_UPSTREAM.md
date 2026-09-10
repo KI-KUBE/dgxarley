@@ -666,6 +666,42 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 >   edit (head SHA and updatedAt unchanged). #28699 and #28702 remain BLOCKED. The actual
 >   `--tags hermes` rollout of this re-sync is a separate step, not covered by this audit entry.
 
+> **2026-09-10 check, new release v2026.9.7 ships the TLS/security feature flagged on 2026-09-02,
+> bundled with a large unrelated refactor; re-sync now mandatory on the next tag bump and will be
+> a structural reweave, not a small-delta bump:**
+> - **Latest release:** **v2026.9.7** (v0.21.1), published 2026-09-07T22:17:01Z, superseding
+>   v2026.8.31 (still the current pin in `roles/k8s_infra/defaults/main/hermes.yml`).
+> - **The TLS/security feature flagged on 2026-09-02 is now in a real tag.**
+>   `plugins/platforms/email/adapter.py` at v2026.9.7 (blob
+>   18256ac1922d6bbee8c618ea67881cc63e5ccd5b, 47967 bytes) contains `_normalize_security`,
+>   `_SECURITY_ALIASES`, the `EMAIL_IMAP_SECURITY`/`EMAIL_SMTP_SECURITY`/`EMAIL_IMAP_TLS_VERIFY`/
+>   `EMAIL_SMTP_TLS_VERIFY` config keys, and `_tls_context(...)` call sites in `connect()`, the
+>   IMAP open path, and the SMTP senders (commits 92a9864517 and 4d02c78102, both already logged
+>   on 2026-09-02).
+> - **Bundled with a much bigger refactor than the feature alone.** Diffing the pinned v2026.8.31
+>   baseline (blob 89ead8a82a610514266a1dae1c43d7b009d212de, 62238 bytes, 1512 lines) against
+>   v2026.9.7 (47967 bytes, 810 lines) gives -1134/+432 lines, far more than the feature's own
+>   diffs (+107/-11 and +56/-63). Commits between the two tags include `refactor(platforms):
+>   a2a/buzz/dingtalk/email/google_chat/feishu-aux/discord-aux 11440->8812; dead code, dispatch
+>   tables, unified helpers` (192058fda4, 2026-09-03), `refactor(adapters/small_group):
+>   5147->3565; line/email/ntfy/homeassistant/sms send-family and standalone-send dedupe`
+>   (a07dceb01f, 2026-09-02), `simplify(compat): plugins/platforms+web` (b610e603db, 2026-09-03),
+>   and `refactor(email): fold #92979 review findings into the IMAP ID gate` (66f1668850,
+>   2026-09-06). Anchor functions survive by name (`connect()`, `_dispatch_message()`,
+>   `_send_email`, `_send_email_with_attachment(s)`, `_standalone_send`, `EmailAdapter`), but their
+>   surrounding code has moved and consolidated across the file (1512 to 810 lines), so the next
+>   re-sync is a structural reweave against a substantially restructured baseline.
+> - **Our patch features remain upstream-exclusive:** grep of the v2026.9.7 adapter.py for
+>   `_append_to_sent`, `_finalize_message`, `_imap_move`, `_ensure_folder`, `working_folder`,
+>   `done_folder`, `sent_folder`, `process_existing` = zero hits, same as every prior check.
+> - **Pin unaffected today:** `hermes.image_tag` is still `v2026.8.31`, so the running patch stays
+>   valid and no deployment action is forced by this entry; the re-sync fires the next time the
+>   tag is bumped past v2026.9.7 (or any tag containing 92a9864517/4d02c78102).
+> - **All three PRs (#28697/#28699/#28702) are now CONFLICTING/DIRTY**, confirmed via
+>   `mergeable_state` (previously #28697 alone was DIRTY, #28699/#28702 were BLOCKED), consistent
+>   with the scale of the intervening refactor. Heads unchanged since 2026-08-17 (75775e5e91/
+>   16f1753624/aecb6942a5), comment counts unchanged at 5/3/5, no new review activity.
+
 1. Download the new upstream file:
 
    ```bash
