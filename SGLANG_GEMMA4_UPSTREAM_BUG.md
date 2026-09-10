@@ -360,6 +360,35 @@ remains OPEN, no new comment since 2026-07-17. No change to the bottom
 line: NVFP4 Gemma-4 MoE on SM121 remains blocked, `attention_backend:
 triton` remains mandatory for all four Gemma-4 profiles.
 
+**Re-verified 2026-09-10:** SGLang **v0.5.19** released 2026-09-05 (tag
+`v0.5.19`, commit `0bcd822377`, 2026-09-03T14:22:46-07:00), now the latest
+release. Its own release notes confirm "FlashInfer moves to 0.6.18 (#36954)".
+The bundled-flashinfer bump the 2026-09-02 entry found merged to `main` but
+unreleased is now shipped in a stock SGLang release for the first time,
+meaning stock SGLang now also carries flashinfer PR #3684 (SM120/121
+VO-split NVFP4 KV-cache prefill) without a custom pin. This does not change
+the MoE-GEMM blocker tracked here: source-verified on the v0.5.19 tag,
+`modelopt_quant.py`'s `_SUPPORTED_ACT_STRS` is still `("silu", "relu2",
+"gelu")` (line 281, no `gelu_tanh`), the `is_gated` padding assert is
+unchanged in substance (line 2737), `_gemma4_overrides`
+(`arg_groups/model_overrides/gemma4.py`) is byte-identical to the
+2026-09-02 check and still gates its MoE-runner override on
+`get_platform().is_sm100` only, excluding SM120/121, and the
+attention-backend allowlist in `arg_groups/model_hook.py` is unchanged
+(`trtllm_mha`, `triton`, `ascend`, `intel_xpu`, `intel_amx`), `triton` still
+mandatory. Also confirmed byte-identical for all of the above on current
+`main` (HEAD `908226fea2df`, 2026-09-10T19:22:24+08:00) versus the v0.5.19
+tag. PRs #29304/#29305 (the SGLang-side orchestration for the now-released
+flashinfer #3684) remain OPEN, `mergeStateStatus` DIRTY/UNKNOWN, no update
+since 2026-06-29/2026-06-28, so the newly-released flashinfer dependency
+still cannot be exercised through a stock SGLang code path; this is still
+the KV-cache-attention subsystem, not the MoE-GEMM blocker tracked in this
+doc. All four tracked PRs (#22929/#22928/#22927/#22615) remain CLOSED
+unmerged, unchanged since 2026-08-18/19. Issue #30887 remains OPEN, no new
+comment since 2026-07-17. No change to the bottom line: NVFP4 Gemma-4 MoE on
+SM121 remains blocked, `attention_backend: triton` remains mandatory for all
+four Gemma-4 profiles.
+
 ## Affected models
 
 | Model                                         | Type                               | Quantization | Current status (`0.5.11-gemma4-sm121` image)                                                                                                |

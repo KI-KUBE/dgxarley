@@ -82,6 +82,18 @@
 > `transformers` `main`. Cross-reference: `UPSTREAM_DSV4_BUGS.md` §1/Wall 1
 > re-confirmed the same for this cycle. Monkey-patch still required, no
 > location change.
+>
+> **Re-verified 2026-09-10:** transformers shipped v5.17.0 (2026-09-09, now
+> the latest release; headline is the new HYV4 model, an MLA+DSA architecture
+> unrelated to DeepSeek-V3/V4's own config class). Direct source check
+> confirms `kv_lora_rank: int = 512` is still present, unchanged, at
+> `configuration_deepseek_v3.py:93` on both the v5.17.0 tag and
+> `transformers` `main`. Release notes contain no DeepSeek-V3/V4 config or
+> `sub_configs`/`PretrainedConfig` changes. No new SGLang release since
+> v0.5.18 relevant to this bug (v0.5.19, released 2026-09-05, does not touch
+> `kv_lora_rank`/DeepSeek-V4-Flash config parsing either; cross-reference:
+> `UPSTREAM_DSV4_BUGS.md` §1/Wall 1 re-confirmed the same for this cycle).
+> Monkey-patch still required, no location change.
 
 
 ## Summary

@@ -257,6 +257,26 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 i
 > `--speculative-draft-load-format auto` + `--speculative-draft-model-path`
 > workaround remains required and unchanged.
 
+> **Re-verified 2026-09-10:** SGLang **v0.5.19** released 2026-09-05 (tag
+> commit `0bcd822377da7b5718e674eaf9c870d349424dd1`, cut 2026-09-03T14:22
+> UTC), superseding v0.5.18. The bug ships in it unchanged: source-confirmed
+> on the v0.5.19 tag, `ModelRunner._resolve_draft_load_format()`
+> (`model_runner.py:1368`) still returns `None` unless
+> `get_spec().speculative_draft_load_format` is explicitly set,
+> `_load_format_scope()` at line 1356, consumption at line 354;
+> `scheduler.py:maybe_init_draft_worker()` unchanged at line 973 (no drift
+> from the 2026-09-02 check). v0.5.19's release notes (Speculative Decoding
+> section, #31041/#36186/#34337/#36313/#35275 etc.) contain no fix touching
+> `speculative_draft_load_format`. Issue #32202 still open, 0 comments, idle
+> since 2026-07-23. PR #34622 (adjacent GPTQ-draft-quantization bug, not
+> ours) still open, no activity since 2026-08-18. `upstream/main` HEAD now
+> `908226fea2df861769e2720161a75649ae4c6f92` (2026-09-10);
+> `_resolve_draft_load_format()` moved to line 1402,
+> `maybe_init_draft_worker()` to line 1020, logic byte-for-byte identical.
+> The `--speculative-draft-load-format auto` +
+> `--speculative-draft-model-path` workaround remains required and
+> unchanged.
+
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`
 

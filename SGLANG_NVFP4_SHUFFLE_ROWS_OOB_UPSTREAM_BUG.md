@@ -164,6 +164,17 @@ occurrences of `cutlass_moe_fp4`. Cluster image unchanged at
 a self-noop. `RETIRED_PATCHES.md` still does not exist; the standing
 follow-up to retire p26 remains open, still needs explicit approval.
 
+**Re-verified 2026-09-10:** Still resolved by removal, SGLang **v0.5.19**
+released 2026-09-05. `python/sglang/kernels/jit/` (renamed from
+`jit_kernel/`, per the directory-move note on PR #20963's 2026-09-07
+stale-bot closure) has no `nvfp4.py` MoE-shuffle module, and
+`cutlass_moe.py` on the v0.5.19 tag still has zero occurrences of
+`cutlass_moe_fp4`. Cluster image unchanged at
+`xomoxcc/dgx-spark-sglang:0.5.17-sm121`; `p26_cutlass_moe_zeroinit.py`
+remains a self-noop. `RETIRED_PATCHES.md` still does not exist; the
+standing follow-up to retire p26 remains open, still needs explicit
+approval.
+
 Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, v0.5.13, and **v0.5.14** (released 2026-06-26 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
 
 The final root cause (uninitialized `torch.empty` on `a_map`) was identified

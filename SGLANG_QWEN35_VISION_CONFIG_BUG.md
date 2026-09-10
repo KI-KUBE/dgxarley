@@ -141,6 +141,22 @@
 > `configs/qwen3_5.py` and does not change this doc's tracked bug.
 > Monkey-patch (`PATCH_GET_CONFIG_EOF`) in `sglang_launch.sh` still
 > required.
+>
+> **Re-verified 2026-09-10:** No new SGLang release since v0.5.19 (2026-09-05,
+> now latest). `python/sglang/srt/configs/qwen3_5.py` confirmed byte-identical
+> on the v0.5.19 tag and on `main` HEAD (`908226fea2df`,
+> 2026-09-10T19:22:24+08:00) to the 2026-09-02 check: last content-changing
+> commit is still the 2026-04-15/16 transformers-5.5.3 upgrade (`34fef07a`),
+> still no `from_dict`/`__post_init__`. PR **#22839** still **OPEN**, no
+> activity since 2026-06-11 (now 13+ weeks). PR **#22618** remains **CLOSED**
+> (idle-cap closure from 2026-08-28), no reopen. New transformers release:
+> **v5.17.0** published 2026-09-09 (`gh release list -R
+> huggingface/transformers`), checked in full: its only listed breaking
+> change is a vision-RoPE unification (#48105), unrelated to
+> `PretrainedConfig`/`sub_configs` auto-init, and its sole Qwen3VL-adjacent
+> item is a test-expected-output-drift fix (#48376), not a config-class
+> change. Root cause and monkey-patch requirement (`PATCH_GET_CONFIG_EOF` in
+> `sglang_launch.sh`) unchanged.
 
 
 ## Summary

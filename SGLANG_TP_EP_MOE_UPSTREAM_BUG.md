@@ -171,6 +171,43 @@ untouched. PR/issue states unchanged: SGLang #23531 OPEN idle since
 warning. All three monkey-patches (p20, p23, p28) remain required and
 unchanged. Cluster image unchanged at `xomoxcc/dgx-spark-sglang:0.5.17-sm121`.
 
+**Re-verified 2026-09-10:** SGLang **v0.5.19** released 2026-09-05 (tag
+`0bcd822377da7b5718e674eaf9c870d349424dd1`). Release notes contain no
+`moe_wna16`/qzeros/`input_scale`/`expert_parallel` fix. Source-confirmed on
+the v0.5.19 tag: `moe_wna16.py` still has `tp_rank = get_parallel().tp_rank`
+at line 458 and the unguarded `param.data[expert_id, ...]` indexing at
+lines 500/502 (`w13_qzeros`) and 504 (`w2_qzeros`), identical line numbers
+to v0.5.17/v0.5.18, no drift. `modelopt_quant.py`'s `else`-branch
+`w13_input_scale = layer.w13_input_scale.max(dim=-1).values...` (no EP
+slice) is now at line 2559 on the v0.5.19 tag (was 2499/2450 previously);
+`_slice_scale()` remains confined to the `elif` flashinfer_cutlass/trtllm/
+cutedsl branch. On the vLLM side, **v0.28.0** (2026-08-26) and **v0.29.0**
+(released 2026-09-09, latest) are new since the 2026-08-28 check: neither
+release's notes mention `moe_wna16`/qzeros/`expert_parallel`, and
+`vllm/model_executor/layers/quantization/moe_wna16.py` on the v0.29.0 tag
+still has `tp_rank = get_tensor_model_parallel_rank()` at line 580 with the
+same unguarded pattern at lines 623/625/628, bug unchanged, line-shifted
+from v0.28.0's 581/624/626/629.
+
+PR/issue state changes since 2026-09-02: SGLang PR
+[#20963](https://github.com/sgl-project/sglang/pull/20963) ("[Nvidia]1/N
+Modelopt Quantization Refactorization", the long-tracked vehicle for the EP
+input-scale and CutlassMoEParams fixes) was **auto-closed by the stale bot
+on 2026-09-07** ("no updates in 103 days"), not merged; `mergedAt` is null.
+Its last real activity was b8zhong's 2026-05-27 review. This was the PR
+this doc's "Related Upstream Issues & PRs" section flagged to "watch ...
+for the NVFP4 input_scale and CutlassMoEParams fixes to appear in a
+release", that vehicle is now dead (administratively closed, zero merged
+code), and no successor PR has appeared. vLLM PR
+[#35598](https://github.com/vllm-project/vllm/pull/35598) remains OPEN,
+stale-labeled since 2026-08-22 ("automatically closed if no further
+activity occurs within 30 days"), still no maintainer engagement, not yet
+auto-closed as of today (30-day window runs to roughly 2026-09-21). SGLang
+#23531 remains OPEN, idle since 2026-04-30; #24502 remains OPEN, idle since
+2026-07-17; #21630/#20869/#21602/#21603/#21612 remain CLOSED unchanged. All
+three monkey-patches (p20, p23, p28) remain required and unchanged.
+Cluster image unchanged at `xomoxcc/dgx-spark-sglang:0.5.17-sm121`.
+
 - vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, not merged. Author rebased onto `main` on 2026-04-13 (commit `c56eae0e`, merge-from-main only, no code changes); prior rebase 2026-03-05. Still only the initial Gemini bot review from 2026-02-28 — no human reviewer has engaged (mergify[bot] flagged a merge conflict 2026-05-23; 5 reviewers requested, none engaged; re-verified 2026-06-11)
 - vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch. **Closed without merge 2026-04-25** by author (`weiguangli-io`) citing 8+ weeks with no maintainer review; offered to reopen if it becomes relevant. The sub-bug it fixed (kernel dispatch num_experts) remains unaddressed in vLLM `main`
 - SGLang: no upstream issue or PR filed

@@ -147,6 +147,18 @@ fixes. It is a different allowlist-gap bug in the same `Fp8MoEMethod` class
 path under speculative decoding), not the `flashinfer_cutlass`/`self.runner`
 bug tracked by this doc. Workaround (`moe_runner_backend: triton`) unchanged.
 
+**Re-verified 2026-09-10:** SGLang **v0.5.19** released 2026-09-05 (now the
+latest release, superseding v0.5.18). No `Fp8MoEMethod`/`flashinfer_cutlass`
+fix in it. Source-confirmed on the v0.5.19 tag: `create_moe_runner` in
+`fp8.py` still ends in the `# TODO(cwan): refactor other backends` branch,
+comment now at line 2395 (`self.runner = MoeRunner(...)` at line 2392), up
+from line 2347/2360 previously logged; vanilla `Fp8MoEMethod` still never
+sets `self.runner` for `flashinfer_cutlass`/`flashinfer_cutedsl`. PR #27968
+remains OPEN, idle since 2026-06-11; Issue #27951 remains CLOSED (stale,
+not fixed), unchanged since 2026-08-19; PR #21872 remains CLOSED
+(stale-cap closure 2026-08-26), unchanged. No new issue or PR touching this
+allowlist gap found. Workaround (`moe_runner_backend: triton`) unchanged.
+
 Adjacent open work:
 
 - [PR #21872](https://github.com/sgl-project/sglang/pull/21872)
