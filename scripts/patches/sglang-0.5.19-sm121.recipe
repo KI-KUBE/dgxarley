@@ -102,34 +102,87 @@
 #      is a dry-run away and the build does it anyway).
 #
 # ── OPEN RISKS, validate before this recipe is promoted ──────────────────────
-#   A. RUNTIME patches (roles/k8s_dgx/files/sglang_patches/): NOT REPLAYED
-#      against v0.5.19. This is the biggest open item of this bump and it is
-#      NOT a formality this time: v0.5.19 rewrote both of the largest
-#      runtime-patch targets (python/sglang/srt/server_args.py -6524 lines,
-#      python/sglang/srt/arg_groups/overrides.py -1869 lines) and touched 17
-#      other target files (modelopt_quant.py, scheduler.py,
-#      mem_cache/kv_cache_configurator.py, dsa_indexer.py, dsa_backend.py,
-#      fp8_utils.py, model_loader/loader.py, qwen3_5_mtp.py, linear.py,
-#      reasoning_parser.py, utils/common.py, ...). Expect ANCHOR-DRIFT.
-#      One structural change to look for while re-anchoring: "Constructing a
-#      ServerArgs no longer resolves it" (#35907): callers must now invoke
-#      resolve_once() before reading resolved values. Any runtime patch that
-#      reads a resolved server-arg outside the launcher path is affected.
-#      DO THE OFFLINE REPLAY FIRST (minutes, no build): see the memory note
-#      reference_offline_runtime_patch_replay. Replay against the raw v0.5.19
-#      sources WITH this recipe's source patches applied (here: only the marlin
-#      and tilelang ones; both #36186 and #36497 are OFF, so unlike the v0.5.18
-#      cycle the replay tree is nearly the bare tag) and with a flashinfer/
-#      prefill.py stub. What the replay canNOT answer, and only the acceptance
-#      gate on the built image can: whether the modules p30/p35 GENERATE
-#      actually import (the 2026-07-28 p30 fp8_kernel incident: patch reports
-#      success, module is unimportable, 31 model classes silently drop out of
-#      the registry).
-#      Carried over from v0.5.18: p36 and p59 sub-patch (3) self-gate OFF, and
-#      p59 sub-patch (3) gated off BECAUSE the #36186 source patch deleted the
-#      server_args.py NemotronH dispatch branch, and that deletion is now upstream
-#      in the tag itself, so the gate should still resolve the same way. p50/p51
-#      stay self-gated OFF on >= v0.5.17.
+#   A. RUNTIME patches (roles/k8s_dgx/files/sglang_patches/): REPLAYED and then
+#      RE-ANCHORED 2026-09-11 on spark5. Offline replay is now 0 ANCHOR-DRIFT on
+#      v0.5.19 AND on the v0.5.18 control, in all three gate scenarios, and
+#      idempotent on both. Harness, logs and patched trees: /root/patchreplay-0519
+#      on spark5 (re-run: `SRC=dist-src TAG=0519 ./replay2.sh`).
+#      Harness: fake dist-packages = v0.5.19 python/sglang + this recipe's source
+#      patches (marlin, tilelang), plus the REAL dependency packages the recipe
+#      pins (flashinfer 0.6.18.post1, transformers 5.12.1, cutlass-dsl 4.6.2 via
+#      flashinfer's bundled CuTeDSL copy) instead of stubs, so p29 / p56 / p60 get
+#      real signal. Three gate scenarios (bare, GLM-5.2, Hy3, the latter two with
+#      SGLANG_SPECULATIVE_ENABLED=true), each replayed twice for idempotency, plus
+#      a CONTROL replay against v0.5.18 + all four of that recipe's source patches
+#      + flashinfer 0.6.17, i.e. the image deployed today. The control is what
+#      makes each finding attributable to the ref rather than to the harness, and
+#      what proves the re-anchors did not regress instances pinned to the older
+#      image: every fix below is a replace_any spelling or an alt_target, never a
+#      rewrite of the old anchor.
+#      WHAT DRIFTED AND WHAT WAS DONE (12 edits over 6 patches):
+#        p30 - DSA torch indexer backend, 3 edits, all now two-spelling:
+#              (a) is_sm100_supported() -> get_platform().is_sm100 (v0.5.19's new
+#              srt/runtime_context platform object); (b) the module-level
+#              *_CHOICES constants are gone, the lists are inline in the
+#              Arg(choices=[...]) declaration; (c) DSATopKBackend(server_args.
+#              dsa_topk_backend) -> DSATopKBackend.resolve(model_runner) (#36313).
+#              The injected mirror-resolve also follows the ref: it reads
+#              get_exec().kernel.<arg> on v0.5.19, matching what the Indexer does
+#              there, since the whole point of that line is to agree with it.
+#        p34 - kv_cache_configurator.py: server_args.<arg> -> get_exec().kernel.
+#              <arg> (#35907). Third replace_any spelling.
+#        p37 - THE load-bearing one (NVFP4-KV + speculation), 3 edits:
+#              the forward_extend KV read was rebuilt around use_fmha_v2 +
+#              _reshape_paged_kv_cache(); the fixed-q-len verify call moved into
+#              the helper _run_fixed_q_len_decode(), which forwards kv_cache_sf
+#              but takes no mask and splits the batch by KV length, so the
+#              FP4 + q_len>1 path now calls the kernel directly (as before) while
+#              every other path keeps the helper WITH kv_cache_sf passed through;
+#              and the flashinfer draft-extend-v2 metadata call gained a trailing
+#              kv_view kwarg. Two things worth knowing beyond the anchors:
+#              the injected FP4 branch must still define is_decode_mode (the rest
+#              of forward_extend reads it), and v0.5.19's NEW ragged verify layout
+#              (spec_info.ragged_verify_layout) calls the kernel without block
+#              scales or mask. Correctness there under FP4 is UNVERIFIED, so the
+#              patch REFUSES that combination with an actionable RuntimeError
+#              rather than risking the silent word salad it exists to prevent.
+#              If a future profile wants nvfp4 KV + a ragged-verify spec algo,
+#              that is the thing to work out, not a flag to flip.
+#        p44 - NOT re-anchored: v0.5.19's qwen3_5_mtp.load_weights applies
+#              QWEN3_5_KV_SCALE_MAPPER itself, so the patch got the same
+#              target_contains self-gate p51 has and now logs "gate not matched".
+#        p59 - overrides.py was split into arg_groups/model_overrides/<model>.py
+#              (the @_register_for dispatch went from 28 uses to 1) with
+#              overrides.py left as a re-export shim. Sub-patch (1) now targets
+#              model_overrides/nemotron_h.py FIRST with overrides.py as an
+#              alt_target, and its body-header edit got a second spelling
+#              (model_config_of(server_args)). Sub-patches (2)/(3) unchanged.
+#        p41 - PRE-EXISTING, not caused by this ref: it drifted on the v0.5.18
+#              control too, because upstream PR #30331 landed the final_layernorm
+#              -> shared_head.norm remap in v0.5.18. Same treatment as p44: a
+#              target_contains self-gate. It had gone unnoticed because the
+#              v0.5.18 cycle's Hy3 scenario did not also set
+#              SGLANG_SPECULATIVE_ENABLED=true, so the patch was never evaluated.
+#      After the fixes the ONLY behavioural differences between the two refs are
+#      the three intended ones: p44 and p65 gate off on v0.5.19 (upstream absorbed
+#      / no qwen4exp source patch) and p59 patches nemotron_h.py instead of
+#      overrides.py. Everything else applies identically on both.
+#      CLEAN on v0.5.19 without any work, worth recording because three of them
+#      patch dependencies rather than sglang: p43 and p57 (re-anchored last cycle)
+#      still apply, p29 patches flashinfer's bundled CuTeDSL mma.py, p56 applies
+#      against transformers 5.12.1, p60 against flashinfer 0.6.18.post1's
+#      jit/cpp_ext.py. p36 self-gates off (upstream passes uniform_q_len itself).
+#      What the replay still canNOT answer, and only the acceptance gate on the
+#      built image can: whether the modules p30/p35 GENERATE actually import (the
+#      2026-07-28 p30 fp8_kernel incident: patch reports success, module is
+#      unimportable, 31 model classes silently drop out of the registry). The
+#      harness reduces write_module's import probe to a syntax check.
+#      One open question for the gate rather than the replay: p29's first path
+#      nvidia_cutlass_dsl/python_packages/cutlass/... does not exist in the 4.6.2
+#      wheels (they ship nvidia_cutlass_dsl/dsl_packages/ with MLIR bindings
+#      only), so only the flashinfer-bundled copy was patched here. Check on the
+#      built image whether its own cutlass-dsl install still has a second copy
+#      under a path p29 knows.
 #   B. INHERITED from v0.5.16, still open: moe_runner_backend cutlass / triton
 #      for NVFP4 is gone (#30448), so nvidia/Qwen3.5-397B-A17B-NVFP4 (cutlass)
 #      and Minimax-M2.5 @ PP=4 (triton) still need re-testing or re-pinning, and

@@ -121,12 +121,23 @@ BRANCH_NAME="sm121"
 #                                        profile pins the 0.5.18 tag, which is
 #                                        why nothing regresses by promoting
 #                                        this one.
-#                                        NOT DONE YET, and the gate on promoting
-#                                        this recipe: the RUNTIME patch set has
-#                                        not been replayed against v0.5.19,
-#                                        which rewrote server_args.py (-6.5k
-#                                        lines) and arg_groups/overrides.py
-#                                        (-1.9k). Expect ANCHOR-DRIFT.
+#                                        The RUNTIME patch set was replayed
+#                                        offline on spark5 2026-09-11 and then
+#                                        RE-ANCHORED: p30 / p34 / p37 / p59 got
+#                                        new replace_any spellings (v0.5.19 moved
+#                                        arch predicates to runtime_context
+#                                        get_platform() and server-arg reads to
+#                                        get_exec().<ns>, and split overrides.py
+#                                        into model_overrides/<model>.py), while
+#                                        p44 and the pre-existing p41 got a
+#                                        self-gate because upstream absorbed
+#                                        them. Replay is now 0 ANCHOR-DRIFT on
+#                                        v0.5.19 AND on the v0.5.18 control, so
+#                                        pinned older images are unaffected.
+#                                        Details per patch in OPEN RISK A of the
+#                                        recipe. What is still unproven is what
+#                                        only the in-driver acceptance gate can
+#                                        prove on a built image.
 #                                        Tag: xomoxcc/dgx-spark-sglang:0.5.19-sm121
 #
 # Previous line (v0.5.18 - BUILT + PUSHED 2026-08-28, acceptance gate PASSED;

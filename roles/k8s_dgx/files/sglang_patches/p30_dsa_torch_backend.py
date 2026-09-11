@@ -52,6 +52,17 @@ skips when the target file does not exist, which is always true for a file this 
 supposed to create. It is written directly with plain os.path + an exists()-and-marker
 guard against DIST_PACKAGES, mirroring Patch.run's logging so the launch log reads the
 same as the other 4 edits.
+
+
+RE-ANCHORED 2026-09-11 for v0.5.19, three spots, all via replace_any so instances
+pinned to older images keep working:
+  * resolve(): the SM100 gate is now `get_platform().is_sm100` instead of
+    `is_sm100_supported()` (v0.5.19 moved the arch predicates onto the new
+    srt/runtime_context platform object).
+  * server_args.py: the module-level DSA_PAGED_MQA_LOGITS_BACKEND_CHOICES
+    constant is GONE, the list is inline in the Arg(choices=[...]) declaration.
+  * dsa_backend 4b-init: DSATopKBackend(server_args.dsa_topk_backend) became
+    DSATopKBackend.resolve(model_runner) (#36313 --speculative-dsa-topk-backend).
 """
 
 import os
@@ -96,39 +107,43 @@ class DSAPagedMQALogitsBackend(Enum):
 
     def is_torch(self) -> bool:
         return self == DSAPagedMQALogitsBackend.TORCH"""
-OLD_RESOLVE = """        if value == "auto" or value == "deepgemm":
+
+
+def _resolve_variant(sm100_probe: str) -> tuple[str, str]:
+    """(old, new) for one spelling of resolve()'s SM100 gate."""
+    head = """        if value == "auto" or value == "deepgemm":
             return DSAPagedMQALogitsBackend.DEEPGEMM
         if value == "aiter":
             raise ValueError("dsa_paged_mqa_logits_backend='aiter' requires ROCm.")
         if value == "cutedsl":
-            if not is_sm100_supported():
+            if not {probe}:
                 raise ValueError(
                     "dsa_paged_mqa_logits_backend='cutedsl' requires SM100 (Blackwell)."
                 )
             return DSAPagedMQALogitsBackend.CUTEDSL
-        raise ValueError(f"Unknown dsa_paged_mqa_logits_backend: {value!r}")"""
-NEW_RESOLVE = """        if value == "auto" or value == "deepgemm":
-            return DSAPagedMQALogitsBackend.DEEPGEMM
-        if value == "aiter":
-            raise ValueError("dsa_paged_mqa_logits_backend='aiter' requires ROCm.")
-        if value == "cutedsl":
-            if not is_sm100_supported():
-                raise ValueError(
-                    "dsa_paged_mqa_logits_backend='cutedsl' requires SM100 (Blackwell)."
-                )
-            return DSAPagedMQALogitsBackend.CUTEDSL
-        if value == "torch":
+""".format(probe=sm100_probe)
+    tail_old = """        raise ValueError(f"Unknown dsa_paged_mqa_logits_backend: {value!r}")"""
+    tail_new = """        if value == "torch":
             # No arch gate: that is the whole point of this backend. NOT selected by
             # "auto" (opt-in only) to avoid silently regressing perf on archs where
             # DeepGEMM/CuteDSL already work (see dsalogitrework.md Section 4.1).
             return DSAPagedMQALogitsBackend.TORCH
         raise ValueError(f"Unknown dsa_paged_mqa_logits_backend: {value!r}")"""
+    return head + tail_old, head + tail_new
+
+
+RESOLVE_VARIANTS = [
+    _resolve_variant("is_sm100_supported()"),  # <= v0.5.18
+    # >= v0.5.19: arch predicates moved onto the runtime_context platform object.
+    _resolve_variant("get_platform().is_sm100"),
+]
+MARKER_RESOLVE = "return DSAPagedMQALogitsBackend.TORCH"
 
 
 @patch_enum.run
 def apply_enum(p: Patch) -> None:
     p.replace(OLD_ENUM, NEW_ENUM, what="DSAPagedMQALogitsBackend enum")
-    p.replace(OLD_RESOLVE, NEW_RESOLVE, what="resolve()")
+    p.replace_any(RESOLVE_VARIANTS, marker=MARKER_RESOLVE, what="resolve()")
 
 
 # ── 2) server_args.py: add 'torch' to the CLI choice list + help string ──
@@ -138,6 +153,7 @@ patch_serverargs = Patch(
     target="sglang/srt/server_args.py",
 )
 
+MARKER_CHOICES = '"aiter", "torch"]'
 OLD_CHOICES = """DSA_PAGED_MQA_LOGITS_BACKEND_CHOICES = ["auto", "deepgemm", "cutedsl", "aiter"]"""
 NEW_CHOICES = """# [patch] _sgl_dsa_torch_fallback_choice_
 DSA_PAGED_MQA_LOGITS_BACKEND_CHOICES = ["auto", "deepgemm", "cutedsl", "aiter", "torch"]"""
@@ -147,7 +163,18 @@ NEW_HELP = """            help="DSA indexer paged MQA logits kernel backend. Opt
 
 @patch_serverargs.run
 def apply_serverargs(p: Patch) -> None:
-    p.replace(OLD_CHOICES, NEW_CHOICES, what="DSA_PAGED_MQA_LOGITS_BACKEND_CHOICES")
+    p.replace_any(
+        [
+            (OLD_CHOICES, NEW_CHOICES),  # <= v0.5.18: module-level constant
+            # >= v0.5.19: the constant is gone, the list is inline in the Arg().
+            (
+                '            choices=["auto", "deepgemm", "cutedsl", "aiter"],',
+                '            choices=["auto", "deepgemm", "cutedsl", "aiter", "torch"],',
+            ),
+        ],
+        marker=MARKER_CHOICES,
+        what="DSA_PAGED_MQA_LOGITS_BACKEND_CHOICES",
+    )
     p.replace(OLD_HELP, NEW_HELP, what="dsa_paged_mqa_logits_backend help-string")
 
 
@@ -352,18 +379,47 @@ BACKEND_IMPORT_VARIANTS = [
     # >= v0.5.17
     _backend_import_variant("from sglang.srt.layers.attention.dsa.dsa_indexer_metadata import DSAIndexerMetadata"),
 ]
-OLD_BACKEND_INIT = """        self.dsa_topk_backend: DSATopKBackend = DSATopKBackend(
-            model_runner.server_args.dsa_topk_backend
-        )"""
-NEW_BACKEND_INIT = """        self.dsa_topk_backend: DSATopKBackend = DSATopKBackend(
-            model_runner.server_args.dsa_topk_backend
-        )
+
+
+def _backend_init_variant(ctor: str, arg_read: str) -> tuple[str, str]:
+    """(old, new) for one spelling of the DSATopKBackend construction.
+
+    `arg_read` is how THIS ref spells the server-arg read. It must match what
+    dsa_indexer.py's Indexer.__init__ does on the same ref, see the comment in
+    the injected body: the two resolves have to agree, so reading from a
+    different source than the indexer would defeat the point.
+    """
+    old = ctor
+    new = ctor + """
         # Independent resolve mirroring dsa_indexer.py's Indexer.__init__ (both must agree
         # on the backend so the eager metadata precompute here and the indexer's dispatch
         # don't disagree about whether DeepGEMM is being used).
         self.paged_mqa_logits_backend = DSAPagedMQALogitsBackend.resolve(
-            model_runner.server_args.dsa_paged_mqa_logits_backend
-        )"""
+            {arg_read}
+        )""".format(arg_read=arg_read)
+    return old, new
+
+
+BACKEND_INIT_VARIANTS = [
+    # <= v0.5.18
+    _backend_init_variant(
+        """        self.dsa_topk_backend: DSATopKBackend = DSATopKBackend(
+            model_runner.server_args.dsa_topk_backend
+        )""",
+        "model_runner.server_args.dsa_paged_mqa_logits_backend",
+    ),
+    # >= v0.5.19: #36313 (--speculative-dsa-topk-backend) gave DSATopKBackend a
+    # resolve() classmethod that takes the model_runner, and server-arg reads moved
+    # to the resolved exec context - which is also what the Indexer now uses, and
+    # get_exec is already imported in this file on that ref.
+    _backend_init_variant(
+        """        self.dsa_topk_backend: DSATopKBackend = DSATopKBackend.resolve(model_runner)""",
+        "get_exec().kernel.dsa_paged_mqa_logits_backend",
+    ),
+]
+MARKER_BACKEND_INIT = "self.paged_mqa_logits_backend = DSAPagedMQALogitsBackend.resolve("
+
+
 OLD_BACKEND_SITE_A = """        paged_mqa_schedule_metadata = None
         paged_mqa_ctx_lens_2d = None
         if is_cuda() and (
@@ -469,7 +525,7 @@ NEW_BACKEND_REFRESH = """    def _refresh_paged_mqa_schedule_metadata(
 @patch_dsa_backend.run
 def apply_dsa_backend(p: Patch) -> None:
     p.replace_any(BACKEND_IMPORT_VARIANTS, marker=MARKER_BACKEND, what="4a-import")
-    p.replace(OLD_BACKEND_INIT, NEW_BACKEND_INIT, what="4b-init")
+    p.replace_any(BACKEND_INIT_VARIANTS, marker=MARKER_BACKEND_INIT, what="4b-init")
     p.replace(OLD_BACKEND_SITE_A, NEW_BACKEND_SITE_A, what="4c-site-A")
     p.replace(OLD_BACKEND_SITE_B, NEW_BACKEND_SITE_B, what="4d-site-B")
     p.replace(OLD_BACKEND_REFRESH, NEW_BACKEND_REFRESH, what="4e-refresh-helper")

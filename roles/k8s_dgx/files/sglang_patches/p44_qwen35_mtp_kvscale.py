@@ -22,15 +22,26 @@ a no-op). No model-name gate: qwen3_5_mtp.py is imported only for this arch.
 Fix: apply the same QWEN3_5_KV_SCALE_MAPPER (defined in qwen3_5.py by p51) to the
 weight stream at the top of the MTP load_weights, before the ".self_attn" strip.
 Imported lazily so a drifted/absent p51 degrades to "no MTP KV scales" (a warning
-+ scale 1.0) rather than crashlooping the draft worker. Deletable together with
-p51/p43 once SGLang upstream loads a quantized MTP head's baked KV scales.
++ scale 1.0) rather than crashlooping the draft worker. SGLang does load a
+quantized MTP head's baked KV scales as of v0.5.19, so on that image and later
+the patch self-gates off (see the gate below); delete the file together with
+p51/p43 once no pinned image predates v0.5.19.
 """
 
-from _patchlib import Patch
+from _patchlib import Patch, target_contains
 
+TARGET = "sglang/srt/models/qwen3_5_mtp.py"
+
+# GATE (2026-09-11, v0.5.19): upstream ABSORBED this. qwen3_5_mtp.load_weights
+# now opens with `weights = QWEN3_5_KV_SCALE_MAPPER.apply(weights)` itself, which
+# also removes the anchor below (the mapper call sits where `stacked_params_
+# mapping` used to follow the signature directly). Same reasoning and the same
+# probe shape as p51 on qwen3_5.py: skip when upstream does it, keep the edit for
+# images pinned at <= v0.5.18. Found by the v0.5.19 offline replay.
 patch = Patch(
     name="load baked FP8 KV scales onto the MTP attention",
-    target="sglang/srt/models/qwen3_5_mtp.py",
+    target=TARGET,
+    when=not target_contains(TARGET, "QWEN3_5_KV_SCALE_MAPPER.apply(weights)"),
 )
 
 OLD = """    def load_weights(

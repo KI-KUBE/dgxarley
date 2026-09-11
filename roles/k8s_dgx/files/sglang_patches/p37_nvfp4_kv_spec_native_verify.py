@@ -99,6 +99,25 @@ kernel-call anchor (and only that one). Both spellings are kept (replace_any,
 built from one shared body) for instances pinned to older images. The rest of
 the patch, incl. the decode path upstream already handles natively
 (kv_cache_sf + out-dtype convert), is unchanged between v0.5.17 and v0.5.18.
+
+
+RE-ANCHORED 2026-09-11 for v0.5.19, three spots (all replace_any, older spellings
+kept for pinned images):
+  * forward_extend KV read: rebuilt around use_fmha_v2 and the new
+    _reshape_paged_kv_cache() helper. NOTE the injected FP4 branch must still
+    define is_decode_mode, which the rest of forward_extend reads.
+  * kernel call: the fixed-q-len verify call moved into the helper
+    _run_fixed_q_len_decode(), which forwards kv_cache_sf but takes no mask and
+    splits the batch by KV length (a batch-shaped mask would not survive that).
+    So the FP4 + q_len>1 path calls the kernel directly as before, and every
+    other path keeps the helper, now with kv_cache_sf passed through.
+  * flashinfer draft-extend-v2 metadata: the update() call gained a trailing
+    kv_view kwarg.
+NEW in v0.5.19 and deliberately REFUSED rather than guessed: the ragged verify
+layout (spec_info.ragged_verify_layout -> metadata.is_ragged_verify) calls the
+kernel without block scales or mask. Correctness there with an FP4 cache is
+unverified, and this patch exists because the failure mode is silent word salad,
+so that combination raises with an actionable message instead.
 """
 
 from _patchlib import Patch, target_contains
@@ -227,6 +246,65 @@ NEW_READ = """        q = q.reshape(-1, layer.tp_q_head_num, layer.head_dim)
 
             kv_cache = (k_cache, v_cache)"""
 
+
+# >= v0.5.19: the KV read in forward_extend was rebuilt around use_fmha_v2 and
+# the new _reshape_paged_kv_cache() helper, and the q reshape moved into its own
+# branch above (so it is no longer part of this anchor). Same injection: when the
+# pool is FP4, take the native path and keep kv_cache_sf; otherwise run upstream's
+# body unchanged.
+OLD_READ_V0519 = """        # NHD layout (native pool format): [num_pages, page_size, num_kv_heads, head_dim]
+        k_cache_raw, v_cache_raw = self.token_to_kv_pool.get_kv_buffer(layer.layer_id)
+
+        is_decode_mode = (
+            forward_batch.forward_mode.is_target_verify()
+            or forward_batch.forward_mode.is_draft_extend_v2()
+        )
+
+        if not self.use_fmha_v2 or is_decode_mode:
+            # Decode and SM100 batch_context kernels require HND layout.
+            k_cache, v_cache = self._reshape_paged_kv_cache(
+                k_cache_raw, v_cache_raw, layer, layer.head_dim
+            )
+        else:
+            k_cache = k_cache_raw.view(
+                -1, self.page_size, layer.tp_k_head_num, layer.head_dim
+            )
+            v_cache = v_cache_raw.view(
+                -1, self.page_size, layer.tp_v_head_num, layer.head_dim
+            )
+
+        kv_cache = (k_cache, v_cache)"""
+
+NEW_READ_V0519 = """        # is_decode_mode is read further down in forward_extend, so it stays
+        # OUTSIDE the FP4 branch below - the FP4 path must define it too.
+        is_decode_mode = (
+            forward_batch.forward_mode.is_target_verify()
+            or forward_batch.forward_mode.is_draft_extend_v2()
+        )
+        # [dgxarley-nvfp4-read] native FP4 path, same as in forward_decode
+        kv_cache_sf = None
+        if self.is_nvfp4_kvcache:
+            kv_cache, kv_cache_sf = self._get_nvfp4_decode_kv_cache(layer)
+        else:
+            # NHD layout (native pool format): [num_pages, page_size, num_kv_heads, head_dim]
+            k_cache_raw, v_cache_raw = self.token_to_kv_pool.get_kv_buffer(layer.layer_id)
+
+            if not self.use_fmha_v2 or is_decode_mode:
+                # Decode and SM100 batch_context kernels require HND layout.
+                k_cache, v_cache = self._reshape_paged_kv_cache(
+                    k_cache_raw, v_cache_raw, layer, layer.head_dim
+                )
+            else:
+                k_cache = k_cache_raw.view(
+                    -1, self.page_size, layer.tp_k_head_num, layer.head_dim
+                )
+                v_cache = v_cache_raw.view(
+                    -1, self.page_size, layer.tp_v_head_num, layer.head_dim
+                )
+
+            kv_cache = (k_cache, v_cache)"""
+
+
 OLD_SCALES = """        # sink: additional value per head in the denominator of the softmax.
         attention_sink = kwargs.get("sinks", None)
         bmm1_scale, bmm2_scale = self._get_bmm_scales(layer, q_scale)"""
@@ -288,11 +366,93 @@ def _call_variant(extra_kwargs: str) -> tuple[str, str]:
     return old, new
 
 
+# >= v0.5.19: the fixed-q-len verify call moved into the helper
+# _run_fixed_q_len_decode(), which already takes and forwards kv_cache_sf but
+# does NOT take a mask - and it splits the batch by KV length, which a
+# batch-shaped mask would not survive. So for the FP4 speculation path (the one
+# this patch validated end to end) call the kernel directly, exactly as on the
+# older refs, and leave every other path on upstream's helper (now with
+# kv_cache_sf passed through, which matters for FP4 at q_len == 1).
+_OLD_CALL_V0519 = """            else:
+                o = self._run_fixed_q_len_decode(
+                    q,
+                    kv_cache,
+                    page_table,
+                    self.forward_metadata.cache_seqlens_int32,
+                    bmm1_scale=bmm1_scale,
+                    bmm2_scale=bmm2_scale,
+                    window_left=layer.sliding_window_size,
+                    sinks=attention_sink,
+                    q_len_per_req=self.forward_metadata.max_seq_len_q,
+                )"""
+
+_NEW_CALL_V0519 = """            else:
+                _q_len = int(self.forward_metadata.max_seq_len_q)
+                if self.is_nvfp4_kvcache and _q_len > 1:
+                    # [dgxarley-nvfp4-call] from q_len>1 on, XQA requires the
+                    # bit-packed draft block mask, which the helper cannot
+                    # forward; call the kernel directly for this path.
+                    o = flashinfer.decode.trtllm_batch_decode_with_kv_cache(
+                        query=q,
+                        kv_cache=kv_cache,
+                        workspace_buffer=self.workspace_buffer,
+                        block_tables=page_table,
+                        seq_lens=self.forward_metadata.cache_seqlens_int32,
+                        max_seq_len=self.max_context_len,
+                        bmm1_scale=bmm1_scale,
+                        bmm2_scale=bmm2_scale,
+                        window_left=layer.sliding_window_size,
+                        sinks=attention_sink,
+                        skip_softmax_threshold_scale_factor=envs.SGLANG_SKIP_SOFTMAX_DECODE_THRESHOLD_SCALE_FACTOR.get(),
+                        out_dtype=self.q_data_type,
+                        q_len_per_req=_q_len,
+                        multi_ctas_kv_counter_buffer=self._multi_ctas_kv_counter_buffer,
+                        kv_cache_sf=kv_cache_sf,
+                        mask=self._dgxarley_causal_draft_mask(
+                            q.shape[0] // _q_len, _q_len
+                        ),
+                    )
+                    if o.dtype != self.q_data_type:
+                        o = o.to(self.q_data_type)
+                else:
+                    o = self._run_fixed_q_len_decode(
+                        q,
+                        kv_cache,
+                        page_table,
+                        self.forward_metadata.cache_seqlens_int32,
+                        bmm1_scale=bmm1_scale,
+                        bmm2_scale=bmm2_scale,
+                        window_left=layer.sliding_window_size,
+                        sinks=attention_sink,
+                        q_len_per_req=_q_len,
+                        kv_cache_sf=kv_cache_sf,
+                    )"""
+
 CALL_VARIANTS = [
     _call_variant(""),  # <= v0.5.17
     # >= v0.5.18
     _call_variant("                    multi_ctas_kv_counter_buffer=self._multi_ctas_kv_counter_buffer,\n"),
+    (_OLD_CALL_V0519, _NEW_CALL_V0519),  # >= v0.5.19
 ]
+
+# >= v0.5.19 also added a RAGGED verify layout (spec_info.ragged_verify_layout,
+# metadata.is_ragged_verify) whose call passes neither block scales nor a mask.
+# Whether XQA is correct there with an FP4 cache is UNVERIFIED, and this patch
+# exists because the failure mode of guessing is silent word salad, not an error.
+# So refuse that combination loudly instead, the way upstream refuses FP4 prefill.
+OLD_RAGGED_V0519 = """            elif self.forward_metadata.is_ragged_verify:
+                o = flashinfer.decode.trtllm_batch_decode_with_kv_cache("""
+
+NEW_RAGGED_V0519 = """            elif self.forward_metadata.is_ragged_verify:
+                if self.is_nvfp4_kvcache:  # [dgxarley-nvfp4-ragged]
+                    raise RuntimeError(
+                        "nvfp4 KV cache + ragged verify layout is not supported: "
+                        "the ragged verify call passes neither kv_cache_sf nor "
+                        "the XQA draft mask, which corrupts output silently. "
+                        "Use --kv-cache-dtype fp8_e4m3, or a speculative "
+                        "algorithm without a ragged verify layout."
+                    )
+                o = flashinfer.decode.trtllm_batch_decode_with_kv_cache("""
 
 OLD_HELPER = """    def _get_nvfp4_bmm_scales(self, layer: RadixAttention) -> tuple[float, float]:
         assert self.is_nvfp4_kvcache
@@ -327,9 +487,23 @@ NEW_HELPER = """    def _get_nvfp4_bmm_scales(self, layer: RadixAttention) -> tu
 def apply_trtllm(p: Patch) -> None:
     p.replace(OLD_GUARD, NEW_GUARD, marker="[dgxarley-nvfp4-guard]", what="guard")
     p.replace(OLD_WRITE, NEW_WRITE, marker="[dgxarley-nvfp4-write]", what="kv write")
-    p.replace(OLD_READ, NEW_READ, marker="[dgxarley-nvfp4-read]", what="kv read")
+    p.replace_any(
+        [
+            (OLD_READ, NEW_READ),  # <= v0.5.18
+            (OLD_READ_V0519, NEW_READ_V0519),  # >= v0.5.19
+        ],
+        marker="[dgxarley-nvfp4-read]",
+        what="kv read",
+    )
     p.replace(OLD_SCALES, NEW_SCALES, marker="[dgxarley-nvfp4-scales]", what="scales")
     p.replace_any(CALL_VARIANTS, marker="[dgxarley-nvfp4-call]", what="kernel call")
+    if "is_ragged_verify" in p.code:  # >= v0.5.19 only
+        p.replace(
+            OLD_RAGGED_V0519,
+            NEW_RAGGED_V0519,
+            marker="[dgxarley-nvfp4-ragged]",
+            what="ragged verify FP4 refusal",
+        )
     p.replace(OLD_HELPER, NEW_HELPER, marker="[dgxarley-nvfp4-mask]", what="mask helper")
 
 
@@ -500,4 +674,21 @@ def apply_dfill(p: Patch) -> None:
     p.replace(OLD_DFILL, NEW_DFILL, marker="[dgxarley-nvfp4-dfill]", what="draft prefix fill")
     p.replace(OLD_DSCATTER, NEW_DSCATTER, marker="[dgxarley-nvfp4-dscatter]", what="current-chunk scatter")
     p.replace(OLD_DMETA_EAGER, NEW_DMETA_EAGER, marker="[dgxarley-nvfp4-dmeta]", what="eager metadata fill")
-    p.replace(OLD_DMETA_GRAPH, NEW_DMETA_GRAPH, marker="[dgxarley-nvfp4-dmeta-graph]", what="graph metadata fill")
+    p.replace_any(
+        [
+            (OLD_DMETA_GRAPH, NEW_DMETA_GRAPH),  # <= v0.5.18
+            # >= v0.5.19: the update() call gained a trailing kv_view kwarg.
+            (
+                OLD_DMETA_GRAPH.replace(
+                    "                spec_info=spec_info,\n            )",
+                    "                spec_info=spec_info,\n                kv_view=kv_view,\n            )",
+                ),
+                NEW_DMETA_GRAPH.replace(
+                    "                spec_info=spec_info,\n            )",
+                    "                spec_info=spec_info,\n                kv_view=kv_view,\n            )",
+                ),
+            ),
+        ],
+        marker="[dgxarley-nvfp4-dmeta-graph]",
+        what="graph metadata fill",
+    )

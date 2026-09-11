@@ -44,16 +44,33 @@ edits (the body-header rewrite) -- so only that call passes `marker=MARKER`
 explicitly; the other two calls use the default probe (their own `new` text, which
 is unique in the file), so a MARKER already present in the file from edit 2 does not
 cause edits 1/3 to be misjudged as "already applied" before they've actually run.
+
+
+RE-ANCHORED 2026-09-11 for v0.5.19: the one big arg_groups/overrides.py was split
+into arg_groups/model_overrides/<model>.py declarations (the per-arch
+@_register_for decorator dispatch went from 28 uses to 1), and overrides.py stays
+as a re-export shim. _nemotron_h_overrides now lives in model_overrides/
+nemotron_h.py, so sub-patch (1) targets that path FIRST and falls back to
+overrides.py via alt_targets for <= v0.5.18 images (both files exist on v0.5.19,
+only the new one carries the declaration). The decorator and the mlp_hidden_act
+assert are textually unchanged; only the body header needed a second spelling
+(model_config = model_config_of(server_args) instead of
+server_args.get_model_config()).
 """
 
 from _patchlib import Patch, target_contains
 
 MARKER = "# [patch] _sgl_nemotronh_omni_wrapper_"
 
-# --- 1) arg_groups/overrides.py: _nemotron_h_overrides (formerly nemotron_h_hook.py) ---
+# --- 1) the _nemotron_h_overrides declaration (formerly nemotron_h_hook.py) ---
+# v0.5.19 split the one big overrides.py into arg_groups/model_overrides/<model>.py
+# and left overrides.py behind as a re-export shim, so the NEW path is tried FIRST:
+# on v0.5.19 both files exist and only the new one carries the declaration, while
+# on <= v0.5.18 the new path does not exist and alt_targets falls back.
 patch_overrides = Patch(
-    name="NemotronH VL/Omni wrapper: overrides.py dispatch + llm_config resolution",
-    target="sglang/srt/arg_groups/overrides.py",
+    name="NemotronH VL/Omni wrapper: overrides dispatch + llm_config resolution",
+    target="sglang/srt/arg_groups/model_overrides/nemotron_h.py",
+    alt_targets=("sglang/srt/arg_groups/overrides.py",),
 )
 
 OLD_1A = '@_register_for("NemotronHForCausalLM", "NemotronHPuzzleForCausalLM")\n'
@@ -66,28 +83,38 @@ NEW_1A = (
     ")\n"
 )
 
-OLD_1B = (
-    "    model_arch = hf_config.architectures[0]\n"
-    "    model_config = server_args.get_model_config()\n"
-    "    overrides: Dict[str, Any] = {}\n"
-    "\n"
-    "    is_modelopt = model_config.quantization in [\n"
-)
-NEW_1B = (
-    "    " + MARKER + " (PR #25024, re-anchored 2026-07-16 onto\n"
-    "    # upstream-absorbed overrides.py::_nemotron_h_overrides; the decorator above\n"
-    "    # was extended to also dispatch the VL/Omni wrapper archs, which upstream\n"
-    "    # never registered here -> they fell through with NO overrides at all.\n"
-    "    # NemotronH config fields live on inner llm_config for the wrappers, on\n"
-    "    # hf_config for standalone.\n"
-    "    model_arch = hf_config.architectures[0]\n"
-    "    model_config = server_args.get_model_config()\n"
-    '    nemotron_h_cfg = getattr(model_config.hf_config, "llm_config", model_config.hf_config)\n'
-    "    overrides: Dict[str, Any] = {}\n"
-    "\n"
-    "    is_modelopt = model_config.quantization in [\n"
-)
 
+def _body_header_variant(accessor: str) -> tuple[str, str]:
+    """(old, new) for one spelling of the override body's header."""
+    old = (
+        "    model_arch = hf_config.architectures[0]\n"
+        f"    model_config = {accessor}\n"
+        "    overrides: Dict[str, Any] = {}\n"
+        "\n"
+        "    is_modelopt = model_config.quantization in [\n"
+    )
+    new = (
+        "    " + MARKER + " (PR #25024, re-anchored 2026-07-16 onto\n"
+        "    # upstream-absorbed _nemotron_h_overrides; the decorator above\n"
+        "    # was extended to also dispatch the VL/Omni wrapper archs, which upstream\n"
+        "    # never registered here -> they fell through with NO overrides at all.\n"
+        "    # NemotronH config fields live on inner llm_config for the wrappers, on\n"
+        "    # hf_config for standalone.\n"
+        "    model_arch = hf_config.architectures[0]\n"
+        f"    model_config = {accessor}\n"
+        '    nemotron_h_cfg = getattr(model_config.hf_config, "llm_config", model_config.hf_config)\n'
+        "    overrides: Dict[str, Any] = {}\n"
+        "\n"
+        "    is_modelopt = model_config.quantization in [\n"
+    )
+    return old, new
+
+
+BODY_HEADER_VARIANTS = [
+    _body_header_variant("server_args.get_model_config()"),  # <= v0.5.18
+    # >= v0.5.19: the declaration modules read the config through the helper.
+    _body_header_variant("model_config_of(server_args)"),
+]
 OLD_1C = '        assert model_config.hf_config.mlp_hidden_act == "relu2"\n'
 NEW_1C = '        assert nemotron_h_cfg.mlp_hidden_act == "relu2"\n'
 
@@ -95,7 +122,7 @@ NEW_1C = '        assert nemotron_h_cfg.mlp_hidden_act == "relu2"\n'
 @patch_overrides.run
 def apply_overrides(p: Patch) -> None:
     p.replace(OLD_1A, NEW_1A, what="decorator dispatch list (VL/Omni wrapper archs)")
-    p.replace(OLD_1B, NEW_1B, marker=MARKER, what="body-header llm_config resolution")
+    p.replace_any(BODY_HEADER_VARIANTS, marker=MARKER, what="body-header llm_config resolution")
     p.replace(OLD_1C, NEW_1C, what="mlp_hidden_act assert reads nemotron_h_cfg")
 
 

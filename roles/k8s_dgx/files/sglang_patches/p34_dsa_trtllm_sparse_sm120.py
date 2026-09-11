@@ -83,6 +83,12 @@ use the decode impl and go through the same kernel (q reshaped per token).
 RE-SYNC on image bump: if upstream lands SM120 routing in _forward_trtllm (watch
 for backend="auto" or a cc==12 branch near the trtllm_batch_decode_with_kv_cache_mla
 call) and in calculate_mla_kv_cache_dim, DELETE this patch.
+
+
+RE-ANCHORED 2026-09-11 for v0.5.19: server-arg reads in kv_cache_configurator.py
+are spelled `get_exec().kernel.<arg>` now (#35907 stopped ServerArgs from
+resolving itself on construction). Added as a third replace_any spelling; the
+two older ones stay for pinned images.
 """
 
 from _patchlib import Patch
@@ -131,6 +137,10 @@ def apply_mixin(p: Patch) -> None:
         [
             _mixin_variant("        ", "self.server_args."),  # <= 0.5.15.post1 (method)
             _mixin_variant("    ", "server_args."),  # >= 0.5.16 (free function)
+            # >= 0.5.19: server-arg reads go through the resolved exec context
+            # (#35907 stopped ServerArgs from resolving itself on construction),
+            # so the same two conditions are spelled get_exec().kernel.<arg>.
+            _mixin_variant("    ", "get_exec().kernel."),
         ],
         marker=MARKER,
         what="trtllm early-return SM12x bypass",
