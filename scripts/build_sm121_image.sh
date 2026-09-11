@@ -79,8 +79,59 @@ BRANCH_NAME="sm121"
 # source patches (PRs #22929/#22928) are also applied — the underlying
 # build steps and SM121 sgl-kernel patches are identical.
 #
-# Current line (v0.5.18 - BUILT + PUSHED 2026-08-28, acceptance gate PASSED;
-#                        not yet GPU/serving-validated on the cluster):
+# Current line (v0.5.19 - SELECTED 2026-09-10, NOT YET BUILT):
+#   sglang-0.5.19-sm121.recipe         - SGLang v0.5.19 (released 2026-09-03,
+#                                        786 PRs). The quietest bump of the line
+#                                        on the build side: the sgl-kernel tree
+#                                        stays at python/sglang/kernels/aot
+#                                        (package still 0.4.6.post1), torch
+#                                        stays 2.13.0 (BASE_IMAGE unchanged, no
+#                                        new base build), transformers 5.12.1 /
+#                                        kernels 0.14.1 / cutlass-dsl 4.6.2 all
+#                                        unchanged. What moves:
+#                                        (a) SGL_KERNEL_PATCH_VARIANT
+#                                        "-v0.5.18" -> "-v0.5.19". Upstream made
+#                                        the C++ standard a cached CMake
+#                                        variable, so every literal
+#                                        "-std=c++17" became
+#                                        "-std=c++${SGL_KERNEL_CXX_STANDARD}",
+#                                        which is the trailing context of
+#                                        arch-prune hunk 1. Four regenerated,
+#                                        zero-fuzz CMakeLists patches; only
+#                                        arch-prune changed content, and each
+#                                        suffix set now fails loudly on the
+#                                        other ref.
+#                                        (b) flashinfer 0.6.17 -> 0.6.18.post1,
+#                                        MANDATORY this time: v0.5.19 lists
+#                                        0.6.18 as REQUIRED (#36954 / #33237 /
+#                                        #35120 dropped the pre-0.6.18
+#                                        fallbacks), so flashinfer is no longer
+#                                        an independent rollback knob.
+#                                        (c) APPLY_NEMOTRON35_SPEC_PR36186 -> 0:
+#                                        its documented expiry arrived, v0.5.19
+#                                        CONTAINS 41e7612dee, so the Nemotron
+#                                        3.5 MTP / DFlash / DSpark drafts are
+#                                        NATIVE here.
+#                                        (d) APPLY_QWEN4EXP_PR36497 -> 0: PR
+#                                        #36497 is still unmerged, but the
+#                                        v0.5.18-based branch diff no longer
+#                                        applies (15 files with rejects), so
+#                                        this image does NOT serve
+#                                        RadixArk/Qwen3.8-Flash-Next-NVFP4. That
+#                                        profile pins the 0.5.18 tag, which is
+#                                        why nothing regresses by promoting
+#                                        this one.
+#                                        NOT DONE YET, and the gate on promoting
+#                                        this recipe: the RUNTIME patch set has
+#                                        not been replayed against v0.5.19,
+#                                        which rewrote server_args.py (-6.5k
+#                                        lines) and arg_groups/overrides.py
+#                                        (-1.9k). Expect ANCHOR-DRIFT.
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.19-sm121
+#
+# Previous line (v0.5.18 - BUILT + PUSHED 2026-08-28, acceptance gate PASSED;
+#                          rollback target, and the ONLY image carrying the
+#                          qwen4exp backport):
 #   sglang-0.5.18-sm121.recipe         - SGLang v0.5.18 (released 2026-08-22,
 #                                        710 PRs). Nothing relocated this time
 #                                        (the sgl-kernel tree stays at
@@ -128,8 +179,8 @@ BRANCH_NAME="sm121"
 #                                        the cluster.
 #                                        Tag: xomoxcc/dgx-spark-sglang:0.5.18-sm121
 #
-# Previous line (v0.5.17 - rollback target; it was default_sglang_image until
-#                          0.5.18-sm121 replaced it on 2026-08-28):
+# Older line (v0.5.17 - it was default_sglang_image until 0.5.18-sm121 replaced
+#                       it on 2026-08-28):
 #   sglang-0.5.17-sm121.recipe         - SGLang v0.5.17 (released 2026-08-08,
 #                                        582 PRs). THE structural change: RFC
 #                                        #29630 finished and MOVED the whole
@@ -292,21 +343,41 @@ BRANCH_NAME="sm121"
 #RECIPE_NAME="sglang-0.5.15.post1-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121"
 
-# v0.5.18 (2026-08-28): ACTIVE. Built and pushed 2026-08-28, acceptance gate
-# PASSED, and default_sglang_image points here; GPU/serving validation on the
-# cluster is still pending. Three drivers: SGLang v0.5.18 (2026-08-22),
-# cutlass-dsl 4.6.1 -> 4.6.2 (upstream's new pin) and a reshaped Blackwell
-# gencode block in the sgl-kernel CMakeLists
-# that needs the new SGL_KERNEL_PATCH_VARIANT="-v0.5.18". flashinfer stays at
-# 0.6.17 (newest stable, and now upstream's own pin); SGL_KERNEL_DIR is
-# unchanged. Full delta and open risks in the recipe header. The runtime patch
-# set was re-anchored for this ref (p37 / p43 / p57) and replays clean offline
-# against both v0.5.18 and v0.5.17; the in-driver acceptance gate then confirmed
-# on the built image that the generated modules import.
-RECIPE_NAME="sglang-0.5.18-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.18-sm121"
+# v0.5.19 (2026-09-10): ACTIVE SELECTION, NOT YET BUILT. SGLang v0.5.19
+# (released 2026-09-03/05, 786 PRs). Build-side this is the quietest bump of the
+# line: SGL_KERNEL_DIR, BASE_IMAGE (torch stays 2.13.0), transformers, kernels
+# and cutlass-dsl 4.6.2 are all UNCHANGED. Two things do move:
+#   * SGL_KERNEL_PATCH_VARIANT="-v0.5.19": upstream made the C++ standard a
+#     cached CMake variable, so every literal "-std=c++17" became
+#     "-std=c++${SGL_KERNEL_CXX_STANDARD}" and that line is the trailing context
+#     of arch-prune hunk 1. All four CMakeLists patches regenerated at zero
+#     fuzz / zero offset; the -v0.5.18 set fails loudly on this ref and vice
+#     versa.
+#   * flashinfer 0.6.17 -> 0.6.18.post1, and this one is MANDATORY: v0.5.19's
+#     Breaking Changes list 0.6.18 as REQUIRED (#36954 / #33237 / #35120 removed
+#     the pre-0.6.18 fallbacks), so rolling flashinfer back is not an escape
+#     hatch; roll the whole recipe back to 0.5.18-sm121 instead.
+# Two source-patch gates flip OFF: the Nemotron-3.5 spec backport is MERGED into
+# this ref (#36186 + #35371 + #35496, so the drafts are native now), and the
+# qwen4exp branch diff no longer applies (15 files with rejects), meaning this
+# image does NOT serve RadixArk/Qwen3.8-Flash-Next-NVFP4; that profile pins the
+# 0.5.18 tag and keeps working there. Full delta and open risks in the recipe
+# header. STILL OPEN before promoting: the runtime patch set has NOT been
+# replayed against this ref, and v0.5.19 rewrote server_args.py (-6.5k lines)
+# and arg_groups/overrides.py (-1.9k), so expect ANCHOR-DRIFT (OPEN RISK A).
+RECIPE_NAME="sglang-0.5.19-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.19-sm121"
 
-# Rollback: previous production line (v0.5.17, default_sglang_image until
+# Rollback: previous production line (v0.5.18, built + pushed 2026-08-28,
+# acceptance gate PASSED, and what default_sglang_image points at). Drivers were
+# SGLang v0.5.18 (2026-08-22), cutlass-dsl 4.6.1 -> 4.6.2, a reshaped Blackwell
+# gencode block (SGL_KERNEL_PATCH_VARIANT="-v0.5.18") and the torch 2.11 -> 2.13
+# base bump. It is the ONLY image that carries the qwen4exp backport, i.e. the
+# only one that can serve RadixArk/Qwen3.8-Flash-Next-NVFP4.
+#RECIPE_NAME="sglang-0.5.18-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.18-sm121"
+
+# Rollback: v0.5.17 (default_sglang_image until
 # 2026-08-28). The artefact that ran until then was gate-cleared on flashinfer
 # 0.6.16.post3; the recipe on disk now says 0.6.17, so re-selecting this pin
 # REBUILDS the tag with different content than the image that was deployed.
@@ -443,7 +514,8 @@ NO_LOCAL_COPY=0
 #   xomoxcc   xomoxcc/dgx-spark-pytorch-dev:2.13.0-v1-cu132
 #             Our locally-built 2.13/cu132 base (scripts/build_pytorch_base_image.sh).
 #             Bumped 2026-08-28 from 2.12.0-v1-cu132 to match upstream SGLang
-#             v0.5.18's torch 2.13.0 pin (see OPEN RISK D in that recipe).
+#             v0.5.18's torch 2.13.0 pin (see OPEN RISK D in that recipe);
+#             v0.5.19 keeps that pin, so it is still current.
 #             Only present on spark5's podman store — never published.
 #             THIS IS THE DEFAULT (no --base needed) and what you want for
 #             performance.
@@ -1253,6 +1325,10 @@ apply_patches() {
     # fails the in-container dry-run and aborts the build). Like the qwen36
     # dockerfile patch this one is trailing-context-only and therefore STACKS
     # after the dsv4 (2c) and qwen36 (2f) steps.
+    # NOTE: the patch on disk is the branch squashed against a v0.5.18-era base
+    # and does NOT apply to v0.5.19 (15 files with rejects), so the 0.5.19
+    # recipe has this OFF. Re-enabling it needs a re-capture of the upstream
+    # branch rebased onto the new ref, not just a flag flip.
     local apply_qwen4exp_patch=0
     if [[ -f "${PATCHES_DIR}/${RECIPE_NAME}.recipe" ]] \
         && grep -qE '^APPLY_QWEN4EXP_PR36497=1' "${PATCHES_DIR}/${RECIPE_NAME}.recipe"; then
@@ -1260,16 +1336,17 @@ apply_patches() {
     fi
 
     # Nemotron 3.5 Lightning speculative decoding (PR #36186, MERGED 2026-08-25)
-    # bundled with its two DFlash2 prerequisites (#35371, #35496) — gated by an
+    # bundled with its two DFlash2 prerequisites (#35371, #35496), gated by an
     # explicit recipe variable, same as the others. Like qwen4exp this is not an
     # optimization: v0.5.18 was tagged three days before #36186 merged, so
     # without it the DSPARK/DFLASH drafts for
     # nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4 abort at backend setup
     # ("implements neither set_dspark_layers_to_capture nor
     # set_dflash_layers_to_capture"). Serving that target WITHOUT speculation
-    # needs none of it. Drop APPLY_NEMOTRON35_SPEC_PR36186 the moment the pinned
-    # SGLANG_REF contains 41e7612dee (the first tag after v0.5.18 will) —
-    # re-applying merged code fails the in-container dry-run and aborts.
+    # needs none of it. EXPIRED as of v0.5.19, which contains 41e7612dee: that
+    # recipe sets the flag to 0 and the drafts are native there. The flag stays
+    # for the 0.5.18 recipe only; re-applying merged code fails the in-container
+    # dry-run and aborts.
     # Trailing-context-only dockerfile hunk, so it STACKS after 2c/2f/2h.
     local apply_nemotron35_spec_patch=0
     if [[ -f "${PATCHES_DIR}/${RECIPE_NAME}.recipe" ]] \
