@@ -371,6 +371,57 @@ REST/GraphQL now report `mergeable: MERGEABLE` / `mergeStateStatus: BLOCKED`
 > not this doc's scope. Contains #26928 (SM120 GLM-5.1 baseline, already
 > known, unrelated to p30).
 
+> Rebased 2026-09-10 (approved): #31480 rebased onto current upstream/main
+> `12771786f2` (2026-09-10). Old head
+> `6b2e62e259398b8e34b8eac5d92f6d6a7c9448ff` to new head
+> `8d3944adb22eba57e258c7129f54333c7896fcf8`, pushed `--force-with-lease`
+> to the vroomfondel fork. Old base was `d56706459c` (2026-08-28), three
+> files conflicted.
+
+> Correction to the root cause noted in the entry above: the
+> `A[...] / Arg(...) / NS(...)` declarative style itself was NOT new, it
+> already existed in server_args.py at the 08-28 baseline (confirmed by
+> direct inspection of the baseline file, not the working tree, per this
+> doc's own sourcing rule). The actual structural change is `ed82def55f`
+> "[Config] Round 6.2: the field declarations move to their namespaces, and
+> the record is assembled from them" (#38047, merged after 08-28):
+> `dsa_paged_mqa_logits_backend` and its sibling kernel fields moved OUT of
+> server_args.py entirely into `python/sglang/srt/arg_groups/fields/exec_.py`
+> (class `ExecKernel(msgspec.Struct)`), each field's `NS("exec.kernel")`
+> third tuple element dropped since the namespace is now implicit in the
+> file. This produced the server_args.py conflict: our small choices-list
+> edit sat inside a region upstream deleted wholesale. Resolved by taking
+> upstream's server_args.py as-is (no DSA kernel fields remain there) and
+> re-porting the choices edit onto the new location in exec_.py, same
+> two-element `A[str, Arg(help=..., choices=[...])] = "auto"` shape, just
+> adding `"torch"` to the inline list and to the help string.
+
+> `dsa_indexer.py` had a small, unrelated conflict: upstream independently
+> changed `seqlens_32_2d = seqlens_32.unsqueeze(-1)` to
+> `.contiguous().view(-1, 1)` on the same line our `is_torch()` guard
+> touches; kept both (upstream's tensor-op change plus our guard).
+> `paged_mqa_logits_backend.py` auto-merged with zero conflict (it already
+> reads `get_platform().is_sm100`, from the `7e751153eb` rename noted
+> earlier, not the old `is_sm100_supported()`, so nothing needed adapting).
+> `dsa_backend.py`'s only conflict was import ordering against the new
+> `dsa_backend_kpool.py`/`kpool_plan.py` imports from #36507; resolved by
+> alphabetical placement.
+
+> Verification before push: no conflict markers repo-wide (`<<<<<<<`/
+> `>>>>>>>` at line start, both scoped and repo-wide passes), `ast.parse`
+> clean on all 9 touched/new files, `git range-diff
+> d56706459c..6b2e62e259 upstream/main..HEAD` showed only the exec_.py
+> relocation and the dsa_indexer.py context shift as content drift (rest
+> pure context), a repo-wide scan for module-scope `X = get_platform().Y`
+> assignments in the touched files came back empty, own diffstat unchanged
+> at 8 files, +1022/-12 (identical to the 08-28 baseline shape). Pushed to
+> `git@github.com:vroomfondel/sglang.git` (remote verified before
+> pushing). Confirmed live: `gh pr view 31480` reports `headRefOid:
+> 8d3944adb22eba57e258c7129f54333c7896fcf8`, `mergeable: MERGEABLE` /
+> `mergeStateStatus: BLOCKED` (checks/review gating only, no conflict).
+> Content/design conclusions unchanged, this was a submission-mechanics
+> rebase only.
+
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
 > Triton fast path (unblocks DSA models on SM120/SM121)
 

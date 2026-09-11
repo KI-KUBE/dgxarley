@@ -489,6 +489,57 @@ watch only.
 > run since 08-15 (approval-gated, not requested this cycle). No upstream
 > change alters the standing 08-15 verdict.
 
+> Rebased 2026-09-10 (approved): #31481 rebased onto current upstream/main
+> `12771786f2` (2026-09-10). Old head
+> `924c838c1d56b4a6b36726d609cdbc65130e1de5` to new head
+> `e5c0b4c7f0efee056af3e5794f5a0386f78e7fc7`, pushed `--force-with-lease`
+> to the vroomfondel fork. Old base was `a6001478f4` (2026-09-03), two
+> files conflicted.
+
+> `dsa_backend.py` had two hunks in `_forward_trtllm`. First: upstream
+> (from the GLM-5.3-Flash landing, independent of our patch) changed
+> `merge_query = q_rope is not None` to `q_rope is not None and
+> self.qk_rope_head_dim > 0` (a BF16 no-RoPE carve-out) on the same line
+> our `and not _sparse_sm120` addition touches; kept both. Second: the same
+> landing added a new `sparse_mla_top_k_lens` kwarg to the decode call
+> (`None` unless `qk_rope_head_dim == 0`, orthogonal to backend selection);
+> merged it in unconditionally alongside our existing `_sparse_sm120`-gated
+> kwargs (`backend`, `kv_scale_format`,
+> `skip_softmax_threshold_scale_factor`, `multi_ctas_kv_counter_buffer`),
+> none of which needed changes themselves. Confirmed post-merge that the
+> `is_glm_sm12_fp8` auto-selection in `overrides.py` and the plain
+> `backend="trtllm-gen"` hardcode this doc's problem statement describes
+> are both still intact on the merged file.
+
+> `kv_cache_configurator.py`: upstream independently added disaggregation-
+> mode-aware dispatch to `calculate_mla_kv_cache_dim` (checks
+> `get_disagg().disaggregation_mode` and reads only the local role's
+> backend in "decode"/"prefill" mode, falling back to the old
+> either-backend check otherwise), landing after the 09-03 baseline.
+> Resolved by keeping upstream's disaggregation-aware `uses_trtllm_kv_
+> layout` computation as the outer condition and nesting p34's SM12x
+> carve-out (`if not get_platform().is_sm120: return kv_cache_dim`) inside
+> it, in the spirit of the new structure rather than reverting it.
+> `forward_mla.py` auto-merged with no conflict.
+
+> Verification before push: no conflict markers repo-wide, `ast.parse`
+> clean on all 7 touched/new files, a repo-wide scan for module-scope
+> `X = get_platform().Y` assignments in the touched files came back empty,
+> own diffstat vs the new merge-base essentially stable at 7 files
+> (+864/-7, was +862/-7 at the old base, the +2 delta is the merged
+> `sparse_mla_top_k_lens` passthrough comment and the nested-condition
+> reshape). `black`/`mypy` could not be run in this environment (no local
+> sglang/torch install, same limitation as the 09-03 rebase); line lengths
+> around the resolved hunks were checked by hand against the repo's
+> 88-char default and stayed under it (the few over-88 lines nearby are
+> pre-existing upstream comments, untouched by this patch). Pushed to
+> `git@github.com:vroomfondel/sglang.git` (remote verified before
+> pushing). Confirmed live: `gh pr view 31481` reports `headRefOid:
+> e5c0b4c7f0efee056af3e5794f5a0386f78e7fc7`, `mergeable: MERGEABLE` /
+> `mergeStateStatus: BLOCKED` (checks/review gating only, no conflict).
+> Content/design conclusions unchanged, this was a submission-mechanics
+> rebase only.
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
