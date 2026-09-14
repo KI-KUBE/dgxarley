@@ -1823,6 +1823,28 @@ apply_patches() {
         echo "hf-hub-floor Dockerfile patched"
     fi
 
+    # 2h. Exact-pin tokenizers (ARG TOKENIZERS_VERSION + gated uv pip install,
+    #     after the hub floor and therefore the last pip action of the builder
+    #     stage). SGLang v0.5.19 pins tokenizers==0.22.2 because 0.23.0rc0 breaks
+    #     transformers' CLIPTokenizer, but the build does not honour that pin:
+    #     missing_deps.py compares presence and not version, and the late
+    #     transformers step installs with --pre, which lets pip resolve the RC
+    #     inside transformers' own tokenizers>=0.22.0,<=0.23.0 range. The
+    #     0.5.19-sm121 image built 2026-09-11 shipped 0.23.0-rc0 for that reason.
+    #     See patches/dockerfile-tokenizers-pin.patch.
+    #     Always applied — no-op when the recipe leaves TOKENIZERS_VERSION empty.
+    #     MUST run after hf-hub-floor: both hunks are trailing-context-only on
+    #     the dist-packages split, so the LAST one applied ends up closest to it.
+    if [[ -f "${PATCHES_DIR}/dockerfile-tokenizers-pin.patch" ]]; then
+        echo "Applying dockerfile-tokenizers-pin.patch..."
+        patch --dry-run -p1 < "${PATCHES_DIR}/dockerfile-tokenizers-pin.patch" \
+            || die "tokenizers-pin Dockerfile patch dry-run failed — upstream Dockerfile drifted; regenerate dockerfile-tokenizers-pin.patch"
+        patch -p1 < "${PATCHES_DIR}/dockerfile-tokenizers-pin.patch"
+        grep -q 'ARG TOKENIZERS_VERSION' container-build/Dockerfile.sglang-nightly \
+            || die "tokenizers-pin Dockerfile patch verification failed"
+        echo "tokenizers-pin Dockerfile patched"
+    fi
+
     # 3. Drop in the recipe file. run_build() parses it inline and calls
     #    `podman build` directly, bypassing container-build/build-image.sh
     #    (which uses `docker buildx build` — podman has no buildx subcommand).
@@ -1860,7 +1882,7 @@ run_build() {
     [[ -f "${recipe_file}" ]] || die "Recipe not found: ${recipe_file}"
 
     local R_DOCKERFILE R_TARGET R_BASE_IMAGE R_FLASHINFER_VERSION
-    local R_TRANSFORMERS_VERSION R_KERNELS_VERSION R_CUTLASS_DSL_VERSION R_AUDIO_DEPS R_ACCELERATE_DEPS R_HF_HUB_MIN_VERSION R_SGLANG_VERSION R_SGLANG_REF R_IMAGE_TAG
+    local R_TRANSFORMERS_VERSION R_KERNELS_VERSION R_CUTLASS_DSL_VERSION R_AUDIO_DEPS R_ACCELERATE_DEPS R_HF_HUB_MIN_VERSION R_TOKENIZERS_VERSION R_SGLANG_VERSION R_SGLANG_REF R_IMAGE_TAG
     local R_FLASH_MLA_REPO R_FLASH_MLA_REF R_DSV4_KERNEL_REPO R_DSV4_KERNEL_REF R_DSV4_KERNEL_ARCH
     # shellcheck disable=SC1090
     source <(
@@ -1879,6 +1901,7 @@ run_build() {
         # while an explicit ACCELERATE_DEPS="" in a recipe opts out (stays empty).
         echo "R_ACCELERATE_DEPS='${ACCELERATE_DEPS-accelerate}'"
         echo "R_HF_HUB_MIN_VERSION='${HF_HUB_MIN_VERSION:-}'"
+        echo "R_TOKENIZERS_VERSION='${TOKENIZERS_VERSION:-}'"
         echo "R_SGLANG_VERSION='${SGLANG_VERSION}'"
         echo "R_SGLANG_REF='${SGLANG_REF}'"
         echo "R_FLASH_MLA_REPO='${FLASH_MLA_REPO:-}'"
@@ -1932,6 +1955,7 @@ run_build() {
     echo "  AUDIO_DEPS           = ${R_AUDIO_DEPS:-<unset, skipped>}"
     echo "  ACCELERATE_DEPS      = ${R_ACCELERATE_DEPS:-<empty, opted out>}"
     echo "  HF_HUB_MIN_VERSION   = ${R_HF_HUB_MIN_VERSION:-<unset, hub left as resolved>}"
+    echo "  TOKENIZERS_VERSION   = ${R_TOKENIZERS_VERSION:-<unset, tokenizers left as resolved>}"
     echo "  SGLANG_VERSION       = ${R_SGLANG_VERSION}"
     echo "  SGLANG_REF           = ${R_SGLANG_REF}"
     echo "  FLASH_MLA_REPO       = ${R_FLASH_MLA_REPO:-<unset>}"
@@ -1971,6 +1995,7 @@ run_build() {
         --build-arg "AUDIO_DEPS=${R_AUDIO_DEPS:-}" \
         --build-arg "ACCELERATE_DEPS=${R_ACCELERATE_DEPS}" \
         --build-arg "HF_HUB_MIN_VERSION=${R_HF_HUB_MIN_VERSION:-}" \
+        --build-arg "TOKENIZERS_VERSION=${R_TOKENIZERS_VERSION:-}" \
         --build-arg "SGLANG_VERSION=${R_SGLANG_VERSION}" \
         --build-arg "SGLANG_REF=${R_SGLANG_REF}" \
         --build-arg "FLASH_MLA_REPO=${R_FLASH_MLA_REPO:-}" \

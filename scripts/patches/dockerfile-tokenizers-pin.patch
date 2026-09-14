@@ -1,0 +1,95 @@
+Exact-pin `tokenizers` so the late `--pre` transformers install cannot pull the
+release candidate SGLang explicitly pins away from.
+
+SGLang v0.5.19 added this to python/pyproject.toml:
+
+  "tokenizers==0.22.2", # 0.23.0rc0 is incompatible with transformers' CLIPTokenizer.
+
+The image does NOT honour that pin, and the 0.5.19-sm121 image built 2026-09-11
+shipped `tokenizers 0.23.0-rc0`. Two independent reasons, either one is enough:
+
+  * stages/missing_deps.py only checks PRESENCE of a dependency, never its
+    version, so anything an earlier step already installed stays where it is and
+    a new upstream pin never moves it.
+  * the late transformers step installs with `--pre`
+    (`uv pip install -U transformers==${TRANSFORMERS_VERSION} --pre`), and
+    transformers 5.12.1 itself only requires `tokenizers>=0.22.0,<=0.23.0`, so
+    with prereleases allowed pip is free to resolve the RC inside that range.
+
+What upstream says breaks is transformers' CLIPTokenizer, i.e. the CLIP-based
+multimodal/diffusion tokenizer paths, not the NVFP4 text models this cluster
+mostly serves. NOT independently reproduced here (a synthetic CLIP vocab test in
+the built image was inconclusive), so this is upstream's assertion plus our
+observed version mismatch, which is reason enough to match the pin rather than
+find out in production.
+
+Pinned here rather than by dropping `--pre` from the transformers step: that flag
+is upstream's own and a future recipe may legitimately want a prerelease
+transformers. This way the tokenizers version is an explicit, visible build knob
+and the transformers step keeps its upstream semantics.
+
+  ARG TOKENIZERS_VERSION=""   # empty = leave tokenizers as resolved (older recipes)
+  TOKENIZERS_VERSION=0.22.2   # in sglang-0.5.19-sm121.recipe and later
+
+Mechanism mirrors dockerfile-hf-hub-floor.patch: an `ARG` + gated `uv pip
+install` RUN in the builder stage, before the dist-packages split, so it is
+carried into the runtime stage. It is an EXACT pin (==), not a floor, because
+that is what upstream pins and the next tokenizers release may well be the
+incompatible one. Installed with `--no-deps`, which is the one deliberate
+difference from the hub floor: tokenizers' only runtime dependency is
+`huggingface_hub>=0.16.4`, already satisfied several major versions over by the
+floor installed immediately above, so --no-deps makes this step provably unable
+to move hub. Both variants were tried against the 2026-09-11 image: with deps uv
+also bumped filelock, with --no-deps exactly one package changes.
+
+VALIDATED 2026-09-11 inside the built 0.5.19-sm121 image (no rebuild needed):
+`uv pip install --no-deps tokenizers==0.22.2` downgrades 0.23.0rc0 -> 0.22.2,
+after which transformers 5.12.1 still imports, `from transformers import
+CLIPTokenizer` works, huggingface_hub stays 1.31.0, and sglang plus
+srt.entrypoints.http_server still import. So the pin is safe to bake in; what it
+FIXES is upstream's claim, not something reproduced here.
+
+PLACEMENT: LAST in the builder stage, immediately before the `# Break up
+dist-packages ...` split and therefore AFTER the hf-hub floor, so no later
+resolve can move tokenizers again. The hunk is TRAILING-CONTEXT-ONLY (anchored
+on the upstream split block), so it applies regardless of which optional
+dockerfile-*.patch steps ran before it, and it must be applied LAST in
+apply_patches(), after dockerfile-hf-hub-floor.patch.
+
+Remove once SGLang's own pin is honoured by the resolve (i.e. once missing_deps
+compares versions, or the transformers step stops using --pre).
+
+Apply to: container-build/Dockerfile.sglang-nightly in the local clone of
+scitrera/cuda-containers.
+
+--- a/container-build/Dockerfile.sglang-nightly
++++ b/container-build/Dockerfile.sglang-nightly
+@@ -498,3 +498,28 @@
++# dgxarley: exact-pin tokenizers. SGLang v0.5.19 added `tokenizers==0.22.2` to
++# its pyproject with the note that 0.23.0rc0 is incompatible with transformers'
++# CLIPTokenizer, but this image does not honour that pin: missing_deps.py only
++# checks PRESENCE (never version), and the late transformers step above installs
++# with `--pre`, which lets pip satisfy transformers' own `tokenizers>=0.22.0,
++# <=0.23.0` range with the RELEASE CANDIDATE. The 0.5.19-sm121 image built
++# 2026-09-11 shipped tokenizers 0.23.0-rc0 for exactly that reason. Pinned here
++# rather than by dropping `--pre` from the transformers step, because that flag
++# is upstream's and some recipes may want a prerelease transformers; and pinned
++# LAST in the builder stage so no earlier resolve can move it again. Gated by
++# TOKENIZERS_VERSION (empty = leave tokenizers as resolved, so every older
++# recipe is byte-identical). --no-deps, UNLIKE the hub floor above: this is an
++# exact downgrade of one leaf package whose only runtime dependency is
++# huggingface_hub>=0.16.4, already satisfied many times over by the floor
++# installed directly above, so --no-deps makes this step provably unable to
++# disturb it. Verified in the 2026-09-11 image: with deps it also moved filelock,
++# with --no-deps exactly one package changes and hub stays put.
++ARG TOKENIZERS_VERSION=""
++RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
++    if [ -n "$TOKENIZERS_VERSION" ]; then \
++        echo "=== Pinning tokenizers==${TOKENIZERS_VERSION} (CLIPTokenizer vs 0.23.0rc0) ==="; \
++        uv pip install --no-deps "tokenizers==${TOKENIZERS_VERSION}"; \
++        python3 -c "import tokenizers; print('tokenizers', tokenizers.__version__)"; \
++    fi
++
+ # Break up dist-packages into smaller layers to avoid hitting Docker layer size limits
+ COPY stages/directory_split2.sh /opt/directory_split2.sh
+ RUN chmod +x /opt/directory_split2.sh && \

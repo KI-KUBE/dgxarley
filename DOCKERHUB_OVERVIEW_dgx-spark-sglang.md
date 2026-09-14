@@ -36,7 +36,7 @@ ecosystem is only slowly shipping kernels for.
 
 ## What's inside
 
-- **SGLang** built from upstream tags (currently `v0.5.18`)
+- **SGLang** built from upstream tags (currently `v0.5.19`)
 - **sgl-kernel** with SM121 build patches: arch-prune to `sm_121` only, FA3 /
   sm90 targets / FlashMLA stripped (the bundled FlashMLA is Hopper-only). From
   `0.5.17-sm121` on all four are repathed, because SGLang RFC #29630 relocated
@@ -44,8 +44,13 @@ ecosystem is only slowly shipping kernels for.
   `0.5.18-sm121` carries its own patch variant again: upstream reshaped the
   Blackwell gencode block in `aot/CMakeLists.txt` (the explicit `sm_103a`
   gencode is gone, replaced by `sm_100f` on CUDA 12.9+ with `sm_100a` as the
-  pre-12.9 fallback), so the v0.5.17 arch-prune hunk no longer applies. The
-  pruned result is unchanged: `sm_121a` on aarch64 plus `--compress-mode=size`.
+  pre-12.9 fallback), so the v0.5.17 arch-prune hunk no longer applies.
+  `0.5.19-sm121` needs yet another variant, for a change that reads cosmetic and
+  is not: upstream made the C++ standard a cached CMake variable, so every
+  literal `-std=c++17` became `-std=c++${SGL_KERNEL_CXX_STANDARD}`, and that
+  line is the trailing context of the arch-prune hunk, which therefore fails on
+  v0.5.19. Through all of it the pruned result is unchanged: `sm_121a` on
+  aarch64 plus `--compress-mode=size`.
   The CUTLASS NVFP4 blockwise-MoE patch (`StageCount<1>` +
   `KernelPtrArrayTmaWarpSpecialized`) is present only on `0.5.15.post1-sm121`
   and below, see above.
@@ -71,10 +76,16 @@ ecosystem is only slowly shipping kernels for.
   (`SGLANG_OPT_FP8_WO_A_GEMM=0`), `mem_fraction_static`, node swap for the load
   peak — in
   [`UPSTREAM_DSV4_BUGS.md`](https://github.com/vroomfondel/dgxarley/blob/main/UPSTREAM_DSV4_BUGS.md).
-- **flashinfer pinned to `0.6.17`** (as of `0.5.18-sm121` this is exactly
-  upstream's own pyproject pin, so for the first time in this line the two
-  agree; it was a deliberate bump over the v0.5.17 tag's `0.6.15.post1`, and
-  `0.6.18` still only exists as an rc), deliberately paired with
+- **flashinfer pinned to `0.6.18.post1`** (`0.6.17` up to `0.5.18-sm121`). On
+  `0.5.19-sm121` this pin is **not optional**: v0.5.19's own breaking-changes
+  list flashinfer 0.6.18 as *required*, because
+  [#36954](https://github.com/sgl-project/sglang/pull/36954),
+  [#33237](https://github.com/sgl-project/sglang/pull/33237) and
+  [#35120](https://github.com/sgl-project/sglang/pull/35120) removed the
+  fallbacks for the pre-0.6.18 APIs behind `--dsa-topk-backend flashinfer` and
+  the CuTe-DSL NVFP4 W4A16 mode. `.post1` is 0.6.18 plus one additive
+  cherry-pick, i.e. the newest stable, which is the pin policy of this line.
+  Paired with
   **nvidia-cutlass-dsl `4.6.2`** (`4.6.1` up to `0.5.17-sm121`; the bump follows
   upstream and its release notes credit it with fixing an FA4 startup
   regression on Blackwell). flashinfer only
@@ -110,12 +121,36 @@ ecosystem is only slowly shipping kernels for.
     profiles still set `attention_backend=triton`, which is a SGLang allowlist
     constraint and not a flashinfer-version limitation.
 
-  Roll back with `FLASHINFER_VERSION=0.6.16.post3` (what the first
-  `0.5.17-sm121` build shipped), then `0.6.16` (the `0.5.16-sm121` pin), then
-  `0.6.15.post1` (the v0.5.17 upstream pin, live-validated on
-  `0.5.15.post1-sm121`).
-- **transformers pinned to `5.12.1`** (exactly SGLang v0.5.17's pyproject
-  pin, unchanged since v0.5.15; was `5.8.1` on v0.5.13/v0.5.14), required for
+  What `0.6.18` adds on top, all of it SM12x-relevant:
+  [#4285](https://github.com/flashinfer-ai/flashinfer/pull/4285) (SM12x NVFP4
+  fused-MoE kernels synced to b12x HEAD),
+  [#4329](https://github.com/flashinfer-ai/flashinfer/pull/4329) (gated SM12x
+  dynamic NVFP4 MoE),
+  [#4318](https://github.com/flashinfer-ai/flashinfer/pull/4318) (wave+residue
+  tile selection for the groupwise MoE GEMM),
+  [#4380](https://github.com/flashinfer-ai/flashinfer/pull/4380) (DSV4 sparse
+  MLA top-k 192/256 consolidated for SM120/121),
+  [#4374](https://github.com/flashinfer-ai/flashinfer/pull/4374) (GDN cp host
+  launch overhead on sm120), plus asymmetric VO-split NVFP4 paged prefill for
+  **Gemma-4** on SM120/121 and native MXFP4 MoE on SM120/121 (no MXFP4
+  checkpoint is served here, but the path now exists).
+
+  **Read this before you benchmark `0.5.19-sm121` against an older tag:** the
+  0.6.18 release notes state that the CUDA 13 **aarch64 wheels drop the native
+  `sm_121a` cubins** and that DGX Spark "keeps running via SM120 family cubins".
+  That is observable in the built image: `flashinfer_jit_cache` carries 907
+  prebuilt modules, **zero** with `sm121` in the name and six with `sm120`
+  (`nvfp4_attention_sm120`, `fp4_gemm_cutlass_sm120`, `gemm_sm120`, …). Nothing
+  is broken by it, but it is a codegen change on exactly this hardware, so treat
+  a throughput delta against `0.5.18-sm121` as a finding, not as noise.
+
+  Rolling flashinfer back is only meaningful on `0.5.18-sm121` and older:
+  `0.6.16.post3` (what the first `0.5.17-sm121` build shipped), then `0.6.16`
+  (the `0.5.16-sm121` pin), then `0.6.15.post1` (live-validated on
+  `0.5.15.post1-sm121`). On `0.5.19-sm121` there is no flashinfer rollback, roll
+  the whole tag back instead.
+- **transformers pinned to `5.12.1`** (exactly SGLang's own pyproject pin,
+  unchanged from v0.5.15 through v0.5.19; was `5.8.1` on v0.5.13/v0.5.14), required for
   the Gemma-4 `*-assistant` drafter checkpoints used by NEXTN/MTP speculative
   decoding (`google/gemma-4-{26B-A4B,31B}-it-assistant`).
   Earlier transformers releases don't know the drafter's config subclass
@@ -124,6 +159,16 @@ ecosystem is only slowly shipping kernels for.
   image pins `5.11.0` instead — `diffusion_gemma` is an unregistered
   `model_type` before then (AutoConfig `KeyError`), and 5.11.0 is the
   version DiffusionGemma's upstream PR #28054 pins.
+- **tokenizers pinned to `0.22.2`** (`0.5.19-sm121` and later). v0.5.19 is the
+  first SGLang ref to pin tokenizers at all, with the note that `0.23.0rc0` is
+  incompatible with transformers' `CLIPTokenizer`, and the build does not
+  arrive there on its own: the dependency completion step compares *presence*
+  and not version, and the late transformers install runs with `--pre`, so pip
+  is free to resolve the release candidate inside transformers' own
+  `tokenizers>=0.22.0,<=0.23.0` range. The first `0.5.19-sm121` build shipped
+  `0.23.0rc0` for exactly that reason; the pin is now an explicit build knob
+  applied as the last pip action of the builder stage. Affects the CLIP-based
+  multimodal / diffusion tokenizer paths rather than the NVFP4 text models.
 - **Gemma-4 MTP (Frozen-KV) speculative-decoding patch** — the
   `0.5.11-gemma4-sm121` tag carries a cherry-pick of upstream
   [PR #24436](https://github.com/sgl-project/sglang/pull/24436)
@@ -167,9 +212,10 @@ ecosystem is only slowly shipping kernels for.
   and uses the `-mainahead` sgl-kernel patch variants (one day of main drift
   shifted the mscclpp link lines). **First-contact / main-ahead, not a
   tagged release.**
-- **Qwen4-Exp / Qwen3.8-Flash-Next (`0.5.18-sm121`)**: upstream
+- **Qwen4-Exp / Qwen3.8-Flash-Next (`0.5.18-sm121` ONLY, not in
+  `0.5.19-sm121`)**: upstream
   [PR #36497](https://github.com/sgl-project/sglang/pull/36497) (still open,
-  not in v0.5.18 and not in `main`) applied to the source before install. It is
+  not in v0.5.18, v0.5.19 or `main`) applied to the source before install. It is
   the only implementation of `Qwen4ExpForConditionalGeneration` / `model_type
   qwen4_exp` anywhere; without it the image refuses
   `RadixArk/Qwen3.8-Flash-Next-NVFP4` at load with *"has no SGLang
@@ -179,6 +225,12 @@ ecosystem is only slowly shipping kernels for.
   three times in three days, one spelling of which silently corrupts
   long-context output on GB10. An image built from the source patch alone
   crashes at backend init on a Spark.
+  **Why it is absent from `0.5.19-sm121`:** the patch is a squash of the
+  upstream branch cut against a v0.5.18-era base and it does not rebase onto
+  v0.5.19 by `patch(1)` (15 files with rejected hunks), while the upstream
+  branch itself has moved on. So `0.5.19-sm121` refuses
+  `RadixArk/Qwen3.8-Flash-Next-NVFP4` at load and `0.5.18-sm121` stays the tag
+  for that model.
 - **Nemotron-3.5-Lightning speculative decoding (`0.5.18-sm121`)**: upstream
   [PR #36186](https://github.com/sgl-project/sglang/pull/36186) (merged
   2026-08-25, three days after the v0.5.18 tag) backported together with its
@@ -190,8 +242,9 @@ ecosystem is only slowly shipping kernels for.
   being NVIDIA's own DGX Spark recommendation). Stock v0.5.18 aborts DSPARK /
   DFLASH at backend setup with *"implements neither
   set_dspark_layers_to_capture nor set_dflash_layers_to_capture"*. Serving the
-  target **unspeculated** does not need this patch. It expires on the next
-  SGLang tag, which will contain the merged code.
+  target **unspeculated** does not need this patch. That expiry has **arrived**:
+  v0.5.19 contains the merged commit, so `0.5.19-sm121` serves all three
+  drafters natively and applies no backport.
 - Built on a CUDA 13.2 + PyTorch 2.13 + NCCL 2.30.7 base for the GB10 codegen
   path (CUDA 13.1 / PyTorch 2.10 fallback is ~45 % slower end-to-end). **Known
   issue:** the NCCL 2.30.x NVLS path has a regression that can silently hang
@@ -200,11 +253,42 @@ ecosystem is only slowly shipping kernels for.
   `NCCL_NVLS_ENABLE=0` when running these (free on non-NVLink hardware; the
   Ansible role does this for you)
 
+## Runtime patches are part of the deal
+
+The image is half the stack. A second set of patches is applied to the
+installed `sglang` tree **at container start** by the Ansible role
+([`roles/k8s_dgx/files/sglang_patches/`](https://github.com/vroomfondel/dgxarley/tree/main/roles/k8s_dgx/files/sglang_patches)),
+because several GB10 fixes have to survive image bumps and because one
+ConfigMap feeds instances pinned to *different* tags. Each patch gates itself,
+never raises, and is idempotent; a drifted anchor logs `ANCHOR-DRIFT` and
+degrades to unpatched SGLang rather than crash-looping the pod.
+
+For `0.5.19-sm121` that set was replayed offline against the ref before the
+build and five patches needed work, which is worth knowing if you run this tag
+with your own patch set: v0.5.19 moved the arch predicates onto a
+`srt/runtime_context` platform object (`is_sm100_supported()` →
+`get_platform().is_sm100`), moved server-arg reads to the resolved exec context
+(`server_args.<arg>` → `get_exec().<ns>.<arg>`), inlined the `*_CHOICES`
+constants into their `Arg()` declarations, gave `DSATopKBackend` a `resolve()`
+constructor, rebuilt the trtllm-MHA KV read around `use_fmha_v2`, moved the
+fixed-q-len verify call into a helper, and split the one big
+`arg_groups/overrides.py` into `arg_groups/model_overrides/<model>.py`. Two
+older patches turned out to be absorbed upstream (the Qwen3.5 MTP KV-scale
+mapper, and the HY3 NEXTN `final_layernorm` remap, that one already in v0.5.18)
+and now self-gate off instead of reporting drift.
+
+One deliberate refusal lives there too: v0.5.19's new **ragged verify layout**
+calls the decode kernel without block scales or an XQA draft mask, and whether
+that is correct with an NVFP4 KV cache is unverified. Since the failure mode of
+guessing is silently corrupted output, that combination now raises an
+actionable error instead.
+
 ## Tags
 
 | Tag                                 | Notes                                                                       |
 |-------------------------------------|------------------------------------------------------------------------------|
-| `0.5.18-sm121`                      | SGLang v0.5.18 + SM121 patches (own arch-prune variant: upstream reshaped the Blackwell gencode block); adds two source backports absent from the tag: Qwen4-Exp / `qwen4_exp` (open PR #36497, the only implementation of that architecture) and Nemotron-3.5-Lightning speculative decoding (merged PR #36186 + DFlash2 prerequisites #35371/#35496); DSV4 EAGLE-MTP marlin + TileLang remainder still patched; PyTorch 2.13 base, flashinfer 0.6.17 + cutlass-dsl 4.6.2 + transformers 5.12.1. **(current)** |
+| `0.5.19-sm121`                      | SGLang v0.5.19 + SM121 patches (own arch-prune variant again: upstream turned the C++ standard into a cached CMake variable, which moved the arch-prune anchor); flashinfer **0.6.18.post1, now a hard requirement of the ref**, and its aarch64 wheels no longer ship `sm_121a` cubins, GB10 runs on the SM120 family; tokenizers pinned to 0.22.2; Nemotron-3.5-Lightning speculative decoding is **native** here, no backport; **Qwen4-Exp / Qwen3.8-Flash-Next is NOT in this tag** (see above); DSV4 EAGLE-MTP marlin + TileLang remainder still patched; PyTorch 2.13 base, cutlass-dsl 4.6.2 + transformers 5.12.1. **(current, first-contact: no serving validation yet)** |
+| `0.5.18-sm121`                      | SGLang v0.5.18 + SM121 patches (own arch-prune variant: upstream reshaped the Blackwell gencode block); adds two source backports absent from the tag: Qwen4-Exp / `qwen4_exp` (open PR #36497, the only implementation of that architecture) and Nemotron-3.5-Lightning speculative decoding (merged PR #36186 + DFlash2 prerequisites #35371/#35496); DSV4 EAGLE-MTP marlin + TileLang remainder still patched; PyTorch 2.13 base, flashinfer 0.6.17 + cutlass-dsl 4.6.2 + transformers 5.12.1. The **only** tag that serves `RadixArk/Qwen3.8-Flash-Next-NVFP4` |
 | `0.5.17-sm121`                      | SGLang v0.5.17 + SM121 patches, repathed for the RFC #29630 `sgl-kernel` → `python/sglang/kernels/aot` relocation; CUTLASS NVFP4 SM121 patch gated off (PR #30448); DSV4 EAGLE-MTP marlin + TileLang remainder still patched; PyTorch 2.12 base, flashinfer 0.6.17 + cutlass-dsl 4.6.1 + transformers 5.12.1. Rollback / A/B |
 | `0.5.16-sm121`                      | SGLang v0.5.16 + SM121 patches; first tag where the CUTLASS NVFP4 SM121 patch is gated off (PR #30448 deleted its target); flashinfer 0.6.16 + cutlass-dsl 4.6.1. Rollback / A/B |
 | `0.5.16-dev-sm121`                  | Same recipe line as `0.5.16-sm121` but built with flashinfer **0.6.16rc3**. Kept frozen as the measurement basis cited by the NVFP4-KV / uniform-q-len findings in the repo, do not expect it to be rebuilt |
@@ -238,7 +322,7 @@ Relevant entry points:
 
 - [`scripts/build_sm121_image.sh`](https://github.com/vroomfondel/dgxarley/blob/main/scripts/build_sm121_image.sh)
   — remote-podman build driver (x86 control host → arm64 build runner)
-- [`scripts/patches/sglang-0.5.18-sm121.recipe`](https://github.com/vroomfondel/dgxarley/blob/main/scripts/patches/sglang-0.5.18-sm121.recipe)
+- [`scripts/patches/sglang-0.5.19-sm121.recipe`](https://github.com/vroomfondel/dgxarley/blob/main/scripts/patches/sglang-0.5.19-sm121.recipe)
   — recipe pinned by the build (SGLang + flashinfer + cutlass-dsl + transformers
   pins, plus the per-release patch gates). One recipe per tag, they are kept
   rather than edited in place

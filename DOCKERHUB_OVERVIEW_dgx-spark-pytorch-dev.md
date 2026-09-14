@@ -22,7 +22,8 @@ regressions across that toolchain delta.
 ## What's inside
 
 - **PyTorch 2.13.0** — built from source for `sm_120` + `sm_121`. This is the
-  version SGLang v0.5.18 pins upstream. The lineage also carries the 2.12 bump's
+  version SGLang pins upstream, unchanged from v0.5.18 through v0.5.19, so the
+  same base serves both `dgx-spark-sglang` tags. The lineage also carries the 2.12 bump's
   cuBLAS Blackwell 32-MiB workspaces ([PyTorch PR #175344](https://github.com/pytorch/pytorch/pull/175344)),
   a direct GB10 win
 - **torchvision 0.28.0** — lockstep with torch 2.13.0 (PyPI strict-requires it)

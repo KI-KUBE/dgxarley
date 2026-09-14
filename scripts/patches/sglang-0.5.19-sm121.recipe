@@ -57,6 +57,10 @@
 #      ACCELERATE / SGL_KERNEL_DIR / TILELANG_PATCH_VARIANT: ALL UNCHANGED.
 #      v0.5.19 still pins torch==2.13.0, transformers==5.12.1,
 #      kernels>=0.14.1,<0.15 and nvidia-cutlass-dsl[cu13]==4.6.2.
+#   6b. NEW knob TOKENIZERS_VERSION=0.22.2 with
+#      scripts/patches/dockerfile-tokenizers-pin.patch: v0.5.19 is the first ref
+#      to pin tokenizers, and the build did not honour it (see the knob's own
+#      block below). The first image built from this recipe shipped 0.23.0-rc0.
 #   7. Upstream dependency churn that rides along with the ref (informational,
 #      none of it a knob here): sgl-deep-ep 0.1.0 -> 0.1.2, sgl-deep-gemm
 #      0.1.5.post3 -> 0.1.7, tilelang 0.1.11 -> 0.1.12, compressed-tensors now
@@ -340,6 +344,19 @@ ACCELERATE_DEPS="accelerate"
 # PR #4595 in v1.26.0. See FIXED_UPSTREAM_HF_XET_BUG.md. Installed as the LAST
 # pip action of the builder stage so nothing can downgrade it afterwards.
 HF_HUB_MIN_VERSION=1.26.0
+
+# tokenizers 0.22.2 - exactly v0.5.19's NEW pyproject pin. Upstream added it with
+# the note that 0.23.0rc0 is incompatible with transformers' CLIPTokenizer, and
+# the build does NOT arrive there on its own: missing_deps.py checks presence and
+# not version, and the late transformers step installs with --pre, so pip may
+# resolve the RC inside transformers' own tokenizers>=0.22.0,<=0.23.0 range. The
+# first 0.5.19-sm121 image (built 2026-09-11, before this knob existed) shipped
+# tokenizers 0.23.0-rc0 for exactly that reason. Enforced by
+# scripts/patches/dockerfile-tokenizers-pin.patch as the last pip action of the
+# builder stage. Empty/absent in older recipes = tokenizers left as resolved.
+# Affects the CLIP-based multimodal/diffusion tokenizer paths, not the NVFP4 text
+# models; upstream's incompatibility claim was NOT independently reproduced here.
+TOKENIZERS_VERSION=0.22.2
 
 SGLANG_VERSION=0.5.19
 SGLANG_REF="v0.5.19"
