@@ -56,10 +56,15 @@ _model_profile:
     # is sm100-only and dies on SM121 (GB10) at autotune.
     # FIX = ep_size: 4 (below). With EP the experts are split but each rank keeps the
     # FULL intermediate (704): 2×704 = 1408 = 11×128, already aligned → no pad → no
-    # assert. apply() then uses cutlass_moe_fp4 — the one SM121-safe FP4 MoE path
-    # (nvidia-minimax-m2.5 validated it; same triton→cutlass_moe_fp4 fallthrough).
-    # Keeps TP=4 (attention), no image patch, no PP. NOTE: untested at inference here.
-    moe_runner_backend: "triton"
+    # assert. The gated-padding assert is still present in v0.5.19, so EP=4 stays.
+    # 2026-09-16: moved "triton" → "flashinfer_cutlass" for the v0.5.19 default image.
+    # cutlass_moe_fp4 (the old triton fallthrough target) was deleted upstream by
+    # #30448; in v0.5.19 ModelOptNvFp4FusedMoEMethod.apply() only accepts marlin /
+    # flashinfer_trtllm / flashinfer_cutedsl / flashinfer_cutlass and raises
+    # NotImplementedError for triton. flashinfer_cutlass supports GeGLU natively
+    # (gated "gelu" → ActivationType.Geglu). UNTESTED: the Xid 13 noted above was seen
+    # on the 0.5.13/0.5.14-era flashinfer; v0.5.19 image ships 0.6.18.post1 + p29.
+    moe_runner_backend: "flashinfer_cutlass"
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.90"
     attention_backend: "triton"  # SGLang allowlist: flashinfer rejected for Gemma4
@@ -104,10 +109,12 @@ _model_profile:
     speculative_num_draft_tokens: 4  # = num_steps + 1
     speculative_eagle_topk: 1
     enable_spec_v2: true  # auto-disabled by FROZEN_KV_MTP at runtime
-    # Unified Gemma-4 image (all five share it). Carries the #22928 geglu patch
-    # this NVFP4 model needs; FROZEN_KV_MTP (#28081) + DiffusionGemma (#28054)
-    # bakes are gated-off/inert here. Recipe: sglang-0.5.14-gemma4-diffusion-sm121.
+    # Image: no override → default_sglang_image (xomoxcc/dgx-spark-sglang:0.5.19-sm121
+    # as of 2026-09-16). The unified Gemma-4 image is no longer needed here: its
+    # #22928 geglu/NaN-clamp source patch targeted cutlass_moe_fp4, which no longer
+    # exists in v0.5.19 (removed by #30448), and #28081 (FROZEN_KV_MTP) is upstream
+    # since v0.5.14. OPEN: the E4M3 blockscale 127→126 NaN clamp has no equivalent on
+    # the flashinfer_cutlass kernel; check output quality (NaN / garbage), not just boot.
+    # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"  # unified Gemma-4 image (prior)
     # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121"  # prior NVFP4-Gemma image
     # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121"
-    # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121"
-    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"

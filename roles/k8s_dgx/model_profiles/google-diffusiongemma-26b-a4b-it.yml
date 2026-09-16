@@ -96,4 +96,4 @@ _model_profile:
     # plain gemma4 image rejects --dllm-algorithm Gemma4Renoise. Built from
     # sglang-0.5.14-gemma4-diffusion-sm121.recipe (THE unified Gemma image — all
     # five Gemma profiles share it) via scripts/build_sm121_image.sh.
-    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"
+    # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"

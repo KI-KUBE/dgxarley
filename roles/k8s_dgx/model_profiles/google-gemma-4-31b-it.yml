@@ -48,8 +48,8 @@ _model_profile:
     #   on 0.5.13: the dense-crash culprit PR #22929 (range(num_experts)
     #   TypeError on num_experts=None) went upstream-native and was dropped from
     #   the 0.5.13-gemma4 recipe, which now carries only the harmless FP4-only
-    #   #22928 (geglu-nan-clamp). All five Gemma-4 profiles now share the single
-    #   0.5.14-gemmadiffusion-sm121 image (see the image note at the bottom).
+    #   #22928 (geglu-nan-clamp). Since 2026-09-16 this profile runs on the default
+    #   image, no Gemma-specific build (see the image note at the bottom).
     # - speculative_algo: NEXTN is auto-promoted to FROZEN_KV_MTP at runtime.
     # - enable_spec_v2 is auto-disabled by FROZEN_KV_MTP at runtime.
     # - num_draft_tokens MUST equal num_steps + 1 (autoadjust does not fire).
@@ -94,19 +94,14 @@ _model_profile:
     speculative_num_draft_tokens: 4  # = num_steps + 1
     speculative_eagle_topk: 1
     enable_spec_v2: true  # auto-disabled by FROZEN_KV_MTP at runtime
-    # ── Image: xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121 ──────────
-    # THE unified Gemma-4 image — all five Gemma profiles share it. Main-ahead
-    # pin (commit 3a1417a) carrying the FROZEN_KV_MTP cuda-graph fix (#28081)
-    # that v0.5.13 LACKS: BF16 MTP boots here but CRASHED at boot on
-    # 0.5.13-gemma4 (kv_context=None). Also bakes MTP (#24436 native), the
-    # gemma4-NVFP4 patch (#22928, inert on BF16) and DiffusionGemma (#28054,
-    # gated-off for this autoregressive model).
-    # Recipe: sglang-0.5.14-gemma4-diffusion-sm121.recipe.
-    # Testweise auf 0.5.14-gemmadiffusion-sm121 (flashinfer 0.6.13rc2). NB: der
-    # flashinfer-Nutzen ist hier begrenzt — attention bleibt zwangsweise triton
-    # (Gemma4-Allowlist, s. §7-Note 2026-06-21) und BF16≠NVFP4, also greifen die
-    # §3-NVFP4-Kernel-Gewinne nicht. Validierungs-fokus ist der MTP-Boot-Pfad
-    # (0.5.11→0.5.14, #28081 FROZEN_KV_MTP-Fix). Zurück: 0.5.11-sm121.
+    # ── Image: no override → default_sglang_image ────────────────────────────
+    # (xomoxcc/dgx-spark-sglang:0.5.19-sm121 as of 2026-09-16). The unified Gemma-4
+    # image is no longer needed: BF16 never used its #22928 patch (FP4 MoE kernel
+    # cutlass_moe_fp4 only), and that kernel no longer
+    # exists in v0.5.19 (removed by #30448) and was inert on dense models anyway; #28081
+    # (FROZEN_KV_MTP) is upstream since v0.5.14 and #24436 (Gemma-4 MTP) since v0.5.12;
+    # #28054 (DiffusionGemma) is irrelevant for this autoregressive model. attention
+    # stays triton (Gemma4 allowlist is unchanged in v0.5.19). UNTESTED on 0.5.19.
     # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-gemma4-sm121"  # v0.5.13: FROZEN_KV_MTP boot crash
     # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.11-sm121"          # pre-0.5.13 lean (validated MTP baseline, flashinfer 0.6.11)
-    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"  # flashinfer 0.6.13rc2 (testweise)
+    # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"  # flashinfer 0.6.13rc2 (testweise)

@@ -88,6 +88,3 @@ _model_profile:
       top_p: 0.8
       top_k: 20
       repetition_penalty: 1.05
-    # Image inherited from default_sglang_image (scitrera/dgx-spark-sglang:0.5.12,
-    # which supports Qwen3VLForConditionalGeneration). Pin an sm121 variant here
-    # only if a flashinfer/triton vision-kernel issue surfaces during validation.

@@ -52,6 +52,8 @@ hf_preload_image: "python:3.14-slim"
 hf_preload_hub_min_version: "1.26.0"
 # HuggingFace model pre-download Job
 hf_preload_models:
+  - "RadixArk/Qwen3.8-Flash-Next-NVFP4"
+  - "vroomfondel/GLM-5.3-Flash-NVFP4-W4A4"
   - "vroomfondel/Hy3-NVFP4-W4A4"
   - "vroomfondel/Ornith-1.0-9B-NVFP4-ModelOpt"
   - "vroomfondel/Qwen3.6-35B-A3B-NVFP4-ModelOpt"
@@ -80,7 +82,6 @@ hf_preload_models:
   - "RedHatAI/Qwen3-Coder-Next-NVFP4"
   - "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"
   - "Qwen/Qwen3-VL-8B-Instruct-FP8"
-  - "RadixArk/Qwen3.8-Flash-Next-NVFP4"
 #  - "0xSero/GLM-5.2-REAP-NU176-526B"
 #  - "cyankiwi/Hermes-4.3-36B-AWQ-4bit"
 #  - "TheBloke/Nous-Hermes-2-Mixtral-8x7B-DPO-AWQ"

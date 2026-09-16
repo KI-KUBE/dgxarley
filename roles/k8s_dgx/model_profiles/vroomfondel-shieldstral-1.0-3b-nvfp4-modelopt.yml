@@ -132,7 +132,7 @@ _model_profile:
     #
     # SM121 sgl-kernel build required for NVFP4 on GB10. This is the image the card's
     # eight-suite validation ran on — keep them in lockstep when bumping.
-    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.17-sm121"
+    # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.17-sm121"
     # ModelOpt export (hf_quant_config.json, quant_algo NVFP4) → modelopt_fp4 loader.
     # NOT compressed-tensors (that's the RecViking Mistral-Medium sibling, which is
     # autodetected and deliberately carries no `quantization` key).
