@@ -223,6 +223,16 @@ _model_profile:
     #       xomoxcc/dgx-spark-sglang:0.5.18-sm121 spark5
     sglang_image: "xomoxcc/dgx-spark-sglang:0.5.18-sm121"
     nccl_transport: "roce"
+    # 2026-09-16 experiment: at the default 64 channels the SECOND NCCL communicator
+    # (created lazily after weights + KV/mamba pools are allocated) fails its ring
+    # connect on every rank with `ibv_reg_mr_iova2 ... Cannot allocate memory`,
+    # coinciding with host-kernel `NVRM: ... NV_ERR_NO_MEMORY ... _memdescAllocInternal`
+    # while ~75 GB system RAM is free. So the limit is inside the NVIDIA driver, not
+    # the Linux allocator. 16 channels cuts the per-communicator registrations to a
+    # quarter. 64 channels + two communicators were fine on 2026-07-25 (Qwen3.6-35B,
+    # 0.5.15.post1), so this is a workaround under test, not a known root cause.
+    nccl_env:
+      NCCL_MAX_NCHANNELS: "16"
     # 135 GB does not fit one 128 GB Spark, so TP=4 (head + 3 workers) is the
     # only topology. The cookbook's NVFP4 cells all run TP=1 on a single
     # B200/B300/GB300 card, so none of their measured numbers transfer.
