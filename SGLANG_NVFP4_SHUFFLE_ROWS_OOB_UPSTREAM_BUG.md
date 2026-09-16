@@ -175,6 +175,23 @@ remains a self-noop. `RETIRED_PATCHES.md` still does not exist; the
 standing follow-up to retire p26 remains open, still needs explicit
 approval.
 
+**Re-verified 2026-09-16:** Still resolved by removal, no new SGLang release
+since v0.5.19 (2026-09-05, still latest), nothing new to re-check on
+`python/sglang/kernels/jit/` or `cutlass_moe.py`. **Local infrastructure
+update: `roles/k8s_dgx/files/sglang_patches/RETIRED_PATCHES.md` now exists**
+(created in the 2026-09-11 patch re-anchor pass, commit 958c98d, for an
+unrelated patch, `p61_flashinfer_fp4_allow.py`), so the prior entries'
+"`RETIRED_PATCHES.md` still does not exist" lines are now stale. However,
+`p26_cutlass_moe_zeroinit.py` is confirmed NOT listed in it, the standing
+follow-up to retire p26 remains open and unactioned, still needs explicit
+approval per house rules; the file's existence only removes the "no template
+yet" blocker, it does not retire p26 by itself. **Local note: cluster image
+bumped from `xomoxcc/dgx-spark-sglang:0.5.17-sm121` to
+`xomoxcc/dgx-spark-sglang:0.5.19-sm121`** (repo commits f36d51b/958c98d/
+5c07a34, 2026-09-11..15); `p26_cutlass_moe_zeroinit.py` remains a self-noop
+on the new image too, its `target_contains` gate on the removed
+`nvfp4.py`/`cutlass_moe_fp4` symbols stays unmet, unaffected by the bump.
+
 Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, v0.5.13, and **v0.5.14** (released 2026-06-26 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
 
 The final root cause (uninitialized `torch.empty` on `a_map`) was identified
