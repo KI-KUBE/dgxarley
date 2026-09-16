@@ -277,6 +277,19 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 i
 > `--speculative-draft-model-path` workaround remains required and
 > unchanged.
 
+> **Re-verified 2026-09-16:** No new SGLang release since v0.5.19 (2026-09-05,
+> still latest). Issue #32202 unchanged: still open, 0 comments, idle since
+> 2026-07-23. PR #34622 (adjacent GPTQ-draft-quantization bug, not ours)
+> unchanged: still open, no activity since 2026-08-18. No new issue or PR
+> found referencing `sharded_state`/`speculative_draft_load_format`. Local
+> note: the cluster image was bumped from
+> `xomoxcc/dgx-spark-sglang:0.5.17-sm121` to
+> `xomoxcc/dgx-spark-sglang:0.5.19-sm121` (repo commits f36d51b/958c98d/5c07a34,
+> 2026-09-11..15). This doc's 2026-09-10 entry already source-checked the bug
+> directly on the v0.5.19 tag, so the image bump changes no conclusion. The
+> `--speculative-draft-load-format auto` + `--speculative-draft-model-path`
+> workaround remains required and unchanged.
+
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`
 

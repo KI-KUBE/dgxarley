@@ -159,6 +159,27 @@ not fixed), unchanged since 2026-08-19; PR #21872 remains CLOSED
 (stale-cap closure 2026-08-26), unchanged. No new issue or PR touching this
 allowlist gap found. Workaround (`moe_runner_backend: triton`) unchanged.
 
+**Re-verified 2026-09-16:** No new SGLang release since v0.5.19 (2026-09-05,
+still latest). PR/issue state change since 2026-09-10: PR
+[#27968](https://github.com/sgl-project/sglang/pull/27968) ("fix(fp8/moe):
+raise clear error for unsupported MoE runner backend") was **auto-closed by
+the stale bot yesterday, 2026-09-15** ("no updates in 95 days"), the same
+administrative closure Issue #27951 already got on 2026-08-19; not merged,
+zero merged code. The bot's closing comment also flags several directory
+renames the branch would need retargeting against before it could even be
+reopened cleanly (`python/sglang/jit_kernel/` -> `python/sglang/kernels/jit/`,
+`test/srt/` -> `test/registered/`, among others), consistent with the
+`jit_kernel` rename already independently confirmed in
+`SGLANG_NVFP4_SHUFFLE_ROWS_OOB_UPSTREAM_BUG.md`. Both upstream vehicles for
+this bug (#27951 issue, #27968 PR) are now closed with no fix landed; no new
+issue or PR found. PR #21872 remains CLOSED (stale-cap closure 2026-08-26),
+unchanged. Workaround (`moe_runner_backend: triton`) remains the correct
+cluster configuration. Local note: cluster image bumped from
+`xomoxcc/dgx-spark-sglang:0.5.17-sm121` to
+`xomoxcc/dgx-spark-sglang:0.5.19-sm121` (repo commits f36d51b/958c98d/
+5c07a34, 2026-09-11..15); no local patch is involved for this bug (pure
+profile pin), so the bump has no effect on this doc's conclusions.
+
 Adjacent open work:
 
 - [PR #21872](https://github.com/sgl-project/sglang/pull/21872)
