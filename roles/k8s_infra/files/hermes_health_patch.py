@@ -70,6 +70,18 @@ still opens with `auth_err = self._check_auth(request)`. hermes_cli/web_server
 method="GET")` with no Authorization header, and GATEWAY_HEALTH_URL is still
 present and still marked DEPRECATED ("scheduled for removal") with no
 replacement config key. Patch stays required and unchanged.
+
+Re-verified 2026-09-16 at v2026.9.14 (v0.21.3) by source inspection.
+APIServerAdapter._check_auth(self, request) keeps its signature. The routes are
+now a table: ("GET", "/health") and ("GET", "/v1/health") -> _handle_health (bare
+web.json_response, no auth), ("GET", "/health/detailed") ->
+_handle_health_detailed, which is wrapped by the new @_require_auth decorator.
+That decorator calls ``self._check_auth(request)`` at request time, so our
+class-level wrap still intercepts it. _probe_gateway_health moved to
+hermes_cli/web_server_gateway.py and still builds a bare
+urllib.request.Request(path, method="GET") with no Authorization header, trying
+/health/detailed first; GATEWAY_HEALTH_URL is still marked DEPRECATED. Patch stays
+required and unchanged.
 """
 
 import sys

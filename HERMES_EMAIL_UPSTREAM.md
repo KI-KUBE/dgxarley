@@ -702,6 +702,78 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 >   with the scale of the intervening refactor. Heads unchanged since 2026-08-17 (75775e5e91/
 >   16f1753624/aecb6942a5), comment counts unchanged at 5/3/5, no new review activity.
 
+> **2026-09-16 check, two more releases since v2026.9.7, adapter.py moves again but the delta is
+> much smaller than the 8.31->9.7 reweave; pin still unaffected:**
+> - **Latest release:** **v2026.9.14** (v0.21.3), published 2026-09-14T16:04:14Z, preceded by
+>   **v2026.9.11** (v0.21.2, published 2026-09-11T19:20:31Z). `hermes.image_tag` in
+>   `roles/k8s_infra/defaults/main/hermes.yml` remains `v2026.8.31` (confirmed by grep, no bump
+>   this cycle).
+> - **adapter.py progression:** v2026.9.7 (blob 18256ac1922d6bbee8c618ea67881cc63e5ccd5b, 47967
+>   bytes, 810 lines) -> v2026.9.11 (blob 47b57564ffd183dcfbab6e0fe8a22d8e503527f0, 48344 bytes)
+>   -> v2026.9.14 (blob 3a1b481438295a294f292718a639d9b79aa90191, 48587 bytes, 815 lines).
+>   `main`'s current blob for this file is identical to v2026.9.14 (same sha), so the release is
+>   at the tip of `main` for this path, nothing unreleased is pending.
+> - **Delta since v2026.9.7 is modest, not another structural reweave:** diffing v2026.9.7 against
+>   v2026.9.14 gives +34/-29 lines (vs -1134/+432 for the 8.31->9.7 jump). Driving commits:
+>   `fix(gateway): secondary-profile adapters no longer inherit the default's allow-all /
+>   allowlists` (cbd03e6e4c, 2026-09-10, a real correctness fix: `_allow_all_senders()` and
+>   `_allowlist_in_effect()` now iterate both `EMAIL_`/`GATEWAY_` scoped names instead of falling
+>   through to `os.getenv` on the unscoped `GATEWAY_*` name, which previously leaked the default
+>   profile's allow-all into secondary mailboxes under multiplex), `fix(email): thread attachment
+>   sends on the caller's reply_to` (b146cf1d0e, 2026-09-12, adds an optional `reply_to_msg_id`
+>   param to `_send_with_files`/`_send_email_with_attachment(s)`), `fix(platforms): carry the
+>   inbound message id into the session source everywhere` (719cb67bdb, 2026-09-12),
+>   `fix(platforms): standalone senders return redacted error envelopes` (73eadd54f5, 2026-09-13,
+>   replaces raw `{"error": ...}` dicts with a `send_error(...)` helper), `refactor(gateway):
+>   adapters share helpers.cancel_task / MessageDeduplicator / bounded_put` (9b1990583d,
+>   2026-09-13, `disconnect()` now calls a shared `cancel_task()` instead of inline
+>   cancel/suppress/await), and `refactor(platforms): one scoped-secret reader and spec-driven
+>   enablement/YAML-bridge boilerplate across all adapters` (de114b3af1, 2026-09-13, drops the
+>   local `_build_adapter` factory wrapper in favor of passing `EmailAdapter` directly to
+>   `register_platform`).
+> - **Anchor functions all survive by name and position class:** `connect()`, `_dispatch_message`,
+>   `_send_email`, `_send_email_with_attachments`, `_send_email_with_attachment`,
+>   `_standalone_send`, `class EmailAdapter` are all present in v2026.9.14 with unchanged
+>   responsibilities. The only signature drift on a patch-relevant function is
+>   `_send_with_files`/`_send_email_with_attachment(s)` gaining an optional `reply_to_msg_id`
+>   kwarg, additive and non-breaking for a future re-sync.
+> - **Our patch features remain upstream-exclusive:** grep of v2026.9.14's adapter.py for
+>   `_append_to_sent`, `_finalize_message`, `_imap_move`, `_ensure_folder`, `working_folder`,
+>   `done_folder`, `sent_folder`, `process_existing` = zero hits, same as every prior check.
+> - **Pin unaffected today:** `hermes.image_tag` stays `v2026.8.31`, so the running patch remains
+>   valid; the re-sync target keeps moving further from the pinned baseline (now three releases
+>   ahead: v2026.8.31 -> v2026.9.7 -> v2026.9.11 -> v2026.9.14) but no deployment action is forced
+>   by this entry.
+> - **PRs #28697/#28699/#28702 unchanged in substance:** all three remain OPEN, heads unchanged
+>   since 2026-08-17/2026-08-16 (75775e5e91/16f1753624/aecb6942a5), comment counts unchanged at
+>   5/3/5, no new review activity. Confirmed via the REST `mergeable_state` field (more reliable
+>   than the GraphQL `mergeStateStatus` used in the 09-10 entry) that **all three, not just
+>   #28697, are `dirty`**, consistent with the accumulating divergence since the 8.31->9.7
+>   reweave, not a new event this cycle.
+
+> **2026-09-16 re-sync, pin bumped v2026.8.31 -> v2026.9.14:**
+> - keel had already moved the running containers to v2026.9.14, so the defaults were bumped to
+>   match (otherwise the next `--tags hermes` run rolls them back to v2026.8.31).
+> - `hermes_email_gateway_patched.py` was rebuilt on the black-formatted v2026.9.14 baseline (blob
+>   3a1b481438). A 3-way `git merge-file` gave 17 conflicts, so every section was re-applied by
+>   hand. The full per-section account is in the patch header. In short: [PATCH-3] got smaller
+>   because upstream's `_inbox()` context manager and `_connect_imap` now handle opening, TLS and
+>   teardown. [PATCH-4] moved into `_probe_imap()`. [PATCH-6] now wraps `_sender_accepted()`.
+>   [PATCH-7] needs only one call site (`_smtp_send`).
+> - **New [PATCH-10]:** upstream added `EMAIL_IMAP_SECURITY` / `imap_security` (tls|starttls|plain)
+>   and defaults it to `tls` on every port. Our vault mailboxes use `imap_port: 143` without a
+>   security key, so the bump alone would have broken IMAP with an SSL handshake error.
+>   `_imap_default_security()` brings back the old port rule (993 -> tls, anything else ->
+>   starttls). An explicit setting still wins.
+> - Verification: `ast.parse` + `black --check`; the AST diff against the baseline shows only the
+>   patched functions changed and no upstream function missing; the `_dispatch_message` body
+>   inside the new `try` is AST-identical to upstream. A mock IMAP/SMTP harness (17 checks) passes
+>   on the patched file and fails on the raw upstream file. It covers port-derived security,
+>   process_existing true/false, the INBOX -> Working -> Done flow including the drop path, empty
+>   done/sent opt-outs, adapter Sent APPEND and standalone Sent APPEND over STARTTLS.
+> - The PRs #28697/#28699/#28702 are still OPEN, and the patch still carries their review-driven
+>   shape.
+
 1. Download the new upstream file:
 
    ```bash

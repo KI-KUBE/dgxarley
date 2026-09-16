@@ -209,7 +209,30 @@ hermes:
   #    Authorization header. Re-check on the next bump.
   #  * plugins/dashboard_auth/basic/__init__.py is BYTE-IDENTICAL to v2026.8.16,
   #    so the HERMES_DASHBOARD_BASIC_AUTH_* env contract is unchanged.
-  image_tag: "v2026.8.31"            # agent image (nousresearch/hermes-agent)
+  # Bumped v2026.8.31 -> v2026.9.14 (2026-09-16, v0.21.0 -> v0.21.3). Same keel
+  # drift again: the hermes + gateway containers already ran v2026.9.14 while the
+  # merge-config initContainer (and these defaults) still said v2026.8.31.
+  # Re-verified at v2026.9.14:
+  #  * plugins/platforms/email/adapter.py was REWRITTEN upstream (62238 -> 48587
+  #    bytes, ~17 commits) -> full re-port of hermes_email_gateway_patched.py,
+  #    details in its header. New [PATCH-10]: upstream added EMAIL_IMAP_SECURITY
+  #    (tls|starttls|plain) defaulting to "tls" on EVERY port, which would break
+  #    our imap_port 143 mailboxes; the patch restores the port-derived default
+  #    (993 -> tls, else starttls). plugin.yaml / __init__.py byte-identical.
+  #  * hermes_health_patch.py still required AND still applies: _check_auth(self,
+  #    request) unchanged; /health/detailed now goes through a @_require_auth
+  #    decorator that calls self._check_auth(request) (so the class-attribute
+  #    wrap still intercepts it); /health + /v1/health stay unauthenticated.
+  #  * GATEWAY_HEALTH_URL: _probe_gateway_health MOVED to
+  #    hermes_cli/web_server_gateway.py (env still read in web_server.py), still
+  #    DEPRECATED, still a bare urllib Request with no Authorization header.
+  #  * HERMES_DASHBOARD_BASIC_AUTH_{USERNAME,PASSWORD,SECRET} still read
+  #    (plugins/dashboard_auth/basic changed, env contract did not); dashboard
+  #    flags --host/--port/--insecure/--no-open still forwarded
+  #    (hermes_cli/main_dashboard.py). PlatformConfig.from_dict now also promotes
+  #    bare platform keys into extra, explicit `extra:` still wins, so
+  #    hermes_config.yaml.j2 needs no change.
+  image_tag: "v2026.9.14"            # agent image (nousresearch/hermes-agent)
   # NOTE: the venv site-packages dir (mount point for the hermes_health_patch
   # .py/.pth) is NOT configured here — it carries a pythonX.Y segment that bumps
   # with the base image. hermes.yml probes the actual image ONCE at deploy time
