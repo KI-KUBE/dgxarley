@@ -1,0 +1,138 @@
+# Model profile: vroomfondel/GLM-5.3-Flash-NVFP4-W4A4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# ── STATUS (2026-09-16): BLOCKED, NEVER BOOTED ANYWHERE ─────────────────────────
+# Our own surgical NVFP4 W4A4 top-up (kikube/quantizer/surgical_glm5next_nvfp4.py)
+# of LibertAIDAI/GLM-5.3-Flash-NVFP4, which is a ModelOpt experts-only NVFP4 export
+# of zai-org/GLM-5.3-Flash. The card says it plainly: no token has ever been
+# generated from this checkpoint. Two independent blockers stand between this
+# profile and a boot on GB10/SM121:
+#
+#   1. NO IMAGE CARRIES THE ARCHITECTURE. glm5_next support landed upstream AFTER
+#      the v0.5.19 tag (v0.5.19 released 2026-09-05; "GLM-5.3-Flash support" #36507
+#      merged 2026-09-06; "Support GLM-5.3 Flash NVFP4 loading" #38621 merged
+#      2026-09-09). The default xomoxcc/dgx-spark-sglang:0.5.19-sm121 has no
+#      Glm5NextForConditionalGeneration and fails at model resolution. The upstream
+#      cookbook itself says "not in a public sglang release yet" and ships the
+#      purpose-built lmsysorg/sglang:glm-5.3-flash image (x86/datacenter only).
+#      Needed: a main-ahead sm121 recipe pinned to a main commit >= #38621.
+#
+#   2. NO SM121 DSA ATTENTION PATH FOR KPOOL. GLM-5.3-Flash uses DSA with
+#      index_kpool=4 (compressed indexer keys). upstream dsa_backend_kpool.py
+#      raises NotImplementedError unless the DSA prefill/decode impl is one of
+#      fa3 / tilelang / trtllm ("index_kpool > 1 appends tail tokens to
+#      topk_indices"). On SM121 all three are dead as shipped (DSA_speedup.md):
+#      fa3 is gated to SM8x/9x, tilelang has the smem/compile contradiction,
+#      trtllm is trtllm-gen FMHA (ISA wall). The upstream SM12x auto-route to
+#      flashinfer_sparse_mla (#26928) is keyed on GlmMoeDsaForCausalLM only AND is
+#      not on the KPool allow-list. Our p34 (trtllm on SM12x + fp8 KV → flashinfer
+#      native SM120/121 sparse MLA) is the only plausible route, since it keeps the
+#      "trtllm" impl name KPool accepts, but it was written against the GlmMoeDsa
+#      code, must be re-anchored on the post-#36507 dsa_backend, and has to handle
+#      the KPool tail tokens appended to topk_indices. Same for the indexer: upstream
+#      main still offers only auto/deepgemm/cutedsl/aiter for paged-MQA logits
+#      (DeepGEMM hard-blocks SM121), so p30/p35 (torch + triton indexer) must be
+#      ported too, now on top of the KPool top-k JIT kernel (kpool_topk_transform).
+#
+# The backend values below are the ONLY combination that can work once both
+# blockers are fixed. They are a plan, not a measured config.
+#
+# ── ARCHITECTURE (verified against config.json 2026-09-16) ─────────────────────
+# Glm5NextForConditionalGeneration, model_type glm5_next (text: glm5_next_text,
+# vision: glm5_next_vision). Hybrid, 45 layers:
+#   - 34 KDA linear-attention layers (Kimi Delta Attention, 64 heads, head_dim 128,
+#     short conv 4) + 11 MLA/DSA full-attention layers (3,7,...,43; kv_lora_rank
+#     512, q_lora_rank 1536, qk_nope_head_dim 256, NO rope dims). KDA state goes
+#     through the MambaPool machinery (constant per request) → KV only grows on the
+#     11 MLA layers, so long context is cheap.
+#   - DSA indexer: 32 heads, index_head_dim 128, topk 2048, index_kpool 4.
+#   - mHC hyper-connections (hc_mult 4, sinkhorn 20 iters).
+#   - MoE: 288 routed experts, 8 active + 1 shared, sigmoid noaux_tc routing,
+#     routed_scaling_factor 2.5, swiglu_limit 10.0; layers 0-2 dense
+#     (intermediate 12288), expert intermediate 2048. hidden 4096, vocab 154880.
+#   - MTP: num_nextn_predict_layers=1, sits INSIDE the layer numbering as layer 45
+#     (kept BF16, incl. its shared experts / o_proj / q_b_proj in the ignore list).
+#   - Vision: 24-layer tower, patch 14, image 448 (kept BF16).
+#   - max_position_embeddings 1048576 (1M).
+#
+# ── QUANT (verified against config.json + README) ───────────────────────────────
+# modelopt 0.45.0, quant_algo NVFP4, group 16, W4A4 (the "input_activations": null
+# in config.json is inherited and misleading; input_scale tensors select W4A4).
+# FP4: routed experts (from the base export, byte-identical) + NEW: o_proj on all
+# 45 layers, q_b_proj on the 11 MLA layers, shared experts 3-44, dense MLP 0-2.
+# BF16: KDA state path, MLA low-rank compressions, DSA indexer, routers, mHC, MTP
+# layer 45, vision, lm_head, embed_tokens. The newly quantized input_scale values
+# are a data-free HEURISTIC (generous amax), not calibrated → a GSM8K gate against
+# LibertAIDAI/GLM-5.3-Flash-NVFP4 is mandatory before trusting output quality.
+# 176.4 GiB safetensors → ~44 GiB/GPU at TP=4. Upstream #38621 disables shared-
+# expert fusion only when shared experts are BF16 but routed are FP4; here both
+# are FP4, so fusion stays on (the "uniform-FP4" case its tests cover).
+_model_profile:
+  "vroomfondel/GLM-5.3-Flash-NVFP4-W4A4":
+    knowledge_cutoff: null  # not disclosed on the zai-org/GLM-5.3-Flash card
+    release_date: "2026-08-25"  # zai-org/GLM-5.3-Flash base (HF createdAt). This W4A4 top-up 2026-09-04.
+    info_url: "https://huggingface.co/vroomfondel/GLM-5.3-Flash-NVFP4-W4A4"
+    # ALTERNATIVE (experts-only base, calibrated scales): https://huggingface.co/LibertAIDAI/GLM-5.3-Flash-NVFP4
+    # ALTERNATIVE (upstream-cookbook NVFP4 W4A4): https://huggingface.co/RadixArk/GLM-5.3-Flash-NVFP4
+    # Image: no override → default_sglang_image, which CANNOT load glm5_next (blocker 1).
+    # Set this to the main-ahead GLM-5.3 build once it exists.
+    # sglang_image: "xomoxcc/dgx-spark-sglang:<main-ahead>-glm53-sm121"  # NOT BUILT
+    nccl_transport: "roce"
+    # 64 attention heads, 64 KV heads, 64 KDA heads, 32 indexer heads → TP=4 divides
+    # all of them. Cookbook runs TP=4 on GB300/GB200.
+    tp_size: 4
+    # Conservative first contact. KV only grows on 11 MLA layers (512-dim latent,
+    # fp8 → ~5.6 KB/token for all 11 layers, plus kpool-compressed indexer keys), so
+    # 262K is cheap memory-wise; raise toward the 1M native window once it serves.
+    context_length: 262144
+    quantization: "modelopt_fp4"
+    # The repo ships NO custom modeling/config .py (no auto_map); SGLang has native
+    # glm5_next config + model code, so remote code is never needed.
+    trust_remote_code: false
+    # KPool DSA asserts page_size == 64 (dsa_backend.py: "kpool path requires
+    # page_size == 64 and page_size % pool_size == 0"). page_size > 1 also lets the
+    # mamba radix cache auto-resolve to extra_buffer (linear_attn_backend triton).
+    page_size: 64
+    moe_runner_backend: "flashinfer_cutlass"  # cookbook NVFP4 recipe + our SM121 NVFP4 MoE path
+    fp4_gemm_backend: "flashinfer_cutlass"
+    # fp8 KV is REQUIRED for the only viable SM121 attention route: p34 reroutes
+    # dsa_*_backend=trtllm to flashinfer's native SM120/121 sparse MLA only with the
+    # fp8 (656-byte packed) KV pool. Cookbook's NVFP4 recipe uses bf16 + tilelang,
+    # which is dead on SM121.
+    kv_cache_dtype: "fp8_e4m3"
+    mem_fraction_static: "0.80"
+    # DSA attention (blocker 2). "trtllm" is the only KPool-accepted impl name that
+    # p34 can reroute on SM12x; without a ported p34 this dies in TllmGenFmhaRunner.
+    attention_backend: "dsa"
+    dsa_decode_backend: "trtllm"
+    dsa_prefill_backend: "trtllm"
+    # Indexer: DeepGEMM fp8_paged_mqa_logits hard-blocks SM121; torch is our p30
+    # choice (not an upstream option), p35 the triton-fused logits on top of it.
+    dsa_paged_mqa_logits_backend: "torch"
+    dsa_indexer_triton: true
+    jit_max_jobs: 4
+    disable_piecewise_cuda_graph: true
+    disable_cuda_graph: false
+    cuda_graph_max_bs: 32  # cookbook: --cuda-graph-max-bs-decode 32
+    pp_async_batch_depth: 0
+    disable_deep_gemm: true  # NVFP4 (scale_fmt != ue8m0); see the GLM-5.2 profiles
+    # Cookbook parsers. #38297 auto-detects GLM-5.3 templates as glm45/glm47 and
+    # #39227 forces reasoning mode. A dedicated glm53 tool-call detector (#37925) is
+    # still OPEN; re-check on the image bump.
+    reasoning_parser: "glm45"
+    tool_call_parser: "glm47"
+    num_experts: 288
+    ep_size: 1
+    recommended_sampling:
+      temperature: 1.0  # generation_config.json
+      top_p: 0.95       # generation_config.json
+    # MTP head (layer 45) is present and BF16. Cookbook low-latency recipe uses
+    # --speculative-algorithm EAGLE 5/1/6 (not NEXTN). OFF for first contact: the
+    # base model has never booted on SM121, and on GLM-5.2 the DSA verify path needed
+    # extra indexer work (dsalogitrework.md Phase 2) before MTP was safe. Enable only
+    # after a clean base boot + GSM8K gate.
+    speculative_enabled: false
+    speculative_algo: "EAGLE"
+    speculative_num_steps: 3
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 4  # = num_steps + 1

@@ -118,5 +118,11 @@ _model_profile:
     # plain gemma4 image rejects --dllm-algorithm Gemma4Renoise. Built from
     # sglang-0.5.14-gemma4-diffusion-sm121.recipe (THE unified Gemma image — all
     # five Gemma profiles share it) via scripts/build_sm121_image.sh.
+    # 2026-09-16: override COMMENTED OUT → falls back to default_sglang_image
+    # (xomoxcc/dgx-spark-sglang:0.5.19-sm121). That image does NOT carry PR #28054:
+    # v0.5.19 ships only the joint_threshold / low_confidence dLLM algorithms, no
+    # Gemma4Renoise and no gemma4_diffusion model, so this profile will NOT boot on
+    # the default image. To run it, re-enable the gemmadiffusion image line below
+    # (or port #28054 onto a 0.5.19 recipe).
     # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.13-gemmadiffusion-sm121"  # prior v0.5.13 diffusion image
     # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.14-gemmadiffusion-sm121"
