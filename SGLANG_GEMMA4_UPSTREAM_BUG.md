@@ -389,6 +389,35 @@ comment since 2026-07-17. No change to the bottom line: NVFP4 Gemma-4 MoE on
 SM121 remains blocked, `attention_backend: triton` remains mandatory for all
 four Gemma-4 profiles.
 
+**Re-verified 2026-09-16:** No new SGLang release since v0.5.19 (2026-09-05,
+still latest). All four tracked PRs (#22929/#22928/#22927/#22615) remain
+CLOSED unmerged, unchanged since 2026-08-18/19. PRs #29304/#29305 remain
+OPEN, draft, mergeStateStatus UNKNOWN, no update since 2026-06-28/29. New
+development: issue #30887 (the ModelOpt gated-MoE intermediate-padding
+assert, the same `is_gated` guard this doc's root cause item 4 tracks) was
+CLOSED 2026-09-16T00:27:56Z by the `github-actions` idle-issue bot
+("automatically closed due to inactivity"), labeled `inactive`. This is a
+bot closure, not a fix: no new technical comment since the 2026-07-17
+`kenzhangwangshu` report (a second affected model,
+`stepfun-ai/Step-3.7-Flash-NVFP4`, hitting the same `is_gated` padding
+assert), and `_SUPPORTED_ACT_STRS`/the padding assert in `modelopt_quant.py`
+are unchanged in substance. Checked the one upstream commit that touched
+`modelopt_quant.py` since the last cycle (`cebca698`, 2026-09-13, PR #39126,
+"[Qwen3.8] Enable NVIDIA NVFP4 on DGX Spark ..."): its diff only adds
+`ModelOptMixedPrecisionConfig` FP8_BLOCK_SCALES plumbing and VL-model
+prefix-candidate handling, and does not touch `_SUPPORTED_ACT_STRS` or the
+`is_gated` assert, so the Gemma4 MoE-GEMM blocker is unaffected. Also
+checked `arg_groups/model_hook.py`'s latest commit (`2cbfaef`, 2026-09-16,
+PR #38453): AMD/ROCm-only fp8 `wo_a` GEMM probe, does not touch the Gemma4
+attention-backend allowlist. Local note: commit `780a65a` (this repo,
+2026-09-16) is a comment-only cleanup of the three live Gemma-4 profiles'
+image-rationale text (already correctly describing v0.5.19, `#30448`'s
+removal of `cutlass_moe_fp4`, and the still-mandatory `triton` attention
+backend); it reflects information already tracked in this doc and
+introduces no new upstream fact. No change to the bottom line: NVFP4
+Gemma-4 MoE on SM121 remains blocked, `attention_backend: triton` remains
+mandatory for all four Gemma-4 profiles.
+
 ## Affected models
 
 | Model                                         | Type                               | Quantization | Current status (`0.5.11-gemma4-sm121` image)                                                                                                |

@@ -94,6 +94,17 @@
 > `kv_lora_rank`/DeepSeek-V4-Flash config parsing either; cross-reference:
 > `UPSTREAM_DSV4_BUGS.md` §1/Wall 1 re-confirmed the same for this cycle).
 > Monkey-patch still required, no location change.
+>
+> **Re-verified 2026-09-16:** no new transformers release since v5.17.0
+> (2026-09-09); no new SGLang release since v0.5.19 (2026-09-05). Direct
+> source check confirms `kv_lora_rank: int = 512` is still present, unchanged,
+> at `configuration_deepseek_v3.py:93` on both the v5.17.0 tag and
+> `transformers` `main`. Cross-reference: `UPSTREAM_DSV4_BUGS.md` §1/Wall 1
+> re-confirmed the same for this cycle; local patch
+> `roles/k8s_dgx/files/sglang_patches/p56_deepseek_v3_kv_lora.py` re-checked
+> against the 2026-09-11 sglang-0.5.19 patch re-anchor (commit `958c98d`) and
+> is unaffected (not touched by that commit, not listed in
+> `RETIRED_PATCHES.md`). Monkey-patch still required, no location change.
 
 
 ## Summary
