@@ -52,6 +52,7 @@ hf_preload_image: "python:3.14-slim"
 hf_preload_hub_min_version: "1.26.0"
 # HuggingFace model pre-download Job
 hf_preload_models:
+  - "vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt"
   - "RadixArk/Qwen3.8-Flash-Next-NVFP4"
   - "vroomfondel/GLM-5.3-Flash-NVFP4-W4A4"
   - "vroomfondel/Hy3-NVFP4-W4A4"

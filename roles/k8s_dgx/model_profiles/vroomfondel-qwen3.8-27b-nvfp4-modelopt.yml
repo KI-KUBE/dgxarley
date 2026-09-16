@@ -135,7 +135,7 @@ _model_profile:
     # it is the release that carries the merged PR #31220 (quantized attention
     # + baked KV scales for qwen3_5) this checkpoint depends on, and it is the
     # version the target was smoke-tested on.
-    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.18-sm121"
+#    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.18-sm121"
     nccl_transport: roce
     # DSPARK requires pp_size == 1 (_handle_dspark raises otherwise), so TP is
     # the only topology that can also speculate. TP=4 matches the standard
@@ -208,7 +208,7 @@ _model_profile:
     # block_size turns into a loud boot error. Pinning 7 here would instead
     # override the checkpoint silently and run the draft outside the window it
     # was trained for.
-    speculative_enabled: true
+    speculative_enabled: false
     speculative_algo: DSPARK
     speculative_draft_model_path: "RadixArk/Qwen3.8-27B-DSpark"
     speculative_num_steps: 1
