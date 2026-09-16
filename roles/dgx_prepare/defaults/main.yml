@@ -104,3 +104,15 @@ dgx_protect_pkg_regex: '^(nvidia-|nv-|nvgpu-|dgx-|hpc-sdk-repo|kdump-tools|kexec
 # here has a runtime consumer. Empty the list to skip the removal entirely.
 dgx_desktop_apps_remove:
   - "libreoffice*"
+
+# Kernel `cma=` boot parameter, rendered into /etc/default/grub.d/zz-cma.cfg by
+# tasks/kernel_cma.yml (tags: kernel, cma). Workaround for the DGX Spark kernel
+# 7.0.0-1019-nvidia regression: KHO's default scratch reservation leaves
+# CmaTotal at 0 kB, and multi-node NCCL over RoCE then fails with
+# `ibv_reg_mr_iova2 ... Cannot allocate memory` plus host-kernel
+# `NVRM ... NV_ERR_NO_MEMORY ... _memdescAllocInternal` once enough of the unified
+# pool is CUDA-resident. 128M restores the 6.17 value (CmaTotal 131072 kB) and is
+# harmless on 6.17. NVIDIA's `kho=off` alternative did not help several users.
+# https://forums.developer.nvidia.com/t/383023
+# Empty string removes the drop-in. Takes effect only after a reboot.
+dgx_kernel_cma: "128M"

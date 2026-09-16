@@ -43,6 +43,10 @@
   ansible.builtin.import_tasks: kernel_params.yml
   tags: kernel
 
+- name: Set kernel cma= boot parameter (GRUB drop-in)
+  ansible.builtin.import_tasks: kernel_cma.yml
+  tags: [kernel, cma]
+
 - name: Disable GUI / graphical target
   ansible.builtin.import_tasks: disable_gui.yml
   tags: disable_gui

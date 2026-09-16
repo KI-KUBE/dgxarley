@@ -1,0 +1,54 @@
+---
+# See dgx_kernel_cma in defaults/main.yml for why this exists. A `zz-` drop-in,
+# not /etc/default/grub: the DGX-OS grub.d snippets rewrite the cmdline after
+# /etc/default/grub is read (same reason as the drop-ins in disable_gui.yml).
+- name: Check for GRUB drop-in directory
+  ansible.builtin.stat:
+    path: /etc/default/grub.d
+  register: _grub_d_dir
+
+- name: Manage zz-cma GRUB snippet
+  ansible.builtin.copy:
+    dest: /etc/default/grub.d/zz-cma.cfg
+    mode: "0644"
+    content: |
+      GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX cma={{ dgx_kernel_cma }}"
+  register: _grub_cma_changed
+  when:
+    - _grub_d_dir.stat.isdir | default(false)
+    - dgx_kernel_cma | length > 0
+
+- name: Remove zz-cma GRUB snippet
+  ansible.builtin.file:
+    path: /etc/default/grub.d/zz-cma.cfg
+    state: absent
+  register: _grub_cma_removed
+  when:
+    - _grub_d_dir.stat.isdir | default(false)
+    - dgx_kernel_cma | length == 0
+
+- name: Update GRUB after cma change
+  ansible.builtin.command: update-grub
+  when: _grub_cma_changed is changed or _grub_cma_removed is changed
+
+- name: Read running kernel cmdline and CMA size
+  ansible.builtin.shell: |
+    set -o pipefail
+    echo "cmdline_cma=$(grep -o 'cma=[^ ]*' /proc/cmdline || true)"
+    echo "cma_total_kb=$(awk '/^CmaTotal:/ {print $2}' /proc/meminfo)"
+    echo "kernel=$(uname -r)"
+  args:
+    executable: /bin/bash
+  register: _cma_state
+  changed_when: false
+  check_mode: false
+
+# No reboot here on purpose: rebooting the sparks tears down the SGLang TP group
+# and must be a deliberate, operator-driven step.
+- name: Report whether a reboot is still needed for cma
+  ansible.builtin.debug:
+    msg: >-
+      {{ _cma_state.stdout_lines | join(', ') }}.
+      {{ 'REBOOT REQUIRED to apply cma=' ~ dgx_kernel_cma
+         if (dgx_kernel_cma | length > 0 and ('cma=' ~ dgx_kernel_cma) not in _cma_state.stdout)
+         else 'Running kernel matches the configured cma setting.' }}
