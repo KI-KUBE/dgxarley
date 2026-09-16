@@ -145,3 +145,4 @@ litellm_model_list_append: >-
      + (_litellm_embed_model_list if (enable_embedding_model | default(false) | bool) else []) }}
 # Dummy: exclude nothing. Real vault value drops the local ollama chat model.
 litellm_model_list_exclude: []
+_litellm_cloud_model_list: []

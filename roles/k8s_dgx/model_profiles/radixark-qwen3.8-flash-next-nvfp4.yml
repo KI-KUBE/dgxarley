@@ -2,19 +2,27 @@
 # Model profile: RadixArk/Qwen3.8-Flash-Next-NVFP4
 # Loaded by include_vars in the k8s_dgx role, merged into sglang_model_profiles.
 #
-# STATUS 2026-08-28: BUILDABLE, NOT YET BUILT, NEVER RUN HERE.
-#   The architecture support and both GB10 fixes are now wired in this repo, so
-#   there is no longer an upstream blocker. What is missing is the image itself
-#   and a first serving run. Nothing below has been measured on THIS cluster.
+# STATUS 2026-09-16: IMAGE BUILT, NEVER RUN HERE.
+#   The architecture support and both GB10 fixes are wired in this repo, and
+#   xomoxcc/dgx-spark-sglang:0.5.18-sm121 is on Docker Hub (pushed 2026-08-28).
+#   What is missing is a first serving run. Nothing below has been measured on
+#   THIS cluster.
+#   NOT on 0.5.19-sm121: the #36497 patch does not apply to v0.5.19 (15 files
+#   with rejected hunks), so that recipe sets APPLY_QWEN4EXP_PR36497=0. #36497
+#   itself was CLOSED unmerged; the architecture landed on upstream main via
+#   #37500 (2026-09-08, after the v0.5.19 tag), plus "Enable NVIDIA NVFP4 on DGX
+#   Spark" #39126 (2026-09-13, tested on nvidia/Qwen3.8-Flash-Next-NVFP4, not
+#   this RadixArk export). Expected native in v0.5.20; re-check whether p65 is
+#   still needed on that bump.
 #
 # HOW IT GETS SERVED HERE (two halves, deliberately split)
 #   BUILD half: scripts/patches/sglang-0.5.18-sm121.recipe now sets
 #     APPLY_QWEN4EXP_PR36497=1, which applies scripts/patches/sglang-qwen4exp-
-#     pr36497.patch (upstream PR #36497, still OPEN, captured from the
+#     pr36497.patch (upstream PR #36497, CLOSED unmerged, captured from the
 #     upstream-owned branch qwen4-main-squashed @ 99c9362e; 94 files,
 #     +18415/-86). That PR is the ONLY implementation of
 #     Qwen4ExpForConditionalGeneration / model_type qwen4_exp: it is not in
-#     v0.5.18 and not in main. Both `git apply --check` and `patch --dry-run`
+#     v0.5.18 (main got it later via #37500). `git apply --check` and `patch --dry-run`
 #     are clean against raw v0.5.18. So the STANDARD 0.5.18-sm121 tag carries
 #     the model; there is no variant image.
 #   RUNTIME half: roles/k8s_dgx/files/sglang_patches/p65_qsa_sm121_sparse_
@@ -23,8 +31,7 @@
 #     at all, and a DEFENSIVE veto that keeps it off a path which is silently
 #     wrong here. The veto lives at runtime precisely so it survives image
 #     re-bumps.
-#   The image must be built first (spark5, as usual); it does not exist yet.
-#   Accept it with:
+#   The image is built (spark5, 2026-08-28). Gate it with:
 #     EXPECT_QWEN4EXP=1 scripts/verify_sglang_image.sh \
 #         xomoxcc/dgx-spark-sglang:0.5.18-sm121 spark5
 #   which fails unless qwen4_exp imports AND the SM121 veto is live.
@@ -205,13 +212,13 @@ _model_profile:
     info_url: "https://huggingface.co/RadixArk/Qwen3.8-Flash-Next-NVFP4"
     # The STANDARD 0.5.18-sm121 tag, not a variant: its recipe now sets
     # APPLY_QWEN4EXP_PR36497=1, so the architecture is in the normal image.
-    # THE TAG DOES NOT EXIST YET (the recipe is written, the build has not
-    # run), so an accidental deploy dies at ImagePullBackOff rather than after
-    # a weight load. Pinned rather than inherited from default_sglang_image on
-    # purpose: 0.5.17-sm121 and everything older have no qwen4_exp at all, and
-    # a bare `git checkout` of an older default must not silently point this
-    # profile at an image that cannot load the checkpoint.
-    # Build on spark5, then gate with:
+    # The tag is on Docker Hub since 2026-08-28. Pinned rather than inherited
+    # from default_sglang_image on purpose: 0.5.17-sm121 and everything older
+    # have no qwen4_exp at all, and neither does the current default
+    # 0.5.19-sm121 (patch no longer applies, see STATUS), so inheriting the
+    # default would point this profile at an image that cannot load the
+    # checkpoint.
+    # Gate with:
     #   EXPECT_QWEN4EXP=1 scripts/verify_sglang_image.sh \
     #       xomoxcc/dgx-spark-sglang:0.5.18-sm121 spark5
     sglang_image: "xomoxcc/dgx-spark-sglang:0.5.18-sm121"
