@@ -432,6 +432,11 @@ _sglang_nccl_env_socket:
   NCCL_NET: "Socket"
   NCCL_IB_DISABLE: "1"
 sglang_nccl_env: "{{ _sglang_nccl_env_roce if sglang_nccl_transport == 'roce' else _sglang_nccl_env_socket }}"
+# Optional per-model-profile NCCL env overrides (e.g. NCCL_MAX_NCHANNELS).
+# Merged into the ConfigMap ON TOP of the built-in NCCL_* keys above, so a
+# profile can also override one of them (e.g. NCCL_DEBUG). Values are cast
+# to strings since Kubernetes ConfigMap data must be map[string]string.
+sglang_nccl_env_extra: "{{ dict((sglang_model_profiles[_sglang_active_model].nccl_env | default({})).items() | map('map', 'string')) }}"
 # NCCL NVLS (NVLink SHARP) — force-disabled by default. NVLS is a no-op on the
 # Sparks' C2C/RoCE fabric anyway (no NVLink/NVSwitch), so "0" costs nothing.
 # The reason we pin it: NCCL 2.30.4 has a regression where the NVLS code path
