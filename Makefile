@@ -28,9 +28,19 @@ install: .venv
 
 .venv: .venv/touchfile
 
-.venv/touchfile: requirements.txt
+# requirements-build.txt pulls requirements-dev.txt (and that requirements.txt),
+# so the venv gets the tools every target below invokes as .venv/bin/<tool>:
+# black, isort, mypy, pytest, pre-commit, hatch. A venv built from
+# requirements.txt alone left all of them missing.
+# TORCH_REQUIREMENTS picks the torch build mypy resolves its stubs from
+# (roles/k8s_dgx/files/*.py and scripts/debughelper/*.py import torch, and torch
+# is not in the ignore_missing_imports list). Override on a CPU-only box:
+#   make install TORCH_REQUIREMENTS=requirements-dev-cpu.txt
+TORCH_REQUIREMENTS ?= requirements-dev-gpu.txt
+
+.venv/touchfile: requirements.txt requirements-dev.txt requirements-build.txt $(TORCH_REQUIREMENTS)
 	test -d .venv || python3.14 -m venv .venv
-	$(VENV_BIN)/pip install -r requirements.txt
+	$(VENV_BIN)/pip install -r requirements-build.txt -r $(TORCH_REQUIREMENTS)
 	touch .venv/touchfile
 
 # `pytest` takes no path argument on purpose: an explicit target overrides
