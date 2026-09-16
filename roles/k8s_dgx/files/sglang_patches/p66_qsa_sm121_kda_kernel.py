@@ -37,6 +37,11 @@ GATES
   target_contains on the QSA backend, so every image without qwen4exp logs one
   "gate not matched" line. The two source edits run only when all three modules
   were written AND imported, since routing to a missing kernel would crash decode.
+  The routing edit additionally requires env TP in {1, 2} (set on head and worker
+  from sglang_tp): at TP4 the kernel would raise on every decode, so TP4 keeps
+  p65's FA4 fallback. The modules and the registry entry are still installed
+  there, they are inert without the routing edit. Patches run once per fresh
+  container, so a TP change always re-evaluates this gate.
 
 DELETE WHEN the image is built from a qwen4exp source that already contains
 78c5024e (or upstream main with #36845's kernel), i.e. when the backend file
@@ -587,7 +592,7 @@ _SM121_BRANCH = """    from sglang.srt.utils import is_sm121
 patch_backend = Patch(
     name="route SM121 QSA decode to the KDA kernel (#36845)",
     target=BACKEND,
-    when=_modules_ok,
+    when=_modules_ok and os.environ.get("TP", "") in ("1", "2"),
 )
 
 
