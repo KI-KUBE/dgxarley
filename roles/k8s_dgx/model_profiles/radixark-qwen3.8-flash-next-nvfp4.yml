@@ -231,7 +231,7 @@ _model_profile:
     # / triton / cutlass MoE all crash at EP>1 (StandardDispatcher combine bug).
     # At EP=1 every GPU holds all 512 experts TP-sharded on the intermediate
     # dim, so there is no per-layer EP all-reduce.
-    ep_size: 1
+    ep_size: 4
     num_experts: 512
     enable_eplb: false
     enable_expert_distribution_metrics: false
@@ -269,7 +269,7 @@ _model_profile:
     # conservative first-contact value at TP=4. On this hybrid the mamba pool
     # usually clamps concurrency before KV does, so if max_running_requests
     # gets clamped low, raise max_mamba_cache_size rather than this.
-    mem_fraction_static: "0.70"
+    mem_fraction_static: "0.60"
     # Pinned to 64 to match what SGLang itself forces. _qwen4_exp_overrides
     # sets page_size 64 UNCONDITIONALLY for the compressed QSA variant: the
     # compressed cache is addressed as full_slot // compress_ratio (the DSV4
