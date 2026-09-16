@@ -505,6 +505,20 @@ small (~50 MB) and the node has fast local storage.
   `hermes.image_tag` unchanged at `v2026.8.31` (no bump this cycle). Conclusions unchanged; the
   Action Item (EACCES re-verification with a non-10000 UID) remains outstanding and deferred by
   the user, not performed here.
+- **Re-verified 2026-09-16:** two new releases since v2026.9.7, **v2026.9.11** (v0.21.2,
+  published 2026-09-11) and **v2026.9.14** (v0.21.3, published 2026-09-14, latest). Release
+  notes for both grepped for `tui|npm install|lockfile|reinstall|EACCES|package-lock|workspace
+  lock|node_modules`: zero hits in either. v2026.9.11's only CLI/TUI-adjacent item is a
+  prompt-cache fix on Desktop<->TUI surface switching (#105844/#105842), unrelated to npm-install.
+  v2026.9.14's only CLI/TUI-adjacent item is a JSON-RPC/wire-contract registry for the TUI/Desktop
+  gateway (#110521/#110522) plus a "multiplexed-profile isolation and gateway-liveness fixes"
+  line item (the same allow-all fix already logged in HERMES_EMAIL_UPSTREAM.md's 2026-09-16
+  entry), neither touches the npm-install/lockfile path. Issue #66978 (Trigger 2 fix) remains
+  CLOSED, unchanged since 2026-08-25. Issue #45657 remains OPEN, same 10 comments, unchanged
+  since 2026-08-26. PR #67011 remains CLOSED/unmerged as superseded, unchanged since 2026-09-09
+  (no new movement this cycle). `hermes.image_tag` unchanged at `v2026.8.31` (confirmed by grep,
+  no bump this cycle). Conclusions unchanged; the Action Item (EACCES re-verification with a
+  non-10000 UID) remains outstanding and deferred by the user, not performed here.
 
 ## Action Items
 
