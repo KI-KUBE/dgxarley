@@ -5,6 +5,21 @@
 # instance. Resource names are prefixed with inst.prefix (= "sglang" for the
 # "default" instance, so its resources are byte-identical to the old layout).
 
+# A profile/instance `nodes` list maps rank -> spark-id label. Max 4 entries: the
+# QSFP IP lists in defaults/main/qsfp.yml and the excess-worker cleanup stop at
+# rank 3. A duplicate would put two ranks on one GPU.
+- name: Validate node placement ({{ inst.prefix }})
+  ansible.builtin.assert:
+    that:
+      - inst.nodes | length >= 1
+      - inst.nodes | length <= 4
+      - inst.nodes | map('int') | unique | list | length == inst.nodes | length
+      - inst.nodes | map('int') | select('ge', 1) | select('le', sglang_nnodes | int) | list | length == inst.nodes | length
+    fail_msg: >-
+      Instance '{{ inst.prefix }}': nodes={{ inst.nodes }} must be 1-4 unique
+      spark-ids within 1..{{ sglang_nnodes }} (nodes[0] = head).
+    success_msg: "{{ inst.prefix }}: head spark{{ inst.nodes[0] }}, workers {{ inst.nodes[1:] }}"
+
 # Validate parallelism fits the node count BEFORE creating anything. Catches a
 # profile/instance tp_size that doesn't divide the node count (which would
 # otherwise yield pp=0) and an ep that doesn't divide tp.

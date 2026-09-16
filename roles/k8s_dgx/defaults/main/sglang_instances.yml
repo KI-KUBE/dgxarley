@@ -11,7 +11,9 @@
 # Per-instance keys (all optional — _sglang_instance_defaults supplies the rest):
 #   nodes:         list of spark-ids; nodes[0] = head (rank 0), the rest are
 #                  workers (rank 1..N), placed on those spark-ids in order.
-#                  Default: all sglang_nnodes sparks, [1..N].
+#                  Default: the model profile's `nodes` key if set, else all
+#                  sglang_nnodes sparks, [1..N]. Precedence: instance > profile
+#                  > [1..sglang_nnodes].
 #   model:         HF model id. Default: global sglang_model. All model-derived
 #                  knobs (tp/pp/ep, context_length, quantization, image, kernel
 #                  backends, speculative, …) re-resolve from THIS model's
@@ -209,8 +211,13 @@ sglang_enable_metrics: true
 # via sglang_instances.<key>.external_enabled.
 sglang_external_enabled: true
 
+# nodes resolves against the profile of the ENTRY's model (not sglang_model), so a
+# companion with its own model picks up that model's placement. _inst_item is the
+# loop var of sglang.yml; the defaults are templated lazily inside that loop.
 _sglang_instance_defaults:
-  nodes: "{{ range(1, (sglang_nnodes | int) + 1) | list }}"
+  nodes: >-
+    {{ (sglang_model_profiles[_inst_item.value.model | default(sglang_model)] | default({})).nodes
+       | default(range(1, (sglang_nnodes | int) + 1) | list) }}
   model: "{{ sglang_model }}"
   prefix: "{{ 'sglang' if _inst_key == 'default' else 'sglang-' ~ _inst_key }}"
   hostname: "{{ 'sglang' if _inst_key == 'default' else 'sglang-' ~ _inst_key }}"
