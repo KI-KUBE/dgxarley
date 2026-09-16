@@ -163,27 +163,24 @@
 #      Sparks), not with sglang.kernels.ops.attention.flash_attention_v4 which
 #      p65 routes to. The evidence supports the direction, not that exact
 #      kernel. This is the single biggest unknown in this profile.
-#   C. TOOL CALLING IS BROKEN FOR THIS MODEL ON SGLANG TODAY, and thinking is
-#      ON BY DEFAULT (it is NOT unconditional: the chat template carries the
-#      standard Qwen3 `enable_thinking` toggle, default true, and
-#      chat_template_kwargs.enable_thinking=false renders an empty
+#   C. TOOL CALLING. Thinking is ON BY DEFAULT (not unconditional: the chat
+#      template carries the standard Qwen3 `enable_thinking` toggle, default
+#      true; chat_template_kwargs.enable_thinking=false renders an empty
 #      <think></think> block. Verified against the checkpoint's own
-#      chat_template.jinja, 2026-08-28. An earlier revision of this profile
-#      claimed thinking could not be turned off; that was wrong).
-#      Upstream #36537: thinking + >=1 tool + `--tool-call-parser qwen3_coder`
-#      makes it emit token ID 0 forever until max_tokens, no tool call
-#      returned. The issue names exactly two escapes, and we take the first:
-#        (a) drop the tool-call parser. Thinking keeps working and a correct
-#            native <tool_call><function=...> block comes back, but as plain
-#            content, not message.tool_calls.
-#        (b) send chat_template_kwargs.enable_thinking=false per request.
-#            Works per the issue, but it is a per-CALLER opt-in that nothing in
-#            this cluster sets, so it cannot be relied on here.
-#      So tool_call_parser is deliberately LEFT UNSET below, and this model is
-#      NOT a candidate for hermes-default (Honcho and Hindsight both
-#      hard-require working function calling) until #36537 is fixed. NOTE the
-#      token-0 signature is shared with risk A but the cause is different: this
-#      one reproduces at any context length and disappears with thinking off.
+#      chat_template.jinja, 2026-08-28).
+#      Upstream #36537 reported thinking + >=1 tool + `--tool-call-parser
+#      qwen3_coder` emitting token ID 0 forever. #36806 (merged 2026-08-28,
+#      closes #36537) showed the token IDs are already zero BEFORE the parser:
+#      the cause is the QSA sparse-decode varlen fallback, not qwen3_coder. On
+#      SM121 that fallback is still taken, and p65 repairs exactly that
+#      fallback (routes it to SGLang's FA4 dispatcher, the same one-function
+#      fix the #36537 reporter verified at 0/42 corrupt on SM120).
+#      2026-09-16: without a parser the model emitted a correct native
+#      <tool_call><function=...> block in plain content (thinking on and off),
+#      but message.tool_calls stayed null, so no client saw a tool call.
+#      tool_call_parser is therefore set to qwen3_coder below. Still watch for
+#      runs of "!" (token 0) on tool requests; that signature is shared with
+#      risk A.
 #   D. MoE runner on a 640-wide gated MoE. moe_runner_backend below is the
 #      cluster's SM121 NVFP4 default, NOT something the cookbook states (its
 #      NVFP4 cells pin no MoE runner). If the boot dies on the NVFP4 gated-MoE
@@ -223,25 +220,18 @@ _model_profile:
     #       xomoxcc/dgx-spark-sglang:0.5.18-sm121 spark5
     sglang_image: "xomoxcc/dgx-spark-sglang:0.5.18-sm121"
     nccl_transport: "roce"
-    # 2026-09-16 experiment: at the default 64 channels the SECOND NCCL communicator
-    # (created lazily after weights + KV/mamba pools are allocated) fails its ring
-    # connect on every rank with `ibv_reg_mr_iova2 ... Cannot allocate memory`,
-    # coinciding with host-kernel `NVRM: ... NV_ERR_NO_MEMORY ... _memdescAllocInternal`
-    # while ~75 GB system RAM is free. So the limit is inside the NVIDIA driver, not
-    # the Linux allocator. 16 channels cuts the per-communicator registrations to a
-    # quarter. 64 channels + two communicators were fine on 2026-07-25 (Qwen3.6-35B,
-    # 0.5.15.post1), so this is a workaround under test, not a known root cause.
-    nccl_env:
-      NCCL_MAX_NCHANNELS: "16"
-    # 135 GB does not fit one 128 GB Spark, so TP=4 (head + 3 workers) is the
-    # only topology. The cookbook's NVFP4 cells all run TP=1 on a single
-    # B200/B300/GB300 card, so none of their measured numbers transfer.
-    tp_size: 4
-    # EP stays 1 for the whole NVFP4 family on this cluster: flashinfer_cutlass
-    # / triton / cutlass MoE all crash at EP>1 (StandardDispatcher combine bug).
-    # At EP=1 every GPU holds all 512 experts TP-sharded on the intermediate
-    # dim, so there is no per-layer EP all-reduce.
-    ep_size: 4
+    # 2026-09-16: TP=2 on spark1+spark2, NOT the full 4 nodes. The only correct
+    # SM121 QSA sparse-decode kernel (upstream #36845, backported as runtime
+    # patch p66) qualifies TP1 (24q/2kv) and TP2 (12q/1kv) ONLY and raises on
+    # any other shape. TP4 had to run on p65's FA4 fallback, which collapsed
+    # 3/16 short generations into "!" runs. 135 GB does not fit one 128 GB
+    # Spark, so TP2 is the smallest topology (~70 GB/rank of weights).
+    nodes: [1, 2]
+    tp_size: 2
+    # EP=1 is safe from the NVFP4 gated-MoE padding assert at TP=2:
+    # moe_intermediate_size 640 / 2 = 320 per rank, 2x320 = 640 = 5x128, already
+    # aligned. (At TP=4 it was 160 -> 320, unaligned, hence the earlier ep_size 4.)
+    ep_size: 1
     num_experts: 512
     enable_eplb: false
     enable_expert_distribution_metrics: false
@@ -271,8 +261,8 @@ _model_profile:
     # NVFP4 scale_fmt is not ue8m0, so the DeepGemm JIT kernels are not
     # optimized for it. Standard for every NVFP4 profile here.
     disable_deep_gemm: true
-    # POST-WEIGHT KV reserve, not a fraction of total. ~34 GB/rank of weights
-    # against 128 GB unified leaves room, but do not read that as licence to
+    # POST-WEIGHT KV reserve, not a fraction of total. ~70 GB/rank of weights at
+    # TP=2 (~40 GB measured at TP=4) against 128 GB unified leaves room, but do not read that as licence to
     # raise this: the upstream 2x-Spark runs used 0.90 and had to drop to 0.82
     # to stay clean at 240k, because the QSA indexer prefill workspace (see
     # chunked_prefill_size) competes for exactly this headroom. 0.70 is the
@@ -348,16 +338,10 @@ _model_profile:
     # own schema. Thinking is turned OFF with enable_thinking=false
     # (sglang-test --no-think), never with a level.
     reasoning_efforts: ["xhigh", "medium", "low"]
-    # tool_call_parser is INTENTIONALLY UNSET, and that is a DEVIATION from
-    # auto-detection, not just an omission: the same template_detection run
-    # resolves the TOOL side to qwen3_coder, i.e. `--tool-call-parser auto`
-    # would select exactly the parser that breaks. qwen3_coder + thinking +
-    # tools is a deterministic token-ID-0 repetition loop on this model
-    # (#36537), and thinking is on unless the CALLER opts out per request.
-    # Unset means the model's native <tool_call><function=...> block arrives as
-    # plain content instead of message.tool_calls, which is degraded but not
-    # broken. Do NOT wire this model behind hermes-default until #36537 is
-    # fixed. See risk C (not B).
+    # qwen3_coder is also what SGLang's template auto-detection resolves for
+    # this checkpoint. Set on 2026-09-16 after #36806 moved the #36537 token-0
+    # loop out of the parser (see risk C).
+    tool_call_parser: "qwen3_coder"
     # From the checkpoint's generation_config.json (do_sample true). The
     # cookbook notes Qwen published no sampling recommendation for this
     # preview and suggests leaving it to the checkpoint, which is what these
