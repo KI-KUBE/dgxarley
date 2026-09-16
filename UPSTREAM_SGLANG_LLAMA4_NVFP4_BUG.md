@@ -262,3 +262,37 @@ anchors, and update the two heredoc blocks in `sglang_launch.sh`. Verify with th
   since 2026-08-09. Does not affect the 5 local `sglang_launch.sh` runtime
   patches; the profile's `moe_runner_backend: triton` pin stays correct,
   re-check next cycle.
+- **2026-09-16** - SGLang v0.5.19 remains the latest release, no new release
+  since 2026-09-05. `mllama4.py`/`llama4.py` unchanged (no new release to
+  re-diff; last confirmed byte-identical through v0.5.19 in the 2026-09-10
+  entry). PR #35032 (loader fixes 1-3) unchanged, no activity since
+  2026-08-16, still blocked on unrelated non-CUDA CI. Issue #34192
+  unchanged, still OPEN, 0 comments since 2026-08-09. **PR #35504 gained
+  real forward movement since the 2026-09-10 entry:** reviewer `nvpohanh`,
+  who has been driving CI reruns throughout, posted a formal **APPROVED**
+  review on 2026-09-14 (a second approval, alongside `b8zhong`'s from
+  2026-09-04), and the author merged `main` into the branch three more
+  times on 2026-09-15 (on top of the three already logged for 09-07/09/10).
+  REST confirms `mergeable: true` (conflict-free, unchanged from 09-10) and
+  `mergeable_state: blocked`; CI on the current head is still broadly red
+  across the same job set logged on 09-10 (base-b-test-1-gpu-large/small,
+  base-b-test-2-gpu-large, pr-gate, and the aggregate finish/pr-test-finish
+  checks), despite `nvpohanh` re-running failed CI six more times through
+  today (09-07, 09-08, 09-09 x2, 09-14, and again 09-16 06:29 UTC this
+  morning). `reviewDecision` remains `REVIEW_REQUIRED`: the same 13
+  CODEOWNERS are still requested (`ch-wan`, `BBuf`, `Edwardf0t1`,
+  `FlamingoPg`, `AniZpZ`, `HaiShaw`, `OrangeRedeng`, `Alisehen`, `mmangkad`,
+  `merrymercy`, `Ying1123`, `Fridge003`, `ispobock`) and none have approved;
+  `nvpohanh` is not among them, so the new approval does not move
+  `reviewDecision`. Net: two approvals now (one from a CODEOWNERS-adjacent
+  reviewer, one not), still conflict-free, but still blocked purely on CI
+  and the outstanding CODEOWNERS review, not merged. Does not affect the 5
+  local `sglang_launch.sh` runtime patches (`p52`/`p53` plus the others
+  target `mllama4.py`/`llama4.py`, confirmed byte-identical through
+  v0.5.19, so none needed re-anchoring in the 2026-09-11 patch pass, commit
+  958c98d, consistent with their absence from that commit's changed-file
+  list); the profile's `moe_runner_backend: triton` pin stays correct,
+  re-check next cycle. Local note: cluster image bumped from
+  `xomoxcc/dgx-spark-sglang:0.5.17-sm121` to
+  `xomoxcc/dgx-spark-sglang:0.5.19-sm121` (repo commits f36d51b/958c98d/
+  5c07a34, 2026-09-11..15); no effect on this doc's conclusions.

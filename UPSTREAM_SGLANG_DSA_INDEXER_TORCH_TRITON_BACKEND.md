@@ -422,6 +422,52 @@ REST/GraphQL now report `mergeable: MERGEABLE` / `mergeStateStatus: BLOCKED`
 > Content/design conclusions unchanged, this was a submission-mechanics
 > rebase only.
 
+> Re-checked 2026-09-16: PR #31480 unchanged in content since the 09-10 rebase
+> (head still `8d3944adb22eba57e258c7129f54333c7896fcf8`, `updatedAt`
+> 2026-09-10T13:10:42Z, still 3 comments, 0 reviews, no `run-ci` label,
+> `reviewDecision: REVIEW_REQUIRED`). A first `gh` read returned transient
+> `mergeable: UNKNOWN` / `mergeStateStatus: UNKNOWN`; a repeat read 3s later
+> confirmed the stable `MERGEABLE` / `BLOCKED` (the known lazy-cache artifact
+> after `upstream/main` moved, not a real state change, same pattern as
+> 09-04).
+
+> `DSAPagedMQALogitsBackend` (`paged_mqa_logits_backend.py`) on `upstream/main`
+> (checked against `upstream/main` tip `2cbfaefbf9`, 2026-09-16, fetched
+> fresh): zero commits since the 09-10 baseline `12771786f2`. `resolve()`
+> still gates CuteDSL on `get_platform().is_sm100`, still only DEEPGEMM/
+> CUTEDSL/AITER, no `torch` value. The field itself lives in
+> `sglang/srt/arg_groups/fields/exec_.py` (confirmed, not a module-level
+> constant in `server_args.py`), inline `choices=["auto", "deepgemm",
+> "cutedsl", "aiter"]`, still no `torch`. `dsa_indexer.py` reads it via
+> `get_exec().kernel.dsa_paged_mqa_logits_backend`. `dsa_backend.py`'s topk-
+> backend construction is `DSATopKBackend.resolve(model_runner)` (line 358).
+> p30 not redundant, design conclusion unchanged.
+
+> **Local patch cross-check (commit 958c98d, 2026-09-11, deployed as
+> `xomoxcc/dgx-spark-sglang:0.5.19-sm121`):** verified p30's re-anchored
+> `replace_any` targets directly against the live upstream state fetched this
+> cycle, all three accurate: (1) `resolve()`'s SM100 gate spelled
+> `get_platform().is_sm100` on `>= v0.5.19`, matches; (2) the
+> `DSA_PAGED_MQA_LOGITS_BACKEND_CHOICES` module constant does not exist
+> standalone for this field on `upstream/main`, the choices are inline in
+> `arg_groups/fields/exec_.py`'s `Arg(choices=[...])`, matches; (3)
+> `DSATopKBackend(server_args.dsa_topk_backend)` became
+> `DSATopKBackend.resolve(model_runner)` (#36313), matches. p30's
+> `replace_any` list correctly covers both the pre-0.5.19 module-constant
+> spelling and the >=0.5.19 inline-in-exec_.py spelling.
+
+> `dsa_backend.py` on `upstream/main`: one commit since baseline, `a66451c058`
+> ("[GLM-5.3 Flash] Restore and enable KPool metadata fusion", #38845, merged
+> 2026-09-12), does not touch the `trtllm-gen`/paged-MQA-logits dispatch this
+> doc tracks (0 hits for either term in its diff). No new sglang issue or PR
+> found searching "dsa_paged_mqa_logits_backend torch".
+
+> SGLang still at v0.5.19 (2026-09-05), no new release.
+
+> Conclusion unchanged: p30/p35 remain necessary on stock v0.5.19/current main;
+> no upstream fix has landed or is imminent. `RETIRED_PATCHES.md` re-checked:
+> no p30/p35 entry exists, correctly reflecting still-active status.
+
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
 > Triton fast path (unblocks DSA models on SM120/SM121)
 
