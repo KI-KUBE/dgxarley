@@ -157,6 +157,34 @@
 > item is a test-expected-output-drift fix (#48376), not a config-class
 > change. Root cause and monkey-patch requirement (`PATCH_GET_CONFIG_EOF` in
 > `sglang_launch.sh`) unchanged.
+>
+> **Re-verified 2026-09-16:** No new SGLang release since v0.5.19 (2026-09-05,
+> still latest). `python/sglang/srt/configs/qwen3_5.py` confirmed unchanged:
+> last content-changing commit is still `34fef07a` (2026-04-16), verified
+> against current `main` HEAD `2cbfaefbf93` (2026-09-16T08:57:15Z, six days
+> newer than the 2026-09-10 check's HEAD). **Tracking change: PR #22839 is
+> now CLOSED.** Closed 2026-09-15T01:23:57Z by the `github-actions` idle-PR
+> bot ("no updates in 95 days"), same closure mechanism that closed PR
+> #22618 on 2026-08-28. Not merged, not superseded by other work; the bot's
+> closing comment additionally lists several sglang directory moves since
+> the PR was opened (`sgl-kernel/` -> `python/sglang/kernels/aot/`,
+> `python/sglang/jit_kernel/` -> `python/sglang/kernels/jit/`, `docs/` ->
+> `docs/docs/`, `test/srt/` -> `test/registered/`), meaning a reopen would
+> need a rebase/retarget, not just a bump. Both fix vehicles this doc tracks
+> (#22839 and #22618) are now closed unmerged. No new transformers release
+> since v5.17.0 (2026-09-09, already checked last cycle). Root cause and
+> monkey-patch requirement unchanged.
+>
+> Local-fix note (not an upstream change, flagged for doc accuracy): this
+> doc's repeated phrase "Monkey-patch (`PATCH_GET_CONFIG_EOF`) in
+> `sglang_launch.sh` still required" is stale as a location pointer.
+> `sglang_launch.sh` no longer contains a `PATCH_GET_CONFIG_EOF` marker
+> (grep confirms zero hits); the patch was migrated to a standalone file
+> during the 2026-07-16 patch-refactor and now lives at
+> `roles/k8s_dgx/files/sglang_patches/p57_hf_config_get_config.py`
+> (re-anchored again 2026-08-28 for v0.5.18's gguf-sidecar-config changes to
+> `get_config()`). The underlying claim, that our patch is still required,
+> remains correct; only the file reference is outdated.
 
 
 ## Summary
