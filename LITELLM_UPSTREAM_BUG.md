@@ -222,6 +222,33 @@ Issue #30778 remains open, 0 comments, untouched since filed 2026-06-18. PRs #30
 remain open and unmerged, both idle since 2026-06-20, now nearly three months with no maintainer
 engagement. The HAProxy TLS sidecar workaround remains required.
 
+**2026-09-16 re-verify, still broken; new stable release v1.101.0 (2026-09-15) and Docker-only
+point release v1.100.1 (2026-09-10) ship no fix:**
+LiteLLM advanced from v1.100.0 to **v1.100.1** (Docker-image-only, published 2026-09-10T16:58:02Z,
+three backport/revert PRs onto stable/1.100.x, none touching ollama/ssl_verify) and then
+**v1.101.0** (stable, published 2026-09-15T03:41:59Z; prereleases v1.101.0-rc.2, v1.102.0-dev.1/
+dev.2, v1.102.0-rc.1, and v1.103.0-dev.1 also exist but are not stable). Scanned the v1.101.0
+changelog: the only ollama-adjacent entry is PR #39010 ("fix(ollama_chat): stamp finish_reason
+tool_calls when tool calls streamed before the done chunk"), which touches chat-completion
+streaming finish_reason handling, not the embedding path or ssl_verify. The bug is byte-identical
+on current `main`: `litellm/llms/ollama/completion/handler.py` (blob
+449952217b5e420c92ca20ff9cdff62aa95468e4, 4148 bytes) still carries the `[TODO]: migrate
+embeddings to a base handler as well.` comment at line 4, and line 98 still calls `await
+litellm.module_level_aclient.post(url=api_base, json=data)` with no `ssl_verify` argument. No
+commit has touched the file since the 2026-08-21 basedpyright chore already logged. Issue #30778
+remains open, 0 comments, untouched since filed 2026-06-18.
+
+**Administrative event on PRs #30810/#30848, not maintainer engagement:** both PRs' base branch,
+`litellm_internal_staging` (not `main`, these are staged against BerriAI's internal integration
+branch), was deleted and recreated on 2026-09-13, which GitHub auto-closed both PRs at
+04:25:10Z/04:25:18Z (`BaseRefDeletedEvent` + `ClosedEvent`) and they were then reopened at
+06:00:59Z/06:01:43Z (`ReopenedEvent`). This is routine branch housekeeping on BerriAI's side, not
+a review action: head commits are unchanged (247b21a5fa for #30810, e60e09c0d3 for #30848), no new
+comments or reviews were posted, and both PRs' `mergeable_state` is now `dirty` (conflicts against
+the recreated base) where it was previously unresolved/stale. Comment counts remain 4 and 2
+respectively. Still no maintainer review or merge decision on either PR, now over three months
+idle in substance. The HAProxy TLS sidecar workaround remains required.
+
 ## Upstream Fix
 
 The embedding path in `litellm/llms/ollama/completion/handler.py` should stop using
