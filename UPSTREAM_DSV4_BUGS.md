@@ -874,6 +874,59 @@ a `release/v0.5.19` point release), re-verify Walls 3, 4, 5 against the
 released `deep_gemm_wrapper/configurer.py` and `moe_runner/deep_gemm_sm120.py`
 directly, same method as this cycle.
 
+**Update 2026-09-16 (audit).** No new SGLang release; v0.5.19 (2026-09-05)
+remains latest, no `v0.5.19.postN` and no `v0.5.20` (`gh release list` and
+`gh api tags` re-checked). Re-verified the 09-10 finding directly: `gh api
+compare/v0.5.19...19c30dff56` (the #29927 merge commit) still reports
+`"status":"diverged"` (ahead_by 84, behind_by 14), so v0.5.19 still does not
+contain #29927 (Walls 3, 4, 5), unchanged. Issue tracking: #26324, #32750 and
+#23602 unchanged since 09-10. #33636's `updated_at` moved to 2026-09-14, but
+the comments API shows no new comment text since the 08-26 comment already
+on record; still open, still exclusively B200/GB300, no SM120/121 mention,
+still informational only.
+
+New, unreleased, directly relevant, both merged after the 09-10 cutoff:
+
+- [PR #36655](https://github.com/sgl-project/sglang/pull/36655) "[SM120] Use
+  exact query-head widths for DeepSeek-V4 sparse MLA decode", merged
+  2026-09-10T22:40Z. Touches `flash_mla_sm120.py` and `models/deepseek_v4.py`.
+  Source-verified (PR body) as the decode-side companion to #29927's
+  native-width prefill path: removes the 16-to-64-head padding for TP4
+  decode on SM120 via `get_platform().is_sm120`, the same major==12
+  convention this doc already relies on for SM121 applicability (§8).
+  Layered directly on top of #29927 (still unreleased, per above), therefore
+  also unreleased. Does not reopen Wall 0 (native/redundant since v0.5.13,
+  §8), but should be re-checked alongside #29927/#35118 once a release lands.
+- [PR #33672](https://github.com/sgl-project/sglang/pull/33672) "[DSV4]
+  Support raw-index output in TopK v2", merged 2026-09-11. Touches
+  `layers/attention/dsv4/indexer.py` and the `topk_v2` kernel, same file
+  family as Wall 7. Source-verified as a buffer-ordering correctness fix
+  gated on `--enable-return-indexer-topk` (sparse-prefill raw-index output),
+  not an SM120/121 auto-routing change. Does not affect our
+  `--dsa-topk-backend torch` / `SGLANG_DSA_FUSE_TOPK=0` Wall 7 plumbing.
+  Informational only.
+
+Everything else new on `models/deepseek_v4.py`, `layers/attention/dsv4/` and
+`deep_gemm_wrapper/` since 09-10 is AMD/gfx950-specific (#37413) or part of a
+"DSV4.1" refactor/naming wave (#38954, #38947, plus further title hits like
+#39674/#39648/#39646/#39370), none SM120/SM121-tagged, none touching
+`deep_gemm_wrapper/`. Noted only as a heads-up: if DeepSeek-V4.1 becomes a
+real HF release, this doc's walls (framed around V4/V4-Flash) need a fresh
+audit, not an assumed carry-over.
+
+Local-patch cross-check (commit `958c98d`, the 0.5.19 patch re-anchor):
+neither `p11_weight_utils_dsv4_fastsafetensors.py` nor
+`p56_deepseek_v3_kv_lora.py` were touched, and neither appears in
+`RETIRED_PATCHES.md`. `p30_dsa_torch_backend.py`'s changes are a pure API
+re-anchor (arch predicate moved to `get_platform().is_sm100`, the
+`DSATopKBackend` constructor call replaced by `.resolve(model_runner)` per
+upstream #36313, already in v0.5.19), functionally unchanged; the Wall 7
+mechanism stands as documented.
+
+No wall status change, no FIXED_ rename this cycle. Next check: same as
+09-10 (watch for #29927/#35118 landing in a tag), now also watching #36655
+land alongside them.
+
 ---
 
 ## Upstream references
@@ -966,5 +1019,5 @@ einem v0.5.13-Image ändert.
   size `dgx_swap_size`); kubelet policy `roles/k3sserver/templates/etc_rancher_k3s_kubelet-config.yaml.j2`
   (`failSwapOn: false`, `swapBehavior: LimitedSwap`)
 - Active model: `group_vars/all/main/sglang.yml` (`sglang_model`)
-- Image: `xomoxcc/dgx-spark-sglang:0.5.17-sm121`, recipe `scripts/patches/sglang-0.5.17-sm121.recipe` (updated 2026-08-28; was stale at 0.5.14)
+- Image: `xomoxcc/dgx-spark-sglang:0.5.19-sm121`, recipe `scripts/patches/sglang-0.5.19-sm121.recipe` (updated 2026-09-16, commit `f36d51b`; was stale at 0.5.17)
 - Release notes: see the 2026-06-29 block at the top of this file; v0.5.16 (2026-07-25) release notes summarized in the 2026-07-28 block
