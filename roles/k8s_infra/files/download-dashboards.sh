@@ -510,6 +510,18 @@ raw sglang-dashboard.json "https://raw.githubusercontent.com/sgl-project/sglang/
 #   in increase(…[$__range]) so they show spend WITHIN the selected window (and
 #   it's counter-reset-safe across pod restarts). "Spend Rate" is left untouched
 #   (already a rate()); only titles starting "Total Spend per" are rewritten.
+# - "per User" → "per Key": upstream groups by (user, user_email) = the
+#   LiteLLM-internal user a virtual key is BOUND to. Our keys are team-scoped
+#   with user_id null (attribution is per key/team), so both labels are the
+#   literal "None" on every series and the panel collapsed to one nameless bar.
+#   Regroup by (api_key_alias, hashed_api_key) — the key alias IS our per-user
+#   identity — and retitle. The rate panels (Spend/Tokens/Requests Rate) keep
+#   their upstream user labels.
+# - Bar-gauge names for a single row: stat/bargauge panels HIDE the row title
+#   when exactly one value is displayed and no displayName is set (Grafana
+#   fieldDisplay "don't show title for single item"), so with one model / one
+#   key the "per Model"/"per Key" bars were nameless. displayName
+#   "${__field.name}" (the rowsToFields label value) forces it. Verified live.
 # NOTE: the hermes-default alias is a router model_group_alias (see
 # litellm_router_settings), NOT a duplicate model_list deployment, so it adds no
 # extra litellm_deployment_state series. BUT a litellm POD ROLLOVER does: the old
@@ -562,9 +574,20 @@ raw litellm-24965.json "https://grafana.com/api/dashboards/24965/revisions/lates
         else . end
       )
     | (.. | objects | select(.title == "Models Latency") | .title) |= "Total Request Duration"
+    | .panels |= map(
+        if .title == "Total Spend per User" then
+          .title = "Total Spend per Key"
+          | .description = "Total spend per LiteLLM virtual key (key alias)"
+          | .targets |= map(
+              (.expr |= gsub("sum by \\(user, user_email\\)"; "sum by (api_key_alias, hashed_api_key)"))
+              | .legendFormat = "{{api_key_alias}}"
+            )
+        else . end
+      )
+    | .panels |= map(if .type == "bargauge" then .fieldConfig.defaults.displayName = "${__field.name}" else . end)
     | (.. | objects | select((.title? // "") | startswith("Total Spend per")) | .targets[]?.expr) |=
         gsub("(?<m>litellm_spend_metric_total\\{[^}]*\\})"; "increase(" + .m + "[$__range])")
-    | ([.panels[] | select(.title == "Total Spend per Team" or .title == "Total Spend per User" or .title == "Total Spend per Model")]) as $spend
+    | ([.panels[] | select(.title == "Total Spend per Team" or .title == "Total Spend per Key" or .title == "Total Spend per Model")]) as $spend
     | .panels |= map(if .gridPos.y >= 21 then (.gridPos.y += 9) else . end)
     | .panels += ($spend | map(
         (.title |= sub("Total Spend per"; "Total Tokens per"))
