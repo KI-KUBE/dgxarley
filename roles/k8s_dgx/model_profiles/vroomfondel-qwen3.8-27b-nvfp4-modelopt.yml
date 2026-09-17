@@ -185,7 +185,11 @@ _model_profile:
       temperature: 1.0
       top_p: 0.95
       top_k: 20
-    # ═══ DSPARK speculative decoding (ACTIVE variant) ═══
+    # ═══ DSPARK speculative decoding (PREFERRED variant, currently SWITCHED OFF) ═══
+    # speculative_enabled is false below, so this instance serves WITHOUT
+    # speculation: no --speculative-* flag reaches SGLang, the draft is not
+    # downloaded and the DSPARK block-size assert is skipped. Flip it to true to
+    # activate everything in this block.
     # External draft: RadixArk/Qwen3.8-27B-DSpark, 1.36B BF16 (2.7 GB), 5 full
     # -attention layers, GQA 40q/8kv, trained with SpecForge against
     # Qwen/Qwen3.8-27B-FP8, confidence head = vanilla Markov rank 256, aux
@@ -208,7 +212,7 @@ _model_profile:
     # block_size turns into a loud boot error. Pinning 7 here would instead
     # override the checkpoint silently and run the draft outside the window it
     # was trained for.
-    speculative_enabled: false
+    speculative_enabled: true
     speculative_algo: DSPARK
     speculative_draft_model_path: "RadixArk/Qwen3.8-27B-DSpark"
     speculative_num_steps: 1
@@ -295,6 +299,10 @@ _model_profile:
     # The honest ranking for a first run: DSPARK (external, self-consistent
     # BF16 draft) first, this second, both behind a bare non-speculative boot.
     #
-    # ROLLBACK to bare serving: set speculative_enabled to false. Every other
-    # key here stays valid; the speculative_* and mamba_scheduler_strategy keys
-    # become inert.
+    # ROLLBACK to bare serving: set speculative_enabled to false (the current
+    # state). Every other key here stays valid and the speculative_* keys become
+    # inert. mamba_scheduler_strategy does NOT: sglang_launch.sh emits
+    # --mamba-radix-cache-strategy regardless of speculative_enabled. That is
+    # harmless for this arch, because SGLang resolves "auto" to extra_buffer
+    # anyway while the overlap scheduler is on (the default), so the explicit
+    # value is redundant rather than wrong.
