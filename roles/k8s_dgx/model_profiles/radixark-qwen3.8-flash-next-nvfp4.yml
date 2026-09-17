@@ -2,11 +2,34 @@
 # Model profile: RadixArk/Qwen3.8-Flash-Next-NVFP4
 # Loaded by include_vars in the k8s_dgx role, merged into sglang_model_profiles.
 #
-# STATUS 2026-09-16: IMAGE BUILT, NEVER RUN HERE.
-#   The architecture support and both GB10 fixes are wired in this repo, and
-#   xomoxcc/dgx-spark-sglang:0.5.18-sm121 is on Docker Hub (pushed 2026-08-28).
-#   What is missing is a first serving run. Nothing below has been measured on
-#   THIS cluster.
+# STATUS 2026-09-16: FIRST SERVING RUNS ON THIS CLUSTER.
+#   SUCCESS (current config): TP=4 on spark1-4 (nodes [1, 2, 3, 4], tp_size 4,
+#   ep_size 4, mem_fraction_static 0.82, speculative_enabled false,
+#   tool_call_parser qwen3_coder, p65 + p66 WITH p66's local TP4 widening of the
+#   #36845 kernel contract to (6 q, 1 kv)). Same probe run twice: 0/32 collapsed,
+#   8/8 tool calls parsed, decode ~35 tok/s single-stream (vs 26.8 at TP=2),
+#   KV 2022656 tokens, max_running_requests 16. Empirical only, no FP32
+#   reference comparison (deliberate decision).
+#   SUCCESS (fallback): TP=2 on spark1+spark2 (nodes [1, 2], tp_size 2, ep_size 1,
+#   mem_fraction_static 0.82, speculative_enabled false, tool_call_parser
+#   qwen3_coder, runtime patches p65 + p66). 16-request probe (short prompts,
+#   max_tokens 400, thinking on/off, with/without tools): 0/16 collapsed into
+#   "!" (token 0), 4/4 tool calls parsed, decode 26.8 tok/s single-stream,
+#   KV 525504 tokens, max_running_requests 16.
+#   FAILED on the way there, same probe:
+#     - TP4 EP4, NEXTN on, p65 FA4 fallback: 3/16 collapsed.
+#     - TP2 EP1, NEXTN on, #36845 kernel (p66): 4/16 collapsed, starting after
+#       tens to hundreds of good tokens, spec accept len stuck at 1.00.
+#     - TP4 EP4, NEXTN OFF, p65 FA4 fallback (p66 routing gated off at TP4):
+#       6/16 collapsed, several right after the first token ("We!!!..."),
+#       including one tool request (no tool call returned). Decode ~31 tok/s.
+#     => TWO independent collapse sources: NEXTN/MTP, and the TP4 FA4 QSA
+#        decode fallback. Clean: #36845 kernel (TP2, or TP4 via p66 widening)
+#        + NEXTN off. Never run TP4 without p66's kernel routing.
+#   Boot prerequisites found on the way: kernel cma=128M on the sparks
+#   (dgx_prepare tag cma, the 7.0.0-1019 CMA regression breaks NCCL RoCE with
+#   ibv_reg_mr ENOMEM) and TP2 needs mem_fraction_static >= ~0.8 (0.60 left a
+#   negative mamba-cache budget).
 #   NOT on 0.5.19-sm121: the #36497 patch does not apply to v0.5.19 (15 files
 #   with rejected hunks), so that recipe sets APPLY_QWEN4EXP_PR36497=0. #36497
 #   itself was CLOSED unmerged; the architecture landed on upstream main via
@@ -70,10 +93,6 @@
 #   REQUIRED for correctness. This is per-SKU, not per-family, which is why the
 #   upstream gate expression has been respelled three times in three days and
 #   why p65 carries a spelling-independent veto rather than trusting it.
-#
-#   ACCEPTANCE FOR THE FIRST RUN IS THEREFORE NOT A SMOKE TEST. Prompt at
-#   >= 190k tokens, several times, and grep the completions for runs of "!".
-#   A short "does it answer" check cannot see this failure.
 #
 # WHAT THE CHECKPOINT IS (verified against HF 2026-08-27)
 #   RadixArk NVIDIA-ModelOpt 0.46.0 NVFP4 export of Qwen/Qwen3.8-Flash-Next
@@ -154,9 +173,8 @@
 #     * --reasoning-parser auto. We pin the resolved name instead (qwen3).
 #
 # RISKS, ordered by how likely they are to bite
-#   A. THE CORRUPTION ABOVE. p65's veto is the guard, the verify gate is the
-#      check that it is live, and a >=190k prompt is the only acceptance test
-#      that can see it. Re-run all three on every image bump.
+#   A. THE CORRUPTION ABOVE. p65's veto is the guard and the verify gate is the
+#      check that it is live. Re-check both on every image bump.
 #   B. p65 edit 2 is validated for BOOT on GB10, not for long-context OUTPUT.
 #      The clean 120k-240k column above was produced with a DIFFERENT varlen
 #      fallback (a Triton one from MiaAI-Lab/Qwen3.8-Flash-Next-Dual-DGX-
@@ -178,9 +196,7 @@
 #      2026-09-16: without a parser the model emitted a correct native
 #      <tool_call><function=...> block in plain content (thinking on and off),
 #      but message.tool_calls stayed null, so no client saw a tool call.
-#      tool_call_parser is therefore set to qwen3_coder below. Still watch for
-#      runs of "!" (token 0) on tool requests; that signature is shared with
-#      risk A.
+#      tool_call_parser is therefore set to qwen3_coder below.
 #   D. MoE runner on a 640-wide gated MoE. moe_runner_backend below is the
 #      cluster's SM121 NVFP4 default, NOT something the cookbook states (its
 #      NVFP4 cells pin no MoE runner). If the boot dies on the NVFP4 gated-MoE
@@ -220,18 +236,17 @@ _model_profile:
     #       xomoxcc/dgx-spark-sglang:0.5.18-sm121 spark5
     sglang_image: "xomoxcc/dgx-spark-sglang:0.5.18-sm121"
     nccl_transport: "roce"
-    # 2026-09-16: TP=2 on spark1+spark2, NOT the full 4 nodes. The only correct
-    # SM121 QSA sparse-decode kernel (upstream #36845, backported as runtime
-    # patch p66) qualifies TP1 (24q/2kv) and TP2 (12q/1kv) ONLY and raises on
-    # any other shape. TP4 had to run on p65's FA4 fallback, which collapsed
-    # 3/16 short generations into "!" runs. 135 GB does not fit one 128 GB
-    # Spark, so TP2 is the smallest topology (~70 GB/rank of weights).
-    nodes: [1, 2]
-    tp_size: 2
-    # EP=1 is safe from the NVFP4 gated-MoE padding assert at TP=2:
-    # moe_intermediate_size 640 / 2 = 320 per rank, 2x320 = 640 = 5x128, already
-    # aligned. (At TP=4 it was 160 -> 320, unaligned, hence the earlier ep_size 4.)
-    ep_size: 1
+    # TP=4 with the #36845 SM121 QSA kernel widened to the TP4 shape (6 q, 1
+    # replicated kv) by p66, a local deviation from upstream that was validated
+    # empirically: 0/32 collapsed, ~35 tok/s (see STATUS). NEXTN stays off.
+    # Fallback: nodes [1, 2], tp_size 2, ep_size 1. Plain TP4 on p65's FA4
+    # fallback (p66 absent or gated off) collapsed 6/16, never go back to that.
+    nodes: [1, 2, 3, 4]
+    tp_size: 4
+    # EP=4 is REQUIRED at TP=4: moe_intermediate_size 640 / 4 = 160 per rank,
+    # 2x160 = 320 is not 128-aligned -> NVFP4 gated-MoE padding assert. EP keeps
+    # the full 640 per rank (2x640 = 1280 = 10x128). At TP=2, EP=1 is fine.
+    ep_size: 4
     num_experts: 512
     enable_eplb: false
     enable_expert_distribution_metrics: false
@@ -269,7 +284,11 @@ _model_profile:
     # conservative first-contact value at TP=4. On this hybrid the mamba pool
     # usually clamps concurrency before KV does, so if max_running_requests
     # gets clamped low, raise max_mamba_cache_size rather than this.
-    mem_fraction_static: "0.60"
+    # 2026-09-16 TP=2: 0.60 crash-looped right after weight load with
+    # "Not enough GPU memory for hybrid (mamba/linear-attention) state cache"
+    # (total_rest_memory=-9.39 GB; weights 75.2 GB + MTP 0.8 GB per rank). 0.82
+    # is the value the upstream 2x-Spark TP=2 runs settled on (see above).
+    mem_fraction_static: "0.82"
     # Pinned to 64 to match what SGLang itself forces. _qwen4_exp_overrides
     # sets page_size 64 UNCONDITIONALLY for the compressed QSA variant: the
     # compressed cache is addressed as full_slot // compress_ratio (the DSV4
@@ -363,7 +382,10 @@ _model_profile:
     # speculative_draft_model_quantization is left unset on purpose: for an
     # in-checkpoint MTP head "unquant" is a no-op (quant auto-detection re-reads
     # the same config), and here the ignore list already keeps the head BF16.
-    speculative_enabled: true
+    # 2026-09-16: OFF. With NEXTN on, 3/16 (TP4) and 4/16 (TP2 + #36845 kernel)
+    # short generations collapsed into "!" (token 0); with it off, 0/16 at TP2.
+    # See STATUS at the top before turning this back on.
+    speculative_enabled: false
     speculative_algo: NEXTN
     speculative_num_steps: 3
     speculative_eagle_topk: 1

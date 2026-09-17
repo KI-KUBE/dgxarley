@@ -37,11 +37,21 @@ GATES
   target_contains on the QSA backend, so every image without qwen4exp logs one
   "gate not matched" line. The two source edits run only when all three modules
   were written AND imported, since routing to a missing kernel would crash decode.
-  The routing edit additionally requires env TP in {1, 2} (set on head and worker
-  from sglang_tp): at TP4 the kernel would raise on every decode, so TP4 keeps
-  p65's FA4 fallback. The modules and the registry entry are still installed
-  there, they are inert without the routing edit. Patches run once per fresh
-  container, so a TP change always re-evaluates this gate.
+  The routing edit additionally requires env TP in {1, 2, 4} (set on head and
+  worker from sglang_tp). Patches run once per fresh container, so a TP change
+  always re-evaluates this gate.
+
+LOCAL DEVIATION FROM UPSTREAM: TP4 (6 q, 1 replicated kv)
+  Upstream's contract is a hard allowlist `_SUPPORTED_HEAD_TOPOLOGIES =
+  frozenset({(12, 1), (24, 2)})`, i.e. only the shapes they captured on one and
+  two Sparks. The Triton kernel itself is generic in the head ratio:
+  NUM_Q_HEADS/NUM_KV_HEADS are constexprs from the live shapes,
+  queries_per_kv = NUM_Q_HEADS // NUM_KV_HEADS, and the per-kv-head grouping is
+  a masked arange over BLOCK_M = 16 (m < queries_per_kv), so 6:1 fits the same
+  scheme. Only when env TP is "4" the written contract check gets (6, 1) added.
+  The use_bk32 block-size heuristic was tuned on TP1/TP2 data only. Validated
+  EMPIRICALLY only (2026-09-16 decision: no FP32 reference comparison); see the
+  model profile STATUS for the probe result before relying on TP4.
 
 DELETE WHEN the image is built from a qwen4exp source that already contains
 78c5024e (or upstream main with #36845's kernel), i.e. when the backend file
@@ -430,10 +440,22 @@ def qwen38_qsa_sm121(
 '''
 
 
+def _pkg_init_source() -> str:
+    if os.environ.get("TP", "") != "4":
+        return _PKG_INIT
+    old = "_SUPPORTED_HEAD_TOPOLOGIES = frozenset({(12, 1), (24, 2)})"
+    if old not in _PKG_INIT:
+        print("ANCHOR-DRIFT: qwen38_qsa_sm121/__init__.py: TP4 (6, 1) topology widening anchor missing")
+        return _PKG_INIT
+    return _PKG_INIT.replace(
+        old, "_SUPPORTED_HEAD_TOPOLOGIES = frozenset({(12, 1), (24, 2), (6, 1)})  # [dgxarley] TP4"
+    )
+
+
 def _write_modules() -> bool:
     files = [
         (os.path.join(PKG, "__init__.py"), _KDA_INIT, "kda_kernels package"),
-        (os.path.join(PKG, "qwen38_qsa_sm121", "__init__.py"), _PKG_INIT, "qwen38_qsa_sm121 contract check"),
+        (os.path.join(PKG, "qwen38_qsa_sm121", "__init__.py"), _pkg_init_source(), "qwen38_qsa_sm121 contract check"),
         (os.path.join(PKG, "qwen38_qsa_sm121", "kernel.py"), _KERNEL, "qwen38_qsa_sm121 Triton kernel (#36845)"),
     ]
     try:
@@ -592,7 +614,7 @@ _SM121_BRANCH = """    from sglang.srt.utils import is_sm121
 patch_backend = Patch(
     name="route SM121 QSA decode to the KDA kernel (#36845)",
     target=BACKEND,
-    when=_modules_ok and os.environ.get("TP", "") in ("1", "2"),
+    when=_modules_ok and os.environ.get("TP", "") in ("1", "2", "4"),
 )
 
 

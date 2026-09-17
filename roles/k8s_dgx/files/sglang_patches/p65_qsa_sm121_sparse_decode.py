@@ -96,10 +96,10 @@ WHAT THIS PATCH DOES
     120k-240k column in the table above was produced with a DIFFERENT varlen
     fallback (a Triton one from MiaAI-Lab/Qwen3.8-Flash-Next-Dual-DGX-Sparks),
     not with sglang's flash_attention_v4. So the evidence supports the
-    DIRECTION of edit 2, not this exact kernel. FIRST REAL RUN MUST CHECK
-    OUTPUT AT DEPTH, not just that the server answers: prompt at >=190k and
-    grep the completion for runs of "!". A short smoke test is worthless here,
-    see the liveness-canary note above.
+    DIRECTION of edit 2, not this exact kernel. On SM121 edit 2 is superseded
+    by p66 (upstream #36845 kernel), which routes QSA decode before this branch
+    is reached: at TP4 without p66 this FA4 path collapsed 6/16 short
+    generations into "!" on 2026-09-16.
 
 GATE: target_contains on the resolver, not gate_model. The subject file only
 exists in an image built with sglang-qwen4exp-pr36497.patch; `Patch` reports a
