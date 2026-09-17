@@ -233,6 +233,13 @@ hermes:
   #    bare platform keys into extra, explicit `extra:` still wins, so
   #    hermes_config.yaml.j2 needs no change.
   image_tag: "v2026.9.14"            # agent image (nousresearch/hermes-agent)
+  # busybox helper image (fix-perms / init-dashboard-themes initContainers, log-tail
+  # sidecar). PINNED, never "latest": the deployment's keel policy (minor, poll
+  # @every 24h) applies to every container, rewrote log-tail busybox:latest ->
+  # 1.38 and restarted all hermes pods at ~18:19 CEST after each ansible deploy
+  # (seen 2026-09-14 and 2026-09-16, found via keel logs in Loki). Keel will still
+  # bump log-tail on a new busybox minor; raise this pin then.
+  busybox_image: "busybox:1.38"
   # NOTE: the venv site-packages dir (mount point for the hermes_health_patch
   # .py/.pth) is NOT configured here — it carries a pythonX.Y segment that bumps
   # with the base image. hermes.yml probes the actual image ONCE at deploy time
@@ -263,6 +270,14 @@ hermes:
   # installed into every dashboard pod's $HERMES_HOME/dashboard-themes/ by the
   # init-dashboard-themes initContainer. font "theme" = use the theme's own font
   # (Share Tech Mono) rather than an override — the neon-mono cyberpunk look.
+  # Built-in provider catalogs hidden from the dashboard/TUI model picker
+  # (config.yaml model_catalog.excluded_providers, read by
+  # hermes_cli.inventory.load_picker_context). openai-api shows up only because
+  # .env carries OPENAI_API_KEY (= the LiteLLM token), opencode-free needs no
+  # credentials at all. The virtual "moa" row cannot be removed this way
+  # (normalize_moa_config always seeds a default preset). Per-user override:
+  # hermes_users[*].model_catalog_excluded_providers.
+  model_catalog_excluded_providers: ["openai-api", "opencode-free"]
   dashboard_theme: "cyberpunk-lg"
   dashboard_font: "theme"
   default_model: "{{ litellm_hermes_alias_model }}"  # stable alias → current SGLang model
@@ -357,6 +372,19 @@ hermes:
   # those just idles ("no platforms configured"). Implies webui enabled.
   email:
     enabled_default: true
+    # platforms.email.extra.require_authenticated_sender for every user
+    # (per-user override: hermes_users[*].email.require_authenticated_sender).
+    # The adapter's GHSA-rxqh-5572-8m77 gate drops allowlisted senders unless the
+    # RECEIVING server stamps an Authentication-Results pass. imap/mail.verifiedmail.de
+    # stamps none (verified 2026-09-16 on a DKIM-signed d=xomox.cc mail), so every
+    # mail was dropped. false = trust the From: header, i.e. anyone who forges an
+    # allowlisted From: address can drive that user's agent.
+    require_authenticated_sender_default: false
+    # platforms.email.extra.quote_original for every user (per-user override:
+    # hermes_users[*].email.quote_original). Appends the received email below
+    # the first successful reply to it, classic "> " quote style. Off by
+    # default so sending stays byte-identical to before this feature.
+    quote_original_default: false
   # Matrix gateway. When true (per-user via hermes_users[*].matrix.enabled), the
   # SAME hermes-gateway sidecar in the webui pod also serves Matrix — no extra
   # pod/process: `hermes gateway run` auto-starts every platform with creds in

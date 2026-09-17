@@ -124,7 +124,7 @@ spec:
       initContainers:
         # hostPath DirectoryOrCreate creates 0755 root:root; reset to <uid>:<gid> 0700.
         - name: fix-perms
-          image: busybox:latest
+          image: "{{ hermes.busybox_image }}"
           imagePullPolicy: Always
           env:
             - name: TZ
@@ -192,7 +192,7 @@ spec:
         # user-created themes there survive. Overwrites the shipped ones each
         # start so an updated theme YAML propagates. chown to the runtime uid.
         - name: init-dashboard-themes
-          image: busybox:latest
+          image: "{{ hermes.busybox_image }}"
           env:
             - name: TZ
               value: "{{ hermes.timezone }}"
@@ -669,7 +669,7 @@ spec:
         # (runs as <uid>:<gid>) and reads /opt/data RO. Logs don't exist until
         # hermes first writes them, so wait for the file before exec'ing tail.
         - name: log-tail
-          image: busybox:latest
+          image: "{{ hermes.busybox_image }}"
           env:
             - name: TZ
               value: "{{ hermes.timezone }}"

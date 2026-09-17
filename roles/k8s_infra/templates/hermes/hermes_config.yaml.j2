@@ -91,6 +91,11 @@ dashboard:
   theme: "{{ item.dashboard_theme | default(hermes.dashboard_theme) }}"
   font: "{{ item.dashboard_font | default(hermes.dashboard_font) }}"
 
+# Hide built-in provider catalogs from the model picker; see
+# hermes.model_catalog_excluded_providers. A list, so ops replaces the user's.
+model_catalog:
+  excluded_providers: {{ (item.model_catalog_excluded_providers | default(hermes.model_catalog_excluded_providers)) | to_json }}
+
 # Web search via in-cluster SearXNG (search-only). SEARXNG_URL is set in .env.
 # Extract/crawl backends are not configured — Hermes' web_extract / web_crawl
 # will be unavailable until a Firecrawl/Tavily/Exa key is added.
@@ -143,6 +148,19 @@ platforms:
       # marking it all seen. Mirrors upstream PR #28699. Default true here
       # (upstream defaults false). Rendered as a real YAML bool.
       process_existing: {{ (email.process_existing | default(true)) | string | lower }}
+      # Sender-authentication gate (GHSA-rxqh-5572-8m77), see
+      # hermes.email.require_authenticated_sender_default.
+      require_authenticated_sender: {{ (email.require_authenticated_sender if email.require_authenticated_sender is defined else hermes.email.require_authenticated_sender_default) | string | lower }}
+      # Quote the received email below the first successful reply to it (opt-in),
+      # see hermes.email.quote_original_default. Not yet upstream (tracking
+      # branch vroomfondel:feat/email-quote-original).
+      quote_original: {{ (email.quote_original if email.quote_original is defined else hermes.email.quote_original_default) | string | lower }}
+{% if email.quote_max_chars is defined %}
+      quote_max_chars: {{ email.quote_max_chars }}
+{% endif %}
+{% if email.quote_header is defined %}
+      quote_header: "{{ email.quote_header }}"
+{% endif %}
     # Suppress "♻️ Gateway shutting down" / "♻️ Gateway online" lifecycle
     # mails. Hermes sends these to every active session + the EMAIL_HOME_ADDRESS
     # home channel on each pod start/stop; pure noise here. (Bridged as a bare

@@ -150,7 +150,7 @@ spec:
         # {{ item.uid }}) can write. Idempotent — agent pod's fix-perms does the
         # same thing; whichever runs first wins, the other is a no-op.
         - name: fix-perms
-          image: busybox:latest
+          image: "{{ hermes.busybox_image }}"
           imagePullPolicy: Always
           env:
             - name: TZ

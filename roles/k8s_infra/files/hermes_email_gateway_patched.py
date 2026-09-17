@@ -7,6 +7,18 @@ LOCAL PATCH (dgxarley) — synced to upstream tag v2026.9.14
 the pinned image (hermes.image_tag v2026.9.14). plugin.yaml and __init__.py are
 byte-identical to v2026.8.31, so the ConfigMap subPath mount target is unchanged.
 
+PATCH-11 added 2026-09-16: quotes the received email below replies (opt-in,
+platforms.email.extra.quote_original / EMAIL_QUOTE_ORIGINAL). Ported from a
+local reference implementation exercised against upstream main, submitted
+upstream as PR NousResearch/hermes-agent#113192 (branch
+vroomfondel:feat/email-quote-original). See the [PATCH-11] markers below and the _build_quote /
+_claim_quote docstrings for the design: a bounded per-Message-ID lookup
+(plus a per-sender fallback for mails without a Message-ID), claim/settle
+around the single _smtp_send call site so only the first successful reply
+per inbound mail quotes, the quote shrinks (or is dropped) to fit
+MAX_MESSAGE_LENGTH while the agent's own text is never shortened, and
+_standalone_send is untouched (never quotes).
+
 Re-synced 2026-09-16 (v2026.8.31 -> v2026.9.14, v0.21.0 -> v0.21.3). A REAL
 re-sync, effectively a re-port: between the two tags upstream rewrote this file
 (62238 -> 48587 bytes) in ~17 commits, chiefly the "small_group" / "platforms"
@@ -307,7 +319,7 @@ sites). The v2026.8.13 baseline now contains this commit natively (verified by
 diffing those three functions against the new baseline), so [PATCH-9] has been
 REMOVED from this file as of the 2026-08-15 re-sync -- see item 1 above.
 
-Adds three behaviours that upstream lacks:
+Adds four behaviours that upstream lacks:
 
   1.  Two-stage IMAP folder lifecycle:
         INBOX  -- fetch -->  Hermes_Working  -- handle_message() done -->  Hermes_Done
@@ -321,10 +333,17 @@ Adds three behaviours that upstream lacks:
   3.  Opt-in processing of pre-existing INBOX mail on startup (upstream
       hard-codes "ignore everything already there").
 
-All behavioural knobs are configured via config.yaml (NOT env), mirroring the
-upstream PRs -- see the Upstreaming note below. They MUST be nested under an
+  4.  Opt-in quoting of the received email below the first successful
+      reply to it, in the classic ``> `` style (upstream sends the agent's
+      answer only).
+
+All behavioural knobs are configured via config.yaml, nested under an
 explicit ``extra:`` block (the loader only folds ``platforms.<name>.extra`` into
-config.extra; bare keys are dropped):
+config.extra; bare keys are dropped). The four lifecycle/archival knobs below
+are config.yaml-only (mirroring the upstream PRs -- see the Upstreaming note
+below); the two [PATCH-11] quote knobs additionally accept an env override
+(EMAIL_QUOTE_ORIGINAL / EMAIL_QUOTE_MAX_CHARS win over config.yaml), matching
+upstream's own env-first convention for platform settings:
 
   platforms.email.extra.working_folder     default "Hermes_Working"  ("" skips the
                                                               Working stage → INBOX→Done)
@@ -338,6 +357,17 @@ config.extra; bare keys are dropped):
                                                               UIDs as seen on startup
                                                               and only process truly
                                                               new ones)
+  platforms.email.extra.quote_original     default false    (quote the inbound mail
+                                                              below the first successful
+                                                              reply to it; env
+                                                              EMAIL_QUOTE_ORIGINAL wins)
+  platforms.email.extra.quote_max_chars    default 10000    (length cap on the quoted
+                                                              block, header excluded;
+                                                              env EMAIL_QUOTE_MAX_CHARS
+                                                              wins)
+  platforms.email.extra.quote_header       default "On {date}, {name} <{address}> wrote:"
+                                                             (config-only; {date}/{name}/
+                                                              {address} placeholders)
 
 When this file is bumped, the upstream source must be re-downloaded and the
 patch sections re-applied:
@@ -360,6 +390,16 @@ patch sections re-applied:
             in the v2026.8.13 baseline. See the "Forward-ported" note above.
   [PATCH-10] _imap_default_security(): port-derived IMAP security default
             (993 → tls, else starttls) in __init__ and _standalone_send
+  [PATCH-11] Quote the received email below the first successful reply to
+            it (opt-in): module-level _format_quote_date() / _build_quote()
+            helpers; __init__ reads quote_original / quote_max_chars /
+            quote_header from config.extra (env EMAIL_QUOTE_ORIGINAL /
+            EMAIL_QUOTE_MAX_CHARS win); _dispatch_message calls
+            _remember_original() right after _sender_accepted (inside the
+            [PATCH-6] try, so a dropped mail is never remembered);
+            _claim_quote()/_settle_quote() wrap the single _smtp_send()
+            call site in _send_email / _send_with_files.
+            _standalone_send is untouched (never quotes).
 
 Upstreaming note: all of these behaviours are being upstreamed --
   - Sent-folder APPEND ([PATCH-3] shared _imap_append_to_sent helper +
@@ -369,6 +409,8 @@ Upstreaming note: all of these behaviours are being upstreamed --
     PR NousResearch/hermes-agent#28699.
   - INBOX→Working→Done lifecycle ([PATCH-3/4/5/6]) in
     PR NousResearch/hermes-agent#28702.
+  - Quote the received email under replies ([PATCH-11]) in
+    PR NousResearch/hermes-agent#113192.
 [PATCH-10] is dgxarley-only: upstream deliberately defaults to implicit TLS;
 setting ``imap_security: starttls`` per user would make it unnecessary.
 All three PRs' review-driven changes are adopted here so the patch matches what
@@ -406,13 +448,15 @@ import re
 import smtplib
 import socket
 import ssl
+import threading  # [PATCH-11] not imported upstream; _quote_lock guards claim/settle across executor threads
 import time  # dgxarley: not imported upstream; _imap_append_to_sent needs time.time()
 import uuid
+from collections import OrderedDict  # [PATCH-11] not imported upstream; bounded per-Message-ID quote lookup
 from email.header import decode_header
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
-from email.utils import formatdate
+from email.utils import formatdate, parsedate_to_datetime
 from email import encoders
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -495,6 +539,11 @@ _AUTH_METHOD_RE = re.compile(r"\b(dmarc|dkim|spf)\s*=\s*([a-z]+)", re.IGNORECASE
 _AUTH_PROP_RE = re.compile(
     r"\b(header\.from|header\.d|smtp\.mailfrom|smtp\.from|envelope-from)\s*=\s*([^\s;]+)", re.IGNORECASE
 )
+# [PATCH-11] Quoting the inbound mail under replies (opt-in, platforms.email.extra.quote_original / EMAIL_QUOTE_ORIGINAL).
+_DEFAULT_QUOTE_HEADER = "On {date}, {name} <{address}> wrote:"
+_DEFAULT_QUOTE_MAX_CHARS = 10_000
+_QUOTE_TRUNCATED = "> [...]"
+_QUOTE_LOOKUP_MAX = 500  # remembered originals (oldest evicted first)
 
 
 def _esecret_int(name: str, default: int) -> int:
@@ -874,6 +923,57 @@ def _extract_attachments(msg: email_lib.message.Message, skip_attachments: bool 
     return attachments
 
 
+def _format_quote_date(raw: str) -> str:
+    """[PATCH-11] Human-readable ``Date:`` value; the raw header when unparseable, '' when missing."""
+    if not (raw := (raw or "").strip()):
+        return ""
+    try:
+        return parsedate_to_datetime(raw).strftime("%a, %d %b %Y %H:%M %z").strip()
+    except (TypeError, ValueError, IndexError, OverflowError):
+        return raw
+
+
+def _build_quote(original_body: str, *, date: str, name: str, address: str, header_fmt: str, max_chars: int) -> str:
+    """[PATCH-11] Classic ``> `` quote block for appending under a reply: ``"\\n\\n" + header + "\\n" + quoted lines``.
+
+    *max_chars* bounds the quoted lines (prefixes included, header excluded); the cut lands on a line end and is
+    marked with ``> [...]``. Already-quoted lines just gain another level (``>> ``). Empty body (or no line fits) → ''.
+    """
+    lines = [line.rstrip() for line in (original_body or "").replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    while lines and not lines[-1]:
+        lines.pop()
+    while lines and not lines[0]:
+        lines.pop(0)
+    if not lines or max_chars <= 0:
+        return ""
+    quoted = [f">{line}" if line.startswith(">") else f"> {line}" if line else ">" for line in lines]
+    text = "\n".join(quoted)
+    if len(text) > max_chars:
+        kept: List[str] = []
+        used = len(_QUOTE_TRUNCATED)
+        for line in quoted:
+            if used + len(line) + 1 > max_chars:
+                break
+            kept.append(line)
+            used += len(line) + 1
+        if not kept:
+            return ""
+        text = "\n".join([*kept, _QUOTE_TRUNCATED])
+    shown_date, shown_name = _format_quote_date(date), (name or "").strip() or address
+    fmt = header_fmt or _DEFAULT_QUOTE_HEADER
+    if not shown_date:  # "On {date}, X wrote:" -> "X wrote:"
+        fmt = re.sub(r"On\s*\{date\},?\s*", "", fmt).replace("{date}", "").strip()
+    try:
+        header = fmt.format(date=shown_date, name=shown_name, address=address)
+    except (KeyError, IndexError, ValueError):  # operator typo in quote_header must not break sending
+        header = (
+            _DEFAULT_QUOTE_HEADER.format(date=shown_date, name=shown_name, address=address)
+            if shown_date
+            else f"{shown_name} <{address}> wrote:"
+        )
+    return f"\n\n{header}\n{text}"
+
+
 def _attach_file(msg: MIMEMultipart, path: Path, filename: str) -> None:
     """Attach *path* to *msg* as base64 application/octet-stream."""
     with open(path, "rb") as f:
@@ -945,6 +1045,20 @@ class EmailAdapter(BasePlatformAdapter):
             self._require_authenticated_sender = not _esecret_bool("EMAIL_TRUST_FROM_HEADER", False)
         # Optional authserv-id pinning Authentication-Results to the operator's own server (defeats an injected header sorting first).
         self._authserv_id = (extra.get("authserv_id", "") or _get_secret("EMAIL_AUTHSERV_ID", "")).strip().lower()
+        # [PATCH-11] Quote the inbound mail under the first successful reply to it (default off; env wins
+        # over config.yaml, same precedence as every other EMAIL_*/extra pair above).
+        self._quote_original = _esecret_bool(
+            "EMAIL_QUOTE_ORIGINAL", is_truthy_value(extra.get("quote_original"), default=False)
+        )
+        self._quote_max_chars = _esecret_int(
+            "EMAIL_QUOTE_MAX_CHARS", coerce_port(extra.get("quote_max_chars"), _DEFAULT_QUOTE_MAX_CHARS)
+        )
+        self._quote_header = str(extra.get("quote_header") or _DEFAULT_QUOTE_HEADER)
+        # Originals by Message-ID so parallel mails from one sender quote the right one; the per-sender entry
+        # covers mails without a Message-ID. Only populated while quoting is on.
+        self._original_by_msg_id: "OrderedDict[str, Dict[str, str]]" = OrderedDict()
+        self._last_original_by_sender: Dict[str, Dict[str, str]] = {}
+        self._quote_lock = threading.Lock()  # sends run concurrently in executor threads
         self._seen_uids: set = set()
         self._seen_uids_max: int = 2000  # cap to prevent unbounded memory growth
         self._poll_task: Optional[asyncio.Task] = None
@@ -1451,6 +1565,10 @@ class EmailAdapter(BasePlatformAdapter):
             # of message_type, but document-context injection gates strictly on MessageType.DOCUMENT — so DOCUMENT surfaces both.
             kinds = {att["type"] for att in attachments}
             self._thread_context[sender_addr] = {"subject": subject, "message_id": msg_data["message_id"]}
+            # [PATCH-11] After _sender_accepted (already returned above on a drop) and inside the [PATCH-6]
+            # try, so a self/automated/non-allowlisted/unauthenticated sender is never remembered for quoting.
+            if self._quote_original:
+                self._remember_original(msg_data)
             name = msg_data["sender_name"] or sender_addr
             event = MessageEvent(
                 text=text or "(empty email)",
@@ -1478,6 +1596,79 @@ class EmailAdapter(BasePlatformAdapter):
             await asyncio.get_running_loop().run_in_executor(
                 None, self._finalize_message, msg_data["message_id"], source_folder
             )
+
+    # [PATCH-11] Quote-the-original-email helpers (dgxarley patch, opt-in).
+
+    def _remember_original(self, msg_data: Dict[str, Any]) -> None:
+        """[PATCH-11] Keep what a later reply needs to quote this mail (bounded)."""
+        message_id = (msg_data.get("message_id") or "").strip()
+        record = {
+            "message_id": message_id,
+            "body": msg_data.get("body") or "",
+            "date": msg_data.get("date") or "",
+            "name": msg_data.get("sender_name") or "",
+            "address": msg_data["sender_addr"],
+            "state": "",
+        }
+        with self._quote_lock:
+            if message_id:
+                self._original_by_msg_id[message_id] = record
+                self._original_by_msg_id.move_to_end(message_id)
+                while len(self._original_by_msg_id) > _QUOTE_LOOKUP_MAX:
+                    self._original_by_msg_id.popitem(last=False)
+            self._last_original_by_sender[msg_data["sender_addr"]] = record
+
+    def _claim_quote(
+        self, to_addr: str, body: str, reply_to_msg_id: Optional[str]
+    ) -> Tuple[str, Optional[Dict[str, str]]]:
+        """[PATCH-11] ``(body with quote, claimed record)``; the record is ``None`` when nothing was quoted.
+
+        Only the first successful reply per inbound mail quotes: the claim marks the record pending so a
+        concurrent send skips it, ``_settle_quote`` finalizes it after SMTP success or releases it on failure.
+        The agent's own text is never shortened; the quote shrinks (or is dropped) to fit MAX_MESSAGE_LENGTH.
+        """
+        if not self._quote_original:
+            return body, None
+        original_msg_id = (reply_to_msg_id or self._thread_context.get(to_addr, {}).get("message_id") or "").strip()
+        with self._quote_lock:
+            record = self._original_by_msg_id.get(original_msg_id) if original_msg_id else None
+            if record is None:
+                # Fall back to the sender's last mail only when it is the same mail (or carried no Message-ID),
+                # never quote a different mail than the one being replied to.
+                last = self._last_original_by_sender.get(to_addr)
+                if last is not None and (not original_msg_id or last["message_id"] == original_msg_id):
+                    record = last
+            if record is None or record["address"] != to_addr or record["state"]:
+                return body, None
+            fixed = len(
+                _build_quote(
+                    "x",
+                    date=record["date"],
+                    name=record["name"],
+                    address=record["address"],
+                    header_fmt=self._quote_header,
+                    max_chars=3,
+                )
+            ) - len("> x")
+            budget = min(self._quote_max_chars, MAX_MESSAGE_LENGTH - len(body) - fixed)
+            quote = _build_quote(
+                record["body"],
+                date=record["date"],
+                name=record["name"],
+                address=record["address"],
+                header_fmt=self._quote_header,
+                max_chars=budget,
+            )
+            if not quote:
+                return body, None
+            record["state"] = "pending"
+        return (body + quote if body else quote.lstrip("\n")), record
+
+    def _settle_quote(self, record: Optional[Dict[str, str]], sent: bool) -> None:
+        """[PATCH-11] Finalize a claimed quote after SMTP success, or release it so a retry quotes again."""
+        if record is not None:
+            with self._quote_lock:
+                record["state"] = "done" if sent else ""
 
     async def _run_send(self, fn, args: tuple, log_fmt: str, *log_args) -> SendResult:
         """Run a blocking SMTP sender in the executor; wrap its Message-ID in a SendResult."""
@@ -1543,8 +1734,16 @@ class EmailAdapter(BasePlatformAdapter):
 
     def _send_email(self, to_addr: str, body: str, reply_to_msg_id: Optional[str] = None) -> str:
         """Send an email via SMTP. Runs in executor thread."""
+        # [PATCH-11] Claim before the MIME skeleton is built (so the quote lands in the same body the
+        # Sent-folder APPEND archives); settle after _smtp_send so a retry after a failed send quotes again.
+        body, quoted = self._claim_quote(to_addr, body, reply_to_msg_id)
         msg, msg_id, subject = self._new_reply(to_addr, body, reply_to_msg_id, attach_empty_body=True)
-        self._smtp_send(msg)
+        try:
+            self._smtp_send(msg)
+        except BaseException:
+            self._settle_quote(quoted, sent=False)
+            raise
+        self._settle_quote(quoted, sent=True)
         logger.info("[Email] Sent reply to %s (subject: %s)", to_addr, subject)
         return msg_id
 
@@ -1559,15 +1758,23 @@ class EmailAdapter(BasePlatformAdapter):
     ) -> str:
         """Send a reply with attachments; *lenient* logs-and-skips unattachable files instead of raising.
         An explicit *reply_to_msg_id* threads the mail like ``_send_email`` does (#10131)."""
-        msg, msg_id, _ = self._new_reply(to_addr, body, reply_to_msg_id)
-        for path, name in files:
-            try:
-                _attach_file(msg, path, name)
-            except Exception as e:
-                if not lenient:
-                    raise
-                logger.warning("[Email] Failed to attach %s: %s", path, e)
-        self._smtp_send(msg)
+        # [PATCH-11] Same claim/settle contract as _send_email (see there); wraps the attach loop too so a
+        # failed attachment (non-lenient) also releases the claim for the retry.
+        body, quoted = self._claim_quote(to_addr, body, reply_to_msg_id)
+        try:
+            msg, msg_id, _ = self._new_reply(to_addr, body, reply_to_msg_id)
+            for path, name in files:
+                try:
+                    _attach_file(msg, path, name)
+                except Exception as e:
+                    if not lenient:
+                        raise
+                    logger.warning("[Email] Failed to attach %s: %s", path, e)
+            self._smtp_send(msg)
+        except BaseException:
+            self._settle_quote(quoted, sent=False)
+            raise
+        self._settle_quote(quoted, sent=True)
         return msg_id
 
     async def send_image(
