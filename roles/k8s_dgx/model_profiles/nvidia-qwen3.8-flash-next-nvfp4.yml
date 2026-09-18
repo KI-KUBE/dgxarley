@@ -1,0 +1,87 @@
+---
+# Model profile: nvidia/Qwen3.8-Flash-Next-NVFP4
+# NOT RUN HERE. Needs an image with qwen4_exp + SGLang #39126 (mixed-precision
+# loader, FP8 MTP dispatch, file-backed PLE, native SM121 QSA kernel); #39126
+# landed on main after the v0.5.19 tag, so the pinned tag does not exist yet.
+_model_profile:
+  "nvidia/Qwen3.8-Flash-Next-NVFP4":
+    knowledge_cutoff: null
+    release_date: "2026-08-24"  # Qwen3.8-Flash-Next base; this NVFP4 export 2026-08-31
+    info_url: "https://huggingface.co/nvidia/Qwen3.8-Flash-Next-NVFP4"
+    # Does not exist yet. 0.5.18-sm121 has qwen4_exp but none of the
+    # mixed-precision machinery, 0.5.19-sm121 has no qwen4_exp at all.
+    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.20-sm121"
+    nccl_transport: "roce"
+    nodes: [1, 2, 3, 4]
+    tp_size: 4
+    # EP=4 is REQUIRED at TP=4: moe_intermediate_size 640 / 4 = 160 per rank,
+    # 2x160 = 320 is not 128-aligned -> NVFP4 gated-MoE padding assert. EP keeps
+    # the full 640 per rank.
+    ep_size: 4
+    num_experts: 512
+    enable_eplb: false
+    enable_expert_distribution_metrics: false
+    context_length: 262144
+    # quant_algo is MIXED_PRECISION (NVFP4 W4A4 routed experts + FP8 block-scaled
+    # MTP experts + per-tensor FP8 PLE table), NOT uniform NVFP4. The RadixArk
+    # export of the same base needs modelopt_fp4 instead.
+    quantization: "modelopt_mixed"
+    trust_remote_code: true
+    # fp8_e4m3 asserts inside the QSA decode call during warmup (#36545), and the
+    # checkpoint bakes no KV scales.
+    kv_cache_dtype: "auto"
+    # Largely inert: QSA calls flash_attn directly and ignores --attention-backend.
+    attention_backend: "flashinfer"
+    mm_attention_backend: "triton_attn"
+    fp4_gemm_backend: "flashinfer_cutlass"
+    moe_runner_backend: "flashinfer_cutlass"
+    disable_deep_gemm: true
+    # TP=4 shards the 51 GB PLE n-gram table (VocabParallelEmbedding) to ~12.8
+    # GB/rank, so offload buys nothing: on GB10 the pinned host allocation comes
+    # out of the same unified pool and adds a gather hop. SGLang would auto-enable
+    # it (CUDA + model dtype bfloat16), hence the explicit false. Set
+    # ple_offload_embedding: true + ple_offload_backend: file for a single-node
+    # TP=1 run, where the table has to leave the pool.
+    ple_offload_embedding: false
+    # Value the TP=4 RadixArk run of the same architecture settled on. This is a
+    # post-weight KV reserve, not a fraction of total.
+    mem_fraction_static: "0.82"
+    # Forced to 64 by _qwen4_exp_overrides (compressed QSA addresses the cache as
+    # full_slot // compress_ratio), which is also why extra_buffer below is
+    # mandatory rather than an optimisation.
+    page_size: 64
+    mamba_scheduler_strategy: "extra_buffer"
+    # Also a memory knob at depth: the QSA indexer allocates an fp32
+    # [chunk x history] workspace per sparse layer per chunk. Drop to 1024 before
+    # blaming a decode kernel for degraded long-context output.
+    chunked_prefill_size: 4096
+    max_running_requests: 16
+    cuda_graph_max_bs: 32
+    # chat_template.jinja is byte-identical to the RadixArk export. Thinking is on
+    # by default at xhigh; --reasoning-parser auto resolves to qwen3.
+    reasoning_parser: "qwen3"
+    # The only values the template accepts. SGLang's request schema is wider, so
+    # high/max/minimal pass pydantic and then raise_exception() = HTTP 400.
+    reasoning_efforts: ["xhigh", "medium", "low"]
+    tool_call_parser: "qwen3_coder"
+    recommended_sampling:  # from generation_config.json
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+    # In-checkpoint FP8 MTP head, no external draft repo.
+    # speculative_draft_model_quantization stays unset: the mixed-precision loader
+    # resolves the head itself (qwen3_5_mtp._mtp_quant_config keeps the config
+    # because mtp.* IS listed in quantized_layers).
+    # num_draft_tokens 4 is a hard ceiling: QwenSparseAttnBackend raises above
+    # indexer_compress_ratio (4).
+    # WARNING: the RadixArk export of this architecture collapsed into runs of
+    # token 0 with NEXTN on, at TP=4 (3/16) AND at TP=2 with the #36845 kernel
+    # (4/16). Enabled here because this is a different code path (FP8 head +
+    # mixed-precision dispatch, plus the branch's GB10 NEXTN fix c8457de59a) and
+    # upstream gated GSM8K 195/200 with MTP on this checkpoint on one Spark.
+    # Run the 32-prompt collapse probe on first boot; rollback is this one line.
+    speculative_enabled: true
+    speculative_algo: NEXTN
+    speculative_num_steps: 3
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 4
