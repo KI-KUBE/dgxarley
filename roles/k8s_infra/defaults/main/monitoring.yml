@@ -26,10 +26,15 @@ grafana_image_renderer_image: "grafana/grafana-image-renderer:latest"
 # group_vars/vault override of grafana_admin_password is what it hashes.
 # Both sides read this same variable, so they can never drift apart.
 grafana_image_renderer_auth_token: "{{ (grafana_admin_password ~ ':grafana-image-renderer') | hash('sha256') }}"
-# `default` keeps one reusable browser instance (lowest footprint);
-# `clustered` spawns one per request — only worth it under concurrent renders.
-grafana_image_renderer_rendering_mode: "default"
 grafana_image_renderer_log_level: "info"
+# Resource ceiling for the per-render Chromium. v5 launches a fresh browser
+# (~11 processes, ~1.1 GB peak) for EVERY request and tears it down again, so
+# these are burst values, not steady state — the pod idles at ~12 MB with no
+# browser running. requests stay at 100m/200Mi, so nothing is reserved.
+# At cpu 1000m the cgroup reported 5-11s of throttling per render
+# (/sys/fs/cgroup/cpu.stat), at 3000m it is ~0.
+grafana_image_renderer_cpu_limit: "3000m"
+grafana_image_renderer_memory_limit: "2Gi"
 keel_basic_auth_password: "changeme"
 keel_gotify_token: "CHANGEME_GOTIFY_TOKEN"
 keel_gotify_url: "https://gotify.example.com"
