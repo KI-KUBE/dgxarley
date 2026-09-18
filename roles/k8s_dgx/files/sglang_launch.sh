@@ -516,11 +516,14 @@ if [ "$SGLANG_SPECULATIVE_ENABLED" = "true" ]; then
       args+=(--speculative-draft-model-path "$SGLANG_MODEL")
     fi
   fi
-  # Adaptive Spec V2 (SGLang ≥0.5.12, PR #23336). Dynamically retunes
-  # num_steps / num_draft_tokens at runtime. Only meaningful with
-  # EAGLE/EAGLE3 + speculative_eagle_topk=1 — SGLang silently disables
-  # otherwise (adaptive_unsupported_reason() in
-  # srt/speculative/adaptive_spec_params.py). NEXTN is NOT supported.
+  # Adaptive Spec V2 (SGLang >=0.5.12, PR #23336). Retunes speculative_num_steps
+  # at runtime per batch-size tier; draft tokens follow as steps + 1 (SGLang
+  # overrides --speculative-num-draft-tokens accordingly at init). Needs
+  # speculative_eagle_topk=1 and a RESOLVED algorithm of EAGLE/EAGLE3, else
+  # adaptive_unsupported_reason() in srt/speculative/adaptive_spec_params.py
+  # silently disables it. NEXTN is a reserved alias that the resolution pipeline
+  # rewrites to EAGLE before that check, so it is not disqualified either, but
+  # profiles should pin EAGLE explicitly.
   if [ "$SGLANG_SPECULATIVE_ADAPTIVE" = "true" ]; then
     args+=(--speculative-adaptive)
     if [ -n "$SGLANG_SPECULATIVE_ADAPTIVE_CONFIG_JSON" ] \
