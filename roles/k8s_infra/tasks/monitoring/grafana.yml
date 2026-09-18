@@ -1,5 +1,168 @@
 ---
 # =============================================================================
+# GRAFANA IMAGE RENDERER (remote rendering service)
+# =============================================================================
+# Runs Chromium in its OWN pod instead of as the in-process
+# `grafana-image-renderer` plugin: the plugin variant has to fit a browser into
+# grafana's own memory limit (already ~500Mi of 950Mi in steady state) and takes
+# grafana down with it on an OOM. Grafana reaches it over HTTP via
+# GF_RENDERING_SERVER_URL and hands it GF_RENDERING_CALLBACK_URL to fetch the
+# panel back from.
+# `grafana_image_renderer_enabled: false` only skips the install (and blanks
+# GF_RENDERING_SERVER_URL so grafana stops calling it); removal is the opt-in
+# `-e grafana_image_renderer_teardown=true` with `--tags grafana`.
+
+- name: Resolve grafana image renderer install gate
+  ansible.builtin.set_fact:
+    # Needed as a fact, not a block gate: the renderer objects and the grafana
+    # env vars that point at them live in two separate places in this file.
+    grafana_renderer_install: "{{ (grafana_image_renderer_enabled | default(true) | bool) and not (grafana_image_renderer_teardown | default(false) | bool) }}"
+
+- name: Grafana image renderer — install
+  when: grafana_renderer_install | bool
+  block:
+    - name: Create grafana-image-renderer-secrets
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: grafana-image-renderer-secrets
+            namespace: monitoring
+          type: Opaque
+          stringData:
+            # Shared secret for /render, sent by grafana as X-Auth-Token. Same
+            # variable on both sides so they cannot drift; it must not be the
+            # upstream default "-" or grafana refuses to start (see the derived
+            # default in defaults/main/monitoring.yml).
+            AUTH_TOKEN: "{{ grafana_image_renderer_auth_token }}"
+      register: grafana_renderer_secrets
+
+    - name: Create grafana-image-renderer Deployment
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: grafana-image-renderer
+            namespace: monitoring
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: grafana-image-renderer
+            template:
+              metadata:
+                labels:
+                  app: grafana-image-renderer
+                annotations:
+                  checksum/config: "{{ grafana_renderer_secrets.result.data | to_json | hash('sha256') }}"
+                  keel.sh/policy: force
+                  keel.sh/match-tag: "true"
+                  keel.sh/pollSchedule: "@every 24h"
+                  keel.sh/trigger: poll
+              spec:
+                nodeSelector:
+                  kubernetes.io/arch: amd64
+                securityContext:
+                  runAsUser: 472
+                  runAsGroup: 472
+                  runAsNonRoot: true
+                containers:
+                - name: renderer
+                  image: "{{ grafana_image_renderer_image }}"
+                  ports:
+                  - name: http
+                    containerPort: 8081
+                  env:
+                    - name: HTTP_HOST
+                      value: "0.0.0.0"
+                    - name: HTTP_PORT
+                      value: "8081"
+                    - name: RENDERING_MODE
+                      value: "{{ grafana_image_renderer_rendering_mode }}"
+                    - name: LOG_LEVEL
+                      value: "{{ grafana_image_renderer_log_level }}"
+                    - name: ENABLE_METRICS
+                      value: "true"
+                  envFrom:
+                  - secretRef:
+                      name: grafana-image-renderer-secrets
+                  volumeMounts:
+                  # Chromium puts its renderer shared memory here. The container
+                  # runtime default of 64Mi makes it crash on larger panels.
+                  - name: dshm
+                    mountPath: /dev/shm
+                  readinessProbe:
+                    httpGet:
+                      path: /
+                      port: http
+                    initialDelaySeconds: 5
+                    periodSeconds: 10
+                  livenessProbe:
+                    httpGet:
+                      path: /
+                      port: http
+                    initialDelaySeconds: 30
+                    periodSeconds: 30
+                  securityContext:
+                    allowPrivilegeEscalation: false
+                  resources:
+                    requests:
+                      cpu: 100m
+                      memory: 200Mi
+                    limits:
+                      cpu: 1000m
+                      memory: 1Gi
+                volumes:
+                - name: dshm
+                  emptyDir:
+                    medium: Memory
+                    # Counts against the container memory limit above.
+                    sizeLimit: 256Mi
+
+    - name: Create grafana-image-renderer Service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: grafana-image-renderer
+            namespace: monitoring
+          spec:
+            selector:
+              app: grafana-image-renderer
+            type: ClusterIP
+            ports:
+            - port: 8081
+              targetPort: http
+
+- name: Grafana image renderer — teardown
+  when: grafana_image_renderer_teardown | default(false) | bool
+  block:
+    - name: Remove grafana image renderer objects
+      kubernetes.core.k8s:
+        state: absent
+        api_version: "{{ item.api_version }}"
+        kind: "{{ item.kind }}"
+        name: grafana-image-renderer
+        namespace: monitoring
+      loop:
+        - { api_version: "apps/v1", kind: Deployment }
+        - { api_version: "v1", kind: Service }
+
+    - name: Remove grafana-image-renderer-secrets
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Secret
+        name: grafana-image-renderer-secrets
+        namespace: monitoring
+
+# =============================================================================
 # GRAFANA SECRETS (local auth — no Keycloak OIDC)
 # =============================================================================
 
@@ -20,6 +183,15 @@
         GF_SECURITY_COOKIE_SAMESITE: 'disabled'
         GF_AUTH_ANONYMOUS_ENABLED: 'false'
         GF_SERVER_ROOT_URL: "{{ grafana_root_url }}"
+        # Remote image rendering (PNG panel export, alert screenshots). Blank
+        # when the renderer is not installed: the keys stay in the Secret
+        # either way because a strategic-merge patch cannot prune a key that is
+        # dropped from stringData, and blank == grafana's own "no renderer".
+        # The callback URL is what the renderer fetches the panel back from, so
+        # it must be grafana's in-cluster address, not the public root_url.
+        GF_RENDERING_SERVER_URL: "{{ grafana_renderer_install | bool | ternary('http://grafana-image-renderer.monitoring.svc.cluster.local:8081/render', '') }}"
+        GF_RENDERING_CALLBACK_URL: "http://grafana.monitoring.svc.cluster.local:3000/"
+        GF_RENDERING_RENDERER_TOKEN: "{{ grafana_image_renderer_auth_token }}"
   register: grafana_secrets
 
 # =============================================================================

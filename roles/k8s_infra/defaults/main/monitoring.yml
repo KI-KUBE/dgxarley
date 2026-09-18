@@ -5,6 +5,31 @@ grafana_root_url: "https://grafana.example.com"
 # Re-fetch a cached dashboard only if older than this. N>0 = refresh after N days;
 # 0 = always re-fetch (old behaviour); -1 = cache forever (full airgap).
 grafana_dashboard_cache_ttl_days: 7
+# ---------------------------------------------------------------------------
+# Grafana image renderer (remote rendering service, ns `monitoring`)
+# ---------------------------------------------------------------------------
+# Without it grafana answers every PNG export / alert screenshot with
+# "Image renderer plugin not installed". Deployed as its own pod rather than as
+# the in-grafana plugin — see the rationale in tasks/monitoring/grafana.yml.
+grafana_image_renderer_enabled: true
+# `false` only skips the install; `-e grafana_image_renderer_teardown=true`
+# (with --tags grafana) is the opt-in removal.
+grafana_image_renderer_teardown: false
+# Deliberately unpinned: stateless render service, so keel (force + 24h poll)
+# may auto-update it. Upstream has no floating major/minor tag, only `latest`.
+grafana_image_renderer_image: "grafana/grafana-image-renderer:latest"
+# Shared /render token, sent by grafana as X-Auth-Token and checked by the
+# renderer. Grafana >=12 REFUSES TO START on the upstream default "-"
+# ("Using the default [rendering]renderer_token is not allowed for production
+# settings"), so this has to be a real value. Derived from the already-vaulted
+# admin password rather than a new vault field — lazily evaluated, so the
+# group_vars/vault override of grafana_admin_password is what it hashes.
+# Both sides read this same variable, so they can never drift apart.
+grafana_image_renderer_auth_token: "{{ (grafana_admin_password ~ ':grafana-image-renderer') | hash('sha256') }}"
+# `default` keeps one reusable browser instance (lowest footprint);
+# `clustered` spawns one per request — only worth it under concurrent renders.
+grafana_image_renderer_rendering_mode: "default"
+grafana_image_renderer_log_level: "info"
 keel_basic_auth_password: "changeme"
 keel_gotify_token: "CHANGEME_GOTIFY_TOKEN"
 keel_gotify_url: "https://gotify.example.com"
