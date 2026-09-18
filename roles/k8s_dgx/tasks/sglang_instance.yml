@@ -270,6 +270,12 @@
       # (read at module import by the patched torch_paged_mqa_logits.py).
       SGLANG_DSA_INDEXER_TRITON: "{{ '1' if (sglang_dsa_indexer_triton | bool) else '0' }}"
       SGLANG_MM_ATTENTION_BACKEND: "{{ sglang_mm_attention_backend }}"
+      # Qwen4-Exp PLE n-gram embedding offload. All three are empty for every
+      # model that is not Qwen4-Exp, and launch.sh emits no flag then: the
+      # --ple-offload-* flags only exist on images carrying the qwen4-exp branch.
+      SGLANG_PLE_OFFLOAD_EMBEDDING: "{{ sglang_ple_offload_embedding }}"
+      SGLANG_PLE_OFFLOAD_BACKEND: "{{ sglang_ple_offload_backend }}"
+      SGLANG_PLE_OFFLOAD_DIR: "{{ sglang_ple_offload_dir }}"
       SGLANG_PAGE_SIZE: "{{ sglang_page_size | string }}"
       SGLANG_SWA_FULL_TOKENS_RATIO: "{{ sglang_swa_full_tokens_ratio | string }}"
       SGLANG_DLLM_ALGORITHM: "{{ sglang_dllm_algorithm }}"
@@ -836,6 +842,8 @@
                     mountPath: /root/.triton/cache
                   - name: fa4-cute-dsl-cache
                     mountPath: /root/.cache/fa4_cute_dsl_persistent
+                  - name: ple-cache
+                    mountPath: "{{ sglang_ple_cache_mountpath }}"
                   - name: launch-script
                     mountPath: /scripts
                     readOnly: true
@@ -866,6 +874,16 @@
               - name: fa4-cute-dsl-cache
                 hostPath:
                   path: "{{ hf_cache_path }}/fa4_cute_dsl_cache"
+                  type: DirectoryOrCreate
+              # ple-cache: backing store for the file-backed Qwen4-Exp PLE
+              # n-gram table (--ple-offload-backend file). Node-local NVMe on
+              # purpose and never JuiceFS: the table is a sparse ~48 GiB mmap
+              # managed with posix_fadvise / MADV_DONTNEED, which is not a FUSE
+              # workload. Mounted unconditionally like the JIT caches; it stays
+              # an empty directory for every model that does not use it.
+              - name: ple-cache
+                hostPath:
+                  path: "{{ hf_cache_path }}/ple"
                   type: DirectoryOrCreate
               - name: model-download-script
                 configMap:
@@ -1154,6 +1172,8 @@
                     mountPath: /root/.triton/cache
                   - name: fa4-cute-dsl-cache
                     mountPath: /root/.cache/fa4_cute_dsl_persistent
+                  - name: ple-cache
+                    mountPath: "{{ sglang_ple_cache_mountpath }}"
                   - name: launch-script
                     mountPath: /scripts
                     readOnly: true
@@ -1194,6 +1214,16 @@
               - name: fa4-cute-dsl-cache
                 hostPath:
                   path: "{{ hf_cache_path }}/fa4_cute_dsl_cache"
+                  type: DirectoryOrCreate
+              # ple-cache: backing store for the file-backed Qwen4-Exp PLE
+              # n-gram table (--ple-offload-backend file). Node-local NVMe on
+              # purpose and never JuiceFS: the table is a sparse ~48 GiB mmap
+              # managed with posix_fadvise / MADV_DONTNEED, which is not a FUSE
+              # workload. Mounted unconditionally like the JIT caches; it stays
+              # an empty directory for every model that does not use it.
+              - name: ple-cache
+                hostPath:
+                  path: "{{ hf_cache_path }}/ple"
                   type: DirectoryOrCreate
               - name: model-download-script
                 configMap:

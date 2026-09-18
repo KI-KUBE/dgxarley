@@ -677,6 +677,28 @@ fi
 if [ -n "$SGLANG_MM_ATTENTION_BACKEND" ]; then
   args+=(--mm-attention-backend "$SGLANG_MM_ATTENTION_BACKEND")
 fi
+# Qwen4-Exp PLE n-gram embedding offload. Empty (every non-Qwen4-Exp model) adds
+# NO flag, which matters: --ple-offload-* only exists on images built from the
+# qwen4-exp branch, so an unconditional flag would break every other image.
+# Tri-state: "true" forces the offload on, "false" forces it off, empty leaves
+# SGLang's own default (auto-on for BF16 Qwen4-Exp on CUDA).
+if [ "$SGLANG_PLE_OFFLOAD_EMBEDDING" = "true" ]; then
+  args+=(--ple-offload-embedding)
+elif [ "$SGLANG_PLE_OFFLOAD_EMBEDDING" = "false" ]; then
+  args+=(--no-ple-offload-embedding)
+fi
+# "pinned" (SGLang default, CPU pinned memory) or "file" (sparse mmap under
+# --ple-offload-dir). On GB10 only "file" actually frees the unified pool; SGLang
+# rejects it together with --no-ple-offload-embedding.
+if [ -n "$SGLANG_PLE_OFFLOAD_BACKEND" ]; then
+  args+=(--ple-offload-backend "$SGLANG_PLE_OFFLOAD_BACKEND")
+fi
+# Only meaningful with backend "file"; the dir is node-local NVMe, never JuiceFS
+# (sparse mmap managed with posix_fadvise / MADV_DONTNEED).
+if [ -n "$SGLANG_PLE_OFFLOAD_DIR" ] && [ "$SGLANG_PLE_OFFLOAD_BACKEND" = "file" ]; then
+  mkdir -p "$SGLANG_PLE_OFFLOAD_DIR"
+  args+=(--ple-offload-dir "$SGLANG_PLE_OFFLOAD_DIR")
+fi
 # KV-cache page size (tokens per page). Empty/0 → no flag → SGLang default.
 # Some attention backends / hybrid-SWA paths want a larger page (MiMoV2 card: 64).
 if [ -n "$SGLANG_PAGE_SIZE" ] && [ "$SGLANG_PAGE_SIZE" != "0" ]; then

@@ -568,6 +568,32 @@ sglang_dsa_prefill_backend: "{{ sglang_model_profiles[_sglang_active_model].dsa_
 # sdpa, fa3, fa4, triton_attn, ascend_attn, aiter_attn, flashinfer_cudnn. Only
 # relevant for multimodal models (e.g. MiMoV2 omni). Wired to --mm-attention-backend.
 sglang_mm_attention_backend: "{{ sglang_model_profiles[_sglang_active_model].mm_attention_backend | default('') }}"
+# --- Qwen4-Exp PLE n-gram embedding offload -----------------------------------
+# Qwen4-Exp (Qwen3.8-Flash-Next and friends) carries a ~51 GB n-gram embedding
+# table. The three knobs below are OPT-IN per profile: all default to empty, and
+# launch.sh emits no flag then, because --ple-offload-* only exists on images
+# built from the qwen4-exp branch and any other image would reject the flag.
+# In-pod mountpoint of the node-local PLE hostPath ({{ hf_cache_path }}/ple),
+# see the ple-cache volume in sglang_instance.yml.
+sglang_ple_cache_mountpath: "/root/.cache/sglang/ple"
+# Tri-state. Empty = no flag = SGLang's own default, which auto-enables the
+# offload for BF16 Qwen4-Exp on CUDA. true/false force it. On GB10 the default
+# ("pinned", i.e. CPU pinned memory) buys NOTHING, since pinned host memory comes
+# out of the same unified pool as the weights and only adds a gather hop, so a
+# multi-node profile that TP-shards the table wants an explicit false.
+# Wired to --ple-offload-embedding / --no-ple-offload-embedding.
+sglang_ple_offload_embedding: "{{ sglang_model_profiles[_sglang_active_model].ple_offload_embedding | default('') | string | lower }}"
+# "pinned" (SGLang default) or "file" (sparse mmap under --ple-offload-dir, read
+# directly by the gather kernel). "file" is the one that takes the table out of
+# the unified pool and lets a 132 GB Qwen4-Exp checkpoint fit ONE spark at TP=1.
+# SGLang raises when it is combined with ple_offload_embedding false.
+# Wired to --ple-offload-backend.
+sglang_ple_offload_backend: "{{ sglang_model_profiles[_sglang_active_model].ple_offload_backend | default('') }}"
+# Directory for the file-backed table (one subdir per checkpoint, sparse, reused
+# across restarts). Falls back to the node-local NVMe mount ONLY when the backend
+# is "file"; SGLang's own default would be $SGLANG_CACHE_DIR/ple, i.e. the
+# container's writable layer. Wired to --ple-offload-dir.
+sglang_ple_offload_dir: "{{ sglang_model_profiles[_sglang_active_model].ple_offload_dir | default(sglang_ple_cache_mountpath if sglang_ple_offload_backend == 'file' else '') }}"
 # KV-cache page size (tokens per page). Empty/0 → SGLang default. Some attention
 # backends / hybrid-SWA paths want a larger page (MiMoV2 card uses 64). Wired to --page-size.
 sglang_page_size: "{{ sglang_model_profiles[_sglang_active_model].page_size | default(0) }}"
