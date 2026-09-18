@@ -65,6 +65,16 @@ for arg in "$@"; do
         esac
 done
 
+# Ein leer gewordenes Set repariert sich sonst NIE von selbst: liegt die
+# Zonendatei unveraendert auf der Platte, antwortet der Server 304, `new_files`
+# bleibt leer -- und damit auch `do_ipset`, womit der ganze ipset-Block unten
+# uebersprungen wird. Der taegliche Cron laeuft dann jahrelang erfolgreich,
+# ohne das Set je wieder zu fuellen.
+if [ "$(/sbin/ipset -t list geoallowlist 2>/dev/null | sed -n 's/^Number of entries: //p')" = "0" ]; then
+        force=true
+        log_this "geoallowlist is empty -> forcing rebuild"
+fi
+
 new_files=""
 old_files=""
 # download file, name must not be null, and must have no spaces (urlencode).

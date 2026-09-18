@@ -28,12 +28,19 @@ fi
 #/root/blacklist.sh
 #/root/blockbadhosts_ipset.sh
 
+{# `-!` (exist): ohne das Flag bricht `ipset restore` bei der ERSTEN schon      #}
+{# existierenden Set-Definition ab und laesst ALLES danach in der Datei liegen. #}
+{# Legt etwas die Sets parallel per `ipset -N` leer an (im Schwester-Repo war   #}
+{# das ein handgepflegter `@reboot /root/iptables.sh`-Cron), bleibt u.a.        #}
+{# geoallowlist leer -- und ein leeres geoallowlist heisst hier wegen           #}
+{# `-m set ! --match-set geoallowlist src -j DROP` (iptables.sh.j2): alles      #}
+{# faellt. Siehe ../ansible, dort am 2026-09-18 diagnostiziert.                 #}
 {%+ if 'k3sserver' in group_names %}
-/usr/sbin/ipset restore </root/ipset.save
+/usr/sbin/ipset restore -! </root/ipset.save
 /usr/sbin/ip6tables-restore -v /root/ip6tables.save
 (echo rc.local iptablestuff START $(date); /root/iptables.sh ; /root/ipsetgeoblock.sh ; /root/blacklist.sh ; /root/blockbadhosts_ipset.sh; echo rc.local iptablestuff END $(date)) 1>>/tmp/iptables_rc_local.log 2>&1  &
 {%+ else +%}
-/usr/sbin/ipset restore </root/ipset.save
+/usr/sbin/ipset restore -! </root/ipset.save
 /usr/sbin/iptables-restore -v /root/iptables.save
 /usr/sbin/ip6tables-restore -v /root/ip6tables.save
 {%+ endif +%}
