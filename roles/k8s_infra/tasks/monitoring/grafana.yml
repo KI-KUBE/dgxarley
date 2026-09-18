@@ -80,16 +80,18 @@
                   - name: http
                     containerPort: 8081
                   env:
+                    # v5 is a Go rewrite with a different env surface than the
+                    # Node service most docs still describe: RENDERING_MODE and
+                    # ENABLE_METRICS do not exist in the binary (verified with
+                    # `grafana-image-renderer server --help`), /metrics is
+                    # always on, and there is no reusable/clustered browser
+                    # mode — a Chromium is launched per request.
                     - name: HTTP_HOST
                       value: "0.0.0.0"
                     - name: HTTP_PORT
                       value: "8081"
-                    - name: RENDERING_MODE
-                      value: "{{ grafana_image_renderer_rendering_mode }}"
                     - name: LOG_LEVEL
                       value: "{{ grafana_image_renderer_log_level }}"
-                    - name: ENABLE_METRICS
-                      value: "true"
                   envFrom:
                   - secretRef:
                       name: grafana-image-renderer-secrets
@@ -113,12 +115,17 @@
                   securityContext:
                     allowPrivilegeEscalation: false
                   resources:
+                    # Limits only — requests stay small so nothing is reserved
+                    # on k3smaster. A single render peaks around 1.1 GB across
+                    # its ~11 Chromium processes, so a 1Gi limit sits right on
+                    # the edge. At a 1-core limit the cgroup was throttled for
+                    # 5-11s of every render (cpu.stat), hence the wider ceiling.
                     requests:
                       cpu: 100m
                       memory: 200Mi
                     limits:
-                      cpu: 1000m
-                      memory: 1Gi
+                      cpu: "{{ grafana_image_renderer_cpu_limit }}"
+                      memory: "{{ grafana_image_renderer_memory_limit }}"
                 volumes:
                 - name: dshm
                   emptyDir:
