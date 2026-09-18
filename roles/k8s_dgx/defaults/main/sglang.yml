@@ -131,17 +131,33 @@ sglang_speculative_draft_model_path: "{{ sglang_model_profiles[_sglang_active_mo
 # Empty string (default) = inherit target quantization (SGLang's default).
 sglang_speculative_draft_model_quantization: "{{ sglang_model_profiles[_sglang_active_model].speculative_draft_model_quantization | default('') }}"
 
-# Adaptive Spec V2 (SGLang ≥0.5.12, PR #23336). Dynamically retunes draft
-# parameters (num_steps, num_draft_tokens) at runtime based on observed
-# acceptance rate and batch pressure. Strictly requires speculative_algo in
-# {EAGLE, EAGLE3} AND speculative_eagle_topk=1 — SGLang silently disables
-# adaptive mode for NEXTN or topk>1 (adaptive_unsupported_reason() in
-# srt/speculative/adaptive_spec_params.py). Empty string => flag omitted.
+# Adaptive Spec V2 (SGLang >=0.5.12, PR #23336). Retunes speculative_num_steps at
+# runtime, per batch-size tier, from an EMA of the observed accept length. It
+# tunes STEPS ONLY: _init_adaptive_speculative_params then derives
+# speculative_num_draft_tokens = num_steps + 1 and OVERRIDES whatever the profile
+# passed. Gated by adaptive_unsupported_reason() in
+# srt/speculative/adaptive_spec_params.py, which silently disables adaptive for
+# speculative_eagle_topk != 1, enable_dp_attention, enable_multi_layer_eagle,
+# enable_two_batch_overlap, enable_pdmux, and for any speculative_algorithm
+# outside ("EAGLE", "EAGLE3").
+# That last check reads the server-args STRING. NEXTN is a reserved ALIAS that
+# handle_speculative_decoding rewrites to EAGLE (via
+# _resolve_speculative_algorithm_alias) BEFORE _maybe_disable_adaptive runs, so a
+# NEXTN profile is not disqualified on current SGLang, contrary to what this
+# comment used to claim. Pin speculative_algo: EAGLE anyway to stay independent
+# of that ordering; it selects the same worker (the enum has no NEXTN member).
+# Empty string => flag omitted.
 sglang_speculative_adaptive: "{{ sglang_model_profiles[_sglang_active_model].speculative_adaptive | default(false) }}"
-# Optional inline dict of adaptive-mode tuning knobs (min/max steps, accept
-# thresholds, …). Rendered to /tmp/speculative_adaptive_config.json at pod
-# startup and passed via --speculative-adaptive-config <path>. Empty dict
-# (default) => flag omitted, SGLang defaults apply.
+# Optional per-batch-size tuning dict, e.g. {"1": {"candidate_steps": [1,2,3]}}.
+# Rendered to /tmp/speculative_adaptive_config.json at pod startup and passed via
+# --speculative-adaptive-config <path>. Empty dict (default) => flag omitted and
+# SGLang's DEFAULT_ADAPTIVE_CONFIG applies: BS1 [1,3,5,7], BS8 [0,1,3],
+# BS32 [0,1], BS64 [0] (0 = no speculation for that tier).
+# Two traps: speculative_num_steps MUST appear in the union of all candidate_steps
+# (_init_adaptive_speculative_params raises otherwise), and since draft tokens are
+# steps + 1, any model with a cap on the verify-tree size needs the candidates
+# capped to match (Qwen4-Exp: num_draft_tokens <= indexer_compress_ratio = 4, so
+# steps <= 3, which the upstream default would exceed).
 sglang_speculative_adaptive_config: "{{ sglang_model_profiles[_sglang_active_model].speculative_adaptive_config | default({}) }}"
 
 # Mamba scheduler strategy — required for hybrid-attention models (Qwen3.5 MoE)

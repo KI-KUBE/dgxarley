@@ -81,7 +81,32 @@ _model_profile:
     # upstream gated GSM8K 195/200 with MTP on this checkpoint on one Spark.
     # Run the 32-prompt collapse probe on first boot; rollback is this one line.
     speculative_enabled: true
-    speculative_algo: NEXTN
+    # EAGLE, not NEXTN: identical worker (NEXTN is in _RESERVED_ALIASES and
+    # from_string maps it to EAGLE; the enum has no NEXTN member any more), but
+    # adaptive_unsupported_reason() compares the server-args STRING against
+    # ("EAGLE", "EAGLE3"). The resolution pipeline does normalize NEXTN first, so
+    # both work today; pinning EAGLE makes it independent of that ordering.
+    # The in-checkpoint MTP head is still found: Qwen4ExpForConditionalGeneration
+    # is in the _handle_eagle_family arch list that resolves
+    # speculative_draft_model_path to model_path.
+    speculative_algo: EAGLE
+    # Starting value only, and it MUST appear in candidate_steps below
+    # (_init_adaptive_speculative_params raises otherwise).
     speculative_num_steps: 3
+    # MUST stay 1: adaptive is disabled for topk > 1.
     speculative_eagle_topk: 1
+    # Overridden at init to speculative_num_steps + 1 while adaptive is on. Kept
+    # so the value is right if adaptive is ever turned off.
     speculative_num_draft_tokens: 4
+    # Retunes num_steps per batch-size tier from an EMA of the observed accept
+    # length. It tunes steps only; draft tokens follow as steps + 1.
+    speculative_adaptive: true
+    # candidate_steps capped at 3 ON PURPOSE: draft tokens are steps + 1 and
+    # QwenSparseAttnBackend raises above indexer_compress_ratio (4). SGLang's
+    # own defaults go up to 7 on the BS1 tier, which would trip that. 0 = drop
+    # speculation entirely for that tier.
+    speculative_adaptive_config:
+      "1": {candidate_steps: [1, 2, 3]}
+      "8": {candidate_steps: [0, 1, 3]}
+      "32": {candidate_steps: [0, 1]}
+      "64": {candidate_steps: [0]}
