@@ -63,7 +63,9 @@
   tags: ollama_embed
   when: not (enable_ollama_embed | default(true))
 
-- name: Deploy docling-serve
+# Install + teardown both live in docling.yml (gated inside on docling_enabled /
+# docling_teardown), so the import itself carries no gate.
+- name: Deploy/teardown docling-serve
   ansible.builtin.import_tasks: docling.yml
   tags: docling
 

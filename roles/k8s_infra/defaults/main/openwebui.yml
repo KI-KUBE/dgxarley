@@ -41,7 +41,11 @@ openwebui_embedding_chunk_overlap: 750
 openwebui_embedding_chunk_min_size: 100
 openwebui_embedding_batch_size: 16
 
-openwebui_content_extraction_engine: "docling"
+# Follows the docling_enabled gate (group_vars/all/main/docling.yml). Empty
+# string = Open WebUI's built-in extractor, which is what must be used when
+# docling-serve is not deployed, otherwise every file upload fails against a
+# dead service. Override explicitly to pin an engine regardless of the gate.
+openwebui_content_extraction_engine: "{{ 'docling' if (docling_enabled | default(false) | bool) else '' }}"
 openwebui_docling_server_url: "http://docling.docling.svc.cluster.local:{{ docling_port }}"
 # openwebui_tei_openai_api_base_url: "http://tei.ollama.svc.cluster.local:8080/v1"
 openwebui_searxng_query_url: "http://searxng.searxng.svc.cluster.local:{{ searxng_port }}/search?q=<query>"

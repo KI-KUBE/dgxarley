@@ -1,248 +1,273 @@
 ---
-- name: Create docling namespace
-  kubernetes.core.k8s:
-    name: docling
-    api_version: v1
-    kind: Namespace
-    state: present
-
-- name: Create docling configmap
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: ConfigMap
-      metadata:
-        name: docling-config
-        namespace: docling
-      data:
-        UVICORN_WORKERS: "1"
-        DOCLING_DEVICE: "cpu"
-        DOCLING_NUM_THREADS: "4"
-        HF_HOME: "/huggingface-cache"
-        # Disable hf_xet transfer path (hex-hash reconstruction bug); real value
-        # (1 = off) in group_vars/all/vault/huggingface.yml.
-        HF_HUB_DISABLE_XET: "{{ hf_hub_disable_xet | default(0) | string }}"
-        # No HF telemetry / agent-harness registry fetch (writes $HF_HOME/.agent_harnesses.json).
-        HF_HUB_DISABLE_TELEMETRY: "{{ hf_hub_disable_telemetry | default(1) | string }}"
-        # hf_xet high-performance transfer, wired through the inverted
-        # hf_hub_xet_disable_high_performance knob. No-op when xet is disabled above.
-        HF_XET_HIGH_PERFORMANCE: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
-        # xet concurrent range-GETs per file (xet-only; no-op on plain HTTPS).
-        HF_XET_NUM_CONCURRENT_RANGE_GETS: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
-        # Sequential instead of parallel local writes on the xet reconstruct path
-        # (1 = sequential, for spinning disks). xet-only.
-        HF_XET_RECONSTRUCT_WRITE_SEQUENTIALLY: "{{ hf_xet_reconstruct_write_sequentially | default(0) | string }}"
-
-- name: Create docling service
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: v1
-      kind: Service
-      metadata:
+- name: Docling-serve — install
+  when:
+    - docling_enabled | default(false) | bool
+    - not (docling_teardown | default(false) | bool)
+  block:
+    - name: Create docling namespace
+      kubernetes.core.k8s:
         name: docling
-        namespace: docling
-        labels:
-          app: docling
-      spec:
-        selector:
-          app: docling
-        ports:
-          - port: "{{ docling_port }}"
-            name: docling-port
-            targetPort: "{{ docling_port }}"
+        api_version: v1
+        kind: Namespace
+        state: present
 
-- name: Create docling deployment
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: apps/v1
-      kind: Deployment
-      metadata:
-        name: docling-deployment
-        namespace: docling
-        labels:
-          app: docling-deployment
-        annotations:
-          keel.sh/policy: force
-          keel.sh/match-tag: "true"
-          keel.sh/pollSchedule: "@every 24h"
-          keel.sh/trigger: poll
-      spec:
-        replicas: 1
-        strategy:
-          type: Recreate
-        selector:
-          matchLabels:
-            app: docling
-        template:
+    - name: Create docling configmap
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
           metadata:
+            name: docling-config
+            namespace: docling
+          data:
+            UVICORN_WORKERS: "1"
+            DOCLING_DEVICE: "cpu"
+            DOCLING_NUM_THREADS: "4"
+            HF_HOME: "/huggingface-cache"
+            # Disable hf_xet transfer path (hex-hash reconstruction bug); real value
+            # (1 = off) in group_vars/all/vault/huggingface.yml.
+            HF_HUB_DISABLE_XET: "{{ hf_hub_disable_xet | default(0) | string }}"
+            # No HF telemetry / agent-harness registry fetch (writes $HF_HOME/.agent_harnesses.json).
+            HF_HUB_DISABLE_TELEMETRY: "{{ hf_hub_disable_telemetry | default(1) | string }}"
+            # hf_xet high-performance transfer, wired through the inverted
+            # hf_hub_xet_disable_high_performance knob. No-op when xet is disabled above.
+            HF_XET_HIGH_PERFORMANCE: "{{ '0' if (hf_hub_xet_disable_high_performance | default(0) | int) else '1' }}"
+            # xet concurrent range-GETs per file (xet-only; no-op on plain HTTPS).
+            HF_XET_NUM_CONCURRENT_RANGE_GETS: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
+            # Sequential instead of parallel local writes on the xet reconstruct path
+            # (1 = sequential, for spinning disks). xet-only.
+            HF_XET_RECONSTRUCT_WRITE_SEQUENTIALLY: "{{ hf_xet_reconstruct_write_sequentially | default(0) | string }}"
+
+    - name: Create docling service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: docling
+            namespace: docling
             labels:
               app: docling
           spec:
-            restartPolicy: Always
-            nodeSelector:
-              kubernetes.io/hostname: "{{ k3s_master_node_hostname }}"
-            dnsConfig:
-              options:
-                - name: ndots
-                  value: "1"
-            containers:
-              - name: docling
-                image: quay.io/docling-project/docling-serve-cpu:latest
-                imagePullPolicy: Always
-                resources:
-                  requests:
-                    cpu: 500m
-                    memory: 1Gi
-                  limits:
-                    cpu: 4000m
-                    memory: 4Gi
-                envFrom:
-                  - configMapRef:
-                      name: docling-config
-                ports:
-                  - containerPort: "{{ docling_port }}"
-                    name: docling-port
-                readinessProbe:
-                  httpGet:
-                    path: /health
-                    port: "{{ docling_port }}"
-                  initialDelaySeconds: 30
-                  periodSeconds: 10
-                  failureThreshold: 3
-                  timeoutSeconds: 5
-                livenessProbe:
-                  httpGet:
-                    path: /health
-                    port: "{{ docling_port }}"
-                  initialDelaySeconds: 60
-                  periodSeconds: 30
-                  failureThreshold: 3
-                  timeoutSeconds: 5
-                startupProbe:
-                  httpGet:
-                    path: /health
-                    port: "{{ docling_port }}"
-                  initialDelaySeconds: 10
-                  periodSeconds: 10
-                  failureThreshold: 60
-                  timeoutSeconds: 5
-                volumeMounts:
-                  - name: hf-cache
-                    mountPath: /huggingface-cache
-            volumes:
-              - name: hf-cache
-                hostPath:
-                  path: /var/lib/docling-data
-                  type: DirectoryOrCreate
+            selector:
+              app: docling
+            ports:
+              - port: "{{ docling_port }}"
+                name: docling-port
+                targetPort: "{{ docling_port }}"
 
-- name: Create docling ip allowlist middleware
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: traefik.io/v1alpha1
-      kind: Middleware
-      metadata:
-        name: docling-ip-allowlist
-        namespace: docling
-      spec:
-        ipAllowList:
-          sourceRange: "{{ traefik_internal_allowlist }}"
-
-- name: Create http to https redirect middleware
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: traefik.io/v1alpha1
-      kind: Middleware
-      metadata:
-        name: redirect-myhttps
-        namespace: docling
-      spec:
-        redirectScheme:
-          scheme: https
-
-- name: Create docling TLS certificate
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: cert-manager.io/v1
-      kind: Certificate
-      metadata:
-        name: "docling.{{ dns_external_domain_suffix }}"
-        namespace: docling
-      spec:
-        dnsNames:
-          - "docling.{{ dns_external_domain_suffix }}"
-        secretName: "docling.{{ dns_external_domain_suffix }}"
-        issuerRef:
-          name: letsencrypt-production
-          kind: ClusterIssuer
-
-- name: Create docling http ingressroute with redirect
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: traefik.io/v1alpha1
-      kind: IngressRoute
-      metadata:
-        name: docling-ingress
-        namespace: docling
-      spec:
-        entryPoints:
-          - web
-        routes:
-        - kind: Rule
-          match: "Host(`docling.{{ dns_external_domain_suffix }}`)"
-          priority: 10
-          services:
-          - kind: Service
-            name: docling
+    - name: Create docling deployment
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: docling-deployment
             namespace: docling
-            passHostHeader: true
-            port: "{{ docling_port }}"
-          middlewares:
-            - name: redirect-myhttps
-            - name: docling-ip-allowlist
+            labels:
+              app: docling-deployment
+            annotations:
+              keel.sh/policy: force
+              keel.sh/match-tag: "true"
+              keel.sh/pollSchedule: "@every 24h"
+              keel.sh/trigger: poll
+          spec:
+            replicas: 1
+            strategy:
+              type: Recreate
+            selector:
+              matchLabels:
+                app: docling
+            template:
+              metadata:
+                labels:
+                  app: docling
+              spec:
+                restartPolicy: Always
+                nodeSelector:
+                  kubernetes.io/hostname: "{{ k3s_master_node_hostname }}"
+                dnsConfig:
+                  options:
+                    - name: ndots
+                      value: "1"
+                containers:
+                  - name: docling
+                    image: quay.io/docling-project/docling-serve-cpu:latest
+                    imagePullPolicy: Always
+                    resources:
+                      requests:
+                        cpu: 500m
+                        memory: 1Gi
+                      limits:
+                        cpu: 4000m
+                        memory: 4Gi
+                    envFrom:
+                      - configMapRef:
+                          name: docling-config
+                    ports:
+                      - containerPort: "{{ docling_port }}"
+                        name: docling-port
+                    readinessProbe:
+                      httpGet:
+                        path: /health
+                        port: "{{ docling_port }}"
+                      initialDelaySeconds: 30
+                      periodSeconds: 10
+                      failureThreshold: 3
+                      timeoutSeconds: 5
+                    livenessProbe:
+                      httpGet:
+                        path: /health
+                        port: "{{ docling_port }}"
+                      initialDelaySeconds: 60
+                      periodSeconds: 30
+                      failureThreshold: 3
+                      timeoutSeconds: 5
+                    startupProbe:
+                      httpGet:
+                        path: /health
+                        port: "{{ docling_port }}"
+                      initialDelaySeconds: 10
+                      periodSeconds: 10
+                      failureThreshold: 60
+                      timeoutSeconds: 5
+                    volumeMounts:
+                      - name: hf-cache
+                        mountPath: /huggingface-cache
+                volumes:
+                  - name: hf-cache
+                    hostPath:
+                      path: /var/lib/docling-data
+                      type: DirectoryOrCreate
 
-- name: Create docling https ingressroute
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: traefik.io/v1alpha1
-      kind: IngressRoute
-      metadata:
-        name: docling-https-ingress
-        namespace: docling
-      spec:
-        entryPoints:
-          - websecure
-        routes:
-          - kind: Rule
-            match: "Host(`docling.{{ dns_external_domain_suffix }}`)"
-            priority: 10
-            middlewares:
-              - name: docling-ip-allowlist
-            services:
+    - name: Create docling ip allowlist middleware
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: docling-ip-allowlist
+            namespace: docling
+          spec:
+            ipAllowList:
+              sourceRange: "{{ traefik_internal_allowlist }}"
+
+    - name: Create http to https redirect middleware
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: redirect-myhttps
+            namespace: docling
+          spec:
+            redirectScheme:
+              scheme: https
+
+    - name: Create docling TLS certificate
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: cert-manager.io/v1
+          kind: Certificate
+          metadata:
+            name: "docling.{{ dns_external_domain_suffix }}"
+            namespace: docling
+          spec:
+            dnsNames:
+              - "docling.{{ dns_external_domain_suffix }}"
+            secretName: "docling.{{ dns_external_domain_suffix }}"
+            issuerRef:
+              name: letsencrypt-production
+              kind: ClusterIssuer
+
+    - name: Create docling http ingressroute with redirect
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
+          metadata:
+            name: docling-ingress
+            namespace: docling
+          spec:
+            entryPoints:
+              - web
+            routes:
+            - kind: Rule
+              match: "Host(`docling.{{ dns_external_domain_suffix }}`)"
+              priority: 10
+              services:
               - kind: Service
                 name: docling
                 namespace: docling
                 passHostHeader: true
                 port: "{{ docling_port }}"
-        tls:
-          secretName: "docling.{{ dns_external_domain_suffix }}"
+              middlewares:
+                - name: redirect-myhttps
+                - name: docling-ip-allowlist
 
-- name: Register DNS A record for docling
-  community.general.nsupdate:
-    server: "{{ nsupdate_server }}"
-    zone: "{{ nsupdate_zone }}"
-    key_name: "{{ nsupdate_tsig_key_name }}"
-    key_secret: "{{ nsupdate_tsig_key_secret }}"
-    key_algorithm: "{{ nsupdate_tsig_algorithm }}"
-    record: "docling.{{ dns_external_domain_suffix }}."
-    type: A
-    ttl: "{{ nsupdate_ttl }}"
-    value: "{{ nsupdate_ingress_ip }}"
-    state: present
+    - name: Create docling https ingressroute
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
+          metadata:
+            name: docling-https-ingress
+            namespace: docling
+          spec:
+            entryPoints:
+              - websecure
+            routes:
+              - kind: Rule
+                match: "Host(`docling.{{ dns_external_domain_suffix }}`)"
+                priority: 10
+                middlewares:
+                  - name: docling-ip-allowlist
+                services:
+                  - kind: Service
+                    name: docling
+                    namespace: docling
+                    passHostHeader: true
+                    port: "{{ docling_port }}"
+            tls:
+              secretName: "docling.{{ dns_external_domain_suffix }}"
+
+    - name: Register DNS A record for docling
+      community.general.nsupdate:
+        server: "{{ nsupdate_server }}"
+        zone: "{{ nsupdate_zone }}"
+        key_name: "{{ nsupdate_tsig_key_name }}"
+        key_secret: "{{ nsupdate_tsig_key_secret }}"
+        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
+        record: "docling.{{ dns_external_domain_suffix }}."
+        type: A
+        ttl: "{{ nsupdate_ttl }}"
+        value: "{{ nsupdate_ingress_ip }}"
+        state: present
+
+- name: Docling-serve — teardown (opt-in `-e docling_teardown=true`)
+  when: docling_teardown | default(false) | bool
+  block:
+    - name: Delete docling namespace (cascades deployment/service/configmap/cert/routes)
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Namespace
+        name: docling
+    - name: Remove docling DNS A record
+      community.general.nsupdate:
+        server: "{{ nsupdate_server }}"
+        zone: "{{ nsupdate_zone }}"
+        key_name: "{{ nsupdate_tsig_key_name }}"
+        key_secret: "{{ nsupdate_tsig_key_secret }}"
+        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
+        record: "docling.{{ dns_external_domain_suffix }}."
+        type: A
+        state: absent

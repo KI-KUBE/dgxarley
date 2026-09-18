@@ -2,3 +2,5 @@
 # Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
 # --- Docling coordinate ---
 docling_port: 5001
+docling_enabled: true
+docling_teardown: false
