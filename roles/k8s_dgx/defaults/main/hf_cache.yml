@@ -53,7 +53,8 @@ hf_preload_hub_min_version: "1.26.0"
 # HuggingFace model pre-download Job
 hf_preload_models:
   - "vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt"
-  - "RadixArk/Qwen3.8-Flash-Next-NVFP4"
+  # - "RadixArk/Qwen3.8-Flash-Next-NVFP4"
+  - "nvidia/Qwen3.8-Flash-Next-NVFP4"
   - "vroomfondel/GLM-5.3-Flash-NVFP4-W4A4"
   - "vroomfondel/Hy3-NVFP4-W4A4"
   - "vroomfondel/Ornith-1.0-9B-NVFP4-ModelOpt"
@@ -65,7 +66,6 @@ hf_preload_models:
   - "vroomfondel/Shieldstral-1.0-3B-NVFP4-ModelOpt"  # 3.2 GB guardrail classifier — cheap to keep warm
   - "mistralai/Mistral-Small-4-119B-2603-NVFP4"
   - "mistralai/Mistral-Small-4-119B-2603-eagle"
-  - "0xSero/glm-5.2-reap-504B-v2"
   - "nvidia/Qwen3.5-397B-A17B-NVFP4-V2"
   - "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16"
   - "nvidia/Qwen3.6-35B-A3B-NVFP4"
@@ -83,6 +83,7 @@ hf_preload_models:
   - "RedHatAI/Qwen3-Coder-Next-NVFP4"
   - "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"
   - "Qwen/Qwen3-VL-8B-Instruct-FP8"
+#  - "0xSero/glm-5.2-reap-504B-v2"
 #  - "0xSero/GLM-5.2-REAP-NU176-526B"
 #  - "cyankiwi/Hermes-4.3-36B-AWQ-4bit"
 #  - "TheBloke/Nous-Hermes-2-Mixtral-8x7B-DPO-AWQ"
