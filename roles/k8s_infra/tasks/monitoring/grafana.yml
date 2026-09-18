@@ -73,6 +73,9 @@
                 containers:
                 - name: renderer
                   image: "{{ grafana_image_renderer_image }}"
+                  # Explicit: the image is unpinned, and keel's force policy only
+                  # picks up a new digest if the kubelet actually re-pulls.
+                  imagePullPolicy: Always
                   ports:
                   - name: http
                     containerPort: 8081
