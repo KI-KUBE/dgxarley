@@ -17,8 +17,8 @@
 | Parallel  | **TP=4, PP=1, EP=4** (expert-parallel; `moe_a2a_backend=none`, naive all-gather)        |
 | Transport | **RoCE** via SR-IOV VF                                                                  |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep4/nemotron-3-ultra-550b-a55b-nvfp4/nv580.159_sglang-0.5.12_nemotron-3-ultra-550b-a55b-nvfp4_n4_ep4.yaml`
-Results: `kikube/matrixtest/2026-06-06/results/sglang_nn4_tp4_ep4/nemotron-3-ultra-550b-a55b-nvfp4/0.5.12/`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep4/nemotron-3-ultra-550b-a55b-nvfp4/nv580.159_sglang-0.5.12_nemotron-3-ultra-550b-a55b-nvfp4_n4_ep4.yaml`
+Results: `matrixtest/2026-06-06/results/sglang_nn4_tp4_ep4/nemotron-3-ultra-550b-a55b-nvfp4/0.5.12/`
 
 **First contact for the Ultra on this cluster at EP=4** — no prior baseline. The profile `roles/k8s_dgx/model_profiles/nvidia-nvidia-nemotron-3-ultra-550b-a55b-nvfp4.yml` carried first-contact defaults derived from the validated Super sibling; this matrix is the first Ultra validation. Backend choices inherited from Super (flashinfer_cutlass MoE, flashinfer attn, full-CG + piecewise-off) are re-confirmed here.
 

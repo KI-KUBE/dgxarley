@@ -17,7 +17,7 @@
 | Transport | **RoCE** via SR-IOV VF                                                      |
 | AllReduce | Legacy (both `SGLANG_USE_JIT_ALL_REDUCE=0` + `SGLANG_OPT_..._V2=0`)         |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-nvfp4-mmangkad/nv580.159_sglang-0.5.12_qwen-3.6-35b-a3b-nvfp4-mmangkad_n4_ep1.yaml`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-nvfp4-mmangkad/nv580.159_sglang-0.5.12_qwen-3.6-35b-a3b-nvfp4-mmangkad_n4_ep1.yaml`
 
 Sister testlog: `TESTLOGS/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-nvfp4/TESTLOG_nv580.159_sglang-0.5.12_qwen-3.6-35b-a3b-nvfp4_4n.md` (RedHatAI / `compressed-tensors` variant, 55 cases).
 

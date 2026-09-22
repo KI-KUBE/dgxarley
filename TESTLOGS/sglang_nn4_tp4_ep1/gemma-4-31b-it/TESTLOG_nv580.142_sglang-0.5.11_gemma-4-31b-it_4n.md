@@ -16,7 +16,7 @@
 | NCCL      | 2.29.7+cuda13.2 (dgxspark-3node-ring)              |
 | Transport | **RoCE** via SR-IOV VF                             |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/gemma-4-31b-it/nv580.142_sglang-0.5.11_gemma-4-31b-it_n4_ep1.yaml`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/gemma-4-31b-it/nv580.142_sglang-0.5.11_gemma-4-31b-it_n4_ep1.yaml`
 
 Toolchain delta vs `_sglang-0.5.10_*` testlog: PyTorch 2.9 → 2.11, CUDA 13 default,
 sgl-kernel 0.4.1.post1 → 0.4.2, FlashInfer 0.6.7.post2 → 0.6.8.post1. Native Gemma 4
@@ -50,7 +50,7 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 
 Drafter: `google/gemma-4-31B-it-assistant` (4-layer auxiliary checkpoint, released 2026-05-05, Apache-2.0). Winner-shape fixed to **Case 06** (triton-attn + CG on + piecewise on); only `speculative_num_steps` varies. `enable_spec_v2: true`. Drafter auto-appended to `HF_PRELOAD_MODELS` by dgxarley when `speculative_enabled=true` + `speculative_draft_model_path` set.
 
-**Image rebuild required** — the v0.5.11 release tag does NOT include Gemma-4 MTP support yet. SGLang's stock NEXTN/EAGLE worker loads the drafter via `AutoModel.from_config(...)` and then attempts a `model.language_model` weight surgery that does not exist on `Gemma4AssistantForCausalLM` (crashes with `ValueError: No module or parameter named 'model.language_model' in TransformersMultiModalForCausalLM` — observed during a first 2026-05-12 run; cf. failure result dir `kikube/matrixtest/2026-05-12/.../mtp_steps-2/TESTRESULTS_*_FAILED.json`). The proper fix is **upstream PR #24436 ("Gemma 4 — Adding MTP support")**, which adds a dedicated `Gemma4AssistantForCausalLM` model and the new `FROZEN_KV_MTP` speculative algorithm (recurrent hidden-state draft loop with frozen KV cache from the target). Merged 2026-05-07, AFTER the v0.5.11 tag. Cherry-picked into our image as `scripts/patches/sglang-gemma4-mtp-pr24436.patch` + `dockerfile-gemma4-mtp.patch`; build switched back to the `xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121` recipe (PR #24436 patch is gated on `*gemma4*` recipe variants). The prior `sitecustomize.py` AutoModel-register stop-gap in `sglang_launch.sh` was removed once the PR landed in the image — it could only paper over the registration miss, not the `model.language_model` surgery.
+**Image rebuild required** — the v0.5.11 release tag does NOT include Gemma-4 MTP support yet. SGLang's stock NEXTN/EAGLE worker loads the drafter via `AutoModel.from_config(...)` and then attempts a `model.language_model` weight surgery that does not exist on `Gemma4AssistantForCausalLM` (crashes with `ValueError: No module or parameter named 'model.language_model' in TransformersMultiModalForCausalLM` — observed during a first 2026-05-12 run; cf. failure result dir `matrixtest/2026-05-12/.../mtp_steps-2/TESTRESULTS_*_FAILED.json`). The proper fix is **upstream PR #24436 ("Gemma 4 — Adding MTP support")**, which adds a dedicated `Gemma4AssistantForCausalLM` model and the new `FROZEN_KV_MTP` speculative algorithm (recurrent hidden-state draft loop with frozen KV cache from the target). Merged 2026-05-07, AFTER the v0.5.11 tag. Cherry-picked into our image as `scripts/patches/sglang-gemma4-mtp-pr24436.patch` + `dockerfile-gemma4-mtp.patch`; build switched back to the `xomoxcc/dgx-spark-sglang:0.5.11-gemma4-sm121` recipe (PR #24436 patch is gated on `*gemma4*` recipe variants). The prior `sitecustomize.py` AutoModel-register stop-gap in `sglang_launch.sh` was removed once the PR landed in the image — it could only paper over the registration miss, not the `model.language_model` surgery.
 
 At runtime SGLang detects `Gemma4AssistantForCausalLM` as drafter and **auto-promotes `--speculative-algorithm NEXTN` → `FROZEN_KV_MTP`** (log line: `Detected Gemma4AssistantForCausalLM draft; promoting --speculative-algorithm NEXTN to FROZEN_KV_MTP`). Overlap-scheduling is forcibly disabled in this path (`Overlap scheduler is disabled when using Frozen-KV MTP speculative decoding (spec v2 is not supported yet)`).
 
@@ -74,7 +74,7 @@ All triton-attn cases finish with `stop` × N (Gemma is concise; ~1.2 k tokens v
 
 **Matrix complete (2026-05-13, 11/11 cases run: 8 ok, 3 startup_crash). 6 baseline + 5 MTP cases.**
 
-Result dir: `kikube/matrixtest/2026-05-11/results/sglang_nn4_tp4_ep1/gemma-4-31b-it/0.5.11/`.
+Result dir: `matrixtest/2026-05-11/results/sglang_nn4_tp4_ep1/gemma-4-31b-it/0.5.11/`.
 
 ### Delta vs 0.5.10 baseline
 
@@ -111,7 +111,7 @@ The MTP cases mirror the Case 06 winner shape (triton-attn + CG on + piecewise o
 
 ### Test 07 (`num_steps=2`, `num_draft_tokens=3`) — ok, 2026-05-13
 
-Result dir: `kikube/matrixtest/2026-05-13/results/sglang_nn4_tp4_ep1/gemma-4-31b-it/0.5.11/nv580.142_sglang-0.5.11_gemma-4-31b-it_4n_1pp_4tp_ep1_07_triton-attn_piecewise_mtp_steps-2/`.
+Result dir: `matrixtest/2026-05-13/results/sglang_nn4_tp4_ep1/gemma-4-31b-it/0.5.11/nv580.142_sglang-0.5.11_gemma-4-31b-it_4n_1pp_4tp_ep1_07_triton-attn_piecewise_mtp_steps-2/`.
 
 | n | peak (sum tok/s) | avg per-req tok/s | wall (s) | tokens out | finish |
 |--:|-----------------:|------------------:|---------:|-----------:|--------|
@@ -134,7 +134,7 @@ Output quality: 5/5 requests finished with `stop` (natural EOS), output tokens 1
 
 ### Test 08 (`num_steps=3`, `num_draft_tokens=4`) — ok, 2026-05-13
 
-Result dir: `kikube/matrixtest/2026-05-13/results/sglang_nn4_tp4_ep1/gemma-4-31b-it/0.5.11/nv580.142_sglang-0.5.11_gemma-4-31b-it_4n_1pp_4tp_ep1_08_triton-attn_piecewise_mtp_steps-3/`.
+Result dir: `matrixtest/2026-05-13/results/sglang_nn4_tp4_ep1/gemma-4-31b-it/0.5.11/nv580.142_sglang-0.5.11_gemma-4-31b-it_4n_1pp_4tp_ep1_08_triton-attn_piecewise_mtp_steps-3/`.
 
 | n | peak (sum tok/s) | avg per-req | wall (s) | tokens out (median) | finish |
 |--:|-----------------:|------------:|---------:|--------------------:|--------|
@@ -155,7 +155,7 @@ Output quality: 13/13 requests stopped on natural EOS, tokens 1220–1610. No 30
 
 ### Test 09 (`num_steps=4`, `num_draft_tokens=5`) — ok, 2026-05-13
 
-Result dir: `kikube/matrixtest/2026-05-13/results/sglang_nn4_tp4_ep1/gemma-4-31b-it/0.5.11/nv580.142_sglang-0.5.11_gemma-4-31b-it_4n_1pp_4tp_ep1_09_triton-attn_piecewise_mtp_steps-4/`.
+Result dir: `matrixtest/2026-05-13/results/sglang_nn4_tp4_ep1/gemma-4-31b-it/0.5.11/nv580.142_sglang-0.5.11_gemma-4-31b-it_4n_1pp_4tp_ep1_09_triton-attn_piecewise_mtp_steps-4/`.
 
 | n | peak (sum tok/s) | avg per-req | wall (s) | tokens out (median) | finish |
 |--:|-----------------:|------------:|---------:|--------------------:|--------|

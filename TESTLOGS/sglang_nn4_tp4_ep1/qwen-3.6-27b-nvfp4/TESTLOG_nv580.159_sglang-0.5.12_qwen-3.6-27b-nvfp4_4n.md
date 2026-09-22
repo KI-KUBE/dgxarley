@@ -17,7 +17,7 @@
 | Transport | **RoCE** via SR-IOV VF                                                      |
 | AllReduce | Legacy (both `SGLANG_USE_JIT_ALL_REDUCE=0` + `SGLANG_OPT_..._V2=0`)         |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-27b-nvfp4/nv580.159_sglang-0.5.12_qwen-3.6-27b-nvfp4_n4_ep1.yaml`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-27b-nvfp4/nv580.159_sglang-0.5.12_qwen-3.6-27b-nvfp4_n4_ep1.yaml`
 
 Sister testlogs:
 - FP8 sibling: `TESTLOGS/sglang_nn4_tp4_ep1/qwen-3.6-27b-fp8/TESTLOG_nv580.142_sglang-0.5.11_qwen-3.6-27b-fp8_4n.md` (winner = Case 10, **267.68 tok/s** @ n=8: fi-attn + CG on + piecewise off + MTP NEXTN s=3 / drafts=4 / topk=1).

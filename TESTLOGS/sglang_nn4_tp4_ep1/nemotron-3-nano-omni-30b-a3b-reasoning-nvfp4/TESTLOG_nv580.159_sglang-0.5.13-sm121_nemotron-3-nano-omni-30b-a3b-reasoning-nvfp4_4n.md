@@ -15,7 +15,7 @@
 | Transport | **RoCE** via SR-IOV VF                                                      |
 | Parallel  | tp=4, pp=1, ep=1 (ep=4 probed in case 11)                                   |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/nemotron-3-nano-omni-30b-a3b-reasoning-nvfp4/nv580.159_sglang-0.5.13-sm121_nemotron-3-nano-omni-30b-a3b-reasoning-nvfp4_n4_ep1.yaml`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/nemotron-3-nano-omni-30b-a3b-reasoning-nvfp4/nv580.159_sglang-0.5.13-sm121_nemotron-3-nano-omni-30b-a3b-reasoning-nvfp4_n4_ep1.yaml`
 Profile: `roles/k8s_dgx/model_profiles/nvidia-nemotron-3-nano-omni-30b-a3b-reasoning-nvfp4.yml`
 
 **First contact for this model** — no prior baseline. Architecture sibling for A/B reference is the validated **Super-120B** NemotronH:

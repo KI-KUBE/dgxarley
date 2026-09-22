@@ -17,7 +17,7 @@
 | Transport | **RoCE** via SR-IOV VF                                                      |
 | AllReduce | Legacy (both `SGLANG_USE_JIT_ALL_REDUCE=0` + `SGLANG_OPT_..._V2=0`)         |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/nv580.159_sglang-0.5.12_qwen-3.6-35b-a3b-fp8_n4_ep1.yaml`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/nv580.159_sglang-0.5.12_qwen-3.6-35b-a3b-fp8_n4_ep1.yaml`
 
 Previous testlog: `TESTLOG_nv580.142_sglang-0.5.11_qwen-3.6-35b-a3b-fp8_4n.md` (driver 580.142, image 0.5.11). The 0.5.12 run bumps **driver 580.142 → 580.159** AND **image 0.5.11 → 0.5.12** simultaneously — Δ is not purely image-attributable. There is no cross-image 580.142-vs-580.159 baseline; if findings are ambiguous, a 0.5.11 re-run on 580.159 is needed to disambiguate.
 

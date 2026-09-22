@@ -30,8 +30,8 @@
 | Transport | RoCE via SR-IOV VF                                                                      |
 | **MoE**   | **`ep_size=4` — expert-parallel all-to-all dispatch (DeepEP present in the boot log)**  |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep4/nemotron-3-super-120b-a12b-nvfp4/nv580.159_sglang-0.5.13-mtp_nemotron-3-super-120b-a12b-nvfp4_n4_ep4.yaml`
-Results: `kikube/matrixtest/2026-06-17/results/sglang_nn4_tp4_ep4/nemotron-3-super-120b-a12b-nvfp4/0.5.13-mtp/`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep4/nemotron-3-super-120b-a12b-nvfp4/nv580.159_sglang-0.5.13-mtp_nemotron-3-super-120b-a12b-nvfp4_n4_ep4.yaml`
+Results: `matrixtest/2026-06-17/results/sglang_nn4_tp4_ep4/nemotron-3-super-120b-a12b-nvfp4/0.5.13-mtp/`
 Summary: `…/MATRIX_SUMMARY_nv580.159_sglang-0.5.13-mtp_nemotron-3-super-120b-a12b-nvfp4_4n_1pp_4tp_ep4.json`
 
 ## Why this matrix exists

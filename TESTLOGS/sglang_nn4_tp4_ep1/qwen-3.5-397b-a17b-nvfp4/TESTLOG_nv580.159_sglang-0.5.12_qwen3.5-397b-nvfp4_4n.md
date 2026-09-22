@@ -16,8 +16,8 @@
 | Model     | `nvidia/Qwen3.5-397B-A17B-NVFP4`                                                    |
 | Transport | **RoCE** via SR-IOV VF                                                              |
 
-> Matrix def: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.5-397b-a17b-nvfp4/nv580.159_sglang-0.5.12_qwen3.5-397b-nvfp4_n4_ep1.yaml`
-> Raw results: `kikube/results/sglang_nn4_tp4_ep1/qwen-3.5-397b-a17b-nvfp4/0.5.12/MATRIX_SUMMARY_nv580.159_sglang-0.5.12_qwen3.5-397b-nvfp4_4n_1pp_4tp_ep1.json`
+> Matrix def: `matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.5-397b-a17b-nvfp4/nv580.159_sglang-0.5.12_qwen3.5-397b-nvfp4_n4_ep1.yaml`
+> Raw results: `results/sglang_nn4_tp4_ep1/qwen-3.5-397b-a17b-nvfp4/0.5.12/MATRIX_SUMMARY_nv580.159_sglang-0.5.12_qwen3.5-397b-nvfp4_4n_1pp_4tp_ep1.json`
 
 ---
 
@@ -88,4 +88,4 @@ All cases: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4, kv
 ## Refresh
 
 Re-read the summary JSON and update the table:
-`kikube/results/sglang_nn4_tp4_ep1/qwen-3.5-397b-a17b-nvfp4/0.5.12/MATRIX_SUMMARY_nv580.159_sglang-0.5.12_qwen3.5-397b-nvfp4_4n_1pp_4tp_ep1.json`
+`results/sglang_nn4_tp4_ep1/qwen-3.5-397b-a17b-nvfp4/0.5.12/MATRIX_SUMMARY_nv580.159_sglang-0.5.12_qwen3.5-397b-nvfp4_4n_1pp_4tp_ep1.json`

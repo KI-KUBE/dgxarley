@@ -16,7 +16,7 @@
 | NCCL      | 2.29.7+cuda13.2 (dgxspark-3node-ring)              |
 | Transport | **RoCE** via SR-IOV VF                             |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/nv580.142_sglang-0.5.11_qwen-3.6-35b-a3b-fp8_n4_ep1.yaml`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/nv580.142_sglang-0.5.11_qwen-3.6-35b-a3b-fp8_n4_ep1.yaml`
 
 Toolchain delta vs `_sglang-0.5.10_*` testlog: PyTorch 2.9 → 2.11, CUDA 13 default,
 sgl-kernel 0.4.1.post1 → 0.4.2, FlashInfer 0.6.7.post2 → 0.6.8.post1. Spec V2 with
@@ -128,7 +128,7 @@ FP8 is rejected at arg-parse time. This is the *correct* behaviour the
 
 **Matrix complete (2026-05-10 ~10:55 UTC, driver on elite800).** All 20 cases run. 8 ok, 12 crash (6× fi_cutlass crash A, 6× fi_cutedsl crash B — see footnotes under the matrix above).
 
-Result dir: `kikube/matrixtest/2026-05-10/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.11/`.
+Result dir: `matrixtest/2026-05-10/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.11/`.
 
 Image: `scitrera/dgx-spark-sglang:0.5.11` (vanilla upstream, **not** the `xomoxcc/...sm121` build that produced the word-salad reproducer in the correctness debug sweep below).
 
@@ -256,9 +256,9 @@ sampling_overrides={}` (i.e. cleaned up post-`0c2bdd4`).
 **Status: complete as of 2026-05-09 19:35 (all 6 cases done, regression confirmed but root cause not isolated).**
 **Resolved 2026-05-10 by commit `0c2bdd4` — see "Completed cases" above; the word-salad reproducer no longer triggers on `scitrera/dgx-spark-sglang:0.5.11` once Bug A (`is_layer_skipped` substring) and Bug B (aggressive `sampling_overrides`) are fixed.**
 
-Matrix: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/nv580.142_sglang-0.5.11_qwen-3.6-35b-a3b-fp8_correctness-debug_n4_ep1.yaml`
+Matrix: `matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/nv580.142_sglang-0.5.11_qwen-3.6-35b-a3b-fp8_correctness-debug_n4_ep1.yaml`
 
-Result dir: `kikube/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.11-correctness-debug/`
+Result dir: `results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.11-correctness-debug/`
 
 Image: `xomoxcc/dgx-spark-sglang:0.5.11-sm121` (sm121 patches, **without** gemma4 source patches).
 
@@ -279,7 +279,7 @@ synonym-walk loops with explicit self-correction triggers, e.g.
 > timeless classic masterpiece **masterpiece masterpiece masterpiece...Wait stop
 > rambling. Generate structured response. Focus.**
 
-This is **not** classic n-gram repetition (the kikube NGRAM-filter only catches
+This is **not** classic n-gram repetition (the bench NGRAM-filter only catches
 the most extreme primitive repetition cases, e.g. `retire retire retire`). Most
 runs ramble all the way to the 3072-token hard limit (`finish_reason=length`),
 which the matrix-test scoring counts as a *successful* run. Output quality must
@@ -446,7 +446,7 @@ All cases: `tp=4 ep=1 nccl=roce moe_runner=triton kv_cache_dtype=fp8_e4m3 disabl
      in the profile, a per-batch state-mixing bug in penalty application could
      produce exactly this synonym-walk pattern.
   3. sgl-kernel 0.4.2 mamba kernels.
-- **Extend kikube NGRAM-filter** to catch synonym-walk patterns. Current filter
+- **Extend bench NGRAM-filter** to catch synonym-walk patterns. Current filter
   caught only 4 of ~30 word-salad rambles across the 6 cases. Suggestions:
   Type-Token-Ratio threshold, WordNet-synset density, or LLM-judge on output.
 - **Verify Qwen3.6-27B-FP8** (sibling hybrid-mamba arch) for the same bug —

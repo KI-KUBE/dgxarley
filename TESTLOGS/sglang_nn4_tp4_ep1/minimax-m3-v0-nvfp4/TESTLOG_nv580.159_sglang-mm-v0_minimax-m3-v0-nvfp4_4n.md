@@ -23,8 +23,8 @@
 | Transport | **RoCE** via SR-IOV VF, throughout                                          |
 | KV dtype  | `auto` (bf16) — fp8 KV is BROKEN on mm:v0 (MSA triton kernel has no fp8 `tl.dot` path; dies in CUDA-graph capture, verified 2026-06-17) |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/minimax-m3-v0-nvfp4/nv580.159_sglang-mm-v0_minimax-m3-v0-nvfp4_n4_ep1.yaml`
-Raw results: `kikube/results/sglang_nn4_tp4_ep1/minimax-m3-v0-nvfp4/mm-v0/`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/minimax-m3-v0-nvfp4/nv580.159_sglang-mm-v0_minimax-m3-v0-nvfp4_n4_ep1.yaml`
+Raw results: `results/sglang_nn4_tp4_ep1/minimax-m3-v0-nvfp4/mm-v0/`
 Run window: 2026-06-17 15:48 UTC → 2026-06-18 ~09:20 UTC (12 cases; Block E 08–12 added mid-run).
 
 **First serving contact for this profile.** The profile header's original "UPSTREAM-BLOCKED / cannot load M3 / MSA placeholder" framing is **superseded**: arch resolution (`MiniMaxM3SparseForConditionalGeneration`), the NVFP4 `quantization-tool` matcher, `flashinfer` attention (MSA handled inside the model's custom code via `trust_remote_code`), and the `flashinfer_cutlass` MoE path **all work live** on mm:v0. This matrix is therefore a **tuning sweep around a known-good serving point**, not a litmus.

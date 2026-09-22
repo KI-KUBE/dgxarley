@@ -16,7 +16,7 @@
 | NCCL      | 2.29.7+cuda13.2 (dgxspark-3node-ring)              |
 | Transport | **RoCE** via SR-IOV VF                             |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it/nv580.142_sglang-0.5.11_gemma-4-26b-a4b-it_n4_ep1.yaml`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it/nv580.142_sglang-0.5.11_gemma-4-26b-a4b-it_n4_ep1.yaml`
 
 Toolchain delta vs `_sglang-0.5.10_*` testlog: PyTorch 2.9 → 2.11, CUDA 13 default,
 sgl-kernel 0.4.1.post1 → 0.4.2, FlashInfer 0.6.7.post2 → 0.6.8.post1.
@@ -126,7 +126,7 @@ CAVEAT (from matrix preamble): SGLang cookbook recommends `--tp 2` for the 26B-A
 
 **Matrix complete (baseline 2026-05-11/12, MTP sweep + baseline re-run 2026-05-15 — 23/23 cases run: 11 ok, 12 crash). Baseline reproduces; MTP delivers another +26 % on top of the prior cluster max.**
 
-Result dir: `kikube/matrixtest/2026-05-11/results/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it/0.5.11/`.
+Result dir: `matrixtest/2026-05-11/results/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it/0.5.11/`.
 
 ### Δ vs 0.5.10 baseline
 
@@ -189,7 +189,7 @@ From `TESTLOG_nv580.142_sglang-0.5.10_gemma-4-26b-a4b-it_4n.md`:
 
 ## MTP sweep (Tests 19–23) — complete (5/5 ok), 2026-05-15
 
-Result dir: `kikube/matrixtest/2026-05-15/results/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it/0.5.11/`. The non-MTP baselines (Cases 4–6, 10–12) were re-run on 2026-05-15 alongside the MTP sweep and reproduce within ~5 tok/s at n=8 (Case 06: 208.31 vs prior 208.50; Case 12: 208.71 vs prior 213.72). Crashes A (fi-attn) and B (fi_cutedsl) reproduce exactly.
+Result dir: `matrixtest/2026-05-15/results/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it/0.5.11/`. The non-MTP baselines (Cases 4–6, 10–12) were re-run on 2026-05-15 alongside the MTP sweep and reproduce within ~5 tok/s at n=8 (Case 06: 208.31 vs prior 208.50; Case 12: 208.71 vs prior 213.72). Crashes A (fi-attn) and B (fi_cutedsl) reproduce exactly.
 
 | spec_num_steps | num_draft | n=1   | Δ baseline⁰ | n=4    | Δ baseline⁰ | n=8     | Δ baseline⁰ | mean accept_len | mean accept_rate |
 |---------------:|----------:|------:|------------:|-------:|------------:|--------:|------------:|----------------:|-----------------:|

@@ -16,7 +16,7 @@
 | NCCL      | 2.29.7+cuda13.2 (dgxspark-3node-ring)              |
 | Transport | **RoCE** via SR-IOV VF                             |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it-nvfp4/nv580.142_sglang-0.5.11_gemma-4-26b-a4b-it-nvfp4_n4_ep1.yaml`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it-nvfp4/nv580.142_sglang-0.5.11_gemma-4-26b-a4b-it-nvfp4_n4_ep1.yaml`
 
 Toolchain delta vs `_sglang-0.5.10_*` testlog: PyTorch 2.9 → 2.11, CUDA 13 default,
 sgl-kernel 0.4.1.post1 → 0.4.2, FlashInfer 0.6.7.post2 → 0.6.8.post1.
@@ -61,7 +61,7 @@ fp4_gemm × cuda_graph variants. Plus 3 `cutlass`-direct MoE cases (FP4 weights)
 
 **Run pending.**
 
-Result dir: `kikube/matrixtest/<DATE>/results/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it-nvfp4/0.5.11/`.
+Result dir: `matrixtest/<DATE>/results/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it-nvfp4/0.5.11/`.
 
 ### Comparison to 0.5.10 baseline
 

@@ -16,7 +16,7 @@
 | NCCL      | 2.29.7+cuda13.2 (dgxspark-3node-ring)              |
 | Transport | **RoCE** via SR-IOV VF                             |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/gemma-4-31b-it-nvfp4/nv580.142_sglang-0.5.11_gemma-4-31b-it-nvfp4_n4_ep1.yaml`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/gemma-4-31b-it-nvfp4/nv580.142_sglang-0.5.11_gemma-4-31b-it-nvfp4_n4_ep1.yaml`
 
 Toolchain delta vs any prior 0.5.10 testlog: PyTorch 2.9 → 2.11, CUDA 13 default,
 sgl-kernel 0.4.1.post1 → 0.4.2, FlashInfer 0.6.7.post2 → 0.6.8.post1.
@@ -64,7 +64,7 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, mem_fraction_static=0.50,
 
 **Run pending — first-time test for this model.**
 
-Result dir: `kikube/matrixtest/<DATE>/results/sglang_nn4_tp4_ep1/gemma-4-31b-it-nvfp4/0.5.11/`.
+Result dir: `matrixtest/<DATE>/results/sglang_nn4_tp4_ep1/gemma-4-31b-it-nvfp4/0.5.11/`.
 
 Key questions:
 - Does the dense Gemma-4 NVFP4 path work on SM121 at all?

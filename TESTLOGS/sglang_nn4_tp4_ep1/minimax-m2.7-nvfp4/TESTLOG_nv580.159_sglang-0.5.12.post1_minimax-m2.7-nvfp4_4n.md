@@ -18,8 +18,8 @@
 | AllReduce | Legacy (`SGLANG_USE_JIT_ALL_REDUCE=0` + `SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2=0`) |
 | NVLS      | `enable_nccl_nvls=False` (SGLang default for this shape)                    |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/minimax-m2.7-nvfp4/nv580.159_sglang-0.5.12.post1_minimax-m2.7-nvfp4_n4_ep1.yaml`
-Raw results: `kikube/matrixtest/2026-06-01/results/sglang_nn4_tp4_ep1/minimax-m2.7-nvfp4/0.5.12.post1/`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/minimax-m2.7-nvfp4/nv580.159_sglang-0.5.12.post1_minimax-m2.7-nvfp4_n4_ep1.yaml`
+Raw results: `matrixtest/2026-06-01/results/sglang_nn4_tp4_ep1/minimax-m2.7-nvfp4/0.5.12.post1/`
 
 **First TP=4 contact for this profile.** The M2.7 profile was cloned from the M2.5 lineage, which ran **PP=4/TP=1** (8 KV heads not divisible by 3 → TP=3 impossible). 8 *is* divisible by 4, so TP=4/PP=1 splits cleanly to 2 KV heads/rank with **no pipeline bubbles**. Every inherited tuning value in the profile (triton MoE, eager, the "fi_cutlass MoE crashes" finding) was measured on PP=4 and does **not** transfer — this matrix re-establishes all of it.
 

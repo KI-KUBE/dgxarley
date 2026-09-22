@@ -16,7 +16,7 @@
 | NCCL      | 2.29.7+cuda13.2 (dgxspark-3node-ring)              |
 | Transport | **RoCE** via SR-IOV VF                             |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-27b-fp8/nv580.142_sglang-0.5.11_qwen-3.6-27b-fp8_n4_ep1.yaml`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-27b-fp8/nv580.142_sglang-0.5.11_qwen-3.6-27b-fp8_n4_ep1.yaml`
 
 Toolchain delta vs `_sglang-0.5.10_*` testlog: PyTorch 2.9 → 2.11, CUDA 13 default,
 sgl-kernel 0.4.1.post1 → 0.4.2, FlashInfer 0.6.7.post2 → 0.6.8.post1. Spec V2 with
@@ -114,7 +114,7 @@ sweet-spot inside this block.
 
 **Matrix complete (2026-05-10, all 18 cases — 18/18 ok, 0 failures, 0 crashes, all outputs coherent).**
 
-Result dir: `kikube/matrixtest/2026-05-10/results/sglang_nn4_tp4_ep1/qwen-3.6-27b-fp8/0.5.11/`.
+Result dir: `matrixtest/2026-05-10/results/sglang_nn4_tp4_ep1/qwen-3.6-27b-fp8/0.5.11/`.
 
 ### Progress log
 

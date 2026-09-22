@@ -18,8 +18,8 @@
 | NCCL      | 2.29.7+cuda13.2                                                                         |
 | Transport | **RoCE** via SR-IOV VF                                                                  |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/nemotron-3-super-120b-a12b-nvfp4/nv580.159_sglang-0.5.12_nemotron-3-super-120b-a12b-nvfp4_n4_ep1.yaml`
-Results: `kikube/matrixtest/2026-06-04/results/sglang_nn4_tp4_ep1/nemotron-3-super-120b-a12b-nvfp4/0.5.12/`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/nemotron-3-super-120b-a12b-nvfp4/nv580.159_sglang-0.5.12_nemotron-3-super-120b-a12b-nvfp4_n4_ep1.yaml`
+Results: `matrixtest/2026-06-04/results/sglang_nn4_tp4_ep1/nemotron-3-super-120b-a12b-nvfp4/0.5.12/`
 
 **First contact for this model on this cluster** — no prior baseline, no prior TESTLOG. The profile `roles/k8s_dgx/model_profiles/nvidia-nvidia-nemotron-3-super-120b-a12b-nvfp4.yml` carried first-contact defaults (explicitly marked UNVALIDATED); this matrix is their first validation.
 

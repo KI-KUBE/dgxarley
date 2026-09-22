@@ -16,7 +16,7 @@
 | NCCL      | 2.29.7+cuda13.2 (dgxspark-3node-ring)              |
 | Transport | **RoCE** via SR-IOV VF                             |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/nv580.142_sglang-0.5.10_qwen-3.6-35b-a3b-fp8_n4_ep1.yaml`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/nv580.142_sglang-0.5.10_qwen-3.6-35b-a3b-fp8_n4_ep1.yaml`
 
 ---
 
@@ -105,7 +105,7 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 
 ## Results
 
-Run completed 2026-04-29, 14/14 cases finished (`kikube/matrixtest/2026-04-28/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.10/`).
+Run completed 2026-04-29, 14/14 cases finished (`matrixtest/2026-04-28/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.10/`).
 
 **6/14 STABLE, 8/14 failed.** Clean split by MoE runner: every `triton`
 MoE config works; every `flashinfer_cutlass` MoE config fails. Both MTP
@@ -200,7 +200,7 @@ size and wins n=8 outright.
 Tests 13/14 re-run with the missing MTP knobs added (`mamba_scheduler_strategy:
 extra_buffer` + `enable_spec_v2: true`). Test shape switched to the Test-6
 winner layout (piecewise CG on, two attn variants). Result dir:
-`kikube/matrixtest/2026-04-29/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.10/`.
+`matrixtest/2026-04-29/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.10/`.
 
 Server args confirm the fix is wired: `mamba_scheduler_strategy='extra_buffer'`,
 `speculative_algorithm='EAGLE'` (SGLang's internal name for NEXTN under

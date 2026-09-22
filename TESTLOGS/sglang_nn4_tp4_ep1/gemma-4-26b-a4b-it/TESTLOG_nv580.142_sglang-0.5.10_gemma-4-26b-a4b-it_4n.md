@@ -16,7 +16,7 @@
 | NCCL      | 2.29.7+cuda13.2 (dgxspark-3node-ring)          |
 | Transport | **RoCE** via SR-IOV VF                         |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it/nv580.142_sglang-0.5.10_gemma-4-26b-a4b-it_n4_ep1.yaml`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it/nv580.142_sglang-0.5.10_gemma-4-26b-a4b-it_n4_ep1.yaml`
 
 ---
 

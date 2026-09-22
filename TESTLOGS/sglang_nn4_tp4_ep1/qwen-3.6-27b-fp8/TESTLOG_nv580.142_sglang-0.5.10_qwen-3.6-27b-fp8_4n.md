@@ -16,7 +16,7 @@
 | NCCL      | 2.29.7+cuda13.2 (dgxspark-3node-ring)              |
 | Transport | **RoCE** via SR-IOV VF                             |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-27b-fp8/nv580.142_sglang-0.5.10_qwen-3.6-27b-fp8_n4_ep1.yaml`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-27b-fp8/nv580.142_sglang-0.5.10_qwen-3.6-27b-fp8_n4_ep1.yaml`
 
 ---
 
@@ -98,7 +98,7 @@ gave 4/4 ok).
 Initial run kicked off 2026-04-29 with profile defaults. Tests 1–5 all came
 back `bench_crash` with **every single request flagged `status=repetition`**;
 test 6 was aborted before completing. Result dir:
-`kikube/matrixtest/2026-04-29/results/sglang_nn4_tp4_ep1/qwen-3.6-27b-fp8/0.5.10/`.
+`matrixtest/2026-04-29/results/sglang_nn4_tp4_ep1/qwen-3.6-27b-fp8/0.5.10/`.
 
 Initial (wrong) diagnosis:
 - Server appeared healthy across all 5 cases — model loads, attention works,
@@ -107,8 +107,8 @@ Initial (wrong) diagnosis:
 - Suspected: card-recommended `presence_penalty=0.0` for general thinking is
   too lenient for this hybrid arch on the bench-prompt mix. Added profile
   `sampling_overrides` (`presence_penalty: 1.5`, `frequency_penalty: 0.5`,
-  `min_tokens: 4`) and re-ran. Wiring of `sampling_overrides` to the kikube
-  bench pod required setting `DGXARLEY_ROOT=/data/pythondev_workspace/dgxarley`
+  `min_tokens: 4`) and re-ran. Wiring of `sampling_overrides` to the bench
+  pod required setting `DGXARLEY_ROOT=/data/pythondev_workspace/dgxarley`
   in the job spec — without that env var the dgxarley pip-package's loader
   falls back to a `parents[2]` path that lands in `site-packages/` and finds
   no profile YAMLs (`_MODEL_PROFILES = {}`).
@@ -220,7 +220,7 @@ For context vs other dense models on this cluster:
 - The Qwen3.6 model card's NEXTN recipe needed two extra knobs on SGLang
   0.5.10 to avoid the spec-v2-radix-cache crash:
   `mamba_scheduler_strategy: extra_buffer` + `enable_spec_v2: true`. Both
-  already in the profile's commented MTP block; the kikube matrix yaml
+  already in the profile's commented MTP block; the bench matrix yaml
   uncomments them for cases 7/8.
 
 **Production profile recommendation:**

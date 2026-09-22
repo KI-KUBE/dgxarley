@@ -15,7 +15,7 @@
 | Transport | **RoCE** via SR-IOV VF                             |
 
 > CUDA / NCCL / torch versions not captured (pods scaled to 0 after the run); see the image build (`scripts/patches/sglang-0.5.12-cudnn.Dockerfile`).
-> Raw matrix: `kikube/results/sglang_nn4_tp4_ep1/qwen-3.5-397b-a17b-nvfp4/0.5.12-cudnn/MATRIX_SUMMARY_nv580.159_sglang-0.5.12-cudnn_qwen3.5-397b-nvfp4_4n_1pp_4tp_ep1.json` (run 2026-06-19).
+> Raw matrix: `results/sglang_nn4_tp4_ep1/qwen-3.5-397b-a17b-nvfp4/0.5.12-cudnn/MATRIX_SUMMARY_nv580.159_sglang-0.5.12-cudnn_qwen3.5-397b-nvfp4_4n_1pp_4tp_ep1.json` (run 2026-06-19).
 
 ---
 

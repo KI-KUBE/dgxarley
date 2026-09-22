@@ -26,10 +26,10 @@
 | NCCL      | **2.30.4** *(from the boot log of the actual run — note: the image on-node previously carried 2.30.7)* |
 | Transport | **RoCE** via SR-IOV VF                                                                  |
 
-Matrix file: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/nemotron-3-super-120b-a12b-nvfp4/nv580.159_sglang-0.5.13-mtp_nemotron-3-super-120b-a12b-nvfp4_n4_ep1.yaml`
-Results: `kikube/matrixtest/2026-06-16/results/sglang_nn4_tp4_ep1/nemotron-3-super-120b-a12b-nvfp4/0.5.13-mtp/`
+Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/nemotron-3-super-120b-a12b-nvfp4/nv580.159_sglang-0.5.13-mtp_nemotron-3-super-120b-a12b-nvfp4_n4_ep1.yaml`
+Results: `matrixtest/2026-06-16/results/sglang_nn4_tp4_ep1/nemotron-3-super-120b-a12b-nvfp4/0.5.13-mtp/`
 Summary: `…/MATRIX_SUMMARY_nv580.159_sglang-0.5.13-mtp_nemotron-3-super-120b-a12b-nvfp4_4n_1pp_4tp_ep1.json`
-EP=4 sibling: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep4/nemotron-3-super-120b-a12b-nvfp4/nv580.159_sglang-0.5.13-mtp_nemotron-3-super-120b-a12b-nvfp4_n4_ep4.yaml`
+EP=4 sibling: `matrixtest_matrices/sglang_nn4_tp4_ep4/nemotron-3-super-120b-a12b-nvfp4/nv580.159_sglang-0.5.13-mtp_nemotron-3-super-120b-a12b-nvfp4_n4_ep4.yaml`
 
 ### Why a new image (the "extra image")
 
