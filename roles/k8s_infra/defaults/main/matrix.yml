@@ -12,8 +12,8 @@
 #   base_domain   — the Matrix identity/server domain. server_name and every
 #                   hostname derive from it: server_name/public_baseurl =
 #                   matrix.<base_domain>, Cinny = cinny.<base_domain>, Element =
-#                   element.<base_domain>. The REAL value (kikube.eu) lives ONLY
-#                   in vault; dummy here.
+#                   element.<base_domain>. The REAL value lives ONLY in vault;
+#                   dummy here.
 #   data_base     — /data (signing.key, media_store, homeserver.pid), hostPath.
 #                   Matrix media is content-addressed → NFS-safe (DB is on PG).
 #   manage_dns    — true = auto-register A records via nsupdate. Requires the
@@ -212,8 +212,8 @@ matrix:
   data_base: "/mnt/nfs/matrix-synapse"
   time_zone: "Europe/Berlin"
   manage_dns: true
-  # Optional per-matrix nsupdate overrides. kikube.eu is a separate zone from the
-  # cluster domain, so it usually needs its own DNS server / TSIG key / ingress IP.
+  # Optional per-matrix nsupdate overrides. A base_domain in its own zone, separate
+  # from the cluster domain, usually needs its own DNS server / TSIG key / ingress IP.
   # Any omitted key falls back to the cluster-wide nsupdate_* var. Keys:
   #   server, zone, tsig_key_name, tsig_key_secret, tsig_algorithm, ttl, ingress_ip
   # Real values (TSIG secret!) belong in vault. Leave {} to inherit cluster values.

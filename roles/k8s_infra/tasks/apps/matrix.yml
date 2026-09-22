@@ -22,8 +22,8 @@
 #     needed and federation "just works" by connecting to matrix.<base>:443.
 #     User IDs are @user:matrix.<base_domain>.
 #   - Domain is split main.yml/vault: matrix.base_domain holds ONLY the dummy
-#     (example.eu) in group_vars/all/main + role defaults; the real kikube.eu is
-#     in group_vars/all/vault/matrix.yml (git-crypt).
+#     (example.eu) in group_vars/all/main + role defaults; the real one is in
+#     group_vars/all/vault/matrix.yml (git-crypt).
 #   - Database: dedicated `synapse` DB on the shared PostgreSQL, created with the
 #     C collation Synapse requires (LC_COLLATE/LC_CTYPE 'C', template0). DB
 #     password flows postgresql-secrets -> k8s_info -> app Secret, like forgejo.
@@ -710,12 +710,12 @@
     # matrix.dns.* sub-dict (server / zone / tsig_key_name / tsig_key_secret /
     # tsig_algorithm / ttl / ingress_ip); each key falls back to the cluster-wide
     # nsupdate_* value (zone -> nsupdate_zone) when omitted.
-    # IMPORTANT: the record is <item>.<base_domain> (matrix.kikube.eu), and
+    # IMPORTANT: the record is <item>.<base_domain> (matrix.example.eu), and
     # nsupdate REFUSES a record outside its zone. So if base_domain is a zone of
-    # its OWN (kikube.eu), you MUST set matrix.dns.zone (+ likely server/TSIG) to
+    # its OWN (example.eu), you MUST set matrix.dns.zone (+ likely server/TSIG) to
     # match — the nsupdate_zone fallback only fits when base_domain sits under it.
-    # kikube.eu is a separate zone, so it typically needs its own server + TSIG +
-    # ingress IP here. If none is available, set matrix.manage_dns=false and
+    # Such a zone typically needs its own server + TSIG + ingress IP here.
+    # If none is available, set matrix.manage_dns=false and
     # manage DNS externally. record MUST be the full FQDN with a trailing dot.
     # =======================================================================
 
