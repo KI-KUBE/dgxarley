@@ -390,7 +390,7 @@ mid-stream-correct.
   (anything matching `*TOKEN*|*SECRET*|*KEY*|*PASSWORD*|*PASS*|*API*|
   *CREDENTIAL*` → `***REDACTED***`).
 - **Correctness debug matrix** `nv580.142_sglang-0.5.{10,11}_qwen-3.6-35b-a3b-fp8_correctness-debug_n4_ep1.yaml`
-  in `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/`.
+  in `matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/`.
 - **TESTLOG section** "Correctness Debug Sweep — Word-Salad Regression in
   v0.5.11" in
   `TESTLOGS/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/TESTLOG_nv580.142_sglang-0.5.11_qwen-3.6-35b-a3b-fp8_4n.md`
@@ -424,7 +424,7 @@ mid-stream-correct.
 
 - [ ] **Always inspect actual output text on multi-batch tests**, not just
   stats. Both Bug A and Bug B silently produced `outcome=13` "STABLE" reports
-  with no failed requests — the kikube harness saw structurally-valid
+  with no failed requests — the bench harness saw structurally-valid
   responses; only manually reading the text revealed the corruption. The
   original 0.5.10 winner-bench had Bug A active in production for weeks
   without being noticed because nobody read the output samples.
@@ -453,7 +453,7 @@ weight/kernel pinning → upstream filing.
 
 ### Bench harness improvements
 
-- [ ] **Extend kikube output-quality filter** beyond NGRAM-repetition. The
+- [ ] **Extend bench output-quality filter** beyond NGRAM-repetition. The
   current filter caught only ~1 of ~14 word-salad runs across this
   investigation. Suggested heuristics, in increasing implementation cost:
   - Type-Token-Ratio threshold (e.g. ratio < 0.3 over a 200-token sliding
@@ -473,5 +473,5 @@ weight/kernel pinning → upstream filing.
 - 0.5.11 release notes summary: `SGLANG_v0.5.11_VERSION_CHANGES.md`
 - Launch-script patches: `roles/k8s_dgx/files/sglang_launch.sh` (PATCH_QUANT_UTILS_EOF, PATCH_TRANSFORMERS_TOPK_EOF, ENV/cmd dump)
 - SGLang upstream PRs: #21062 (Spec V2 default), #23467 (`is_layer_skipped` dot-boundary fix, in v0.5.11), #23471 (`packed_modules_mapping` unconditional)
-- Result dirs: `kikube/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.11-correctness-debug/`, `.../0.5.10-correctness-debug/`
-- Diagnostic matrix YAMLs: `kikube/matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/nv580.142_sglang-0.5.{10,11}_qwen-3.6-35b-a3b-fp8_correctness-debug_n4_ep1.yaml`
+- Result dirs: `results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.11-correctness-debug/`, `.../0.5.10-correctness-debug/`
+- Diagnostic matrix YAMLs: `matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/nv580.142_sglang-0.5.{10,11}_qwen-3.6-35b-a3b-fp8_correctness-debug_n4_ep1.yaml`

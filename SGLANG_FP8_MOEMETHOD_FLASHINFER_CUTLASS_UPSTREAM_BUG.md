@@ -7,7 +7,7 @@ Originally verified on SGLang `v0.5.11` ("The Tenacity Release", tagged 2026-05-
 with the upstream image `scitrera/dgx-spark-sglang:0.5.11` (FlashInfer 0.6.10,
 sgl-kernel 0.4.2). Reproduced on Qwen3.6-35B-A3B-FP8, 4×GB10 (SM12.0a), TP=4,
 during the matrix run on 2026-05-10 (case `07_fi_cutlass-moe_fi-attn` in
-`kikube/matrixtest/2026-05-10/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.11/`).
+`matrixtest/2026-05-10/results/sglang_nn4_tp4_ep1/qwen-3.6-35b-a3b-fp8/0.5.11/`).
 Confirmed still present in **v0.5.12.post1** (the current default image
 `xomoxcc/dgx-spark-sglang:0.5.12.post1-sm121`) by source inspection. Release
 notes contain no `Fp8MoEMethod` + flashinfer_cutlass fix; PR #21872 still open

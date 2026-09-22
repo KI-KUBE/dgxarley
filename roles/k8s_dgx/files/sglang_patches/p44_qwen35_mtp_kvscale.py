@@ -11,7 +11,7 @@ scale is silently dropped. The draft attention then keeps the -1.0 sentinel and
 falls back to KV scale 1.0.
 
 Only relevant once the MTP head is quantized with baked KV scales (p43 +
-kikube's requant_mtp_nvfp4.py, which borrows the last full-attn layer's k/v
+the quantizer's requant_mtp_nvfp4.py, which borrows the last full-attn layer's k/v
 scales onto the MTP attention). Verified against
 qwen3.6-35b-a3b-nvfp4-mtp-modelopt on GB10/sm121: with this patch the MTP draft
 attn (layer_id 0) loads k_scale=0.03982... -- byte-identical to the main model's

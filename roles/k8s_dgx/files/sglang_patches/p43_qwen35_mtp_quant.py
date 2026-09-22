@@ -12,7 +12,7 @@ and nulls quant_config the moment quant_config.get_name() is "modelopt_fp4" /
 
 That assumption holds for every NVIDIA-published Qwen3.5/3.6 NVFP4 checkpoint,
 which ships a BF16 draft head (mtp.* on the exclude list). But a checkpoint that
-DELIBERATELY quantizes the MTP head (kikube's surgical MTP requant --
+DELIBERATELY quantizes the MTP head (the quantizer's surgical MTP requant --
 quantizer/requant_mtp_nvfp4.py, mirroring the main model's per-expert NVFP4 MoE +
 FP8 KV) is exactly the case this shortcut excludes: with quant_config nulled the
 draft head is built UNQUANTIZED, so its FusedMoE/linears allocate BF16 shapes and
@@ -53,7 +53,7 @@ patch = Patch(
 # to different images, so both spellings must keep working: the probe body is
 # shared, only the statement that disables quantization differs.
 _PROBE = """            # [patch dgxarley] keep quant_config when THIS checkpoint's MTP is
-            # quantized (kikube surgical requant). Probe the exclude list: a
+            # quantized (surgical requant). Probe the exclude list: a
             # representative MTP expert NOT excluded => MTP is quantized => keep.
             _mtp_probe = "mtp.layers.0.mlp.experts.0.down_proj"
             _mtp_is_quantized = hasattr(quant_config, "is_layer_excluded") and not quant_config.is_layer_excluded(_mtp_probe)

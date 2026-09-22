@@ -485,7 +485,7 @@ instantiated for `head_dim=512`**.
 MoE *and* 31B dense) hit exactly these two at `head_dim=512`
 (`NUM_MMA_D_QK = NUM_MMA_D_VO = 32`), both rejected at `prefill.cuh:2978`.
 Re-verified 2026-06-04 from the raw head-pod logs of the 2026-05-11/15
-0.5.11 sweep (`kikube/results/.../gemma-4-26b-a4b-it/0.5.11/` and
+0.5.11 sweep (`results/.../gemma-4-26b-a4b-it/0.5.11/` and
 `.../gemma-4-31b-it/`):
 
 | Path | Missing tuple | Fires when |

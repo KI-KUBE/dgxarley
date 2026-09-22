@@ -12,7 +12,7 @@
 # rebase onto xomoxcc/dgx-spark-pytorch-dev:2.12.0-v1-cu132 (same torch/cuda,
 # no sglang) -- see NOTE at the pip step.
 #
-# CONSUMED BY (from the kikube quantizer dir, copied onto the Spark):
+# CONSUMED BY (from the quantizer dir, copied onto the Spark):
 #   test_quant_dryrun.sh   configs/qwen3-30b-a3b.yaml   (Phase 0 gate)
 #   quantize_modelopt_nvfp4.sh configs/qwen3-30b-a3b.yaml (Phase 1 real run)
 #   smoke_sglang_spark.sh  configs/qwen3-30b-a3b.yaml   (already ran on this base)
