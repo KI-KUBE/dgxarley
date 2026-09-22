@@ -105,6 +105,31 @@
 > against the 2026-09-11 sglang-0.5.19 patch re-anchor (commit `958c98d`) and
 > is unaffected (not touched by that commit, not listed in
 > `RETIRED_PATCHES.md`). Monkey-patch still required, no location change.
+>
+> **Re-verified 2026-09-22:** SGLang **v0.5.20** released 2026-09-18 (now
+> latest release, 713 PRs since v0.5.19; `gh release list` re-checked). No
+> new transformers release since v5.17.0 (2026-09-09). Direct source check
+> confirms `kv_lora_rank: int = 512` is still present, unchanged, at
+> `configuration_deepseek_v3.py:93` on both the v5.17.0 tag and
+> `transformers` `main`. SGLang's config-alias mechanism for
+> `model_type="deepseek_v4"` (`_DeepseekV4ConfigAlias(_HFDeepseekV3Config)`,
+> registered in `sglang/srt/utils/hf_transformers/common.py:189-193`) is
+> unchanged at the v0.5.20 tag, still a subclass of transformers'
+> `DeepseekV3Config`, still does not override or retype `kv_lora_rank`
+> itself. Cross-reference: `UPSTREAM_DSV4_BUGS.md`'s 2026-09-22 entry covers
+> v0.5.20's DeepSeek-V4 changes in depth (mostly DeepGEMM/SM120 enablement,
+> explicitly NOT covering SM121/GB10 as shipped, see PR #39482,
+> unreleased), none of it touches config parsing. Local patch
+> `roles/k8s_dgx/files/sglang_patches/p56_deepseek_v3_kv_lora.py` anchor
+> (`    kv_lora_rank: int = 512`) still matches verbatim. Monkey-patch still
+> required, no location change.
+>
+> Also noted, informational only: `deepseek-ai/DeepSeek-V4.1-Flash` (HF,
+> createdAt 2026-09-10, `model_type: deepseek_v41`) is now a real release,
+> transformers has no `deepseek_v41` model directory yet (checked `main`),
+> so this bug's scope (`deepseek_v3`/`deepseek_v4` config alias) does not
+> currently extend to it either way. Re-audit if/when V4.1 gets transformers
+> and SGLang support.
 
 
 ## Summary
