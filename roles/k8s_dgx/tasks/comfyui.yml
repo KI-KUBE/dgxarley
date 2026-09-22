@@ -144,6 +144,16 @@
                         value: "{{ hf_xet_num_concurrent_range_gets | default(16) | string }}"
                       - name: HF_XET_RECONSTRUCT_WRITE_SEQUENTIALLY
                         value: "{{ hf_xet_reconstruct_write_sequentially | default(0) | string }}"
+                      - name: HF_XET_RECONSTRUCTION_DOWNLOAD_BUFFER_LIMIT
+                        value: "{{ hf_xet_reconstruction_download_buffer_limit | default('2gb') | string }}"
+                      - name: HF_XET_RECONSTRUCTION_DOWNLOAD_BUFFER_SIZE
+                        value: "{{ hf_xet_reconstruction_download_buffer_size | default('1gb') | string }}"
+                      - name: HF_XET_RECONSTRUCTION_DOWNLOAD_BUFFER_PERFILE_SIZE
+                        value: "{{ hf_xet_reconstruction_download_buffer_perfile_size | default('256mb') | string }}"
+                      - name: HF_XET_RECONSTRUCTION_MIN_PREFETCH_BUFFER
+                        value: "{{ hf_xet_reconstruction_min_prefetch_buffer | default('256mb') | string }}"
+                      - name: HF_XET_DATA_MAX_CONCURRENT_FILE_DOWNLOADS
+                        value: "{{ hf_xet_data_max_concurrent_file_downloads | default(2) | string }}"
                     ports:
                       - containerPort: "{{ comfyui_port }}"
                         name: http

@@ -38,6 +38,11 @@
             # Sequential instead of parallel local writes on the xet reconstruct path
             # (1 = sequential, for spinning disks). xet-only.
             HF_XET_RECONSTRUCT_WRITE_SEQUENTIALLY: "{{ hf_xet_reconstruct_write_sequentially | default(0) | string }}"
+            HF_XET_RECONSTRUCTION_DOWNLOAD_BUFFER_LIMIT: "{{ hf_xet_reconstruction_download_buffer_limit | default('2gb') | string }}"
+            HF_XET_RECONSTRUCTION_DOWNLOAD_BUFFER_SIZE: "{{ hf_xet_reconstruction_download_buffer_size | default('1gb') | string }}"
+            HF_XET_RECONSTRUCTION_DOWNLOAD_BUFFER_PERFILE_SIZE: "{{ hf_xet_reconstruction_download_buffer_perfile_size | default('256mb') | string }}"
+            HF_XET_RECONSTRUCTION_MIN_PREFETCH_BUFFER: "{{ hf_xet_reconstruction_min_prefetch_buffer | default('256mb') | string }}"
+            HF_XET_DATA_MAX_CONCURRENT_FILE_DOWNLOADS: "{{ hf_xet_data_max_concurrent_file_downloads | default(2) | string }}"
 
     - name: Create docling service
       kubernetes.core.k8s:

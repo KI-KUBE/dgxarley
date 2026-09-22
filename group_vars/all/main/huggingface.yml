@@ -4,10 +4,10 @@
 hf_token: "hf_CHANGEME"
 # HF_HUB_DISABLE_XET propagated to every container that does HF downloads
 # (sglang/vllm head+worker+shard, hf_preload, sglang_tune_moe, comfyui, docling).
-# 0 = keep hf_xet transfer; 1 = disable it. The real value lives in the vault
-# copy (set to 1) — hf_xet's reconstruction has a "Unable to parse string as hex
-# hash value" bug against our JuiceFS-backed HF cache. HF reads this as a boolean
-# (only 1/true/yes/on disable xet), so leaving the dummy 0 here is a safe default.
+# 0 = keep hf_xet transfer; 1 = disable it (plain HTTPS/LFS). Real value in vault.
+# HF reads this as a boolean (only 1/true/yes/on disable xet), so the dummy 0 is
+# a safe default. Disabling xet is NOT the lever against download RSS — see the
+# HF_XET_RECONSTRUCTION_DOWNLOAD_BUFFER_* note in the vault copy.
 hf_hub_disable_xet: 0
 # HF_XET_HIGH_PERFORMANCE — same propagation as above, but wired through this
 # INVERTED knob (mirrors the hf_hub_disable_* naming). The env var is the negation:
@@ -32,23 +32,29 @@ hf_hub_xet_disable_high_performance: 0
 # pick its output format), so a CLI download still fetches+writes the registry file even
 # with this set. Only HF_HUB_OFFLINE=1 blocks the fetch outright — not set globally here.
 hf_hub_disable_telemetry: 1
-# HF_XET_NUM_CONCURRENT_RANGE_GETS — concurrent byte-range GETs from S3 per file on
-# the XET transfer path (a xorb/chunk tunable). XET-ONLY: it does NOT affect plain
-# HTTPS/LFS downloads (the path used when HF_HUB_DISABLE_XET=1) and is a no-op there.
-# Applies to both normal and high-performance xet. HF default is 16; dummy kept at 16
-# (neutral no-op), real value in the vault copy. NOTE: the env var was renamed from
-# HF_HUB_NUM_CONCURRENT_RANGE_GETS → HF_XET_NUM_CONCURRENT_RANGE_GETS in hf-xet 1.1;
-# the ansible var name matches the current env name. HF recommends the HF cache be on
-# SSD/NVMe, not a distributed FS — ours is JuiceFS, so tune conservatively.
+# HF_XET_NUM_CONCURRENT_RANGE_GETS — DEAD KNOB as of hf_xet shipped with
+# huggingface_hub 1.32.0: the name is not present in the compiled hf_xet binary
+# (verified in the hf-preload pod), so whatever is set here is ignored. xet-core
+# now sizes download concurrency adaptively; pin it with
+# HF_XET_FIXED_DOWNLOAD_CONCURRENCY instead. Kept wired only so a value does not
+# silently vanish from the download containers.
 hf_xet_num_concurrent_range_gets: 16
-# HF_XET_RECONSTRUCT_WRITE_SEQUENTIALLY — same propagation as the knobs above.
-# XET-ONLY (no-op on the plain HTTPS/LFS path, and no-op while HF_HUB_DISABLE_XET=1).
-# hf_xet reconstructs a downloaded file by writing its chunks to local disk in
-# PARALLEL with direct addressing, which is designed for SSD/NVMe. On a spinning
-# disk those parallel writes turn into seeks; setting this to 1 makes the writes
-# sequential, which HF recommends for HDDs. 0 = upstream default (parallel).
-# RELEVANT HERE: the HF cache lives on JuiceFS whose object backend is a USB-3.0
-# SPINNING disk (spark4 /mnt/intenso), i.e. exactly the HDD case the flag targets.
-# Kept at the neutral 0 until it is measured — flip in the vault copy to try it.
-# Read as a boolean by HF (only 1/true/yes/on enable it).
+# HF_XET_RECONSTRUCT_WRITE_SEQUENTIALLY — DEAD KNOB, same as the one above: the
+# name is absent from the compiled hf_xet binary. Its successor is
+# HF_XET_RECONSTRUCTION_USE_VECTORED_WRITE, which is NOT wired up here.
+# The intent was: chunk writes go to disk in parallel (tuned for SSD/NVMe), which
+# on the JuiceFS object backend (a USB-3.0 spinning disk) turns into seeks.
 hf_xet_reconstruct_write_sequentially: 0
+# HF_XET_RECONSTRUCTION_* + HF_XET_DATA_MAX_CONCURRENT_FILE_DOWNLOADS — the real
+# RAM bound on the xet download path, propagated like the knobs above. Not secret,
+# so the real values live here and NOT in the vault copy.
+# Upstream defaults alone (8gb hard limit, 2gb buffer, 512mb per file x 8 concurrent
+# files) match the hf-preload Job's 8Gi cap and OOM-kill it; these caps hold a
+# download near 2 GB RSS. HF_XET_HIGH_PERFORMANCE=1 raises the hard limit to 64gb
+# and overrides them, so it must stay off wherever these matter.
+# Sizes take a human-readable suffix (mb/gb) or a raw byte count. XET-ONLY.
+hf_xet_reconstruction_download_buffer_limit: "2gb"
+hf_xet_reconstruction_download_buffer_size: "1gb"
+hf_xet_reconstruction_download_buffer_perfile_size: "256mb"
+hf_xet_reconstruction_min_prefetch_buffer: "256mb"
+hf_xet_data_max_concurrent_file_downloads: 2
