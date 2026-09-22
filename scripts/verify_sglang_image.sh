@@ -2,36 +2,20 @@
 #
 # verify_sglang_image.sh — image acceptance gate for xomoxcc/dgx-spark-sglang:*
 #
-# Runs the dgxarley runtime patch set exactly the way sglang_launch.sh runs it
+# Runs the dgxarley runtime patch set the way sglang_launch.sh runs it
 # (roles/k8s_dgx/files/sglang_patches/p[0-9][0-9]_*.py, filename order), then
-# asks the two questions the patch run itself CANNOT answer:
+# checks three properties the patch run itself cannot report:
 #
-#   1. Did any patch report ANCHOR-DRIFT?
-#      -> an anchor moved; the fix silently does not happen any more.
-#   2. Does SGLang's model registry still import cleanly?
-#      -> THE check that matters. On 2026-07-28 p30 generated a module importing
-#         sglang.srt.layers.quantization.fp8_kernel, which RFC #29630 moved in
-#         v0.5.16. The patch run said "ok". The registry swallowed the
-#         ImportError ("Ignore import error when loading ...") and 31 model
-#         classes were silently disabled: deepseek_v2, deepseek_v4, glm4_moe,
-#         kimi_*, mistral_large_3, pixtral, ... Nothing crashed, nothing warned
-#         at the top level, and the models simply were not there any more.
+#   1. No patch reported ANCHOR-DRIFT.
+#   2. SGLang's model registry still imports cleanly. The registry swallows
+#      ImportError ("Ignore import error when loading ..."), so an unimportable
+#      patched module silently removes model classes at runtime.
+#   3. (qwen4_exp images only) Qwen3.8-Flash-Next imports and SM121 QSA decode
+#      lands on the right kernels. EXPECT_QWEN4EXP=1 makes its absence a
+#      failure; unset, the section self-skips.
 #
-#   3. (qwen4_exp images only) Does the Qwen3.8-Flash-Next architecture import,
-#      AND is the SM121 trtllm veto from p65 actually live?
-#      -> the veto is the one check here that guards CORRECTNESS rather than
-#         availability. With it missing, a GB10 pod serves fine on short
-#         prompts and returns runs of "!" past roughly 120k tokens of context,
-#         silently and stochastically (upstream #36716 / #36558; measured 4/4
-#         corrupt at 210k on 2x Spark with real weights). Nothing in the patch
-#         log or the model registry can see that, which is why it is its own
-#         check. Set EXPECT_QWEN4EXP=1 to make the ABSENCE of qwen4_exp a
-#         failure too (use it for the 0.5.18-sm121 image, whose recipe sets
-#         APPLY_QWEN4EXP_PR36497=1); left unset, the section self-skips on
-#         images that were never meant to carry the architecture.
-#
-# "Applies cleanly" is not "works". Run this before promoting any image, and
-# after every change under sglang_patches/.
+# Every probe asserts the PROPERTY on the image, never that a given patch
+# reported "patched": from v0.5.20 (#37500) upstream ships part of it natively.
 #
 # No GPU and no k3s needed: plain podman, CPU only, ~1 minute.
 #
@@ -56,11 +40,10 @@ PATCH_SRC="${REPO_ROOT}/roles/k8s_dgx/files/sglang_patches"
 
 IMAGE="${1:-}"
 CONNECTION="${2:-}"
-[[ -n "${IMAGE}" ]] || { sed -n '2,40p' "$0"; exit 2; }
+[[ -n "${IMAGE}" ]] || { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0"; exit 2; }
 [[ -d "${PATCH_SRC}" ]] || { echo "ERROR: patch dir not found: ${PATCH_SRC}" >&2; exit 2; }
 
-# Scenarios mirror the model-name gates in the patch set (gate_model()), so the
-# model-specific patches are exercised too, not just the ungated majority.
+# Mirrors the model-name gates in the patch set (gate_model()).
 SCENARIOS=(
     "bare::"
     "glm:SGLANG_MODEL=zai-org/GLM-5.2-NVFP4:SGLANG_DSA_INDEXER_TRITON=1"
@@ -75,8 +58,7 @@ run_podman() {
     fi
 }
 
-# The patch set has to be inside the podman host's filesystem. With a remote
-# connection, ship it over first (tar over ssh, same host the connection names).
+# The patch set must live inside the podman host's filesystem.
 REMOTE_PATCHES="/tmp/dgxarley-verify-patches"
 if [[ -n "${CONNECTION}" ]]; then
     ssh_host="$(podman system connection list --format '{{.Name}} {{.URI}}' \
@@ -96,10 +78,8 @@ fi
 echo "=== verifying ${IMAGE}${CONNECTION:+ (on ${CONNECTION})}"
 failures=0
 
-# BASELINE: which model classes does the UNPATCHED image already fail to import?
-# Upstream ships modules with optional dependencies (bailing_moe_* import vllm,
-# which we do not install), so a raw count would fail every image forever. Only
-# the DELTA introduced by our patch set is a defect, so measure it as a delta.
+# Baseline: upstream modules with optional deps (bailing_moe_* -> vllm) always
+# fail to import, so only the delta against the unpatched image is a defect.
 registry_failures() { # stdin: registry output -> stdout: sorted module names
     grep 'Ignore import error' | sed -E 's/.*loading (sglang[^:]*):.*/\1/' | sort -u
 }
@@ -151,26 +131,14 @@ for scenario in "${SCENARIOS[@]}"; do
     fi
 done
 
-# ---------------------------------------------------------------------------
-# qwen4_exp / Qwen3.8-Flash-Next gate.
-#
-# Two questions the loop above structurally cannot answer. The registry check
-# only reports modules that FAIL to import, so an architecture that was never
-# built into the image looks exactly like one that is fine. And ANCHOR-DRIFT
-# says an anchor matched, not that the resulting code does the right thing —
-# p65's SM121 veto is a correctness guard whose absence is invisible until a
-# real 190k-token request comes back as exclamation marks.
-#
-# Runs the patch set once more with the model gate set to the Flash-Next
-# checkpoint, then probes the PATCHED module in-process. The trtllm probe
-# stubs flashinfer and monkeypatches the capability helpers, so it needs no GPU
-# and no flashinfer install: it asserts the resolver returns None on cc (12,1)
-# and a callable on cc (12,0), which is exactly the split upstream #36806 and
-# our veto encode.
+# The loop above cannot see this: a never-built architecture looks like a
+# healthy one, and a matched anchor says nothing about the resulting behaviour.
 echo
 echo "--- qwen4_exp / Qwen3.8-Flash-Next"
+# TP=4: p66's (6,1) widening of the SM121 QSA contract only fires at that shape.
 qwen4_out="$(run_podman run --rm \
     -e SGLANG_MODEL=RadixArk/Qwen3.8-Flash-Next-NVFP4 \
+    -e TP=4 \
     -v "${PATCH_MOUNT}:/patches:ro" "${IMAGE}" bash -c '
     for p in /patches/p[0-9][0-9]_*.py; do python3 "$p" 2>&1; done
     echo "###PROBE###"
@@ -232,6 +200,27 @@ try:
          "" if on_120 is sentinel else f"resolver returned {on_120!r} on cc (12,0)")
 except Exception as exc:  # noqa: BLE001
     emit("VETO_SM121", False, f"{type(exc).__name__}: {exc}")
+
+# With trtllm vetoed a varlen kernel must still resolve, or the backend dies at
+# init in the FA4 CuTe epilogue.
+try:
+    force((12, 1))
+    qsa._resolve_flash_attn_varlen_func.cache_clear()
+    fn = qsa._resolve_flash_attn_varlen_func()
+    where = "%s.%s" % (getattr(fn, "__module__", "?"), getattr(fn, "__name__", fn))
+    emit("VARLEN_SM121", callable(fn), where)
+except Exception as exc:  # noqa: BLE001
+    emit("VARLEN_SM121", False, f"{type(exc).__name__}: {exc}")
+
+# Upstream ships TP1/TP2 only and raises at decode on anything else; p66 adds (6,1).
+try:
+    import sglang.kernels.kda_kernels.qwen38_qsa_sm121 as _qsa_pkg
+    topo = set(getattr(_qsa_pkg, "_SUPPORTED_HEAD_TOPOLOGIES", ()))
+    emit("QSA_TP4", (6, 1) in topo, f"topologies={sorted(topo)}")
+except ImportError as exc:
+    emit("QSA_TP4", False, f"package absent: {exc}")
+except Exception as exc:  # noqa: BLE001
+    emit("QSA_TP4", False, f"{type(exc).__name__}: {exc}")
 PY
 ' 2>/dev/null)" || true
 
@@ -260,13 +249,8 @@ else
         failures=$((failures + 1))
     fi
 
-    # p65 must have RUN, not been gated out: the file exists in this image, so
-    # "gate not matched" here means target_contains failed, i.e. the resolver
-    # was renamed and the veto is silently absent.
-    if grep -qE "gate not matched" <<< "$(grep -i "qsa" <<< "${qwen4_patch_phase}")"; then
-        echo "  FAIL  p65 reported 'gate not matched' on an image that HAS qwen4_exp"
-        failures=$((failures + 1))
-    fi
+    # Removed 2026-09-22: the `p65 ... gate not matched` failure; it fails a
+    # correct v0.5.20 image, and VETO_SM121/VARLEN_SM121 cover the property.
 
     if [[ "$(probe_val VETO_SM121)" == "1" ]]; then
         echo "  ok    trtllm sparse decode is vetoed on cc (12,1) / GB10"
@@ -285,6 +269,27 @@ else
         grep -E "^SM120_KEPT=" <<< "${qwen4_probe}" | sed 's/^/        /'
         echo "        (not fatal on this cluster — no SM120 part here — but it"
         echo "         means the shipped gate changed shape; re-read p65)"
+    fi
+
+    if [[ "$(probe_val VARLEN_SM121)" == "1" ]]; then
+        echo "  ok    SM121 QSA decode resolves a varlen kernel"
+        grep -E "^VARLEN_SM121=" <<< "${qwen4_probe}" | sed 's/^VARLEN_SM121=1 /        via /'
+    else
+        echo "  FAIL  SM121 QSA decode resolves NO varlen kernel. The backend"
+        echo "        dies at init in the FA4 CuTe epilogue on every Spark."
+        grep -E "^VARLEN_SM121=" <<< "${qwen4_probe}" | sed 's/^/        /'
+        failures=$((failures + 1))
+    fi
+
+    if [[ "$(probe_val QSA_TP4)" == "1" ]]; then
+        echo "  ok    shipped SM121 QSA contract accepts TP4 (6 q, 1 kv)"
+    else
+        echo "  FAIL  shipped SM121 QSA contract rejects TP4. The pod boots and"
+        echo "        then raises 'unsupported SM121 QSA call' on the first"
+        echo "        sparse decode."
+        grep -E "^QSA_TP4=" <<< "${qwen4_probe}" | sed 's/^/        /'
+        echo "        (p66_qsa_sm121_kda_kernel.py TP4 widening did not take effect)"
+        failures=$((failures + 1))
     fi
 fi
 
