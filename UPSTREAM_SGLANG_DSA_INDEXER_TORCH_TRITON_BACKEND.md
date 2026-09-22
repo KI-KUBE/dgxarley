@@ -468,6 +468,57 @@ REST/GraphQL now report `mergeable: MERGEABLE` / `mergeStateStatus: BLOCKED`
 > no upstream fix has landed or is imminent. `RETIRED_PATCHES.md` re-checked:
 > no p30/p35 entry exists, correctly reflecting still-active status.
 
+> Re-checked 2026-09-22: PR #31480 unchanged in content since the 09-10 rebase
+> (head still `8d3944adb22eba57e258c7129f54333c7896fcf8`, `updatedAt`
+> 2026-09-10T13:10:42Z, still 3 comments, 0 reviews, no `run-ci` label,
+> `reviewDecision: REVIEW_REQUIRED`). `mergeable`/`mergeStateStatus` stable at
+> `MERGEABLE`/`BLOCKED` on two reads 3s apart (same as 09-16, no state
+> change).
+
+> SGLang released v0.5.20 on 2026-09-18 (commit `94602c9c2b`), superseding
+> v0.5.19 (2026-09-05). `DSAPagedMQALogitsBackend`
+> (`layers/attention/dsa/paged_mqa_logits_backend.py`) source-verified
+> directly against the `v0.5.20` tag: enum still only DEEPGEMM/CUTEDSL/AITER,
+> `resolve()` still gates CUTEDSL on `get_platform().is_sm100`, no `torch`
+> value. The field's `choices=["auto", "deepgemm", "cutedsl", "aiter"]` in
+> `arg_groups/fields/exec_.py` unchanged. `dsa_backend.py`'s topk-backend
+> construction `DSATopKBackend.resolve(model_runner)` confirmed at the same
+> line 358 as the 09-16 check. p30/p35 remain necessary, not redundant.
+
+> v0.5.20 release notes confirmed to contain #36507 (GLM-5.3-Flash, listed as
+> a new model), #29927 (SM120 DeepGEMM paged-MQA indexer) and #36655 (SM120
+> exact query-head widths), all three verified via
+> `compare/v0.5.20...<merge-sha>` returning `status: behind` for each merge
+> commit. Both #29927 and #36655 are explicitly scoped to DeepSeek-V4 in the
+> release notes headline ("DeepSeek-V4 on RTX PRO 6000... sparse-MLA indexer
+> now runs on DeepGEMM's paged-MQA kernel, replacing the torch fallback"), the
+> DSV4 path (PR #24692) already has its own arch fallback, this doc's generic
+> `dsa/dsa_indexer.py` path (GLM-5.2/5.3, DeepSeek-V3.2) is untouched. Same
+> "DSV4-only, not redundancy-relevant" pattern flagged repeatedly since 08-21.
+
+> **Local patch drift found:** unlike prior cycles, p30 needs real
+> re-anchoring for v0.5.20 - `git status` on dgxarley shows
+> `roles/k8s_dgx/files/sglang_patches/p30_dsa_torch_backend.py` with an
+> UNCOMMITTED working-tree edit (not yet part of a dgxarley commit) that adds
+> three v0.5.20-specific `alt_targets`/`replace_any` variants. Source-checked
+> all three claims directly against the `v0.5.20` tag, all accurate: (1) the
+> server-args patch target moves from `server_args.py` to
+> `arg_groups/fields/exec_.py`, consistent with real merged PR #38375
+> ("Retire get_global_server_args...", in the v0.5.19..v0.5.20 range); (2) the
+> import-anchor cluster in `dsa_backend.py` now reads a `DSAIndexerMetadata`
+> import immediately followed by a `DSAMetadataManagementMixin` import
+> (verified at lines 60-62 on the tag, exact match to the new variant added);
+> (3) the dispatch branch's kernel call is wrapped in a local
+> `_chunked_fp8_paged_mqa_logits` helper in `dsa/dsa_indexer.py` instead of
+> calling `deep_gemm.fp8_paged_mqa_logits` directly (verified at lines
+> 864-896, 952, 966 on the tag). This is report-only verification of an
+> already-drafted local patch, not something this audit changed.
+
+> Conclusion unchanged: p30/p35 remain necessary on v0.5.20; no upstream fix
+> has landed or is imminent. Local re-anchoring work for the pending
+> 0.5.20-sm121 build is already in progress (uncommitted) and verifies
+> correct against the tag.
+
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
 > Triton fast path (unblocks DSA models on SM120/SM121)
 
