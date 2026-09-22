@@ -47,7 +47,7 @@
 #
 #   FIX (recommended = re-quant, then re-upload + re-test):
 #     1. RE-QUANT with the sibling `nvfp4_mlp_only` config
-#        (kikube/quantizer/configs/qwen3.6-35b-a3b_nvfp4-mlp-only.yaml) — experts-only
+#        (quantizer/configs/qwen3.6-35b-a3b_nvfp4-mlp-only.yaml) — experts-only
 #        FP4, linear_attn/dense stay high-precision → matches SGLang's modelopt_fp4
 #        path for this arch AND the working-recipe rule. The quantizer's own "safe
 #        default". RECOMMENDED.
@@ -59,8 +59,8 @@
 #        modelopt_mixed dispatch does NOT apply — it only fires for MIXED_PRECISION
 #        checkpoints; this is uniform quant_algo=NVFP4.
 #
-# Knobs below are derived from the kikube/quantizer config that PRODUCES this
-#   export (kikube/quantizer/configs/qwen3.6-35b-a3b_nvfp4.yaml) plus the
+# Knobs below are derived from the quantizer config that PRODUCES this
+#   export (quantizer/configs/qwen3.6-35b-a3b_nvfp4.yaml) plus the
 #   arch-intrinsic knobs of the two VALIDATED siblings. They are the intended
 #   serving config once a LOADABLE checkpoint (fix 1/2) replaces this one.
 #

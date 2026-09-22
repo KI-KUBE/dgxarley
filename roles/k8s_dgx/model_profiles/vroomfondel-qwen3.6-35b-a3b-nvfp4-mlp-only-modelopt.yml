@@ -6,7 +6,7 @@
 #   vroomfondel-qwen3.6-35b-a3b-nvfp4-modelopt.yml. That uniform-W4A4 export
 #   ⛔ crashed at boot on the `linear_attn.in_proj_qkvz` weight load (Gated-DeltaNet
 #   path quantized to FP4). This MLP-Only export is the quantizer's own "safe
-#   default" (kikube/quantizer/configs/qwen3.6-35b-a3b_nvfp4-mlp-only.yaml): the
+#   default" (quantizer/configs/qwen3.6-35b-a3b_nvfp4-mlp-only.yaml): the
 #   MoE experts stay FP4, and linear_attn / dense / attention are EXCLUDED from
 #   quant (kept high-precision). That is precisely the layer set whose FP4-quant
 #   triggered the parent's boot wall — so this checkpoint is EXPECTED to clear it.

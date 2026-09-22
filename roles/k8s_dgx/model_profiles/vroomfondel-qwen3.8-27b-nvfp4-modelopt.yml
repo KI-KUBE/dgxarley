@@ -3,7 +3,7 @@
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 #
 # STATUS 2026-08-15 (UPDATED, same day): the DSPARK path below is now MEASURED,
-#   end to end, on a single Spark (GB10/sm121, SGLang 0.5.17) via the kikube
+#   end to end, on a single Spark (GB10/sm121, SGLang 0.5.17) via the
 #   quantizer's serve path -- NOT yet through this Ansible role, which remains
 #   the one unvalidated hop.
 #     * drafter RadixArk/Qwen3.8-27B-DSpark loads in 18.5 s (2.95 GB), reports

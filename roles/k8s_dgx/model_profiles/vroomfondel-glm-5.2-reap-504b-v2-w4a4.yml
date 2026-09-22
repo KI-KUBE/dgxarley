@@ -1,6 +1,6 @@
 # Model profile: vroomfondel/glm-5.2-reap-504B-v2-W4A4
 # EXPERIMENTAL derivative of 0xSero/glm-5.2-reap-504B-v2 (this repo's own surgical
-# NVFP4 W4A4 requant of the MLA attention projections o_proj + q_b_proj; kikube/
+# NVFP4 W4A4 requant of the MLA attention projections o_proj + q_b_proj; 
 # quantizer/surgical_attn_nvfp4.py, reap_requant.md). Architecture, DSA/MTP config
 # and every other key are IDENTICAL to the base profile -- only the two attention
 # projections are now W4A4 instead of BF16. Differences vs the base profile:

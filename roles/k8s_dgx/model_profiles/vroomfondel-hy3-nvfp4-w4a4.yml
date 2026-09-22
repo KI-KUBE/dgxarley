@@ -159,7 +159,7 @@ _model_profile:
     fp4_gemm_backend: "flashinfer_cutlass"
     # attention: triton is what we VALIDATED for HYV3. flashinfer attn has a SEPARATELY
     # observed crash — "Invalid configuration NUM_MMA..." in prefill.cuh, a kernel-launch
-    # config assert tied to the HYV3 head geometry (from kikube/quantizer
+    # config assert tied to the HYV3 head geometry (from quantizer
     # smoke_sglang_spark.sh, a different test context) — which is a DIFFERENT failure class
     # than the shared_experts sampler NaN, so it's likely a genuine separate sm121/HYV3
     # incompatibility (NOT the shared_experts root cause; that "→ our NaN" attribution was

@@ -2,7 +2,7 @@
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 #
 # ── STATUS (2026-09-16): BLOCKED, NEVER BOOTED ANYWHERE ─────────────────────────
-# Our own surgical NVFP4 W4A4 top-up (kikube/quantizer/surgical_glm5next_nvfp4.py)
+# Our own surgical NVFP4 W4A4 top-up (quantizer/surgical_glm5next_nvfp4.py)
 # of LibertAIDAI/GLM-5.3-Flash-NVFP4, which is a ModelOpt experts-only NVFP4 export
 # of zai-org/GLM-5.3-Flash. The card says it plainly: no token has ever been
 # generated from this checkpoint. Two independent blockers stand between this
