@@ -249,6 +249,22 @@ the recreated base) where it was previously unresolved/stale. Comment counts rem
 respectively. Still no maintainer review or merge decision on either PR, now over three months
 idle in substance. The HAProxy TLS sidecar workaround remains required.
 
+**2026-09-22 re-verify, still broken; no new stable release:**
+LiteLLM's latest stable release remains **v1.101.0** (2026-09-15). No newer stable shipped this
+cycle (v1.102.0-rc.2, v1.103.0-dev.1/dev.2, and v1.103.0-rc.1 exist as prereleases only, latest
+2026-09-20). The bug is byte-identical on current `main`: `litellm/llms/ollama/completion/handler.py`
+(blob 449952217b5e420c92ca20ff9cdff62aa95468e4, 4148 bytes, unchanged since the 08-21 basedpyright
+chore) still carries the `[TODO]: migrate embeddings to a base handler as well.` comment at line 4
+and still calls `await litellm.module_level_aclient.post(url=api_base, json=data)` with no
+`ssl_verify` argument at line 98. Issue #30778 remains open but received its first activity since
+filing: a `github-actions[bot]` stale marker on 2026-09-17T00:02:18Z ("automatically marked as
+stale, will be closed if no further activity occurs"). This is bot housekeeping, not maintainer
+engagement, but it flags the issue is now at risk of auto-closure on the tracker's stale-bot
+schedule if nobody comments. PRs #30810 and #30848 remain open, unmerged, and `dirty` (conflicts
+against the recreated `litellm_internal_staging` base logged 2026-09-16); no new comments or
+reviews, head commits unchanged (247b21a5fa / e60e09c0d3). The HAProxy TLS sidecar workaround
+remains required.
+
 ## Upstream Fix
 
 The embedding path in `litellm/llms/ollama/completion/handler.py` should stop using
