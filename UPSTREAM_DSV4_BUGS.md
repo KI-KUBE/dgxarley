@@ -927,6 +927,168 @@ No wall status change, no FIXED_ rename this cycle. Next check: same as
 09-10 (watch for #29927/#35118 landing in a tag), now also watching #36655
 land alongside them.
 
+**Update 2026-09-22 (audit): SGLang v0.5.20 released 2026-09-18;
+#29927/#35118/#36655/#33672 confirmed contained; GB10/SM121 explicitly
+excluded from the new DeepGEMM enablement until unreleased PR #39482.**
+
+SGLang **v0.5.20** released 2026-09-18T22:41Z (`gh release list` / `gh api
+releases/tags/v0.5.20`), now the latest release, 713 PRs since v0.5.19.
+Release-notes headline "DeepSeek-V4 on RTX PRO 6000": "On SM120 the
+sparse-MLA indexer now runs on DeepGEMM's paged-MQA kernel and the DeepGEMM
+FP4 MoE backend is enabled, replacing the torch fallback that was the only
+working path" (#29927).
+
+Containment checked via `gh api compare/v0.5.20...<merge-sha>` (all four
+report `"status":"behind"`, i.e. contained):
+- #29927 (merge `19c30dff56`) - behind_by 643, contained.
+- #35118 (merge `b68702be99`) - behind_by 726, contained.
+- #36655 (merge `d076eec427`) - behind_by 226, contained.
+- #33672 (merge `335f6aab27`) - behind_by 185, contained.
+
+File-tree-verified on the v0.5.20 tag (git objects,
+`/home/thiess/pythondev_workspace/sglang`, `upstream` remote fetched):
+`python/sglang/srt/layers/moe/moe_runner/deep_gemm_sm120.py` exists (new
+file from #29927). `deep_gemm_wrapper/configurer.py`'s
+`_compute_enable_deep_gemm()` no longer hard-disables on SM120, the old
+`if sm_version == 120: return False` (v0.5.19) is now a probe of
+`deep_gemm.m_grouped_fp8_fp4_gemm_nt_contiguous` (v0.5.20), matching the
+doc's 2026-09-04 note.
+
+**Correction to the 2026-09-04 block (this specific gate does NOT follow
+the major==12 convention as claimed, GB10/SM121 was excluded from it as
+shipped in v0.5.20).** The 09-04 entry states every new SM120-only code
+path in #29927 "gates on `is_sm120_supported()` (`major==12`
+device-capability check)... the same major-only SM120/SM121 convention this
+doc already relied on... SM121/GB10 applicability is therefore INFERRED
+from that convention." That is true for `moe_runner/deep_gemm_sm120.py` and
+`attention/dsv4/metadata.py` (both literally
+`_IS_SM120 = is_sm120_supported()`, confirmed unchanged at the v0.5.20
+tag), but it is NOT true for the specific `deep_gemm_wrapper/configurer.py`
+gate quoted in the same paragraph: that gate checks the raw
+`sm_version == 120` (from `get_device_sm() = major*10+minor`, i.e. exactly
+120, RTX PRO 6000 class), not `is_sm120_supported()`'s major-only `[12]`
+set. For GB10 (`get_device_sm() == 121`), this exact-match check is False
+and the probe branch is skipped entirely, same as it always was
+pre-#29927 (v0.5.19's blanket `return False` was also exact-match-120, so
+it likewise never fired for SM121; `ENABLE_JIT_DEEPGEMM` on GB10 has always
+been controlled purely by `SGLANG_ENABLE_JIT_DEEPGEMM`, unaffected by this
+line, in both v0.5.19 and v0.5.20). Practical effect: the v0.5.20
+release-notes claim "DeepSeek-V4 on RTX PRO 6000 ... SM120 ... enabled" is
+accurate to its own scope (RTX PRO 6000 = exact SM120) but does **not**
+extend to GB10/SM121 as shipped, confirmed directly by a
+same-day-after-release fix, see next paragraph.
+
+**New, unreleased, directly closes the gap above:**
+[PR #39482](https://github.com/sgl-project/sglang/pull/39482) "[Bugfix]
+Include SM121 in DeepGEMM packed-scale selection", merged
+2026-09-18T13:57Z+08:00 (i.e., the same UTC day as the v0.5.20 release cut,
+but `git log v0.5.20..upstream/main` confirms it is NOT an ancestor of the
+v0.5.20 tag, unreleased). Diff (`git show 3d1b9e7549a3`) touches exactly
+the two lines flagged above in `deep_gemm_wrapper/configurer.py`:
+`if sm_version == 120` -> `if sm_version in (120, 121)`, and
+`get_device_sm() == 120` -> `get_device_sm() in (120, 121)` (the
+`DEEPGEMM_SCALE_UE8M0` computation). New comment: "SM120/SM121 support
+(including GB10) landed in DeepGEMM#324". This is upstream's own explicit
+acknowledgment that v0.5.20 shipped #29927 without actually covering GB10
+for this gate, and is the PR to watch for the actual Wall 3/4 enablement on
+our hardware. Not yet in any tagged release.
+
+**Wall-by-wall reading for a hypothetical 0.5.20-sm121 image (unreleased
+#39482 not included):**
+- **Wall 3** (NVFP4 MoE / `flashinfer_cutlass` pin): `moe_runner/deep_gemm_sm120.py`
+  gates on `is_sm120_supported()` (major==12, includes SM121), so the new
+  DeepGEMM FP4 MoE runner module IS importable/selectable on GB10 in
+  v0.5.20, but whether it is actually reachable at runtime for our
+  NVFP4-MoE checkpoints depends on MoE-runner-backend selection logic not
+  traced this cycle; unrelated to our currently-deployed FP8 checkpoint
+  (`sgl-project/DeepSeek-V4-Flash-FP8`) either way, so no action needed on
+  the deployed model.
+- **Wall 4** (`SGLANG_OPT_DEEPGEMM_HC_PRENORM`): the env-flag auto-default
+  for SM12x is unchanged (`arg_groups/model_hook.py::handle_model_specific_adjustments`,
+  formerly `server_args.py`, still sets `False` for `get_platform().is_sm120`
+  == `is_sm120_supported()`, major==12, includes SM121), but as of
+  v0.5.20 this is now guarded by
+  `if not envs.SGLANG_OPT_DEEPGEMM_HC_PRENORM.is_set(): ...set(False)`, no
+  longer unconditional (v0.5.19 set it unconditionally, no `is_set()`
+  guard; the guard was added sometime between the two tags, exact commit
+  not pinpointed this cycle). Our profile flag `opt_deepgemm_hc_prenorm:
+  false` still matches the default, so behavior is unchanged either way.
+  Separately, the actual `tf32_hc_prenorm_gemm` kernel dispatch
+  (`models/deepseek_v4.py:2273`) is gated purely on
+  `envs.SGLANG_OPT_DEEPGEMM_HC_PRENORM.get() and x.shape[0] >= 1024`,
+  calling `deep_gemm.tf32_hc_prenorm_gemm` directly with no additional
+  `ENABLE_JIT_DEEPGEMM`/probe check at that call site, so even once
+  #39482 lands, flipping this flag to `true` on GB10 depends on the
+  DeepGEMM package itself actually shipping a working SM121
+  `tf32_hc_prenorm_gemm` kernel, not verified this cycle.
+- **Wall 5** (`SGLANG_FP8_PAGED_MQA_LOGITS_TORCH`): same `is_set()`-guarded
+  auto-default (`True` for SM12x major==12, unchanged), our profile flag
+  matches. #29927's DeepGEMM paged-MQA-logits path for the indexer is the
+  upstream replacement route (`SGLANG_FP8_PAGED_MQA_LOGITS_TORCH=0
+  SGLANG_OPT_USE_TILELANG_INDEXER=0` per the 2026-09-04 note), untested on
+  GB10, and per the Wall-3/4 finding above, likely also blocked by the same
+  `sm_version==120` exact-match gate family until #39482 lands (not
+  independently re-checked for this specific path this cycle; worth
+  re-verifying once #39482 is released).
+- **Wall 2** (`SGLANG_OPT_FP8_WO_A_GEMM`) and the newer
+  **`SGLANG_OPT_USE_TOPK_V2`** flag: still set **unconditionally** (no
+  `is_set()` guard) to `False` for SM12x major==12 in
+  `handle_model_specific_adjustments`, any manual profile override of
+  these two specific flags would currently be silently overwritten by
+  SGLang itself; not an issue for us today since our profile values already
+  match (`opt_fp8_wo_a_gemm: false`), just worth knowing if a future recipe
+  ever wants to force it back on.
+- **Wall 7** (`--dsa-topk-backend` / `SGLANG_DSA_FUSE_TOPK`): unchanged in
+  v0.5.20 vs the 09-16 finding; `SGLANG_TOPK_TRANSFORM_512_TORCH` remains
+  absent (removed by #34926, already known); the arg + `SGLANG_DSA_FUSE_TOPK`
+  plumbing our launch.sh already migrated to is present unchanged.
+
+**Recommendation for the pending 0.5.20-sm121 build:** the existing manual
+profile flags (`opt_fp8_wo_a_gemm: false`, `opt_deepgemm_hc_prenorm:
+false`, `fp8_paged_mqa_logits_torch: true`, `mem_fraction_static: "0.90"`)
+remain correct/required for a v0.5.20 image and should NOT be removed or
+changed for this bump, nothing in #29927/#35118/#36655/#33672 actually
+flips a working code path on for GB10 yet, since the specific enablement
+gate (`deep_gemm_wrapper/configurer.py`) still excludes SM121 as shipped.
+No wall is newly resolved by v0.5.20 on this cluster.
+
+**Issue tracking, re-verified 2026-09-22.** #26324: still closed (stale-bot,
+unresolved), no activity since 2026-08-21. #33636: `updated_at` moved to
+2026-09-14 but comments API shows no new comment text since 2026-08-25 (8
+total, unchanged), still open, still exclusively B200/GB300/MegaMoE topics,
+no SM120/SM121 mention. #32750: idle since 2026-08-06. #23602: idle since
+2026-08-13.
+
+**DSV4.1 wave, now a real HF release, still no SGLang release support.**
+`deepseek-ai/DeepSeek-V4.1-Flash` (HF, createdAt 2026-09-10,
+`model_type: deepseek_v41`, pipeline_tag `image-text-to-text`, i.e. this
+Flash variant is now multimodal, unlike V4-Flash) exists, and
+`nvidia/DeepSeek-V4.1-Flash-NVFP4` (HF, createdAt 2026-09-16) exists too.
+SGLang's own cookbook page (`docs/cookbook/autoregressive/DeepSeek/DeepSeek-V4_1.mdx`,
+present at the v0.5.20 tag) states explicitly: "DeepSeek-V4.1 Flash support
+has **not shipped in an SGLang release yet**", pointing instead at a
+preview Docker image `lmsysorg/sglang:dev-dsv41` (and `dev-dsv41-mi35x` for
+ROCm), hardware cells offered are GB300 / H200 / B200 / B300 / MI350X
+only, **no SM120/SM121/GB10/consumer-Blackwell cell**. No
+`deepseek_v41`/`DeepseekV41` code exists anywhere in the v0.5.20 tag
+outside docs (`git grep -il` across the whole tree). `transformers`
+(checked at `main` and v5.17.0) also has no `deepseek_v41` model directory
+yet (`deepseek_v2`/`v3`/`v32`/`v4` only). Confirms the 2026-09-16 heads-up:
+this is real now, needs its own audit once SGLang ships actual support, not
+assumed to carry over V4/V4-Flash's walls. `git log v0.5.20..upstream/main`
+for `models/deepseek_v4.py` also shows active DSV4.1 model/runtime
+integration landing post-release (`a6cf05817f` "dsv4.1: remaining model and
+runtime integration" #38798, `35b7589e1a` "dsv4.1: candidate indexer
+library" #39671, `7fac84b639` "[DSV4.1] Reduce mHC, metadata and
+small-batch router overhead" #39704, `d1acbe0746` "[DSV4.1] Big fused wo_a
+quant" #39957), all unreleased, not source-inspected this cycle beyond the
+commit titles.
+
+No wall status change, no FIXED_ rename this cycle. Next check: watch for
+#39482 landing in a tag (the actual SM121 unblock for Walls 3/4/5's
+DeepGEMM path), and for SGLang shipping real DeepSeek-V4.1 support in a
+release.
+
 ---
 
 ## Upstream references
