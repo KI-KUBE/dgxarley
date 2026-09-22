@@ -38,13 +38,23 @@ patch = Patch(
 
 MARKER = "# [patch] _sgl_dsnextn_mixed_mtp_"
 
-ANCHOR = (
-    '        if quant_config is not None and quant_config.get_name() == "modelopt_fp4":\n'
-    "            logger.warning(\n"
-    '                "Overriding DeepseekV3ForCausalLMNextN quant config for modelopt_fp4 Deepseek model."\n'
-    "            )\n"
-    "            quant_config = None\n"
-)
+
+# v0.5.20 demoted the override log line from logger.warning to logger.debug.
+# Nothing else about the block moved, and the injected replacement keeps its own
+# warning either way, so the two spellings differ only in that one token. Both
+# must keep working (one ConfigMap, instances on different pinned images), hence
+# replace_any below.
+def _anchor(level: str) -> str:
+    return (
+        '        if quant_config is not None and quant_config.get_name() == "modelopt_fp4":\n'
+        f"            logger.{level}(\n"
+        '                "Overriding DeepseekV3ForCausalLMNextN quant config for modelopt_fp4 Deepseek model."\n'
+        "            )\n"
+        "            quant_config = None\n"
+    )
+
+
+ANCHOR = _anchor("warning")
 
 INJECT = (
     "        " + MARKER + "  # honour per-module NVFP4 exclude on the MTP head\n"
@@ -83,9 +93,11 @@ INJECT = (
 
 @patch.run
 def apply(p: Patch) -> None:
-    p.replace(
-        ANCHOR,
-        INJECT,
+    p.replace_any(
+        [
+            (_anchor("warning"), INJECT),  # <= v0.5.19
+            (_anchor("debug"), INJECT),  # >= v0.5.20
+        ],
         marker=MARKER,
         what="DeepSeek/GLM NEXTN mixed-precision MTP quant override",
     )

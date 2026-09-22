@@ -141,6 +141,14 @@ def apply_mixin(p: Patch) -> None:
             # (#35907 stopped ServerArgs from resolving itself on construction),
             # so the same two conditions are spelled get_exec().kernel.<arg>.
             _mixin_variant("    ", "get_exec().kernel."),
+            # >= 0.5.20: the two conditions were folded into a disaggregation-aware
+            # `uses_trtllm_kv_layout` local, so the `if` head this used to match is
+            # gone. The guarded return, and therefore the insertion point, is the
+            # same one.
+            (
+                "    if uses_trtllm_kv_layout:\n        return kv_cache_dim",
+                "    if uses_trtllm_kv_layout:\n" + _SM12X_BYPASS.format(_i="    ", marker=MARKER),
+            ),
         ],
         marker=MARKER,
         what="trtllm early-return SM12x bypass",
@@ -190,13 +198,24 @@ def apply_dsa_backend(p: Patch) -> None:
     # set_mla_kv_buffer in bf16, which the packed store's quantize_k_cache
     # requires anyway (it asserts bf16 input). This mirrors exactly how the
     # live-proven flashinfer_gather path flows.
-    p.replace(
-        """        merge_query = q_rope is not None
-        if self.kv_cache_dtype == torch.float8_e4m3fn:
-""",
-        """        merge_query = q_rope is not None
-        if self.kv_cache_dtype == torch.float8_e4m3fn and not _sparse_sm120:
-""",
+    # v0.5.20 extended the merge_query condition (`and self.qk_rope_head_dim > 0`).
+    # Only the context line moved; the edit is the same `and not _sparse_sm120` on
+    # the fp8 branch below it. Both spellings must keep working (one ConfigMap,
+    # instances on different pinned images), hence replace_any.
+    def _merge_query_variant(head: str) -> tuple[str, str]:
+        old = f"        merge_query = {head}\n" "        if self.kv_cache_dtype == torch.float8_e4m3fn:\n"
+        new = (
+            f"        merge_query = {head}\n"
+            "        if self.kv_cache_dtype == torch.float8_e4m3fn and not _sparse_sm120:\n"
+        )
+        return old, new
+
+    p.replace_any(
+        [
+            _merge_query_variant("q_rope is not None"),  # <= v0.5.19
+            _merge_query_variant("q_rope is not None and self.qk_rope_head_dim > 0"),  # >= v0.5.20
+        ],
+        marker="torch.float8_e4m3fn and not _sparse_sm120",
         what="skip fused rope+fp8-quantize of q on SM12x",
     )
 
@@ -217,22 +236,37 @@ def apply_dsa_backend(p: Patch) -> None:
     # Edit 3: backend/scale-format/skip-softmax selection. arbitrary_fp32 =
     # flashinfer's GLM_NSA semantics, matching sglang's quantize_k_cache scales
     # (amax/448 fp32, not pow2). skip_softmax raises on the sparse backend.
-    p.replace(
-        """            sparse_mla_top_k=self.dsa_index_topk,
-            bmm1_scale=bmm1_scale,
-            backend="trtllm-gen",
-            skip_softmax_threshold_scale_factor=envs.SGLANG_SKIP_SOFTMAX_DECODE_THRESHOLD_SCALE_FACTOR.get(),
-""",
-        """            sparse_mla_top_k=self.dsa_index_topk,
-            bmm1_scale=bmm1_scale,
-            backend="auto" if _sparse_sm120 else "trtllm-gen",
-            kv_scale_format="arbitrary_fp32" if _sparse_sm120 else "auto",
-            skip_softmax_threshold_scale_factor=(
-                None
-                if _sparse_sm120
-                else envs.SGLANG_SKIP_SOFTMAX_DECODE_THRESHOLD_SCALE_FACTOR.get()
-            ),
-""",
+    # v0.5.20 added _pad_trtllm_sparse_page_table() and passes its padded result
+    # as a LOCAL instead of reading self.dsa_index_topk at the call site. That is
+    # the only thing that moved; the three kwargs this edit rewrites are the same
+    # ones. Both spellings must keep working (one ConfigMap, instances on
+    # different pinned images), hence replace_any.
+    def _topk_kwarg_variant(topk: str) -> tuple[str, str]:
+        old = (
+            f"            sparse_mla_top_k={topk},\n"
+            "            bmm1_scale=bmm1_scale,\n"
+            '            backend="trtllm-gen",\n'
+            "            skip_softmax_threshold_scale_factor=envs.SGLANG_SKIP_SOFTMAX_DECODE_THRESHOLD_SCALE_FACTOR.get(),\n"
+        )
+        new = (
+            f"            sparse_mla_top_k={topk},\n"
+            "            bmm1_scale=bmm1_scale,\n"
+            '            backend="auto" if _sparse_sm120 else "trtllm-gen",\n'
+            '            kv_scale_format="arbitrary_fp32" if _sparse_sm120 else "auto",\n'
+            "            skip_softmax_threshold_scale_factor=(\n"
+            "                None\n"
+            "                if _sparse_sm120\n"
+            "                else envs.SGLANG_SKIP_SOFTMAX_DECODE_THRESHOLD_SCALE_FACTOR.get()\n"
+            "            ),\n"
+        )
+        return old, new
+
+    p.replace_any(
+        [
+            _topk_kwarg_variant("self.dsa_index_topk"),  # <= v0.5.19
+            _topk_kwarg_variant("sparse_mla_top_k"),  # >= v0.5.20
+        ],
+        marker='kv_scale_format="arbitrary_fp32" if _sparse_sm120 else "auto",',
         what="backend=auto + kv_scale_format on SM12x",
     )
 

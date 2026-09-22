@@ -118,10 +118,31 @@ TARGET = "sglang/srt/layers/attention/qwen_sparse_attn_backend.py"
 
 MARKER = "# [patch] _sgl_qsa_sm121_trtllm_veto"
 
+# BOTH edits are NATIVE as of SGLang v0.5.20 (#37500 merged qwen4_exp together
+# with the SM121 QSA work this patch backports), verified 2026-09-22 against the
+# v0.5.20 tree:
+#   * EDIT 1 (trtllm veto): _resolve_trtllm_sparse_decode returns None unless
+#     `is_sm100_supported() or is_sm120()`, and is_sm120() is an EXACT (12, 0)
+#     match, so sm_121 never reaches the kernel that emits the silent "!"-runs.
+#   * EDIT 2 (varlen fallback): _resolve_flash_attn_varlen_func early-returns
+#     qwen38_qsa_sm121_varlen on is_sm121(), i.e. the native KDA kernel rather
+#     than the FA4 dispatcher this edit routes to -- strictly better, see p66.
+# So on >= v0.5.20 this patch has nothing to do. Gate on the PRE-#36556 docstring
+# that EDIT 2 anchors on (present in the qwen4exp source patch the 0.5.18 image
+# carries, gone upstream) instead of on the resolver name, which still exists:
+# one honest "gate not matched" line beats an ANCHOR-DRIFT that is not a work
+# item. Images pinned to 0.5.18-sm121 keep both edits.
 patch_qsa = Patch(
     name="QSA decode: veto trtllm on SM121, repair the varlen fallback",
     target=TARGET,
-    when=target_contains(TARGET, "def _resolve_trtllm_sparse_decode"),
+    # The `or MARKER` arm keeps the gate idempotent: EDIT 2 rewrites the docstring
+    # the gate reads, so without it a second pass over an already-patched 0.5.18
+    # image would report "gate not matched" for edits that ARE applied.
+    when=target_contains(
+        TARGET,
+        "Classic flash_attn (FA2, Ampere/Hopper) is preferred when installed",
+    )
+    or target_contains(TARGET, MARKER),
 )
 
 

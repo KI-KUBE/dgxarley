@@ -452,6 +452,30 @@ def _pkg_init_source() -> str:
     )
 
 
+_PKG_DIR = os.path.join(PKG, "qwen38_qsa_sm121")
+
+
+def _shipped(path: str) -> str | None:
+    try:
+        with open(path) as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+# >= v0.5.20 ships this package ITSELF: #37500 merged the qwen4_exp branch
+# including #36845, so kernel.py, the registry entry and the backend routing all
+# exist upstream. Its kernel.py is byte-identical to ours apart from the
+# provenance header (diffed 2026-09-22: 15 comment lines, no code), and its
+# __init__.py is ours minus the (6, 1) entry. Writing our copy over it would
+# silently pin the older file forever, so on that ref we write NOTHING and patch
+# only the one thing still missing: the TP4 topology this cluster runs.
+# Discriminator is content, not version: a file that exists and differs from
+# _KERNEL is upstream's; a file that matches is one we wrote on an earlier pass.
+_shipped_kernel = _shipped(os.path.join(_PKG_DIR, "kernel.py"))
+NATIVE_PKG = _shipped_kernel is not None and _shipped_kernel != _KERNEL
+
+
 def _write_modules() -> bool:
     files = [
         (os.path.join(PKG, "__init__.py"), _KDA_INIT, "kda_kernels package"),
@@ -476,9 +500,37 @@ def _write_modules() -> bool:
     return ok
 
 
-_modules_ok = _write_modules() if GATE else False
 if not GATE:
+    _modules_ok = False
     print("[patch] QSA SM121 KDA kernel (#36845): gate not matched, skipping")
+elif NATIVE_PKG:
+    _modules_ok = True
+    print("[patch] QSA SM121 KDA kernel (#36845): shipped by upstream, not overwriting")
+else:
+    _modules_ok = _write_modules()
+
+
+# The TP4 widening, as an edit on the SHIPPED __init__.py. Same content the
+# write path bakes into _PKG_INIT, expressed as a patch because in native mode
+# the rest of that file is upstream's and must stay upstream's.
+_TOPOLOGY_INIT = "sglang/kernels/kda_kernels/qwen38_qsa_sm121/__init__.py"
+
+patch_native_topology = Patch(
+    name="widen the shipped SM121 QSA contract to TP4 (6 q, 1 kv)",
+    target=_TOPOLOGY_INIT,
+    when=NATIVE_PKG and GATE and os.environ.get("TP", "") == "4",
+)
+
+
+@patch_native_topology.run
+def apply_native_topology(p: Patch) -> None:
+    p.replace(
+        "_SUPPORTED_HEAD_TOPOLOGIES = frozenset({(12, 1), (24, 2)})",
+        "_SUPPORTED_HEAD_TOPOLOGIES = frozenset({(12, 1), (24, 2), (6, 1)})  # [dgxarley] TP4",
+        marker="(6, 1)})  # [dgxarley] TP4",
+        what="TP4 (6, 1) topology widening",
+    )
+
 
 OPS_MARKER = 'op="attention.kda_qwen38_qsa_sm121"'
 

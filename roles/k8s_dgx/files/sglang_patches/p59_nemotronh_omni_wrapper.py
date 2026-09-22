@@ -73,14 +73,33 @@ patch_overrides = Patch(
     alt_targets=("sglang/srt/arg_groups/overrides.py",),
 )
 
+_OUR_WRAPPER_ARCHS = '    "NemotronH_Nano_VL_V2",\n' '    "NemotronH_Nano_Omni_Reasoning_V3",\n'
+
 OLD_1A = '@_register_for("NemotronHForCausalLM", "NemotronHPuzzleForCausalLM")\n'
 NEW_1A = (
     "@_register_for(\n"
     '    "NemotronHForCausalLM",\n'
+    '    "NemotronHPuzzleForCausalLM",\n' + _OUR_WRAPPER_ARCHS + ")\n"
+)
+
+# >= v0.5.20: upstream registered ONE wrapper arch itself ("NemotronH_Omni_Reasoning_V3",
+# note: no "_Nano"), reflowing the call onto several lines. Our two archs are
+# different names and are still missing, so the edit stands; it just has to
+# append to the list upstream now ships instead of building it from the one-line
+# form. Both spellings must keep working (one ConfigMap, instances on different
+# pinned images), hence replace_any.
+OLD_1A_V0520 = (
+    "@_register_for(\n"
+    '    "NemotronHForCausalLM",\n'
     '    "NemotronHPuzzleForCausalLM",\n'
-    '    "NemotronH_Nano_VL_V2",\n'
-    '    "NemotronH_Nano_Omni_Reasoning_V3",\n'
+    '    "NemotronH_Omni_Reasoning_V3",\n'
     ")\n"
+)
+NEW_1A_V0520 = (
+    "@_register_for(\n"
+    '    "NemotronHForCausalLM",\n'
+    '    "NemotronHPuzzleForCausalLM",\n'
+    '    "NemotronH_Omni_Reasoning_V3",\n' + _OUR_WRAPPER_ARCHS + ")\n"
 )
 
 
@@ -118,18 +137,63 @@ BODY_HEADER_VARIANTS = [
 OLD_1C = '        assert model_config.hf_config.mlp_hidden_act == "relu2"\n'
 NEW_1C = '        assert nemotron_h_cfg.mlp_hidden_act == "relu2"\n'
 
+# >= v0.5.20: upstream wrapped the assert in a ternary that resolves the inner
+# config for ONE wrapper arch ("NemotronH_Omni_Reasoning_V3", no "_Nano"). Our two
+# archs are not in it, and hf_text_config is not the same thing as llm_config for
+# them anyway -- that mismatch is the whole reason this patch exists. So replace
+# the ternary WITH the arch-agnostic nemotron_h_cfg the body-header edit already
+# defines; `language_config` has no other reader in the file (checked 2026-09-22),
+# so nothing is left dangling.
+OLD_1C_V0520 = (
+    "        language_config = (\n"
+    "            model_config.hf_text_config\n"
+    '            if model_arch == "NemotronH_Omni_Reasoning_V3"\n'
+    "            else hf_config\n"
+    "        )\n"
+    '        assert language_config.mlp_hidden_act == "relu2"\n'
+)
+
 
 @patch_overrides.run
 def apply_overrides(p: Patch) -> None:
-    p.replace(OLD_1A, NEW_1A, what="decorator dispatch list (VL/Omni wrapper archs)")
+    p.replace_any(
+        [
+            (OLD_1A, NEW_1A),  # <= v0.5.19
+            (OLD_1A_V0520, NEW_1A_V0520),  # >= v0.5.20
+        ],
+        marker='"NemotronH_Nano_Omni_Reasoning_V3",',
+        what="decorator dispatch list (VL/Omni wrapper archs)",
+    )
     p.replace_any(BODY_HEADER_VARIANTS, marker=MARKER, what="body-header llm_config resolution")
-    p.replace(OLD_1C, NEW_1C, what="mlp_hidden_act assert reads nemotron_h_cfg")
+    p.replace_any(
+        [
+            (OLD_1C, NEW_1C),  # <= v0.5.19
+            (OLD_1C_V0520, NEW_1C),  # >= v0.5.20
+        ],
+        marker='assert nemotron_h_cfg.mlp_hidden_act == "relu2"',
+        what="mlp_hidden_act assert reads nemotron_h_cfg",
+    )
 
 
 # --- 2) managers/scheduler.py: init_moe_gemm_config via hf_text_config ---
+# ABSORBED UPSTREAM in v0.5.20: init_moe_gemm_config now falls back to
+# self.model_config.hf_text_config when hf_config has no text_config, which is
+# exactly what this sub-patch injects. Gate on the OLD getattr() form rather than
+# reporting ANCHOR-DRIFT, so on v0.5.20 this logs one honest "gate not matched"
+# line and the drift report stays a work list. <= v0.5.19 images still need it.
+_SCHEDULER = "sglang/srt/managers/scheduler.py"
+
 patch_scheduler = Patch(
     name="NemotronH VL/Omni wrapper: scheduler.py hf_text_config resolution",
-    target="sglang/srt/managers/scheduler.py",
+    target=_SCHEDULER,
+    # The `or MARKER` arm keeps the gate idempotent: after a first pass the old
+    # comment is gone (this patch replaced it), and without it a second run would
+    # report "gate not matched" for an edit that IS applied.
+    when=target_contains(
+        _SCHEDULER,
+        "# For the MM models, check the text_config for MoE settings",
+    )
+    or target_contains(_SCHEDULER, MARKER),
 )
 
 OLD_2 = (

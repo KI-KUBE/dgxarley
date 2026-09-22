@@ -125,9 +125,16 @@ BRANCH_NAME="sm121"
 #                                        retired get_global_server_args() and
 #                                        turned the config tier into
 #                                        msgspec.Struct. The runtime patch set
-#                                        has NOT been replayed against this ref;
-#                                        that replay is the promotion gate. See
-#                                        OPEN RISK A / A.2 in the recipe header.
+#                                        was replayed + re-anchored on spark5
+#                                        2026-09-22: 11 edits over 7 patches
+#                                        (p30/p32/p34/p42/p43/p59/p65/p66), all
+#                                        additive, so older pinned images are
+#                                        unaffected. p65 retires here and p66
+#                                        stopped overwriting upstream's shipped
+#                                        SM121 QSA kernel. Replay is 0 drift on
+#                                        v0.5.20 AND on the v0.5.19 control, in
+#                                        four gate scenarios, idempotent on
+#                                        both. See OPEN RISK A in the recipe.
 #                                        Tag: xomoxcc/dgx-spark-sglang:0.5.20-sm121
 #
 # Previous line (v0.5.19 - SELECTED 2026-09-10, NOT YET BUILT):
@@ -422,14 +429,21 @@ BRANCH_NAME="sm121"
 #     for the opposite reason than on v0.5.19.
 #   * the SM121 QSA routing, kernel package and trtllm veto that p65/p66
 #     backport are all in the ref, but upstream's shape contract accepts only
-#     TP1/TP2 and raises on TP4, which is how we run that model. p66 likely has
-#     to become "widen the native check" and p65 likely retires; do NOT just let
-#     them run. See OPEN RISK A.2 in the recipe header.
+#     TP1/TP2 and raises on TP4, which is how we run that model. Resolved
+#     2026-09-22: p65 is self-gated off here and p66 no longer writes over the
+#     shipped package (it did, silently downgrading upstream's kernel), it only
+#     widens the contract to TP4.
 #   * #38375 / #38753 / #38958 retired get_global_server_args() and turned the
 #     config tier into msgspec.Struct, and #38006 moved SM120 FP8 per-channel
 #     linear layers onto the per-tensor route.
-# STILL OPEN before promoting: the runtime patch set has NOT been replayed
-# against this ref (OPEN RISK A).
+# The RUNTIME patch set was replayed offline on spark5 2026-09-22 and then
+# RE-ANCHORED: 11 edits over 7 patches (p30 / p32 / p34 / p42 / p43 / p59 / p65 /
+# p66), all additive - new replace_any spellings, one alt_target reorder, two
+# self-gates - so instances pinned to older images are unaffected. Replay is now
+# 0 ANCHOR-DRIFT on v0.5.20 AND on the v0.5.19 control, in four gate scenarios,
+# idempotent on both. Details per patch in OPEN RISK A of the recipe. What is
+# still unproven is what only the in-driver acceptance gate can prove on a built
+# image.
 RECIPE_NAME="sglang-0.5.20-sm121"
 IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.20-sm121"
 

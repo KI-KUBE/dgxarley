@@ -150,7 +150,12 @@ def apply_enum(p: Patch) -> None:
 
 patch_serverargs = Patch(
     name="DSA torch-backend CLI choice",
-    target="sglang/srt/server_args.py",
+    # >= v0.5.20: #38375 moved the arg declarations out of server_args.py into
+    # arg_groups/fields/<bag>.py. Tried FIRST because server_args.py still EXISTS
+    # on that ref (a shim whose get_global_server_args raises), so an alt_targets
+    # order that checks it first would pick the wrong file and report drift.
+    target="sglang/srt/arg_groups/fields/exec_.py",
+    alt_targets=("sglang/srt/server_args.py",),
 )
 
 MARKER_CHOICES = '"aiter", "torch"]'
@@ -378,6 +383,14 @@ BACKEND_IMPORT_VARIANTS = [
     _backend_import_variant("from sglang.srt.layers.attention.dsa.dsa_indexer import BaseIndexerMetadata"),
     # >= v0.5.17
     _backend_import_variant("from sglang.srt.layers.attention.dsa.dsa_indexer_metadata import DSAIndexerMetadata"),
+    # >= v0.5.20: the kpool rework put dsa_metadata_manager between the two lines
+    # of the old anchor. Same cluster, same injected import.
+    _backend_import_variant(
+        "from sglang.srt.layers.attention.dsa.dsa_indexer_metadata import DSAIndexerMetadata\n"
+        "from sglang.srt.layers.attention.dsa.dsa_metadata_manager import (\n"
+        "    DSAMetadataManagementMixin,\n"
+        ")"
+    ),
 ]
 
 
@@ -653,9 +666,29 @@ NEW_DISPATCH_BRANCH = """        elif use_dg_native:
             )"""
 
 
+# The two deepgemm arms are handed the raw kernel by name, and that name was
+# respelled in v0.5.20: the kpool rework wraps it in a local chunking helper
+# (_chunked_fp8_paged_mqa_logits). Nothing else about the branch changed, and the
+# arm this patch INSERTS does not call it at all, so one blanket substitution
+# covers both spellings. Both must keep working (one ConfigMap, instances on
+# different pinned images), hence replace_any.
+_DISPATCH_KERNEL_SPELLINGS = (
+    "deep_gemm.fp8_paged_mqa_logits",  # <= v0.5.19
+    "_chunked_fp8_paged_mqa_logits",  # >= v0.5.20
+)
+DISPATCH_BRANCH_VARIANTS = [
+    (
+        OLD_DISPATCH_BRANCH.replace("deep_gemm.fp8_paged_mqa_logits", _fn),
+        NEW_DISPATCH_BRANCH.replace("deep_gemm.fp8_paged_mqa_logits", _fn),
+    )
+    for _fn in _DISPATCH_KERNEL_SPELLINGS
+]
+MARKER_DISPATCH = "logits = fp8_paged_mqa_logits_torch_dsa("
+
+
 @patch_dsa_indexer.run
 def apply_dsa_indexer(p: Patch) -> None:
     p.replace(OLD_INDEXER_IMPORT, NEW_INDEXER_IMPORT, what="5a-import")
     p.replace(OLD_USE_DG_NATIVE, NEW_USE_DG_NATIVE, what="5b-use-dg-native")
     p.replace(OLD_FALLBACK_METADATA, NEW_FALLBACK_METADATA, what="5c-fallback-metadata")
-    p.replace(OLD_DISPATCH_BRANCH, NEW_DISPATCH_BRANCH, what="5d-dispatch-branch")
+    p.replace_any(DISPATCH_BRANCH_VARIANTS, marker=MARKER_DISPATCH, what="5d-dispatch-branch")

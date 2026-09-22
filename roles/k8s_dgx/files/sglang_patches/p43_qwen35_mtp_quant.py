@@ -87,10 +87,31 @@ NEW_HELPER = _HELPER_HEAD + "\n".join(
 )
 
 
+# >= v0.5.20: upstream SPLIT the combined condition into two arms and absorbed
+# this patch's intent for the modelopt_mixed one (it now keeps quant_config when
+# any `mtp.*` layer is listed in quantized_layers). The modelopt_fp4 arm, which
+# is the one our surgically requantized NVFP4 checkpoints take, still returns
+# None unconditionally -- so the patch is still needed, just anchored on the
+# narrower arm.
+_HELPER_HEAD_SPLIT_FP4 = """    if quant_config and (
+        quant_config.get_name() == "modelopt_fp4"
+        and quant_config.is_checkpoint_nvfp4_serialized
+    ):
+"""
+OLD_HELPER_SPLIT = _HELPER_HEAD_SPLIT_FP4 + """        return None"""
+NEW_HELPER_SPLIT = _HELPER_HEAD_SPLIT_FP4 + "\n".join(
+    line[4:] if line.startswith("    ") else line for line in _PROBE.format(disable="return None").split("\n")
+)
+
+
 @patch.run
 def apply(p: Patch) -> None:
     p.replace_any(
-        [(OLD_INLINE, NEW_INLINE), (OLD_HELPER, NEW_HELPER)],
+        [
+            (OLD_INLINE, NEW_INLINE),  # <= v0.5.17
+            (OLD_HELPER, NEW_HELPER),  # v0.5.18 / v0.5.19
+            (OLD_HELPER_SPLIT, NEW_HELPER_SPLIT),  # >= v0.5.20
+        ],
         marker="_mtp_is_quantized",
         what="mtp quant-keep",
     )

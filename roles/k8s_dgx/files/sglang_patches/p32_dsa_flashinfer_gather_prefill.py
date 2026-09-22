@@ -53,32 +53,19 @@ patch = Patch(
 
 MARKER = "# [patch] _sgl_dsa_flashinfer_gather_prefill_"
 
-OLD = """        elif dsa_impl == "aiter":
-            if q_rope is not None:
-                q_all = torch.cat([q_nope, q_rope], dim=-1)
-            return self._forward_aiter_extend(
-                q_all=q_all,
-                kv_cache=kv_cache,
-                page_table_1=page_table_1,
-                layer=layer,
-            )
-        else:
+# Anchored on the final `else:` arm ONLY, not on the preceding aiter branch.
+# v0.5.20 inserted `elif dsa_impl == "intel_xpu":` between the two, which broke
+# the longer anchor; the insertion POINT is the same either way, and the raise is
+# unique in the file on every ref we serve (v0.5.18 / v0.5.19 / v0.5.20, checked
+# 2026-09-22), so the short anchor is both correct and immune to the next branch
+# upstream adds there.
+OLD = """        else:
             raise ValueError(
                 f"Unsupported {dsa_impl = } for forward_extend. Consider using an other attention backend."
             )"""
 
 NEW = (
-    """        elif dsa_impl == "aiter":
-            if q_rope is not None:
-                q_all = torch.cat([q_nope, q_rope], dim=-1)
-            return self._forward_aiter_extend(
-                q_all=q_all,
-                kv_cache=kv_cache,
-                page_table_1=page_table_1,
-                layer=layer,
-            )
-
-        elif dsa_impl == "flashinfer_gather":
+    """        elif dsa_impl == "flashinfer_gather":
             """
     + MARKER
     + """

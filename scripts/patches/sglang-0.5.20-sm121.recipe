@@ -1,8 +1,10 @@
 #
 # SGLang v0.5.20 + our SM121 build patches. Created 2026-09-22 to track the
 # v0.5.20 line (released 2026-09-18, 713 PRs / 237 contributors). NOT BUILT
-# YET: no acceptance-gate run, no GPU/serving run. Treat everything here as
-# first-contact until scripts/verify_sglang_image.sh has passed on the image.
+# YET: no acceptance-gate run, no GPU/serving run. The offline runtime-patch
+# replay IS done and clean (OPEN RISK A), which is the promotion gate this line
+# uses; everything beyond that is still first-contact until
+# scripts/verify_sglang_image.sh has passed on the built image.
 #
 # THE HEADLINE: the build side is again quiet (nothing that feeds a recipe knob
 # moved), but this ref is the first in the line where GB10-specific work we
@@ -20,13 +22,15 @@
 #      i.e. it already EXCLUDES SM121 (that is p65 EDIT 1's veto, natively).
 #      There is a real package python/sglang/kernels/kda_kernels/
 #      qwen38_qsa_sm121/ with a newer kernel.py than the one p66 writes.
-#      See OPEN RISK A.2; this is the thing to look at before the build, not
-#      after.
+#      HANDLED 2026-09-22: p65 is self-gated off here and p66 no longer writes
+#      over the shipped package, it only widens the contract to TP4. Details in
+#      OPEN RISK A.
 #   3. The config tier became msgspec.Struct and get_global_server_args() now
 #      RAISES (#38375 / #38753 / #38958). The surviving spelling is
 #      get_exec().<bag>.<arg>, which is exactly what p30/p34 were re-anchored
-#      to in the v0.5.19 cycle, so the runtime patches are not obviously
-#      broken, but "not obviously broken" is not a replay. See OPEN RISK A.
+#      to in the v0.5.19 cycle. CONFIRMED by the replay: what actually drifted
+#      was the arg DECLARATION moving into arg_groups/fields/exec_.py, not the
+#      read. See OPEN RISK A.
 #
 # ── DELTA vs sglang-0.5.19-sm121.recipe ─────────────────────────────────────
 #   1. SGLANG_VERSION 0.5.19 to 0.5.20, SGLANG_REF to v0.5.20.
@@ -52,7 +56,7 @@
 #      (#37500). Turning it on would abort the in-container dry-run.
 #      roles/k8s_dgx/model_profiles/radixark-qwen3.8-flash-next-nvfp4.yml still
 #      PINS 0.5.18-sm121; moving it to this tag is a deliberate, separate change
-#      and depends on OPEN RISK A.2 (TP4).
+#      and depends on OPEN RISK A (the TP4 contract; p66 widens it).
 #   6. Every other APPLY_* flag keeps its v0.5.19 value; the reasons are
 #      re-verified against this ref in PATCH VERIFY below, not carried over.
 #   7. Upstream dependency churn that rides along with the ref (informational,
@@ -104,44 +108,96 @@
 #      dry-runs them anyway.
 #
 # ── OPEN RISKS, validate before this recipe is promoted ──────────────────────
-#   A. RUNTIME patches (roles/k8s_dgx/files/sglang_patches/): NOT REPLAYED
-#      against this ref. This is the gate on promoting the recipe, same as it
-#      was for v0.5.19. Re-run the spark5 harness (/root/patchreplay-0519,
-#      `SRC=dist-src TAG=0520 ./replay2.sh`) with v0.5.19 as the control. Two
-#      things are known to need attention BEFORE that replay rather than after:
-#      A.1 CONFIG TIER. #38375 removed seventeen deprecated CLI flags and made
-#          get_global_server_args() raise; #38753 / #38958 turned ServerArgs and
-#          the rest of the config tier into msgspec.Struct, so dataclasses.asdict
-#          and dataclass introspection on it no longer work. The surviving read
-#          is get_exec().<bag>.<arg>, which p30 and p34 already carry as their
-#          newest replace_any spelling, so the expectation is drift in the
-#          patches that still reach for a ServerArgs OBJECT (p59's
-#          model_config_of(server_args) body header is the first to check), not
-#          a wholesale rewrite. The retired name appears in our tree only in
-#          historical replace_any spellings (p34) and in _patchlib's docstring.
-#      A.2 p65 AND p66 ARE PROBABLY REDUNDANT HERE, AND p66 IS PROBABLY STILL
-#          NEEDED AT TP4. Both are backports of SM121 QSA work that this ref
-#          contains natively:
-#            * p65 EDIT 1 (trtllm veto on SM121): native. The decode resolver
-#              in qwen_sparse_attn_backend.py returns None unless
-#              is_sm100_supported() or is_sm120(), so SM121 never reaches the
-#              trtllm kernel that produced the silent "!"-runs.
-#            * p65 EDIT 2 (route SM121 off the flash_attn cute fallback) and
-#              p66 (write the kernel package + registry entry + routing):
-#              native. _resolve_flash_attn_varlen_func() early-returns
-#              qwen38_qsa_sm121_varlen on is_sm121(), and the package
-#              python/sglang/kernels/kda_kernels/qwen38_qsa_sm121/ ships with a
-#              NEWER kernel.py than the one p66 pins (upstream sha256
-#              a648b2c7..., p66 pins a0fd7258...).
-#            * WHAT IS STILL OURS: the shape contract. Upstream's wrapper
-#              accepts BF16 / D=256 / 12:1 GQA as 24Q+2KV (TP1) or 12Q+1KV
-#              (TP2) and RAISES "unsupported SM121 QSA call" otherwise. TP4
-#              (6Q + 1KV) is exactly what p66 widened by hand, and exactly how
-#              this cluster runs the model. So p66 most likely has to be
-#              reshaped from "write the whole package" into "widen the native
-#              can_use_qwen38_qsa_sm121 check", and p65 retired. Do NOT just
-#              let the two patches run against this ref and hope the
-#              already-applied guards catch it.
+#   A. RUNTIME patches (roles/k8s_dgx/files/sglang_patches/): REPLAYED and then
+#      RE-ANCHORED 2026-09-22 on spark5. Offline replay is now 0 ANCHOR-DRIFT on
+#      v0.5.20 AND on the v0.5.19 control, in all FOUR gate scenarios, and
+#      idempotent on both (pass 2: nothing patched, everything already-applied,
+#      gate-skip counts identical to pass 1). Harness, logs and patched trees:
+#      /root/patchreplay-0519 on spark5 (re-run:
+#      `SRC=dist-src-0520 TAG=0520 HARNESS=harness2 ./replay3.sh`).
+#      Harness: fake dist-packages = v0.5.20 python/sglang + this recipe's source
+#      patches (marlin, tilelang), plus the REAL dependency packages the recipe
+#      pins (flashinfer 0.6.18.post1, transformers 5.12.1, cutlass-dsl 4.6.2 via
+#      flashinfer's bundled CuTeDSL copy) instead of stubs, so p29 / p56 / p60 get
+#      real signal. Those three dep versions are UNCHANGED from the v0.5.19
+#      recipe, so the dep half of the tree is shared with the control by
+#      construction. replay3.sh is replay2.sh plus a configurable harness dir and
+#      a FOURTH scenario, `qwen38` (SGLANG_MODEL=RadixArk/Qwen3.8-Flash-Next-NVFP4,
+#      speculative on, TP=4): v0.5.20 made qwen4_exp native, so p65/p66 are
+#      EVALUATED here instead of gate-skipping, and p66's routing needs TP set.
+#      harness2 is the patch set as of this commit (the Sep-11 `harness/` copy is
+#      left untouched as the v0.5.19 record); the control was re-run against
+#      harness2 so every finding is attributable to the REF, not to the refresh.
+#      WHAT DRIFTED AND WHAT WAS DONE (11 edits over 7 patches):
+#        p30 - DSA torch backend, 3 edits:
+#              (a) the arg declaration moved out of server_args.py into
+#              arg_groups/fields/exec_.py (#38375), so the Patch now targets
+#              exec_.py FIRST with server_args.py as alt_target - that order is
+#              load-bearing, server_args.py still EXISTS on this ref as a shim;
+#              (b) the 4a import anchor got a third spelling (the kpool rework
+#              put dsa_metadata_manager between the two lines it matched);
+#              (c) the 5d dispatch branch got a second spelling: the two deepgemm
+#              arms are handed _chunked_fp8_paged_mqa_logits instead of
+#              deep_gemm.fp8_paged_mqa_logits.
+#        p32 - re-anchored onto the final `else: raise ValueError(...)` arm ALONE
+#              instead of the preceding aiter branch, because v0.5.20 inserted an
+#              `elif dsa_impl == "intel_xpu"` between them. Same insertion point,
+#              unique on all three refs we serve, and immune to the next branch.
+#        p34 - trtllm sparse on SM12x, 3 edits, all now replace_any:
+#              (a) kv_cache_configurator got a FOURTH spelling - the two backend
+#              conditions were folded into a disaggregation-aware
+#              `uses_trtllm_kv_layout` local; (b) merge_query gained
+#              `and self.qk_rope_head_dim > 0`; (c) the decode call passes the
+#              padded local `sparse_mla_top_k` (new _pad_trtllm_sparse_page_table)
+#              instead of self.dsa_index_topk.
+#        p42 - one token: the NEXTN override log line went logger.warning ->
+#              logger.debug. Second spelling.
+#        p43 - upstream SPLIT the MTP quant condition in two and ABSORBED this
+#              patch's intent for the modelopt_mixed arm (it now keeps
+#              quant_config when any `mtp.*` layer is in quantized_layers). The
+#              modelopt_fp4 arm - the one our surgically requantized NVFP4
+#              checkpoints take - still returns None unconditionally, so a third
+#              spelling anchors on that narrower arm.
+#        p59 - two edits: the @_register_for list is multi-line now because
+#              upstream registered ONE wrapper arch itself
+#              ("NemotronH_Omni_Reasoning_V3", note: no "_Nano"), so a second
+#              spelling appends our two; and the mlp_hidden_act assert is now
+#              wrapped in a ternary keyed on that same single arch, replaced with
+#              the arch-agnostic nemotron_h_cfg the body-header edit defines.
+#              The scheduler.py sub-patch is ABSORBED (init_moe_gemm_config falls
+#              back to hf_text_config natively) and got a target_contains
+#              self-gate, same treatment p41/p44 got last cycle.
+#        p65 - RETIRED ON THIS REF, self-gated. Both edits are native: the trtllm
+#              decode resolver gates on `is_sm100_supported() or is_sm120()` and
+#              is_sm120() is an EXACT (12, 0) match, so SM121 never reaches the
+#              kernel that emits the silent "!"-runs; and the varlen resolver
+#              early-returns the native KDA kernel on is_sm121(). Gate reads the
+#              PRE-#36556 docstring, so 0.5.18-pinned instances keep both edits.
+#        p66 - RESHAPED, and this was the one that could have done damage. On
+#              v0.5.20 it WROTE its pinned kernel.py over upstream's newer copy
+#              while its two source edits reported "already applied", i.e. it
+#              silently downgraded a shipped kernel. It now detects the shipped
+#              package BY CONTENT (a kernel.py that exists and differs from ours
+#              is upstream's) and in that mode writes nothing, patching only the
+#              one thing still missing: `(6, 1)` in _SUPPORTED_HEAD_TOPOLOGIES,
+#              i.e. TP4. Verified: upstream's kernel.py survives byte-identical,
+#              the widening lands only under TP=4. Upstream's kernel.py differs
+#              from ours in 15 COMMENT lines and no code, so nothing else is lost.
+#      After the fixes the ONLY behavioural differences between the two refs are
+#      the intended ones: p30 patches exec_.py instead of server_args.py, p59's
+#      scheduler edit and p65 gate off, and p66 stops writing modules. Everything
+#      else applies identically on both. Verified with outcomes.py per scenario.
+#      KNOWN FALSE POSITIVE, do not chase it next cycle: the static
+#      check_generated_imports.py stand-in reports "BROKEN module
+#      sglang.srt.layers.quantization.fp8_kernel" in p30's generated
+#      torch_paged_mqa_logits.py. That is the `except ImportError` arm of a
+#      deliberate version-tolerant import for pre-0.5.16 images; the checker does
+#      not model try/except, and it reports the same on the v0.5.19 control.
+#      What the replay still canNOT answer, and only the acceptance gate on the
+#      built image can: whether the modules p30/p35 GENERATE actually import (the
+#      2026-07-28 p30 fp8_kernel incident: patch reports success, module is
+#      unimportable, 31 model classes silently drop out of the registry). The
+#      harness reduces write_module's import probe to a syntax check.
 #   B. INHERITED from v0.5.16, still open: moe_runner_backend cutlass / triton
 #      for NVFP4 is gone (#30448), so nvidia/Qwen3.5-397B-A17B-NVFP4 (cutlass)
 #      and Minimax-M2.5 @ PP=4 (triton) still need re-testing or re-pinning, and
@@ -190,7 +246,7 @@
 #      layer stays at its old version; check sgl-deep-gemm on the built image.
 #   F. SM12x WORK IN v0.5.20 WE HAVE NOT EXERCISED, check for redundancy BEFORE
 #      re-porting runtime anchors (same lesson as v0.5.16's
-#      fp8_paged_mqa_logits_torch_sm120 absorption and as A.2 above):
+#      fp8_paged_mqa_logits_torch_sm120 absorption and as p65/p66 in A above):
 #      #29927 puts the DeepSeek-V4 sparse-MLA indexer on DeepGEMM's paged-MQA
 #      kernel on SM120 and enables the DeepGEMM FP4 MoE backend there, replacing
 #      exactly the torch fallback that p30 installs by hand. It is opt-in
@@ -368,7 +424,9 @@ APPLY_QWEN36_MIXED_NVFP4_PR27906=0
 # 20k-line source patch on top would abort the in-container dry-run.
 # The profile roles/k8s_dgx/model_profiles/radixark-qwen3.8-flash-next-nvfp4.yml
 # still PINS 0.5.18-sm121; repointing it here is a separate change gated on
-# OPEN RISK A.2 (the native SM121 QSA kernel does not accept TP4).
+# OPEN RISK A: upstream's SM121 QSA kernel accepts only TP1/TP2, p66 widens
+# the shipped contract to TP4 but that widening is REPLAY-verified only, never
+# run on a GPU.
 APPLY_QWEN4EXP_PR36497=0
 
 # -- Nemotron 3.5 Lightning speculative decoding: NATIVE since v0.5.19 -> OFF -
