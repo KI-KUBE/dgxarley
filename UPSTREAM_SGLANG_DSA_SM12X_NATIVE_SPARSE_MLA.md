@@ -620,6 +620,89 @@ watch only.
 > SGLang still at v0.5.19 (2026-09-05), no new release. `RETIRED_PATCHES.md`
 > re-checked: no p34 entry exists, correctly reflecting still-active status.
 
+> Re-checked 2026-09-22: PR #31481 unchanged in content since the 09-10 rebase
+> (head still `e5c0b4c7f0efee056af3e5794f5a0386f78e7fc7`, `updatedAt`
+> 2026-09-10T13:13:45Z, still 2 comments, 0 reviews, only the `deepseek`
+> label, `reviewDecision: REVIEW_REQUIRED`). Unlike the companion PR,
+> `mergeable`/`mergeStateStatus` changed: two reads 3s apart both returned
+> `CONFLICTING`/`DIRTY` (was `MERGEABLE`/`BLOCKED` on 09-16). Head SHA is
+> unchanged (no new commits on the PR branch), so this is `upstream/main`
+> moving past the PR's base since the 09-10 rebase, not new PR activity, the
+> branch now needs a fresh rebase before it is mergeable again, same pattern
+> as the 08-03/08-07 cycle.
+
+> `dsa_backend.py::_forward_trtllm` source-verified directly against the
+> `v0.5.20` tag (commit `94602c9c2b`, released 2026-09-18): still hardcodes
+> `backend="trtllm-gen"`, at line 3455, the identical line cited on 09-16
+> (checked against `upstream/main` tip at the time), no drift.
+> `overrides.py::is_glm_sm12_fp8` (`arg_groups/overrides.py`) function body
+> unchanged: still sets both prefill/decode to `flashinfer_sparse_mla` for
+> `GlmMoeDsaForCausalLM` + SM12x + fp8_e4m3 KV. `calculate_mla_kv_cache_dim`
+> (`mem_cache/kv_cache_configurator.py`) still gates the plain-layout early
+> return purely on `get_exec().kernel.dsa_prefill_backend`/
+> `dsa_decode_backend == "trtllm"` (now split by `disaggregation_mode`
+> decode/prefill/else, functionally the same predicate), no SM12x
+> special-casing added. p34's three `replace_any` anchors remain accurate,
+> and the file is unmodified in the working tree (`git status` shows no
+> changes to `p34_dsa_trtllm_sparse_sm120.py`, unlike the companion patch
+> p30, see the indexer doc's 2026-09-22 entry).
+
+> v0.5.20 confirmed to contain #36507 (GLM-5.3-Flash) and #29927/#36655 (both
+> DeepSeek-V4-scoped per the release notes headline), same finding as the
+> companion doc, not redundancy-relevant to this doc's GLM_NSA/SM12x path.
+
+> **PR #32779 (Triton sparse MLA prefill) has substantial forward progress
+> this cycle.** Head advanced from `2600a0a51be...` (09-16) to
+> `6848fe723e7487e6c4b44ae7bb44b74463ac66aa`, several more commits since. The
+> `run-ci` label is now present (was absent on 09-16), alongside
+> `performance`/`jit-kernel`/`GLM`. `mergeable`/`mergeStateStatus` reads
+> `MERGEABLE`/`BLOCKED`. Still only one `APPROVED` review (nvpohanh,
+> 2026-09-14) and one `COMMENTED` (b8zhong, 08-12), no second approval yet.
+> Most notable: nvpohanh commented "All NV pipelines have passed." today
+> (2026-09-22T02:43:07Z), the first all-green CI signal recorded across this
+> PR's tracked history (nvpohanh had been pinging `/rerun-failed-ci` roughly
+> every few days since 07-30). Still `state: OPEN`, not merged. Re-diffed
+> `_validate_flashinfer_sparse_mla_backend` on the current head (fetched
+> `pull/32779/head`, now living at `kernels/ops/attention/flash_mla_sm120.py`
+> after an upstream path move): the `is_glm_sm12_fp8` arm is unchanged, still
+> permits `selected - {"flashinfer_sparse_mla", "triton_sparse_mla"}` with
+> `flashinfer_sparse_mla` staying the documented auto-selected default, no
+> change to this doc's redundancy conclusion if it merges. Flag for next
+> audit: this is the closest any tracked PR has come to merging across either
+> doc; check merge status and, if merged, whether it lands in the next
+> release and whether it changes GlmMoeDsa+SM12x auto-selection.
+
+> p34 retirement decision remains pending, unchanged from 08-15 (no new
+> TP4/real-weight confirmation run requested this cycle).
+
+> SGLang v0.5.20 released 2026-09-18 (up from v0.5.19, 2026-09-05).
+> `RETIRED_PATCHES.md` (`roles/k8s_dgx/files/sglang_patches/RETIRED_PATCHES.md`)
+> re-checked: no p34 entry exists, correctly reflecting still-active status.
+
+> Rebased 2026-09-22 (the CONFLICTING/DIRTY state flagged above): #31481
+> rebased onto current `upstream/main` `790551c382` (fetched fresh, old base
+> `12771786f2`). Old head `e5c0b4c7f0efee056af3e5794f5a0386f78e7fc7` -> new
+> head `7aa9049335de83ed1c2227c176041301a6309a29`, pushed to the vroomfondel
+> fork with `--force-with-lease`. Only one real conflict, in
+> `dsa_backend.py::_forward_trtllm`'s `multi_ctas_kv_counter_buffer` kwarg:
+> upstream refactored the counter-buffer growth logic into a
+> `self._multi_ctas_kv_counter_for(batch_size)` helper returning a local
+> variable of the same name, replacing the old
+> `self._multi_ctas_kv_counter_buffer` attribute this PR's `_sparse_sm120`
+> gate had been built against. Resolved by keeping our gate and switching to
+> the new local-variable spelling:
+> `multi_ctas_kv_counter_buffer=(None if _sparse_sm120 else
+> multi_ctas_kv_counter_buffer)`. `kv_cache_configurator.py` and
+> `forward_mla.py` auto-merged clean, no manual changes needed there.
+> Diffstat vs the new merge-base is unchanged from the old baseline: 7 files,
+> +864/-7. All 7 changed files parse clean
+> (`ast.parse`), `git range-diff` against the pre-rebase commit shows only
+> the one expected hunk (the conflict resolution), everything else
+> byte-identical. No module-scope `X = get_platform().Y` assignments in any
+> touched file. `gh pr view 31481` confirms `MERGEABLE`/`BLOCKED` with the
+> new head live (first read, no UNKNOWN state). Content/design conclusions
+> unchanged, this was a submission-mechanics rebase only.
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
