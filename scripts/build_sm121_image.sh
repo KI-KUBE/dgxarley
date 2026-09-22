@@ -79,7 +79,58 @@ BRANCH_NAME="sm121"
 # source patches (PRs #22929/#22928) are also applied — the underlying
 # build steps and SM121 sgl-kernel patches are identical.
 #
-# Current line (v0.5.19 - SELECTED 2026-09-10, NOT YET BUILT):
+# Current line (v0.5.20 - SELECTED 2026-09-22, NOT YET BUILT):
+#   sglang-0.5.20-sm121.recipe         - SGLang v0.5.20 (released 2026-09-18,
+#                                        713 PRs). Build side is again quiet:
+#                                        sgl-kernel tree stays at
+#                                        python/sglang/kernels/aot (package
+#                                        0.4.6.post1 -> 0.4.7, path unchanged),
+#                                        torch stays 2.13.0 (BASE_IMAGE
+#                                        unchanged, no new base build), and
+#                                        flashinfer 0.6.18.post1 / transformers
+#                                        5.12.1 / kernels 0.14.1 / cutlass-dsl
+#                                        4.6.2 / tokenizers 0.22.2 are ALL
+#                                        unchanged. What moves:
+#                                        (a) SGL_KERNEL_PATCH_VARIANT
+#                                        "-v0.5.19" -> "-v0.5.20", COSMETIC:
+#                                        the four patch bodies are byte-
+#                                        identical, only hunk line numbers move
+#                                        because #32114 deleted ten SOURCES
+#                                        entries (cutlass_mla,
+#                                        vertical_slash_index, awq, gptq, the
+#                                        five sparse-FA sources). NOTE the
+#                                        -v0.5.19 set does NOT fail loudly on
+#                                        this ref, unlike every previous suffix
+#                                        bump: forgetting the suffix builds a
+#                                        correct tree instead of aborting.
+#                                        (b) APPLY_QWEN4EXP_PR36497 stays 0, but
+#                                        for the opposite reason: #37500 MERGED
+#                                        qwen4_exp, so
+#                                        RadixArk/Qwen3.8-Flash-Next-NVFP4 comes
+#                                        back WITHOUT the 20k-line source patch.
+#                                        The v0.5.19 capability loss is repaired.
+#                                        THE THING TO CHECK BEFORE BUILDING is
+#                                        the runtime side, not the build side:
+#                                        this ref ships the SM121 QSA work p65
+#                                        and p66 backport by hand (native
+#                                        is_sm121() routing to
+#                                        qwen38_qsa_sm121_varlen, a native
+#                                        kernels/kda_kernels/qwen38_qsa_sm121/
+#                                        package with a NEWER kernel.py, and a
+#                                        trtllm decode gate that already
+#                                        excludes SM121), while upstream still
+#                                        accepts only TP1/TP2 shapes and raises
+#                                        on TP4 - which is how this cluster runs
+#                                        that model. Plus #38375/#38753/#38958
+#                                        retired get_global_server_args() and
+#                                        turned the config tier into
+#                                        msgspec.Struct. The runtime patch set
+#                                        has NOT been replayed against this ref;
+#                                        that replay is the promotion gate. See
+#                                        OPEN RISK A / A.2 in the recipe header.
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.20-sm121
+#
+# Previous line (v0.5.19 - SELECTED 2026-09-10, NOT YET BUILT):
 #   sglang-0.5.19-sm121.recipe         - SGLang v0.5.19 (released 2026-09-03,
 #                                        786 PRs). The quietest bump of the line
 #                                        on the build side: the sgl-kernel tree
@@ -354,7 +405,35 @@ BRANCH_NAME="sm121"
 #RECIPE_NAME="sglang-0.5.15.post1-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121"
 
-# v0.5.19 (2026-09-10): ACTIVE SELECTION, NOT YET BUILT. SGLang v0.5.19
+# v0.5.20 (2026-09-22): ACTIVE SELECTION, NOT YET BUILT. SGLang v0.5.20
+# (released 2026-09-18, 713 PRs). Build-side nothing that feeds a knob moved:
+# SGL_KERNEL_DIR, BASE_IMAGE (torch stays 2.13.0), FLASHINFER_VERSION (v0.5.20
+# still pins 0.6.18), transformers, kernels, cutlass-dsl 4.6.2 and tokenizers
+# are all UNCHANGED. Only one knob moves, and it is cosmetic:
+#   * SGL_KERNEL_PATCH_VARIANT="-v0.5.20": the four CMakeLists patch BODIES are
+#     byte-identical to the -v0.5.19 ones, re-anchored because #32114 deleted
+#     ten entries from the SOURCES list above two of the hunks. Regenerated at
+#     zero fuzz / zero offset. READ THIS DIFFERENTLY from the last two bumps:
+#     the -v0.5.19 set does NOT fail on v0.5.20 (it applies at offset -10), so
+#     a forgotten suffix builds a correct tree instead of aborting loudly.
+# The interesting part of this ref is upstream absorbing work we carry by hand:
+#   * qwen4_exp is NATIVE (#37500), so RadixArk/Qwen3.8-Flash-Next-NVFP4 is
+#     back WITHOUT the 20k-line source patch and APPLY_QWEN4EXP_PR36497 stays 0
+#     for the opposite reason than on v0.5.19.
+#   * the SM121 QSA routing, kernel package and trtllm veto that p65/p66
+#     backport are all in the ref, but upstream's shape contract accepts only
+#     TP1/TP2 and raises on TP4, which is how we run that model. p66 likely has
+#     to become "widen the native check" and p65 likely retires; do NOT just let
+#     them run. See OPEN RISK A.2 in the recipe header.
+#   * #38375 / #38753 / #38958 retired get_global_server_args() and turned the
+#     config tier into msgspec.Struct, and #38006 moved SM120 FP8 per-channel
+#     linear layers onto the per-tensor route.
+# STILL OPEN before promoting: the runtime patch set has NOT been replayed
+# against this ref (OPEN RISK A).
+RECIPE_NAME="sglang-0.5.20-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.20-sm121"
+
+# Rollback: v0.5.19 (selected 2026-09-10, never built). SGLang v0.5.19
 # (released 2026-09-03/05, 786 PRs). Build-side this is the quietest bump of the
 # line: SGL_KERNEL_DIR, BASE_IMAGE (torch stays 2.13.0), transformers, kernels
 # and cutlass-dsl 4.6.2 are all UNCHANGED. Two things do move:
@@ -376,8 +455,8 @@ BRANCH_NAME="sm121"
 # header. STILL OPEN before promoting: the runtime patch set has NOT been
 # replayed against this ref, and v0.5.19 rewrote server_args.py (-6.5k lines)
 # and arg_groups/overrides.py (-1.9k), so expect ANCHOR-DRIFT (OPEN RISK A).
-RECIPE_NAME="sglang-0.5.19-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.19-sm121"
+#RECIPE_NAME="sglang-0.5.19-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.19-sm121"
 
 # Rollback: previous production line (v0.5.18, built + pushed 2026-08-28,
 # acceptance gate PASSED, and what default_sglang_image points at). Drivers were
