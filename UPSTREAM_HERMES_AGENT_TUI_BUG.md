@@ -519,6 +519,26 @@ small (~50 MB) and the node has fast local storage.
   (no new movement this cycle). `hermes.image_tag` unchanged at `v2026.8.31` (confirmed by grep,
   no bump this cycle). Conclusions unchanged; the Action Item (EACCES re-verification with a
   non-10000 UID) remains outstanding and deferred by the user, not performed here.
+- **Re-verified 2026-09-22:** `hermes.image_tag` bumped from `v2026.8.31` to **`v2026.9.21`** in
+  commit 31c2a35 (2026-09-22, the same commit that re-synced the email gateway patch and confirmed
+  no `adapter.py` change was needed; unrelated to Trigger 2, an incidental bump). Only one new
+  release shipped since the last check, **v2026.9.21** (v0.21.4, published 2026-09-21). Its
+  release notes grepped for `tui|npm install|lockfile|reinstall|EACCES|package-lock|workspace
+  lock|node_modules` return zero hits. Confirmed via the compare API that v2026.9.21 is a strict
+  linear descendant of both the previous pin v2026.9.14 (5173 ahead, 0 behind) and the Trigger 2
+  fix commit 0c47cd5 (14650 ahead, 0 behind), so the new pin still carries the fix, no regression
+  from this bump. Issue #66978 (Trigger 2 fix) remains CLOSED, unchanged since 2026-08-25.
+  **Issue #45657 is now CLOSED** (2026-09-20T07:23:29Z, by @kshitijk4poor): "Closing as fixed on
+  `main`... v0.21.0 ships it," crediting @Asanilo's #45671 as first submitter and noting #66978
+  tracked the same mechanism; the closure also flags that remaining open PRs on the same root
+  cause are superseded and will be closed with credit, except @toughCSB's #61753 (a separate
+  `_make_tui_argv` fresh-bundle-skip improvement), which stays open on its own merits. This is the
+  tracking issue's formal resolution, not new information: the underlying fix chain (0c47cd5 ->
+  a96bad8e71 -> def7bdc638 -> 76d8f876f3) was already confirmed shipped in v0.21.0 by this doc's
+  2026-09-04 entry. PR #67011 remains CLOSED/unmerged as superseded, unchanged since 2026-09-09.
+  No new TUI npm-install/lockfile regression surfaced this cycle. The Action Item (EACCES
+  re-verification with a non-10000 UID) remains outstanding and deferred by the user, not
+  performed here.
 
 ## Action Items
 
