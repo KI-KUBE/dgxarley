@@ -11,12 +11,16 @@ push notification. Configuration via environment variables:
 import json
 import os
 import sys
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import requests
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 GOTIFY_URL = os.environ.get("GOTIFY_URL", "https://gotify.example.com")
 GOTIFY_TOKEN = os.environ.get("GOTIFY_TOKEN", "")
+ALERT_TZ = os.environ.get("ALERT_TZ", "Europe/Berlin")
+TS_FORMAT = "%Y-%m-%d %H:%M:%S %Z"
 
 
 def pp(msg: object) -> None:
@@ -26,6 +30,15 @@ def pp(msg: object) -> None:
         msg: The message to print. Accepts any object; converted via str().
     """
     print(msg, file=sys.stderr)
+
+
+def local_ts(ts: str) -> str:
+    try:
+        return datetime.fromisoformat(ts).astimezone(ZoneInfo(ALERT_TZ)).strftime(TS_FORMAT)
+    except Exception as e:
+        # Degrade to the raw RFC3339 string; a missing tzdata must not drop the notification.
+        pp(f"Cannot localise timestamp {ts!r}: {e}")
+        return ts
 
 
 class WebhookHandler(BaseHTTPRequestHandler):
@@ -81,10 +94,10 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         f"Status: {status}"
                     )
                     if starts_at:
-                        message += f"\nStarted: {starts_at}"
+                        message += f"\nStarted: {local_ts(starts_at)}"
                     # Alertmanager sends endsAt as 0001-01-01T00:00:00Z while an alert still fires.
                     if status != "firing" and ends_at and not ends_at.startswith("0001-"):
-                        message += f"\nResolved: {ends_at}"
+                        message += f"\nResolved: {local_ts(ends_at)}"
 
                     resp = requests.post(
                         f"{GOTIFY_URL}/message",

@@ -75,9 +75,9 @@ receivers:
       Description: {{ '{{' }} .Annotations.description {{ '}}' }}
 
       Status: {{ '{{' }} .Status {{ '}}' }}
-      Started: {{ '{{' }} .StartsAt {{ '}}' }}
+      Started: {{ '{{' }} .StartsAt | tz "Europe/Berlin" | date "2006-01-02 15:04:05 MST" {{ '}}' }}
       {{ '{{-' }} if eq .Status "resolved" {{ '}}' }}
-      Resolved: {{ '{{' }} .EndsAt {{ '}}' }}
+      Resolved: {{ '{{' }} .EndsAt | tz "Europe/Berlin" | date "2006-01-02 15:04:05 MST" {{ '}}' }}
       {{ '{{-' }} end {{ '}}' }}
       ---
       {{ '{{' }} end {{ '}}' }}
@@ -91,8 +91,8 @@ receivers:
       <p><strong>Summary:</strong> {{ '{{' }} .Annotations.summary {{ '}}' }}</p>
       <p>{{ '{{' }} .Annotations.description {{ '}}' }}</p>
       <p><strong>Status:</strong> {{ '{{' }} .Status {{ '}}' }}</p>
-      <p><strong>Started:</strong> {{ '{{' }} .StartsAt {{ '}}' }}</p>
-      {{ '{{' }} if eq .Status "resolved" {{ '}}' }}<p><strong>Resolved:</strong> {{ '{{' }} .EndsAt {{ '}}' }}</p>{{ '{{' }} end {{ '}}' }}
+      <p><strong>Started:</strong> {{ '{{' }} .StartsAt | tz "Europe/Berlin" | date "2006-01-02 15:04:05 MST" {{ '}}' }}</p>
+      {{ '{{' }} if eq .Status "resolved" {{ '}}' }}<p><strong>Resolved:</strong> {{ '{{' }} .EndsAt | tz "Europe/Berlin" | date "2006-01-02 15:04:05 MST" {{ '}}' }}</p>{{ '{{' }} end {{ '}}' }}
       <hr>
       {{ '{{' }} end {{ '}}' }}
   webhook_configs:
