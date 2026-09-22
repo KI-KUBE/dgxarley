@@ -185,6 +185,31 @@
 > (re-anchored again 2026-08-28 for v0.5.18's gguf-sidecar-config changes to
 > `get_config()`). The underlying claim, that our patch is still required,
 > remains correct; only the file reference is outdated.
+>
+> **Re-verified 2026-09-22:** SGLang **v0.5.20** released 2026-09-18 (tag
+> commit `94602c9c2b`), now the latest release.
+> `python/sglang/srt/configs/qwen3_5.py` confirmed unchanged: `git log
+> v0.5.19..v0.5.20` for the file returns no commits, and `git show
+> v0.5.20:...qwen3_5.py` is unchanged from the 2026-09-16 check, still six
+> plain `__init__` methods, no `from_dict`/`__post_init__` anywhere; last
+> content-changing commit remains `34fef07a` (2026-04-16). p57's anchor
+> re-checked against `sglang/srt/utils/hf_transformers/config.py` on the
+> v0.5.20 tag: the `OLD_GGUF_SIDECAR` variant (the `is_gguf and not
+> gguf_has_sidecar_config` branch with the three-line raise, in place since
+> the 2026-08-28 v0.5.18 re-anchor) is byte-identical at lines 328-337, so
+> the patch still applies unmodified, no re-anchor needed this cycle.
+> `_ensure_sub_configs` (`hf_transformers/common.py`) is unchanged and still
+> called only from the Mistral parser path (`mistral_utils.py:387`), not the
+> generic "hf" parser path used by Qwen3.5/Qwen3-VL, so the root cause (dict
+> sub-configs bypassing conversion outside the Mistral path) remains live.
+> PR #22839 and PR #22618 remain CLOSED unmerged (idle-bot closures from
+> 2026-09-15 and 2026-08-28 respectively), no reopen, no new activity. No
+> new transformers release since v5.17.0 (2026-09-09, already checked last
+> cycle). v0.5.20's release notes (713 PRs) list several Qwen3.5 items (GDN
+> prefill/perf tuning, MTP-under-PP fix, AMD MXFP4 quantization work) but
+> none touch `sub_configs`/`PretrainedConfig` auto-init or
+> `configs/qwen3_5.py`. Root cause and monkey-patch requirement
+> (`p57_hf_config_get_config.py`) unchanged.
 
 
 ## Summary
