@@ -1,9 +1,10 @@
 """[dgxarley] Backport of upstream sgl-project/sglang#39482 ("[Bugfix] Include
-SM121 in DeepGEMM packed-scale selection", merged 3d1b9e7549a3): widen the two
-places `deep_gemm_wrapper/configurer.py` special-cases `sm_version == 120` to
-`sm_version in (120, 121)`, so GB10 (SM121) gets the same DeepGEMM
-capability-probe and UE8M0 packed-scale selection as SM120 instead of silently
-falling through unchecked / staying on the non-UE8M0 scale path.
+SM121 in DeepGEMM packed-scale selection", merged 2026-09-18 as 3d1b9e7549a3):
+widen the two places `deep_gemm_wrapper/configurer.py` special-cases
+`sm_version == 120` to `sm_version in (120, 121)`, so GB10 (SM121) gets the
+same DeepGEMM capability-probe and UE8M0 packed-scale selection as SM120
+instead of silently falling through unchecked / staying on the non-UE8M0
+scale path.
 
 WHAT THE UNPATCHED CODE DOES ON SM121 (v0.5.20)
   `_compute_enable_deep_gemm()`'s `if sm_version == 120:` probe block is
@@ -17,12 +18,11 @@ WHAT THE UNPATCHED CODE DOES ON SM121 (v0.5.20)
   scale format the SM120/SM121 DeepGEMM kernels need.
 
 WHY GATED OFF BY DEFAULT
-  Both edits change DeepGEMM kernel selection on GB10, which this cluster has
-  a history of needing careful, measured validation around (see
-  reference_glm52_dsa_indexer_deepgemm_sm121.md / reference_triton_moe_config_
-  cache.md in project memory). Opt in per instance via env
-  SGLANG_OPT_DEEPGEMM_SM121_PACKED_SCALE=1 once validated; unset/"0" leaves
-  SGLang exactly as upstream v0.5.20 ships it.
+  Both edits change DeepGEMM kernel selection on GB10, an area with a history
+  of correctness regressions that only showed up under real load, not smoke
+  tests (see p65/p66 in this directory for two recent examples). Opt in per
+  instance via env SGLANG_OPT_DEEPGEMM_SM121_PACKED_SCALE=1 once validated;
+  unset/"0" leaves SGLang exactly as upstream v0.5.20 ships it.
 
 ANCHOR SCOPE -- v0.5.20-era shape only (upstream #29927), verified 2026-09-22
 against git objects (no working-tree checkout):
