@@ -75,6 +75,10 @@ receivers:
       Description: {{ '{{' }} .Annotations.description {{ '}}' }}
 
       Status: {{ '{{' }} .Status {{ '}}' }}
+      Started: {{ '{{' }} .StartsAt {{ '}}' }}
+      {{ '{{-' }} if eq .Status "resolved" {{ '}}' }}
+      Resolved: {{ '{{' }} .EndsAt {{ '}}' }}
+      {{ '{{-' }} end {{ '}}' }}
       ---
       {{ '{{' }} end {{ '}}' }}
     html: |
@@ -87,6 +91,8 @@ receivers:
       <p><strong>Summary:</strong> {{ '{{' }} .Annotations.summary {{ '}}' }}</p>
       <p>{{ '{{' }} .Annotations.description {{ '}}' }}</p>
       <p><strong>Status:</strong> {{ '{{' }} .Status {{ '}}' }}</p>
+      <p><strong>Started:</strong> {{ '{{' }} .StartsAt {{ '}}' }}</p>
+      {{ '{{' }} if eq .Status "resolved" {{ '}}' }}<p><strong>Resolved:</strong> {{ '{{' }} .EndsAt {{ '}}' }}</p>{{ '{{' }} end {{ '}}' }}
       <hr>
       {{ '{{' }} end {{ '}}' }}
   webhook_configs:

@@ -49,6 +49,7 @@
         namespace: monitoring
       data:
         bridge.py: "{{ lookup('file', 'alertmgr_gotify_bridge.py') }}"
+  register: gotify_bridge_script
 
 - name: Create alertmanager-gotify-bridge Deployment
   kubernetes.core.k8s:
@@ -69,6 +70,8 @@
             labels:
               app: alertmanager-gotify-bridge
             annotations:
+              # bridge.py is read only at container start, so a script-only change needs this to roll the pod.
+              checksum/config: "{{ gotify_bridge_script.result.data | to_json | hash('sha256') }}"
               keel.sh/policy: force
               keel.sh/match-tag: "true"
               keel.sh/pollSchedule: "@every 24h"

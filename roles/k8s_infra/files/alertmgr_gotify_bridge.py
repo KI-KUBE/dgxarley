@@ -71,6 +71,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 for alert in alerts:
                     annotations = alert.get("annotations", {})
                     labels = alert.get("labels", {})
+                    starts_at = alert.get("startsAt", "")
+                    ends_at = alert.get("endsAt", "")
 
                     title = f"{'🔥' if status == 'firing' else '✅'} {labels.get('alertname', 'Alert')}"
                     message = (
@@ -78,6 +80,11 @@ class WebhookHandler(BaseHTTPRequestHandler):
                         f"{annotations.get('description', '')}\n"
                         f"Status: {status}"
                     )
+                    if starts_at:
+                        message += f"\nStarted: {starts_at}"
+                    # Alertmanager sends endsAt as 0001-01-01T00:00:00Z while an alert still fires.
+                    if status != "firing" and ends_at and not ends_at.startswith("0001-"):
+                        message += f"\nResolved: {ends_at}"
 
                     resp = requests.post(
                         f"{GOTIFY_URL}/message",
