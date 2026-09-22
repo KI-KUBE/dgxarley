@@ -290,6 +290,39 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 i
 > `--speculative-draft-load-format auto` + `--speculative-draft-model-path`
 > workaround remains required and unchanged.
 
+> **Re-verified 2026-09-22:** SGLang **v0.5.20** released 2026-09-18 (tag
+> commit `94602c9c2b7cbdb8efd5c52802dac6a1c180089e`, published
+> 2026-09-18T22:41:33Z), now the latest release, superseding v0.5.19.
+> Source-confirmed on the v0.5.20 tag: the bug is unchanged.
+> `ModelRunner._resolve_draft_load_format()` (`model_runner.py:1405`) still
+> returns `get_spec().speculative_draft_load_format` under the same
+> `if not self.is_draft_worker: return None` gate, still `None` by default,
+> so an unset value still falls through to the main model's `load_format`
+> via `_load_format_scope()` (line 1393, `None` maps to
+> `contextlib.nullcontext()`). Consumption in `__init__` is now at line 360
+> (was 362 on v0.5.19), the load-path scope block at line 1202.
+> `scheduler.py:maybe_init_draft_worker()` moved from line 973 (v0.5.19) to
+> line 1024 on v0.5.20, a real shift of about 51 lines from unrelated
+> refactor churn (renames spotted in the same diff: `is_cp_v2_active` to
+> `is_cp_active`, `is_mla_prefill_cp_enabled` to `is_mla_cp_enabled`,
+> `get_global_server_args` removed). Logic is byte-for-byte identical, only
+> comments and docstrings were added around the two functions. Issue #32202
+> (the adjacent S3-path-resolution bug, not this doc's bug) was
+> **auto-closed by the stale bot today, 2026-09-22T00:28:30Z**
+> ("automatically closed due to inactivity"), administrative, not fixed, no
+> reopening. PR #34622 (adjacent GPTQ-draft-quantization bug, not ours)
+> unchanged, still open, no activity since 2026-08-18. A GitHub search for
+> `sharded_state speculative` / `speculative_draft_load_format sharded`
+> still returns nothing new. The `--speculative-draft-load-format auto` +
+> `--speculative-draft-model-path` workaround remains required and
+> unchanged. Local note: repo commits 63e72da/f3f29e1 (2026-09-22) add
+> SGLang v0.5.20 SM121 build patches and
+> `scripts/patches/sglang-0.5.20-sm121.recipe`, but the image is not yet
+> built or deployed; the cluster stays on
+> `xomoxcc/dgx-spark-sglang:0.5.19-sm121`. This entry's source-check was run
+> directly against the v0.5.20 tag, so once that image ships the workaround
+> requirement is unaffected.
+
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`
 
