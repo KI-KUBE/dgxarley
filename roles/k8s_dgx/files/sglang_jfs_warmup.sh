@@ -32,7 +32,7 @@ for m in $(printf '%s' "$HF_PRELOAD_MODELS" | tr ',' ' '); do
   DIR="/root/.cache/huggingface/hub/models--$(printf '%s' "$m" | sed 's#/#--#g')"
   [ -d "$DIR" ] || { echo "[jfs-warmup] ${DIR} absent -> skip"; continue; }
   echo "[jfs-warmup] warming ${DIR} (background, single-thread)"
-  /usr/local/bin/juicefs warmup --threads 1 --background "${DIR}" \
+  /usr/local/bin/juicefs warmup --threads 8 --background "${DIR}" \
     || echo "[jfs-warmup] submit rc=$? (non-fatal; poll continues)"
   warm=no; last=""; stall=0
   for i in $(seq 1 240); do
@@ -52,7 +52,7 @@ for m in $(printf '%s' "$HF_PRELOAD_MODELS" | tr ',' ' '); do
       stall=$(( stall + 1 ))
       if [ "$stall" -ge 3 ]; then
         echo "[jfs-warmup] no progress for 3 polls at ${prog:-?} -> re-warming in foreground"
-        timeout 600 /usr/local/bin/juicefs warmup --threads 4 "${DIR}" 2>&1 | tail -2
+        timeout 600 /usr/local/bin/juicefs warmup --threads 8 "${DIR}" 2>&1 | tail -2
         stall=0
       fi
     else

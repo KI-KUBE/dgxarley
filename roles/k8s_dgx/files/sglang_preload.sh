@@ -68,7 +68,7 @@ kick_warm() {
     d="$(model_dir "$m")"
     [ -d "$d" ] || continue
     case "$WARMED" in *" $m "*) continue ;; esac
-    /usr/local/bin/juicefs warmup --threads 1 --background "$d" >/dev/null 2>&1 || true
+    /usr/local/bin/juicefs warmup --threads 8 --background "$d" >/dev/null 2>&1 || true
     WARMED="$WARMED$m "
     echo "[preload-wait] background warm started for $(basename "$d")"
   done
