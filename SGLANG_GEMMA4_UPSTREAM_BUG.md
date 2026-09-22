@@ -418,6 +418,44 @@ introduces no new upstream fact. No change to the bottom line: NVFP4
 Gemma-4 MoE on SM121 remains blocked, `attention_backend: triton` remains
 mandatory for all four Gemma-4 profiles.
 
+**Re-verified 2026-09-22:** SGLang **v0.5.20** released 2026-09-18 (tag commit
+`94602c9c2b`, 2026-09-18T22:41:33Z), now the latest release. Release notes
+(713 PRs) contain no Gemma4 NVFP4/SM120/121 MoE-GEMM fix; the only
+Gemma4-touching items are AMD-specific (`aiter` attention backend for
+Gemma-4, PR #38758, +17% throughput at concurrency 128 vs triton) and an
+XPU RMSNorm test addition, neither relevant to SM121 NVFP4.
+Source-verified on the v0.5.20 tag: `modelopt_quant.py`'s
+`_SUPPORTED_ACT_STRS` is still `("silu", "relu2", "gelu")` (line 303, no
+`gelu_tanh`), and the `is_gated` padding assert is unchanged in substance
+(now line 2819, was 2751). `arg_groups/model_overrides/gemma4.py`'s
+`_gemma4_overrides` still gates its MoE-runner override on
+`get_platform().is_sm100` only, excluding SM120/121.
+`arg_groups/model_hook.py`'s Gemma4 attention-backend allowlist gained
+`aiter` this release (new vs v0.5.19's 5-entry tuple, confirmed by diff;
+AMD-only, matches PR #38758); `triton` remains accepted and, for SM121,
+still the only viable choice, since `flashinfer` is not in the allowlist
+and the MoE-runner override never fires on our hardware. The CUTLASS
+`is_gated` assert remains reachable exactly as before.
+
+Tracking change: PRs **#29304** and **#29305** (the SGLang-side
+NVFP4-KV-cache/VO-split orchestration PRs tracked here since 2026-08-21 as
+the flashinfer #3684 adoption vehicle) were both **CLOSED unmerged
+2026-09-18T01:22** by the `github-actions` idle-draft bot ("still a draft
+and has not been updated in 80/81 days"), same closure mechanism that
+already closed #22929/#22928/#22927/#22615 (2026-08-18/19). No reopen.
+This is still the KV-cache-attention subsystem, not the MoE-GEMM blocker
+tracked in this doc's root cause, so it does not change the bottom line,
+but every upstream tracking vehicle this doc has ever cited for Gemma4
+NVFP4 on SM121 is now closed unmerged. All four original tracked PRs
+(#22929/#22928/#22927/#22615) remain CLOSED unmerged, unchanged since
+2026-08-18/19. Issue #30887 remains CLOSED (bot-closed 2026-09-16), no
+reopen. No change to the bottom line: NVFP4 Gemma-4 MoE on SM121 remains
+blocked, `attention_backend: triton` remains mandatory for all four
+Gemma-4 profiles. Local note: repo commits `63e72da`/`f3f29e1` add SGLang
+v0.5.20 + SM121 build patches and update the build script accordingly (not
+yet deployed, live image remains `xomoxcc/dgx-spark-sglang:0.5.19-sm121`);
+none of the SM121 NVFP4 blockers tracked here are affected by that bump.
+
 ## Affected models
 
 | Model                                         | Type                               | Quantization | Current status (`0.5.11-gemma4-sm121` image)                                                                                                |
