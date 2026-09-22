@@ -79,7 +79,7 @@ roundtrip as a normal decode step, but produces almost no accepted tokens.
 The overhead of the wasted draft steps outweighs the throughput gain from
 the few accepted ones.
 
-This was also the case with socket transport (Test 37/38 in the kikube
+This was also the case with socket transport (Test 37/38 in the bench
 matrix: 31.4 tok/s speculative vs 42.70 tok/s normal at n=8). RoCE makes
 both modes faster but doesn't change the speculative-vs-normal ratio —
 the bottleneck is the low accept rate, not network latency.

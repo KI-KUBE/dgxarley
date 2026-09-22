@@ -7,7 +7,7 @@
 # first-contact stub; the load/serve blockers have since CLEARED (arch resolution,
 # NVFP4/quant-tool matcher, flashinfer attention, fi_cutlass MoE all work live).
 # The serving point in the body is now the verified one; the throughput/context
-# sweep AROUND it is still open (kikube matrix territory — see the OPEN axes).
+# sweep AROUND it is still open (bench matrix territory — see the OPEN axes).
 #
 # WHAT THIS CHECKPOINT IS (verified against HF config.json/hf_quant_config.json
 # 2026-06-15): the FIRST published NVFP4 quant of MiniMaxAI/MiniMax-M3, produced
@@ -71,7 +71,7 @@
 #      layout (incl. the exclude_modules matching) loads correctly under
 #      --quantization modelopt_fp4.
 #   VERIFIED live launch command (sglang-head pod, 2026-06-17) — case 01 of the
-#   kikube matrix reproduces it exactly:
+#   bench matrix reproduces it exactly:
 #     python3 -m sglang.launch_server --model-path sparkarena/Minimax-M3-v0-NVFP4 \
 #       --context-length 65536 --kv-cache-dtype auto --mem-fraction-static 0.70 \
 #       --tp-size 4 --pp-size 1 --nnodes 4 --quantization modelopt_fp4 \
@@ -83,7 +83,7 @@
 #   (--max-running-requests / --schedule-policy / --enable-custom-logit-processor
 #    come from global dgxarley defaults, not this profile.) NB the FIRST live point
 #    used a conservative deploy override (context_length 65536 + mfs 0.70); the
-#    kikube matrix (2026-06-18) then swept context/mfs and the profile now carries
+#    bench matrix (2026-06-18) then swept context/mfs and the profile now carries
 #    the WINNER (case 12): context_length 524288 + mfs 0.90, full 512K co-fit and
 #    top throughput. See those keys' notes + TESTLOG_…_minimax-m3-v0-nvfp4_4n.md.
 _model_profile:
@@ -106,7 +106,7 @@ _model_profile:
     tp_size: 4
     # max_position_embeddings = 524288 (512K). The card markets "1M context" via
     # MSA, but config pins 524288 and rope_scaling is null — do NOT exceed it.
-    # WINNER VALUE (kikube matrix case 12, 2026-06-18): the FULL 512K window co-fits
+    # WINNER VALUE (bench matrix case 12, 2026-06-18): the FULL 512K window co-fits
     # at TP=4 with mem_fraction_static 0.90 and is the throughput winner (n16 agg
     # 115.98, clean 16/16). The old "512K won't fit at TP=4" worry was dense-KV math
     # — MSA makes KV sub-linear, so it fits. Throughput RISES with context (no cost
@@ -131,7 +131,7 @@ _model_profile:
     # kernel with fp8-KV support exists. (Even with 2× bf16 KV footprint, the full
     # 512K context co-fits at mfs0.90 — see context_length note + TESTLOG §5.)
     kv_cache_dtype: "auto"
-    # WINNER VALUE (kikube matrix case 12, 2026-06-18). On SGLang, mem_fraction_static
+    # WINNER VALUE (bench matrix case 12, 2026-06-18). On SGLang, mem_fraction_static
     # is the static pool that must hold weights + KV — HIGHER = more KV room (NOT
     # vLLM's lower-=-less semantics). 0.90 is what unlocks the full 512K window and
     # tops throughput. Cases at 0.60 CRASHED ("Not enough memory") — you must raise
@@ -145,7 +145,7 @@ _model_profile:
     attention_backend: "flashinfer"
     fp4_gemm_backend: "flashinfer_cutlass"
     jit_max_jobs: 4
-    # CUDA graph ENABLED (piecewise) — WINNER value: every kikube matrix winner
+    # CUDA graph ENABLED (piecewise) — WINNER value: every bench matrix winner
     # (incl. case 12) is piecewise; full-CG (case 02) gave no advantage at context
     # (TESTLOG §2/§7). Eager is OUT: broken on cutlass_moe_fp4 (CLAUDE.md/TURBOQUANT.md).
     disable_piecewise_cuda_graph: false
