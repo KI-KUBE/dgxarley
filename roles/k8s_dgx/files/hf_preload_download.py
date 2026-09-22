@@ -16,7 +16,7 @@ Environment variables:
         ``/data/huggingface``).
 """
 
-import os, sys, threading
+import fcntl, glob, os, sys, threading, time
 from typing import IO
 from huggingface_hub import snapshot_download, HfApi
 import huggingface_hub
@@ -26,6 +26,7 @@ huggingface_hub.logging.set_verbosity_info()  # type: ignore[no-untyped-call]
 cache_dir = "/root/.cache/huggingface/hub"
 _stop_monitor = threading.Event()
 _state: dict[str, int | str | bool] = {"total": 0, "model_path": "", "active": True}
+INCOMPLETE_MIN_AGE_S = 900
 
 
 def _cache_size(path: str) -> int:
@@ -43,6 +44,63 @@ def _cache_size(path: str) -> int:
         return sum(os.path.getsize(os.path.join(dp, f)) for dp, _, fns in os.walk(path) for f in fns)
     except Exception:
         return 0
+
+
+def _blob_lock_held(lock_path: str) -> bool:
+    """Report whether huggingface_hub currently holds the download lock for a blob.
+
+    Args:
+        lock_path: Path of the ``.locks/<repo>/<sha>.lock`` file guarding the blob.
+
+    Returns:
+        ``True`` while another process holds the lock, i.e. that blob is being
+        downloaded right now.  ``True`` is also returned when the lock cannot be
+        inspected at all, so an unreadable lock never licenses a delete.
+    """
+    if not os.path.exists(lock_path):
+        return False
+    try:
+        with open(lock_path, "a") as fh:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                return True
+            fcntl.flock(fh, fcntl.LOCK_UN)
+    except OSError:
+        return True
+    return False
+
+
+def _prune_incomplete(model_path: str) -> None:
+    """Delete orphaned ``*.incomplete`` fragments below *model_path*.
+
+    Every aborted download leaves a randomly suffixed temp file behind that
+    huggingface_hub never resumes nor removes, so the fragments accumulate and
+    inflate the on-disk size far beyond the repository size.  A fragment is only
+    deleted when no process holds the blob's lock and it has not been written to
+    recently, which keeps a concurrent download in another pod safe even though
+    its PID namespace is invisible from here.
+
+    Args:
+        model_path: The ``models--<org>--<repo>`` directory inside the hub cache.
+    """
+    locks_dir = os.path.join(cache_dir, ".locks", os.path.basename(model_path))
+    now = time.time()
+    freed = 0
+    for path in sorted(glob.glob(os.path.join(model_path, "blobs", "*.incomplete"))):
+        sha = os.path.basename(path).split(".", 1)[0]
+        if _blob_lock_held(os.path.join(locks_dir, f"{sha}.lock")):
+            continue
+        try:
+            size = os.path.getsize(path)
+            if now - os.path.getmtime(path) < INCOMPLETE_MIN_AGE_S:
+                continue
+            os.remove(path)
+            freed += size
+        except OSError as e:
+            print(f"  [prune] cannot remove {os.path.basename(path)}: {e}", flush=True)
+    if freed:
+        print(f"  [prune] removed orphaned .incomplete fragments, freed {freed / 1e9:.1f} GB", flush=True)
 
 
 def _monitor(path: str, interval: int = 10) -> None:
@@ -143,6 +201,7 @@ for model_id in models:
         _state["total"] = total_size
         model_dir = "models--" + model_id.replace("/", "--")
         _state["model_path"] = os.path.join(cache_dir, model_dir)
+        _prune_incomplete(str(_state["model_path"]))
         _state["active"] = True
         snapshot_download(repo_id=model_id, cache_dir=cache_dir)
         print(f"Model ready: {model_id}", flush=True)
