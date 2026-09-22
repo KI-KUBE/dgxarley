@@ -1,14 +1,13 @@
 ---
 # Model profile: nvidia/Qwen3.8-Flash-Next-NVFP4
-# NOT RUN HERE. Needs an image with qwen4_exp + SGLang #39126 (mixed-precision
-# loader, FP8 MTP dispatch, file-backed PLE, native SM121 QSA kernel); #39126
-# landed on main after the v0.5.19 tag, so the pinned tag does not exist yet.
+# NOT RUN HERE: p66's TP=4 widening of the SM121 QSA _SUPPORTED_HEAD_TOPOLOGIES
+# is replay-verified only, so a head-topology raise at backend init is that.
 _model_profile:
   "nvidia/Qwen3.8-Flash-Next-NVFP4":
     knowledge_cutoff: null
     release_date: "2026-08-24"  # Qwen3.8-Flash-Next base; this NVFP4 export 2026-08-31
     info_url: "https://huggingface.co/nvidia/Qwen3.8-Flash-Next-NVFP4"
-    # Does not exist yet. 0.5.18-sm121 has qwen4_exp but none of the
+    # Pinned, not inherited: 0.5.18-sm121 has qwen4_exp but none of the
     # mixed-precision machinery, 0.5.19-sm121 has no qwen4_exp at all.
     sglang_image: "xomoxcc/dgx-spark-sglang:0.5.20-sm121"
     nccl_transport: "roce"

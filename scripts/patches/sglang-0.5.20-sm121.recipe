@@ -1,17 +1,11 @@
 #
 # SGLang v0.5.20 + our SM121 build patches. Created 2026-09-22 to track the
 # v0.5.20 line (released 2026-09-18, 713 PRs / 237 contributors).
-# BUILT AND PUSHED 2026-09-22, after this file's two commits (08:45 / 08:56
-# UTC): xomoxcc/dgx-spark-sglang:0.5.20-sm121, image created 09:04:14 UTC,
-# pushed 09:36 UTC, arm64, 37 layers / 19.2 GB, CUDA_VERSION=13.2.1. The
-# earlier "NOT BUILT YET" in this header was true when it was written and is
-# not any more; the registry is the authority on that, not this comment.
-# STILL NOT DONE: no acceptance-gate run, no GPU/serving run. The offline
-# runtime-patch replay IS done and clean (OPEN RISK A), which is the promotion
-# gate this line uses; everything beyond that is still first-contact until
-# scripts/verify_sglang_image.sh has passed on the built image. Nothing below
-# was re-checked against the built image - every PATCH VERIFY line is
-# host-side, against raw v0.5.20 source.
+# Built 2026-09-22: xomoxcc/dgx-spark-sglang:0.5.20-sm121, arm64, CUDA 13.2.1.
+# No acceptance-gate run and no GPU/serving run; the offline runtime-patch
+# replay is clean (OPEN RISK A), which is this line's promotion gate. Every
+# PATCH VERIFY line below is host-side against raw v0.5.20 source, never
+# against the built image.
 #
 # THE HEADLINE: the build side is again quiet (nothing that feeds a recipe knob
 # moved), but this ref is the first in the line where GB10-specific work we
