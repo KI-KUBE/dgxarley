@@ -233,6 +233,49 @@ unchanged at 0.5.17-sm121" lines are now stale and should read 0.5.19-sm121;
 this entry's own source-checks were run directly against the v0.5.19 tag, so
 no substantive conclusion changes.
 
+> **Re-verified 2026-09-22:** SGLang **v0.5.20** released 2026-09-18 (tag
+> commit `94602c9c2b7cbdb8efd5c52802dac6a1c180089e`), now the latest
+> release, superseding v0.5.19. Release notes contain no
+> `moe_wna16`/qzeros/`input_scale`/`expert_parallel` fix; the one adjacent
+> note is PR #32114, which deletes the `cutlass_mla` attention backend, the
+> non-Marlin `gptq` path and the AWQ AOT dequantize kernel, and removes
+> `auto-round`'s and `moe_wna16`'s non-Marlin GPU fallback, none of which
+> touches the qzeros weight-loader branches tracked here (source-confirmed,
+> see below). Source-confirmed on the v0.5.20 tag: `moe_wna16.py`'s diff
+> against v0.5.19 is purely a formatter pass (one blank line removed, one
+> assert reformatted from `assert (...), "msg"` to `assert ..., ("msg")`),
+> no logic change. `tp_rank = get_parallel().tp_rank` now at line 457 (was
+> 458); the unguarded `param.data[expert_id, ...]` indexing now at lines
+> 499/501 (`w13_qzeros`) and 503 (`w2_qzeros`), same pattern, same bug.
+> `modelopt_quant.py`'s `else`-branch `w13_input_scale =
+> layer.w13_input_scale.max(dim=-1).values.to(torch.float32)` (no EP slice)
+> is now at line 2633 (was 2559 on v0.5.19); `_slice_scale()` (def now at
+> line 2616) remains confined to the `elif` flashinfer_cutlass/trtllm/cutedsl
+> branch. p28's `CutlassMoEParams` target remains absent (unchanged since PR
+> #30448 in v0.5.16), still self-gates as a no-op.
+>
+> On the vLLM side, **v0.30.0** released today, 2026-09-22, superseding
+> v0.29.0 (2026-09-09). Its release notes list a `moe_wna16` loading fix
+> under the Intel XPU section, but it is PR #52651 ("[Bugfix][Quantization]
+> [XPU] Fix moe_wna16 linear weight loading"), source-diff-confirmed to
+> patch an unrelated bug: `MoeWNA16Config.get_quant_method`'s LINEAR
+> delegate path was not carrying `packed_modules_mapping` through to the
+> GPTQ/AWQ config it rebuilds, so fused names (`qkv_proj`, `gate_up_proj`)
+> resolved to `UnquantizedLinearMethod`. Nothing in the
+> `moe_wna16_weight_loader` closure or the qzeros EP branches is touched;
+> confirmed directly on the v0.30.0 tag, `tp_rank =
+> get_tensor_model_parallel_rank()` now at line 595 (was 580 on v0.29.0,
+> shifted by PR #52651's unrelated additions earlier in the file) and the
+> unguarded `param.data[expert_id, ...]` pattern still at lines 638/640/643,
+> bug unchanged. **vLLM PR #35598's projected auto-close (around
+> 2026-09-21, flagged last cycle) did not happen:** still OPEN, still
+> stale-labeled since 2026-08-22, 2 comments total, no new activity. SGLang
+> #23531 remains OPEN, idle since 2026-04-30. All three monkey-patches
+> (p20, p23, p28) remain required and unchanged. Local note: cluster image
+> stays at `xomoxcc/dgx-spark-sglang:0.5.19-sm121`; a v0.5.20-sm121 image is
+> being prepared (repo commits 63e72da/f3f29e1, 2026-09-22) but not yet
+> built or deployed, no effect on this doc's conclusions yet.
+
 - vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, not merged. Author rebased onto `main` on 2026-04-13 (commit `c56eae0e`, merge-from-main only, no code changes); prior rebase 2026-03-05. Still only the initial Gemini bot review from 2026-02-28 — no human reviewer has engaged (mergify[bot] flagged a merge conflict 2026-05-23; 5 reviewers requested, none engaged; re-verified 2026-06-11)
 - vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch. **Closed without merge 2026-04-25** by author (`weiguangli-io`) citing 8+ weeks with no maintainer review; offered to reopen if it becomes relevant. The sub-bug it fixed (kernel dispatch num_experts) remains unaddressed in vLLM `main`
 - SGLang: no upstream issue or PR filed
