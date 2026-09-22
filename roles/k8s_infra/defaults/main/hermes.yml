@@ -232,7 +232,37 @@ hermes:
   #    (hermes_cli/main_dashboard.py). PlatformConfig.from_dict now also promotes
   #    bare platform keys into extra, explicit `extra:` still wins, so
   #    hermes_config.yaml.j2 needs no change.
-  image_tag: "v2026.9.14"            # agent image (nousresearch/hermes-agent)
+  # Bumped v2026.9.14 -> v2026.9.21 (2026-09-22, v0.21.3 -> v0.21.4). Upstream
+  # rolled ~1812 PRs into this tag and deferred the curated notes to v0.22.0.
+  # Re-verified at v2026.9.21:
+  #  * plugins/platforms/email/{adapter.py,plugin.yaml,__init__.py} are
+  #    BYTE-IDENTICAL to v2026.9.14 (adapter blob 3a1b481438, 48587 bytes), so
+  #    hermes_email_gateway_patched.py carries over unchanged and only its header
+  #    moved. The patch adds no non-stdlib import over upstream's adapter, so the
+  #    large gateway/* churn in this window cannot reach it.
+  #  * hermes_health_patch.py still required AND still applies: _check_auth(self,
+  #    request) keeps its signature, /health + /v1/health still route to the
+  #    unauthenticated _handle_health, /health/detailed still goes through
+  #    @_require_auth -> self._check_auth. _probe_gateway_health
+  #    (hermes_cli/web_server_gateway.py) is still a bare urllib GET with no
+  #    Authorization header; GATEWAY_HEALTH_URL still read in web_server.py, still
+  #    DEPRECATED, still the only cross-container mechanism.
+  #  * api_server contract unchanged: API_SERVER_KEY still gated by
+  #    has_usable_secret(min_length=16), /health still unauthenticated.
+  #  * Dashboard auth untouched: hermes_cli/dashboard_auth/* (incl. ws_tickets.py),
+  #    plugins/dashboard_auth/basic and subcommands/dashboard.py are byte-identical
+  #    to v2026.9.14; --host/--port/--insecure/--no-open still forwarded
+  #    (hermes_cli/main_dashboard.py).
+  #  * PlatformConfig.from_dict still promotes bare platform keys into extra with
+  #    an explicit `extra:` winning, so platforms.email.extra.* keeps working.
+  #  * NEW upstream, watch on the next bump: a host-wide gateway singleton lock +
+  #    rendezvous record (gateway/host_rendezvous.py, host_attach.py,
+  #    host_topology.py) under $HERMES_GATEWAY_LOCK_DIR else
+  #    $XDG_STATE_HOME/hermes/gateway-locks. We set neither var, so it lands in the
+  #    container filesystem, not on the shared /opt/data; the per-HERMES_HOME
+  #    /opt/data/gateway.lock is documented as written unchanged. The one-gateway-
+  #    sidecar-per-user rule still holds.
+  image_tag: "v2026.9.21"            # agent image (nousresearch/hermes-agent)
   # busybox helper image (fix-perms / init-dashboard-themes initContainers, log-tail
   # sidecar). PINNED, never "latest": the deployment's keel policy (minor, poll
   # @every 24h) applies to every container, rewrote log-tail busybox:latest ->

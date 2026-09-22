@@ -82,6 +82,20 @@ hermes_cli/web_server_gateway.py and still builds a bare
 urllib.request.Request(path, method="GET") with no Authorization header, trying
 /health/detailed first; GATEWAY_HEALTH_URL is still marked DEPRECATED. Patch stays
 required and unchanged.
+
+Re-verified 2026-09-22 at v2026.9.21 (v0.21.4), the currently pinned tag, by
+source inspection. gateway/platforms/api_server.py changed again in this window
+(239047 bytes, blob 4ea5a6eef7) but every anchor holds: _check_auth(self,
+request) -> Optional[web.Response] keeps its signature; the route table still
+maps ("GET", "/health") and ("GET", "/v1/health") to _handle_health, whose body
+is a bare web.json_response with no auth, while ("GET", "/health/detailed") ->
+_handle_health_detailed is still decorated with @_require_auth, which calls
+``self._check_auth(request)`` at request time and therefore still hits our
+class-level wrap. hermes_cli/web_server_gateway.py::_probe_gateway_health still
+builds ``urllib.request.Request(path, method="GET")`` with no Authorization
+header and still tries /health/detailed first; GATEWAY_HEALTH_URL is still read
+in hermes_cli/web_server.py and still documented as DEPRECATED with no
+replacement config key. Patch stays required and unchanged.
 """
 
 import sys

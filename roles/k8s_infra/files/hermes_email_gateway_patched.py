@@ -2,9 +2,9 @@
 receives, SMTP sends. Configured via EMAIL_* env vars or ``platforms.email`` in config.yaml (see website docs).
 
 ------------------------------------------------------------------------------
-LOCAL PATCH (dgxarley) — synced to upstream tag v2026.9.14
+LOCAL PATCH (dgxarley) — synced to upstream tag v2026.9.21
 (plugins/platforms/email/adapter.py, 48587 bytes, blob 3a1b481438). Current for
-the pinned image (hermes.image_tag v2026.9.14). plugin.yaml and __init__.py are
+the pinned image (hermes.image_tag v2026.9.21). plugin.yaml and __init__.py are
 byte-identical to v2026.8.31, so the ConfigMap subPath mount target is unchanged.
 
 PATCH-11 added 2026-09-16: quotes the received email below replies (opt-in,
@@ -18,6 +18,22 @@ around the single _smtp_send call site so only the first successful reply
 per inbound mail quotes, the quote shrinks (or is dropped) to fit
 MAX_MESSAGE_LENGTH while the agent's own text is never shortened, and
 _standalone_send is untouched (never quotes).
+
+Re-checked 2026-09-22 (v2026.9.14 -> v2026.9.21, v0.21.3 -> v0.21.4). NOT a
+re-sync: upstream did not touch this plugin in that window. adapter.py,
+plugin.yaml and __init__.py all keep their v2026.9.14 blob shas (adapter
+3a1b481438295a294f292718a639d9b79aa90191, 48587 bytes), so every [PATCH-N]
+carries over byte-for-byte and only the tag line above moved. Cross-module risk
+was checked explicitly, because the window is huge (~1812 PRs, ~5071 commits)
+and gateway/config.py, gateway/platforms/{base,event,helpers}.py, utils.py,
+tools/send_message_tool.py and hermes_cli/gateway.py all changed: the diff of
+this file against the v2026.9.21 baseline adds only stdlib imports
+(collections.OrderedDict, threading, time, email.utils), so every cross-module
+symbol we touch is one upstream's own (byte-identical) adapter also imports.
+PlatformConfig.from_dict still promotes bare platform keys into ``extra`` with an
+explicit ``extra:`` winning, so the platforms.email.extra.* toggles keep
+resolving. PRs #28697/#28699/#28702 and the [PATCH-11] PR #113192 are all still
+OPEN, so nothing can be dropped yet.
 
 Re-synced 2026-09-16 (v2026.8.31 -> v2026.9.14, v0.21.0 -> v0.21.3). A REAL
 re-sync, effectively a re-port: between the two tags upstream rewrote this file

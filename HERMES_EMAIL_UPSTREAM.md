@@ -774,6 +774,44 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 > - The PRs #28697/#28699/#28702 are still OPEN, and the patch still carries their review-driven
 >   shape.
 
+> **2026-09-22 check + pin bumped v2026.9.14 -> v2026.9.21, patch unchanged:**
+> - **Latest release:** **v2026.9.21** (v0.21.4), published 2026-09-21T18:10:55Z. A rollup tag:
+>   upstream counts 5071 non-merge commits, 5169 changed files (+312961/-62855), 1812 merged PRs
+>   and 2116 closed issues since v0.21.3, with the curated notes deferred to v0.22.0. The image
+>   `nousresearch/hermes-agent:v2026.9.21` exists on Docker Hub (0.97 GB, linux/amd64 +
+>   linux/arm64), so `hermes.image_tag` was bumped to it.
+> - **Nothing to re-sync:** `plugins/platforms/email/adapter.py` keeps blob
+>   `3a1b481438295a294f292718a639d9b79aa90191` (48587 bytes), and `plugin.yaml` (8e9ca3d877) and
+>   `__init__.py` (d4f1d7bf0e) are equally unchanged. So for the first time a bump costs nothing
+>   but the "synced to upstream tag" line in the patch header.
+> - **Cross-module risk checked anyway**, because the window is enormous and
+>   `gateway/config.py`, `gateway/platforms/{base,event,helpers}.py`, `utils.py`,
+>   `tools/send_message_tool.py` and `hermes_cli/gateway.py` all changed: diffing our patched file
+>   against the v2026.9.21 baseline shows the only added imports are stdlib
+>   (`collections.OrderedDict`, `threading`, `time`, `email.utils`). Every cross-module symbol the
+>   patch uses is therefore one that upstream's own byte-identical adapter imports too, and must
+>   resolve at this tag by construction. `PlatformConfig.from_dict` still promotes bare platform
+>   keys into `extra` with an explicit `extra:` winning, so `platforms.email.extra.*` still
+>   resolves.
+> - **Adjacent contracts re-verified at the new tag** (recorded in full in
+>   `roles/k8s_infra/defaults/main/hermes.yml`): `hermes_health_patch.py` anchors all hold
+>   (`_check_auth` signature, `/health` + `/v1/health` unauthenticated, `/health/detailed` behind
+>   `@_require_auth` -> `self._check_auth`, `_probe_gateway_health` still a bare urllib GET with no
+>   Authorization header, `GATEWAY_HEALTH_URL` still read and still DEPRECATED); `API_SERVER_KEY`
+>   still gated by `has_usable_secret(min_length=16)`; the whole dashboard-auth tree
+>   (`hermes_cli/dashboard_auth/*` incl. `ws_tickets.py`, `plugins/dashboard_auth/basic`,
+>   `hermes_cli/subcommands/dashboard.py`) is byte-identical; `--host/--port/--insecure/--no-open`
+>   are still forwarded.
+> - **New upstream mechanism to watch:** a host-wide gateway singleton lock plus rendezvous record
+>   (`gateway/host_rendezvous.py`, `host_attach.py`, `host_topology.py`), living in
+>   `$HERMES_GATEWAY_LOCK_DIR` else `$XDG_STATE_HOME/hermes/gateway-locks`. We set neither var, so
+>   it lands in the container filesystem rather than the shared `/opt/data`, and the module
+>   docstring states the per-`HERMES_HOME` gateway lock/PID files are "still written unchanged".
+>   The one-gateway-sidecar-per-user rule is unaffected, but re-check it if a future bump moves
+>   that lock onto `HERMES_HOME`.
+> - **PRs #28697/#28699/#28702 and the [PATCH-11] PR #113192 are all still OPEN, not merged**, so
+>   the patch stays load-bearing in full.
+
 1. Download the new upstream file:
 
    ```bash
