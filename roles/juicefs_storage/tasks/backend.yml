@@ -293,6 +293,8 @@
             dest: /usr/local/bin/rustfs
             remote_src: true
             mode: "0755"
+          # A running server keeps the OLD binary until the process is replaced.
+          notify: restart rustfs
 
         - name: Record rustfs version marker
           ansible.builtin.copy:

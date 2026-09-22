@@ -19,8 +19,10 @@
     state: restarted
 
 # NOTE: restarting the mount briefly breaks the FUSE mountpoint (ENOTCONN until
-# the new process is up). Only triggered on unit/env change.
+# the new process is up). Triggered on unit/env change and on a client upgrade.
 - name: restart juicefs mount
   ansible.builtin.systemd:
     name: "juicefs-{{ juicefs_fs_name }}"
     state: restarted
+  # The client binary is installed on every node in the play, the unit is not.
+  when: juicefs_is_mount_host | default(false) | bool

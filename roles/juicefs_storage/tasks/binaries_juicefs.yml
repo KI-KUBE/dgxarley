@@ -42,6 +42,8 @@
         # release tarballs carry the CI runner's UID (1001), which would make
         # root-executed binaries writable by a local account with that UID.
         extra_opts: ['--no-same-owner']
+      # A running mount keeps the OLD binary until the process is replaced.
+      notify: restart juicefs mount
 
     - name: Record juicefs version marker
       ansible.builtin.copy:
