@@ -180,6 +180,31 @@ cluster configuration. Local note: cluster image bumped from
 5c07a34, 2026-09-11..15); no local patch is involved for this bug (pure
 profile pin), so the bump has no effect on this doc's conclusions.
 
+**Re-verified 2026-09-22:** SGLang **v0.5.20** released 2026-09-18 (tag
+commit `94602c9c2b7cbdb8efd5c52802dac6a1c180089e`), now the latest release,
+superseding v0.5.19. No `Fp8MoEMethod`/`flashinfer_cutlass` fix in it.
+Source-confirmed on the v0.5.20 tag: `create_moe_runner` in `fp8.py` (now
+at line 2481, up from 2395 on v0.5.19) gained a new NPU/Ascend branch
+(`self.runner = MoeRunner(MoeRunnerBackend.ASCEND, moe_runner_config)` at
+line 2497, part of unrelated NPU-arch35 hardware-backend work added this
+release), but still ends in the unchanged `# TODO(cwan): refactor other
+backends` branch (comment at line 2538, `self.runner =
+MoeRunner(moe_runner_backend, moe_runner_config)` at line 2535); vanilla
+`Fp8MoEMethod` still never sets `self.runner` for
+`flashinfer_cutlass`/`flashinfer_cutedsl`. A search for `flashinfer_cutlass
+Fp8MoEMethod` turned up no new issue or PR since 2026-09-16 (only an
+unrelated hit, PR #40173, a DeepSeek-V4 hybrid-NVFP4 MXFP4-draft-expert MoE
+routing fix touching `modelopt_quant.py` only, not `fp8.py`). PR #27968
+remains CLOSED (stale bot, 2026-09-15); Issue #27951 remains CLOSED (stale
+bot, 2026-08-19); neither was reopened. PR #21872 remains CLOSED
+(stale-cap closure, 2026-08-26), unchanged. Workaround (`moe_runner_backend:
+triton`) remains the correct cluster configuration. Local note: cluster
+image stays at `xomoxcc/dgx-spark-sglang:0.5.19-sm121`; a v0.5.20-sm121
+image is being prepared (repo commits 63e72da/f3f29e1, 2026-09-22) but not
+yet built or deployed; no local patch is involved for this bug (pure
+profile pin), so neither the bump nor its eventual deployment changes this
+doc's conclusions.
+
 Adjacent open work:
 
 - [PR #21872](https://github.com/sgl-project/sglang/pull/21872)
