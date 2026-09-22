@@ -296,3 +296,50 @@ anchors, and update the two heredoc blocks in `sglang_launch.sh`. Verify with th
   `xomoxcc/dgx-spark-sglang:0.5.17-sm121` to
   `xomoxcc/dgx-spark-sglang:0.5.19-sm121` (repo commits f36d51b/958c98d/
   5c07a34, 2026-09-11..15); no effect on this doc's conclusions.
+- **2026-09-22** - SGLang v0.5.20 released 2026-09-18 (tag commit
+  `94602c9c2b7cbdb8efd5c52802dac6a1c180089e`), now the latest release,
+  superseding v0.5.19. `mllama4.py`/`llama4.py` diff v0.5.19 to v0.5.20 is
+  purely cosmetic (a formatter pass removing 8 blank lines that used to
+  follow `class X(nn.Module):` declarations, part of the same wider
+  black/ruff bump visible across other files this release, e.g.
+  `moe_wna16.py`/`fp8.py`); all five patched anchors are unchanged in
+  substance, only line-shifted: `_handle_expert_scale_params`
+  (`mllama4.py:861`, still no `loaded_weight.dim()==3` branch, still the
+  flat `param.data[expert_id] = loaded_weight` per-expert-loop assignment),
+  `permute_qk_weight_for_rotary` (`mllama4.py:620`, still `attn_out =
+  self.language_model.config.hidden_size` and still `modules[-1] ==
+  "weight"` only, no `weight_scale` branch, for both k and q), the
+  `RadixAttention` construction in `Llama4Attention.__init__`
+  (`llama4.py:302`, still without `quant_config=quant_config`),
+  `_handle_scale_remapping` (`mllama4.py:730`, still `return remapped_name
+  != name` from `maybe_remap_kv_scale_name(...)`, no copy of
+  `loaded_weight`). All five local patches (`p52_mllama4_loader.py`,
+  `p53_mllama4_kvscale.py`) remain required, unchanged.
+
+  **PR #35504 MERGED today, 2026-09-22T03:18:11Z** (merge commit
+  `56fee88e236b7666b87adeceecfb14230a482f61`, base `main`), after two
+  approvals (`b8zhong` on 2026-09-04, `nvpohanh` on 2026-09-14) finally
+  cleared the outstanding CODEOWNERS review and CI that had blocked it
+  since the 09-02 entry. The merge landed about 4.5 hours after the
+  v0.5.20 tag was cut (2026-09-18T08:02 UTC, published 2026-09-18T22:41
+  UTC), so **the fix is not in v0.5.20**, confirmed independently by the
+  profile's `moe_runner_backend: triton` requirement staying necessary on
+  that tag (the touched files, `modelopt_quant.py` and FlashInfer CUTLASS
+  dispatch code, are outside the diff checked above). This merge also
+  auto-closed issue #34192 ("Gemma4/Llama4 apply_router_weight_on_input is
+  not supported for Flashinfer") via the PR's `Fixes #34192` keyword,
+  closed at `2026-09-22T03:18:13Z`. Once an image ships a commit at or
+  after `56fee88`, the profile's `moe_runner_backend: triton` pin for
+  `nvidia-llama-4-scout-17b-16e-instruct-nvfp4.yml` can be re-evaluated
+  against `flashinfer_cutlass`; re-check next cycle whether a v0.5.21+
+  release (or a `main`-tracking build) picks it up. This does not touch
+  the 5 local `sglang_launch.sh`/`p52`/`p53` load-path patches, which are
+  a different file entirely from PR #35504's target.
+
+  PR #35032 (loader fixes 1-3, `_handle_expert_scale_params` plus both
+  `permute_qk_weight_for_rotary` halves) remains OPEN, unmerged, no
+  activity since 2026-08-16, still `mergeable: true` / `mergeable_state:
+  blocked` on the same unrelated non-CUDA CI jobs already logged. Local
+  note: repo commits 63e72da/f3f29e1 (2026-09-22) add SGLang v0.5.20 SM121
+  build patches and a recipe; the image is not yet built or deployed,
+  cluster stays on `xomoxcc/dgx-spark-sglang:0.5.19-sm121`.
