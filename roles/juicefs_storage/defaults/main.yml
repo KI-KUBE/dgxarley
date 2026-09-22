@@ -199,6 +199,11 @@ juicefs_cache_dir: /var/lib/jfs-cache
 # /var/lib/hf-cache/hub copies are deleted, ~1.5 TiB free per spark — and the
 # sparks' NVMe has little else to do, so most of it serves the read cache.
 juicefs_cache_size_mib: 1_100_000  # ~1.05 TiB
+# Block-eviction policy once the cache hits juicefs_cache_size_mib or
+# --free-space-ratio: lru | 2-random | none. `none` stops accepting new blocks
+# when full, so a warmup then silently caches nothing. Upstream defaults to
+# 2-random, which can evict blocks of the model currently being served.
+juicefs_cache_eviction: lru
 
 # --- Filesystem format (set once at format time, immutable afterwards) -------
 juicefs_fs_name: dgxfs
