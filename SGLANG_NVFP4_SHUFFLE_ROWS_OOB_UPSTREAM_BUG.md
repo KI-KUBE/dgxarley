@@ -192,6 +192,27 @@ bumped from `xomoxcc/dgx-spark-sglang:0.5.17-sm121` to
 on the new image too, its `target_contains` gate on the removed
 `nvfp4.py`/`cutlass_moe_fp4` symbols stays unmet, unaffected by the bump.
 
+> **Re-verified 2026-09-22:** Still resolved by removal, SGLang **v0.5.20**
+> released 2026-09-18 (tag commit
+> `94602c9c2b7cbdb8efd5c52802dac6a1c180089e`), now the latest release.
+> Confirmed directly against the v0.5.20 tag: `python/sglang/jit_kernel/nvfp4.py`
+> does not exist (the whole `jit_kernel/` path is gone, superseded by
+> `python/sglang/kernels/jit/`, which has no `nvfp4.py` MoE-shuffle module),
+> and `sglang/srt/layers/moe/cutlass_moe.py` still has zero occurrences of
+> `cutlass_moe_fp4` (only `cutlass_fused_experts_fp8` remains).
+> `p26_cutlass_moe_zeroinit.py` remains a self-noop, its `torch.empty`
+> anchor still absent. `RETIRED_PATCHES.md` still does not list p26, the
+> standing follow-up to retire it remains open and unactioned, still needs
+> explicit approval per house rules. Independent corroboration: the user's
+> own new `scripts/patches/sglang-0.5.20-sm121.recipe` (added today, repo
+> commit 63e72da, for the not-yet-built v0.5.20 SM121 image) separately
+> confirms the same finding in its own verification notes
+> ("`python/sglang/jit_kernel/csrc/moe/nvfp4_blockwise_moe.cuh` has not
+> returned in v0.5.20, verified 2026-09-22, and `cutlass_moe_fp4()` is
+> still absent"). No change to this doc's conclusions. Local note: cluster
+> image stays at `xomoxcc/dgx-spark-sglang:0.5.19-sm121`, a v0.5.20-sm121
+> image is being prepared but not yet built or deployed.
+
 Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, v0.5.13, and **v0.5.14** (released 2026-06-26 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
 
 The final root cause (uninitialized `torch.empty` on `a_map`) was identified
