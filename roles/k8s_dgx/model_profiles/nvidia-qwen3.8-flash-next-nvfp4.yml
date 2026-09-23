@@ -80,6 +80,15 @@ _model_profile:
     # upstream gated GSM8K 195/200 with MTP on this checkpoint on one Spark.
     # Run the 32-prompt collapse probe on first boot; rollback is this one line.
     speculative_enabled: true
+    # Without this the draft inherits moe_runner_backend from the target
+    # (overrides.py::_speculative_moe_runner_default), and the differently
+    # quantized MTP experts then fault in the Triton fused-MoE kernel: the
+    # dispatcher skips the EP global->local expert-id remap that path needs.
+    # SGLang's own protective triton default is gated on is_hip + DeepSeek
+    # (overrides.py:905-950), so CUDA/Qwen never gets it -- upstream #30209.
+    # Not cutlass: sgl_kernel has no fp8_blockwise_scaled_grouped_mm for sm121
+    # (measured 2026-09-23, its arch assert is right, not merely conservative).
+    speculative_moe_runner_backend: triton
     # EAGLE, not NEXTN: identical worker (NEXTN is in _RESERVED_ALIASES and
     # from_string maps it to EAGLE; the enum has no NEXTN member any more), but
     # adaptive_unsupported_reason() compares the server-args STRING against
@@ -99,7 +108,12 @@ _model_profile:
     speculative_num_draft_tokens: 4
     # Retunes num_steps per batch-size tier from an EMA of the observed accept
     # length. It tunes steps only; draft tokens follow as steps + 1.
-    speculative_adaptive: true
+    # MUST stay false while speculative_moe_runner_backend differs from
+    # moe_runner_backend: ModelOptNvFp4FusedMoEMethod guards on the live global
+    # but reports the cached one, so capture dies with "Unsupported
+    # moe_runner_backend ... Use flashinfer_cutlass instead" -- upstream #38795,
+    # fix PR #38932 unmerged. Fixed-step EAGLE is the documented workaround.
+    speculative_adaptive: false
     # candidate_steps capped at 3 ON PURPOSE: draft tokens are steps + 1 and
     # QwenSparseAttnBackend raises above indexer_compress_ratio (4). SGLang's
     # own defaults go up to 7 on the BS1 tier, which would trip that. 0 = drop
