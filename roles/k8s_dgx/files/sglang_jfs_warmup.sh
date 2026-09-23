@@ -7,7 +7,7 @@
 #
 # Pre-warm THIS node's JuiceFS blockcache for the active model(s) so the sglang
 # container starts with a WARM cache (fast load) instead of pulling cold shards
-# from the single spark4 backend mid-startup. This is the BLOCKING warm guarantee
+# from the single RustFS backend mid-startup. This is the BLOCKING warm guarantee
 # WITH live progress: submit a BACKGROUND warmup, then poll `juicefs warmup
 # --check` and print the cache-fill (GiB + %) each round until 100%. The
 # background warmup runs in the host JuiceFS mount process, so it keeps
@@ -32,7 +32,8 @@ for m in $(printf '%s' "$HF_PRELOAD_MODELS" | tr ',' ' '); do
   DIR="/root/.cache/huggingface/hub/models--$(printf '%s' "$m" | sed 's#/#--#g')"
   [ -d "$DIR" ] || { echo "[jfs-warmup] ${DIR} absent -> skip"; continue; }
   echo "[jfs-warmup] warming ${DIR} (background, single-thread)"
-  /usr/local/bin/juicefs warmup --threads 8 --background "${DIR}" \
+  # Backend delivers ~20 MB/s regardless of thread count; extra threads only add 503s.
+  /usr/local/bin/juicefs warmup --threads 1 --background "${DIR}" \
     || echo "[jfs-warmup] submit rc=$? (non-fatal; poll continues)"
   warm=no; last=""; stall=0
   for i in $(seq 1 240); do
@@ -52,7 +53,7 @@ for m in $(printf '%s' "$HF_PRELOAD_MODELS" | tr ',' ' '); do
       stall=$(( stall + 1 ))
       if [ "$stall" -ge 3 ]; then
         echo "[jfs-warmup] no progress for 3 polls at ${prog:-?} -> re-warming in foreground"
-        timeout 600 /usr/local/bin/juicefs warmup --threads 8 "${DIR}" 2>&1 | tail -2
+        timeout 600 /usr/local/bin/juicefs warmup --threads 1 "${DIR}" 2>&1 | tail -2
         stall=0
       fi
     else

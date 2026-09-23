@@ -68,7 +68,8 @@ kick_warm() {
     d="$(model_dir "$m")"
     [ -d "$d" ] || continue
     case "$WARMED" in *" $m "*) continue ;; esac
-    /usr/local/bin/juicefs warmup --threads 8 --background "$d" >/dev/null 2>&1 || true
+    # Backend delivers ~20 MB/s regardless of thread count; extra threads only add 503s.
+    /usr/local/bin/juicefs warmup --threads 1 --background "$d" >/dev/null 2>&1 || true
     WARMED="$WARMED$m "
     echo "[preload-wait] background warm started for $(basename "$d")"
   done
