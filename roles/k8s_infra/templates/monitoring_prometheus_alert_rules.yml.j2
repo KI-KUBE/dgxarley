@@ -123,14 +123,16 @@ groups:
       summary: "JuiceFS metadata engine (Valkey) is down or unmonitored"
       description: "redis_exporter on {{ '{{' }} $labels.instance {{ '}}' }} reports Valkey unreachable (or is itself down) — without metadata, every JuiceFS mount stalls."
 
-  # RustFS has NO native /metrics (OTel push only, rustfs#3154), so this
-  # client-side error counter IS the RustFS health probe.
+{% if juicefs_object_errors_alert_enabled | default(false) | bool %}
+  # juicefs_object_request_errors carries no status/method label, so 503
+  # SlowDownRead backpressure cannot be filtered out of this expression.
   - alert: JuiceFSObjectErrors
-    expr: sum by (instance) (rate(juicefs_object_request_errors[5m])) > 0
-    for: 5m
+    expr: sum by (instance) (rate(juicefs_object_request_errors[5m])) > {{ juicefs_object_errors_alert_threshold | default(0) }}
+    for: {{ juicefs_object_errors_alert_for | default('5m') }}
     labels:
       severity: warning
     annotations:
       summary: "JuiceFS object-storage errors on {{ '{{' }} $labels.instance {{ '}}' }}"
       description: "Clients see RustFS request errors ({{ '{{' }} $value {{ '}}' }}/s) — check rustfs.service and the USB-SSD on the storage node."
+{% endif %}
 {% endif %}
