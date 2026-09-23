@@ -85,8 +85,13 @@ juicefs_mount_group: dgxsparks
 # Rollout after flipping: storage.yml → common.yml --tags iptables →
 # k8s_infra.yml --tags prometheus,grafana.
 # NOTE: RustFS has NO native /metrics endpoint (OTel push only, rustfs#3154
-# still open as of 2026-07) — object-store health is monitored from the CLIENT
-# side via the juicefs_object_request_* panels and the JuiceFSObjectErrors alert.
+# still open as of 2026-07) — object-store health is visible from the CLIENT
+# side via the juicefs_object_request_* Grafana panels.
 juicefs_metrics_enabled: true
+
+juicefs_object_errors_alert_enabled: true
+# The counter has no status label: 42/s per node is normal RustFS 503 backpressure.
+juicefs_object_errors_alert_threshold: 35
+juicefs_object_errors_alert_for: "5m"
 juicefs_metrics_port: 9567          # juicefs mount --metrics (every mount node)
 juicefs_valkey_exporter_port: 9121  # prometheus-redis-exporter (storage node only)
