@@ -1089,6 +1089,102 @@ No wall status change, no FIXED_ rename this cycle. Next check: watch for
 DeepGEMM path), and for SGLang shipping real DeepSeek-V4.1 support in a
 release.
 
+**Update 2026-09-25 (audit): no new SGLang release; deployed image bumped to
+0.5.20-sm121; new local patch p67 (unvalidated, gated off);
+`_sm120_deep_gemm_apis_available()` refactor identified as PR #38792
+(unreleased).**
+
+SGLang **v0.5.20** (released 2026-09-18) remains the latest release
+(`gh release list` / `gh api tags` re-checked, no `v0.5.20.postN`, no
+`v0.5.21`). [PR #39482](https://github.com/sgl-project/sglang/pull/39482)
+(the SM121 DeepGEMM packed-scale fix flagged 09-22) is confirmed still NOT
+an ancestor of the v0.5.20 tag (`git merge-base --is-ancestor 3d1b9e7549a3
+v0.5.20` -> not ancestor), unreleased, unchanged from last cycle.
+
+**Local deploy, not an upstream change:** commit `3214ed2`
+(2026-09-22T17:40:11+02:00, "Update default SGlang image version") bumped
+`default_sglang_image` in `roles/k8s_dgx/defaults/main/sglang.yml` from
+`xomoxcc/dgx-spark-sglang:0.5.19-sm121` to
+`xomoxcc/dgx-spark-sglang:0.5.20-sm121`, recipe
+`scripts/patches/sglang-0.5.20-sm121.recipe`. Per the 09-22 entry, v0.5.20
+contains #29927/#35118/#36655/#33672 but excludes GB10/SM121 from the new
+DeepGEMM enablement (`deep_gemm_wrapper/configurer.py`'s gate stays
+exact-match `sm_version == 120`) until unreleased #39482 lands; model
+profile flags are unchanged for this bump, no wall newly resolved, matching
+the 09-22 recommendation.
+
+**New local patch, not an upstream change:** `p67_deepgemm_sm121_gate.py`
+(`roles/k8s_dgx/files/sglang_patches/`, commits `e69a490` + `882f914`,
+2026-09-22) backports #39482 onto the v0.5.20-shaped `configurer.py`
+(`sm_version == 120` -> `sm_version in (120, 121)` for both the capability
+probe gate and the `DEEPGEMM_SCALE_UE8M0` selection), gated OFF by default
+via `SGLANG_OPT_DEEPGEMM_SM121_PACKED_SCALE=1`. This is the local lever for
+Walls 3/4/5 on GB10 until #39482 ships upstream; still unvalidated whether
+the DeepGEMM package in our image actually ships working SM121 kernels from
+DeepGEMM#324. No model profile enables it yet.
+
+**`_sm120_deep_gemm_apis_available()` refactor identified:**
+[PR #38792](https://github.com/sgl-project/sglang/pull/38792) "[PP][DeepSeek
+V4] Overlap communication and optimize SM120 prefill", merged
+2026-09-19T04:18:04Z. The 09-22 entry (via p67's docstring) noted this
+refactor existed on `upstream/main` but did not name the PR.
+Source-verified (`git show 5e9342d16f`): the diff replaces the single-API
+probe (`from deep_gemm import m_grouped_fp8_fp4_gemm_nt_contiguous`, i.e.
+#39482's own shape) with a new `_sm120_deep_gemm_apis_available()` helper
+probing three DeepGEMM entry points (`fp8_einsum`,
+`m_grouped_fp8_fp4_gemm_nt_contiguous`, `transform_sf_into_required_layout`)
+so #38792 is layered on top of #39482 on `main`, both unreleased
+(`git merge-base --is-ancestor 5e9342d16f v0.5.20` -> not ancestor; merge
+timestamp is also after the v0.5.20 tag cut of 2026-09-18T22:41:33Z). #38792
+additionally touches `deepseek_v4_backend.py`, `deepseek_v4.py`,
+`environ.py`, PP scheduler/mem-pool files for SM120 prefill/communication
+overlap, a PP feature, not one of our tracked walls, not evaluated further
+this cycle (cluster does not use PP for this model).
+
+**Other new commits since 09-22 on `models/deepseek_v4.py` /
+`layers/attention/dsv4/` / `deep_gemm_wrapper/`:**
+[PR #40672](https://github.com/sgl-project/sglang/pull/40672) "[Fix] Decide
+the MoE padded-row bound from the layer scatter mode" (merged 2026-09-23,
+`deepseek_v4.py` only) is a DP/TP-MoE-gather padding correctness fix, no
+SM120/SM121 reference, not relevant.
+[PR #40357](https://github.com/sgl-project/sglang/pull/40357) "[MM] Keep
+scheduler padding in packed token arrays" (merged 2026-09-22, 2-line touch
+to `deepseek_v4.py`) is multimodal padding, not relevant.
+[PR #40637](https://github.com/sgl-project/sglang/pull/40637) "[Fix] Handle
+chunked paged MQA metadata in DSV4.1 eager forwards" and
+[PR #40352](https://github.com/sgl-project/sglang/pull/40352) "[DSv4.1]
+Score prefill consumer index layers on candidate blocks with DeepGEMM"
+(both merged 2026-09-22) are DeepSeek-**V4.1**-only (new
+`candidate_indexer*`/`dense_prefill_indexer.py` files), outside this doc's
+V4/V4-Flash scope. None of the four change wall status.
+
+**Issue tracking, re-verified 2026-09-25.** #26324: still closed (stale-bot),
+no activity since 2026-08-21, unchanged. #33636: `updated_at` unchanged at
+2026-09-14, comments still 8, no new text since 2026-08-25, still open,
+still B200/GB300/MegaMoE-only, no SM120/SM121 mention. #32750: idle since
+2026-08-06, unchanged. #23602: idle since 2026-08-13, unchanged.
+
+**DSV4.1, further unreleased integration progress, still no SGLang release
+support.** Unlike 09-22 (when no `deepseek_v41` code existed anywhere in the
+v0.5.20 tag outside docs), `upstream/main` now carries real DSV4.1 model
+code: `python/sglang/srt/configs/deepseek_v41.py`,
+`python/sglang/srt/models/deepseek_v41_vit.py`,
+`python/sglang/srt/multimodal/deepseek_v41_image_processing.py` and
+`.../processors/deepseek_v41.py` (confirmed absent at the v0.5.20 tag via
+`git ls-tree`). The cookbook page
+(`docs/cookbook/autoregressive/DeepSeek/DeepSeek-V4_1.mdx`) is unchanged in
+substance: still states DeepSeek-V4.1 Flash "has not shipped in an SGLang
+release yet", still points at the preview `lmsysorg/sglang:dev-dsv41` image,
+still lists only GB300/H200/B200/B300/MI350X cells, no SM120/SM121/GB10
+cell. `transformers` (checked `main`) still has no `deepseek_v41` model
+directory. No change to this doc's scope or conclusion; noted for the next
+cycle since the code footprint is growing.
+
+No wall status change, no FIXED_ rename this cycle. Next check: same as
+09-22 (watch for #39482 landing in a tag), now also watching whether
+#38792's PP-overlap work or the DSV4.1 code footprint reaches a tagged
+release.
+
 ---
 
 ## Upstream references
@@ -1181,5 +1277,5 @@ einem v0.5.13-Image ändert.
   size `dgx_swap_size`); kubelet policy `roles/k3sserver/templates/etc_rancher_k3s_kubelet-config.yaml.j2`
   (`failSwapOn: false`, `swapBehavior: LimitedSwap`)
 - Active model: `group_vars/all/main/sglang.yml` (`sglang_model`)
-- Image: `xomoxcc/dgx-spark-sglang:0.5.19-sm121`, recipe `scripts/patches/sglang-0.5.19-sm121.recipe` (updated 2026-09-16, commit `f36d51b`; was stale at 0.5.17)
+- Image: `xomoxcc/dgx-spark-sglang:0.5.20-sm121`, recipe `scripts/patches/sglang-0.5.20-sm121.recipe` (updated 2026-09-22, commit `3214ed2`; was stale at 0.5.19)
 - Release notes: see the 2026-06-29 block at the top of this file; v0.5.16 (2026-07-25) release notes summarized in the 2026-07-28 block
