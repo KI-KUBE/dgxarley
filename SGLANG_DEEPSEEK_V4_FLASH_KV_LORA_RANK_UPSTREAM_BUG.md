@@ -130,6 +130,23 @@
 > so this bug's scope (`deepseek_v3`/`deepseek_v4` config alias) does not
 > currently extend to it either way. Re-audit if/when V4.1 gets transformers
 > and SGLang support.
+>
+> **Re-verified 2026-09-25:** no new transformers release since v5.17.0
+> (2026-09-09); no new SGLang release since v0.5.20 (2026-09-18, `gh release
+> list` re-checked). Direct source check confirms `kv_lora_rank: int = 512`
+> is still present, unchanged, at `configuration_deepseek_v3.py:93` on both
+> the v5.17.0 tag and `transformers` `main`. Deploy note: the cluster's
+> SGLang image was bumped to `xomoxcc/dgx-spark-sglang:0.5.20-sm121`
+> (commit `3214ed2`, 2026-09-22; recipe
+> `scripts/patches/sglang-0.5.20-sm121.recipe`), local patch
+> `roles/k8s_dgx/files/sglang_patches/p56_deepseek_v3_kv_lora.py`'s anchor
+> (`    kv_lora_rank: int = 512`) still matches verbatim and is untouched by
+> the 0.5.20 patch set (absent from `RETIRED_PATCHES.md`), confirming the
+> 09-16 prediction that p56 "now runs on the 0.5.20 image". Cross-reference:
+> `UPSTREAM_DSV4_BUGS.md`'s 2026-09-25 entry covers v0.5.20/unreleased
+> upstream DeepSeek-V4 movement in depth; none of it touches `kv_lora_rank`
+> or the `_DeepseekV4ConfigAlias` mechanism. Monkey-patch still required, no
+> location change.
 
 
 ## Summary
