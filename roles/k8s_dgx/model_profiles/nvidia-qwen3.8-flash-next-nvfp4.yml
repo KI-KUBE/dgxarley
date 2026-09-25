@@ -2,6 +2,23 @@
 # Model profile: nvidia/Qwen3.8-Flash-Next-NVFP4
 # NOT RUN HERE: p66's TP=4 widening of the SM121 QSA _SUPPORTED_HEAD_TOPOLOGIES
 # is replay-verified only, so a head-topology raise at backend init is that.
+#
+# Concurrency scaling, 4x GB10 TP=4/EP=4, 0.5.20-sm121, MTP on, measured
+# 2026-09-23 (GSM8K prompts, temp 1.0 / top_p 0.95, max_tokens 4096, >=8 waves
+# per level, aggregate normalised on busy time not wall clock):
+#
+#   streams   aggregate   per-stream   lat p50   lat p95   scaling   efficiency
+#         1    51.5 t/s     55.6 t/s     4.1 s    17.9 s     1.00x       100 %
+#         2    97.2 t/s     53.2 t/s     3.4 s    27.5 s     1.89x        94 %
+#         4   146.3 t/s     39.6 t/s     6.0 s    35.6 s     2.84x        71 %
+#         6   179.1 t/s     30.9 t/s     7.5 s    32.7 s     3.48x        58 %
+#         8   193.9 t/s     24.7 t/s    10.0 s    56.1 s     3.76x        47 %
+#        12   202.9 t/s     15.0 t/s    14.8 s   130.1 s     3.94x        33 %
+#        16   215.4 t/s     11.9 t/s    19.7 s    67.9 s     4.18x        26 %
+#
+# The knee is at 4-6 streams. Accuracy is flat at 95.8-97.9 % across all seven
+# levels. Cross-check: an independent 200-question run at 16 streams with
+# max_tokens 8192 read 217.8 t/s against the 215.4 t/s above.
 _model_profile:
   "nvidia/Qwen3.8-Flash-Next-NVFP4":
     knowledge_cutoff: null
