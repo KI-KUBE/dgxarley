@@ -265,6 +265,35 @@ against the recreated `litellm_internal_staging` base logged 2026-09-16); no new
 reviews, head commits unchanged (247b21a5fa / e60e09c0d3). The HAProxy TLS sidecar workaround
 remains required.
 
+**2026-09-25 re-verify, still broken; issue #30778 auto-closed by stale bot, two new stable
+releases:**
+LiteLLM advanced from v1.101.0 to **v1.102.0** and then **v1.102.1** (latest stable, published
+2026-09-23T06:12:28Z), plus Docker-only backport releases v1.100.2/v1.100.3, v1.99.3/v1.99.4, and
+v1.98.1 dated across 2026-09-23 to 09-25, and prerelease v1.104.0-dev.2. Scanned the v1.102.0
+changelog: the only ollama-adjacent entry is PR #40311 ("move Anthropic, Vertex Anthropic, Ollama
+and HF template fetches off the event loop"), which touches
+`litellm/llms/ollama/completion/transformation.py` (confirmed via the PR's file list), not
+`completion/handler.py` or `ssl_verify`. The v1.102.1 changelog contains only anthropic and
+typesafe backport PRs, no ollama entries. v1.101.1 and v1.101.2 changelogs also have zero
+ollama/ssl_verify hits. The bug is byte-identical on current `main`:
+`litellm/llms/ollama/completion/handler.py` (blob 449952217b5e420c92ca20ff9cdff62aa95468e4, 4148
+bytes, unchanged since the 08-21 basedpyright chore) still carries the `[TODO]: migrate embeddings
+to a base handler as well.` comment at line 4 and still calls `await
+litellm.module_level_aclient.post(url=api_base, json=data)` with no `ssl_verify` argument at
+line 98.
+
+**Issue #30778 auto-closed.** The 09-17 stale marker logged last cycle ran its course: GitHub
+Actions closed the issue on 2026-09-24T00:03:04Z with no human ever commenting (timeline shows
+only bot-authored labeled/commented/closed events, 1 total comment, the stale-bot notice itself).
+The bug is still present on `main` as shown above, so this is a tracker-hygiene loss, not a
+resolution, and the issue no longer represents upstream awareness of the bug; it should be
+reopened or refiled if we want it tracked upstream.
+
+PRs #30810 and #30848 remain open and `dirty` (unmergeable against `main`), head commits unchanged
+(247b21a5fa / e60e09c0d3), no new comments; their `updatedAt` timestamps moved to 2026-09-23, which
+is GitHub recomputing `mergeable_state` as `main` advances, not new PR activity. The HAProxy TLS
+sidecar workaround remains required.
+
 ## Upstream Fix
 
 The embedding path in `litellm/llms/ollama/completion/handler.py` should stop using
