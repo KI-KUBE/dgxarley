@@ -210,6 +210,22 @@
 > none touch `sub_configs`/`PretrainedConfig` auto-init or
 > `configs/qwen3_5.py`. Root cause and monkey-patch requirement
 > (`p57_hf_config_get_config.py`) unchanged.
+>
+> **Re-verified 2026-09-25:** No new SGLang release since v0.5.20
+> (2026-09-18, still latest). No new transformers release since v5.17.0
+> (2026-09-09, already checked last cycle; next-newest is v5.16.1). No
+> commits since 2026-09-22 to `python/sglang/srt/configs/qwen3_5.py`
+> (checked, empty). One commit touched
+> `srt/utils/hf_transformers/config.py` since then (`40048f6e5`,
+> 2026-09-23, DiffusionGemma serving support, PR #34061) but is unrelated
+> to Qwen3.5/Mistral config parsing and does not touch the p57 anchor
+> region. PR #22839 and PR #22618 remain CLOSED unmerged, no reopen.
+> Local note: the cluster's default image moved to
+> `xomoxcc/dgx-spark-sglang:0.5.20-sm121` (commit `3214ed2`, 2026-09-22),
+> so `p57_hf_config_get_config.py` now applies against the deployed 0.5.20
+> image; its anchor was already verified against the v0.5.20 tag on
+> 2026-09-22, no re-check needed here. Root cause and monkey-patch
+> requirement unchanged.
 
 
 ## Summary
