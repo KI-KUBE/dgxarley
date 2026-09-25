@@ -343,3 +343,24 @@ anchors, and update the two heredoc blocks in `sglang_launch.sh`. Verify with th
   note: repo commits 63e72da/f3f29e1 (2026-09-22) add SGLang v0.5.20 SM121
   build patches and a recipe; the image is not yet built or deployed,
   cluster stays on `xomoxcc/dgx-spark-sglang:0.5.19-sm121`.
+- **2026-09-25** - No new SGLang release since v0.5.20 (2026-09-18, still
+  latest per `gh release list`/`gh api tags`, no v0.5.21 or v0.5.20.postN
+  tagged). PR #35504's merge commit `56fee88e236b7666b87adeceecfb14230a482f61`
+  therefore remains unreleased; independently re-confirmed via `gh api
+  repos/sgl-project/sglang/compare/v0.5.20...56fee88e236b7666b87adeceecfb14230a482f61`
+  which returns `status: diverged, ahead_by: 377, behind_by: 5`, i.e. the
+  fix sits 377 commits ahead of the v0.5.20 tag on `main` and is not
+  contained in it. PR #35032 (loader fixes 1-3) unchanged, still open, no
+  activity since 2026-08-16. Issue #34192 stays closed via PR #35504's
+  `Fixes` keyword (2026-09-22), unchanged. Local note: repo commit `3214ed2`
+  (dated 2026-09-22 per `git log`) flipped `default_sglang_image` to
+  `xomoxcc/dgx-spark-sglang:0.5.20-sm121`; the live cluster is now confirmed
+  running that image on all sglang pods (head plus 3 workers, checked today
+  via `kubectl`). This doc's 2026-09-22 entry already source-verified
+  `mllama4.py`/`llama4.py` directly against the v0.5.20 tag (cosmetic
+  formatter diff only, all five patched anchors unchanged in substance), so
+  nothing new to re-verify now that the image is actually deployed instead
+  of merely built. The 5 local `sglang_launch.sh`/`p52`/`p53` load-path
+  patches and the profile's `moe_runner_backend: triton` pin stay correct.
+  Re-check next cycle whether a v0.5.21+ release (or a `main`-tracking
+  build) picks up `56fee88`.

@@ -703,6 +703,53 @@ watch only.
 > new head live (first read, no UNKNOWN state). Content/design conclusions
 > unchanged, this was a submission-mechanics rebase only.
 
+> Re-checked 2026-09-25: PR #31481 unchanged in content since the 09-22
+> rebase (head still `7aa9049335de83ed1c2227c176041301a6309a29`, `updatedAt`
+> 2026-09-22T09:03:28Z, still 2 comments, 0 reviews, only the `deepseek`
+> label, `reviewDecision: REVIEW_REQUIRED`). `mergeable`/`mergeStateStatus`
+> stable at `MERGEABLE`/`BLOCKED` on two `gh` reads 3s apart, i.e. the 09-22
+> rebase held, no new drift.
+
+> SGLang still at v0.5.20 (2026-09-18, `gh release list` confirms it as
+> latest, no new tag). `dsa_backend.py::_forward_trtllm` on `upstream/main`
+> (fetched fresh) still hardcodes `backend="trtllm-gen"`, now at line 3506
+> (drifted from line 3455 on 09-22, unrelated commits, mostly the
+> `multi_ctas_kv_counter_buffer` helper refactor that drove the 09-22 rebase
+> conflict). `overrides.py::is_glm_sm12_fp8` unchanged: still sets both
+> `dsa_prefill_backend`/`dsa_decode_backend` to `flashinfer_sparse_mla` for
+> `GlmMoeDsaForCausalLM` + SM12x + `fp8_e4m3` KV. `flash_mla_sm120.py` (now
+> `python/sglang/kernels/ops/attention/flash_mla_sm120.py`): zero commits
+> since v0.5.20, validator untouched.
+
+> PR #32779 did **not** merge this cycle: still `state: OPEN`,
+> `mergedAt: null`, head unchanged since 09-22
+> (`6848fe723e7487e6c4b44ae7bb44b74463ac66aa`), still one `APPROVED` review
+> (nvpohanh, 09-14) and one `COMMENTED` (b8zhong, 08-12), no second approval,
+> `run-ci`/`performance`/`jit-kernel`/`GLM` labels unchanged, no new comments
+> since "All NV pipelines have passed." (09-22). Re-confirmed on its current
+> head: `_validate_flashinfer_sparse_mla_backend`'s `is_glm_sm12_fp8` arm
+> still only widens the allowed set to `{"flashinfer_sparse_mla",
+> "triton_sparse_mla"}`, `flashinfer_sparse_mla` stays the documented
+> auto-selected default. So even if it merges, it would not change the
+> auto-selection this doc's p34-redundancy question depends on, a merge would
+> only add an opt-in alternative backend.
+
+> **Deploy confirmed:** dgxarley commit `3214ed2` (2026-09-22) bumped the
+> deployed image from `xomoxcc/dgx-spark-sglang:0.5.19-sm121` to
+> `0.5.20-sm121`. Live head pod (`sglang-head-68c7bbf746-kfwlt`, created
+> 2026-09-23T07:15:21Z) confirmed running `0.5.20-sm121`. `kubectl logs -c
+> sglang` confirms p34's three re-anchored targets applied cleanly with no
+> `ANCHOR-DRIFT` warning: "Patched kv_cache_configurator.py: MLA KV dim: keep
+> the 656-byte packed layout for trtllm on SM12x", "Patched dsa_backend.py:
+> _forward_trtllm: backend=auto + GLM_NSA scale format on SM12x", "Patched
+> forward_mla.py: _fuse_rope_for_trtllm_mla: no fused rope+fp8-q on SM12x
+> (sparse wants bf16 q)". Unlike p30, p34 had no uncommitted working-tree
+> edit flagged on 09-22 (already stable for 0.5.20), consistent with a clean
+> apply here.
+
+> p34 retirement decision remains pending, unchanged from 08-15 (no new
+> TP4/real-weight confirmation run requested this cycle).
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via

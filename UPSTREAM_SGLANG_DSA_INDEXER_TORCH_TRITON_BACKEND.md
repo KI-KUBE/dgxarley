@@ -519,6 +519,44 @@ REST/GraphQL now report `mergeable: MERGEABLE` / `mergeStateStatus: BLOCKED`
 > 0.5.20-sm121 build is already in progress (uncommitted) and verifies
 > correct against the tag.
 
+> Re-checked 2026-09-25: PR #31480 unchanged in content since the 09-10 rebase
+> (head still `8d3944adb22eba57e258c7129f54333c7896fcf8`, `updatedAt`
+> 2026-09-10T13:10:42Z, still 3 comments, 0 reviews, no `run-ci` label,
+> `reviewDecision: REVIEW_REQUIRED`). `mergeable`/`mergeStateStatus` stable at
+> `MERGEABLE`/`BLOCKED` on two `gh` reads 3s apart, no transient `UNKNOWN` this
+> cycle.
+
+> SGLang still at v0.5.20 (2026-09-18, `gh release list` confirms it as
+> latest, no new tag). `DSAPagedMQALogitsBackend` (`paged_mqa_logits_backend.py`)
+> on `upstream/main` (fetched fresh): zero commits touch the file since the
+> v0.5.20 tag; enum still only DEEPGEMM/CUTEDSL/AITER, `resolve()` unchanged.
+> `exec_.py`'s `dsa_paged_mqa_logits_backend` field `choices` still exactly
+> `["auto", "deepgemm", "cutedsl", "aiter"]`, no `torch` value. `dsa_indexer.py`
+> had three commits since v0.5.20 (`0dc8b29e15` ROCm AITER fused FP8 indexer
+> writer, `7b67a96640` DSV4 chunk the indexer MQA logits by query rows,
+> `afe71f4b9e` process-group-through-runtime-context refactor), none adding an
+> arch-independent backend or touching the paged-MQA-logits dispatch this doc
+> tracks (first two are ROCm/DSV4-scoped, third is a mechanical accessor
+> rename). p30 not redundant, design conclusion unchanged.
+
+> **Deploy confirmed:** dgxarley commit `3214ed2` (2026-09-22) bumped the
+> deployed image from `xomoxcc/dgx-spark-sglang:0.5.19-sm121` to
+> `0.5.20-sm121`. Live head pod (`sglang-head-68c7bbf746-kfwlt`, created
+> 2026-09-23T07:15:21Z, namespace `sglang`) confirmed running
+> `xomoxcc/dgx-spark-sglang:0.5.20-sm121` (`kubectl get pod -o jsonpath`).
+> `kubectl logs -c sglang` confirms p30/p35's re-anchored 0.5.20 targets
+> (flagged uncommitted on 09-22) applied cleanly with no `ANCHOR-DRIFT`
+> warning: "Patched paged_mqa_logits_backend.py: DSA torch-backend enum +
+> resolve('torch')", "Patched exec_.py: DSA torch-backend CLI choice",
+> "Patched dsa_backend.py: DSA torch-backend wiring", "Patched dsa_indexer.py:
+> DSA torch-backend dispatch", "Patched torch_paged_mqa_logits.py: torch
+> indexer fallback: Triton fast-path dispatch (env SGLANG_DSA_INDEXER_TRITON)".
+> The 09-22 re-anchoring work is therefore verified correct in production, not
+> just against the tag.
+
+> Conclusion unchanged: p30/p35 remain necessary on v0.5.20/current main; no
+> upstream fix has landed or is imminent.
+
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
 > Triton fast path (unblocks DSA models on SM120/SM121)
 
