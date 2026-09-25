@@ -189,6 +189,8 @@
       # paged_mqa_logits→torch. Without these, V4 asserts "Unsupported architecture".
       SGLANG_OPT_DEEPGEMM_HC_PRENORM: "{{ '1' if sglang_opt_deepgemm_hc_prenorm | bool else '0' }}"
       SGLANG_FP8_PAGED_MQA_LOGITS_TORCH: "{{ '1' if sglang_fp8_paged_mqa_logits_torch | bool else '0' }}"
+      # p67 backport of sglang#39482, DeepGEMM SM121 packed-scale gate; off until validated per model.
+      SGLANG_OPT_DEEPGEMM_SM121_PACKED_SCALE: "{{ '1' if sglang_opt_deepgemm_sm121_packed_scale | bool else '0' }}"
       # C4-indexer top-k transform: TVM jit topk_transform_512_v2 dies on sm_121
       # (topk_v2.cuh:472 CUDA error: invalid argument) at decode → torch fallback.
       # [migrated 2026-08-28] Was SGLANG_TOPK_TRANSFORM_512_TORCH (env deleted

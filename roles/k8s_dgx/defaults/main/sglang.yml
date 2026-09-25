@@ -328,6 +328,8 @@ sglang_opt_fp8_wo_a_gemm: "{{ sglang_model_profiles[_sglang_active_model].opt_fp
 # Defaults match upstream (hc_prenorm on, the torch fallbacks off); V4-Flash flips them.
 sglang_opt_deepgemm_hc_prenorm: "{{ sglang_model_profiles[_sglang_active_model].opt_deepgemm_hc_prenorm | default(true) }}"
 sglang_fp8_paged_mqa_logits_torch: "{{ sglang_model_profiles[_sglang_active_model].fp8_paged_mqa_logits_torch | default(false) }}"
+# p67 backport of sglang#39482, widens DeepGEMM SM120 probe/UE8M0 packed-scale to SM121; off until validated per model.
+sglang_opt_deepgemm_sm121_packed_scale: "{{ sglang_model_profiles[_sglang_active_model].opt_deepgemm_sm121_packed_scale | default(false) }}"
 sglang_topk_transform_512_torch: "{{ sglang_model_profiles[_sglang_active_model].topk_transform_512_torch | default(false) }}"
 # DSV4 DSA Lightning-Indexer via the TileLang kernel instead of the per-step torch
 # fallback. SM121-compatible after the tilelang-0.1.8 indexer compat patch is baked

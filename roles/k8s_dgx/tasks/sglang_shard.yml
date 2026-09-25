@@ -167,6 +167,9 @@
                     value: "{{ '1' if sglang_opt_deepgemm_hc_prenorm | bool else '0' }}"
                   - name: SGLANG_FP8_PAGED_MQA_LOGITS_TORCH
                     value: "{{ '1' if sglang_fp8_paged_mqa_logits_torch | bool else '0' }}"
+                  # p67 backport of sglang#39482, DeepGEMM SM121 packed-scale gate; must match serving.
+                  - name: SGLANG_OPT_DEEPGEMM_SM121_PACKED_SCALE
+                    value: "{{ '1' if sglang_opt_deepgemm_sm121_packed_scale | bool else '0' }}"
                   - name: QSFP_IP_SPARK1
                     value: "{{ _sglang_shard_qsfp_ips[0] }}"
                   - name: QSFP_PEER_IPS
@@ -355,6 +358,9 @@
                     value: "{{ '1' if sglang_opt_deepgemm_hc_prenorm | bool else '0' }}"
                   - name: SGLANG_FP8_PAGED_MQA_LOGITS_TORCH
                     value: "{{ '1' if sglang_fp8_paged_mqa_logits_torch | bool else '0' }}"
+                  # p67 backport of sglang#39482, DeepGEMM SM121 packed-scale gate; must match serving.
+                  - name: SGLANG_OPT_DEEPGEMM_SM121_PACKED_SCALE
+                    value: "{{ '1' if sglang_opt_deepgemm_sm121_packed_scale | bool else '0' }}"
                   - name: QSFP_IP_SPARK1
                     value: "{{ _sglang_shard_qsfp_ips[0] }}"
                   - name: QSFP_PEER_IPS
