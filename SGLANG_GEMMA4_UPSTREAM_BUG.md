@@ -456,6 +456,25 @@ v0.5.20 + SM121 build patches and update the build script accordingly (not
 yet deployed, live image remains `xomoxcc/dgx-spark-sglang:0.5.19-sm121`);
 none of the SM121 NVFP4 blockers tracked here are affected by that bump.
 
+**Re-verified 2026-09-25:** No new SGLang release since v0.5.20 (2026-09-18,
+still latest as of today). No commits since the 2026-09-22 check to
+`arg_groups/model_overrides/gemma4.py` or `arg_groups/model_hook.py`.
+`layers/quantization/modelopt_quant.py` on main HEAD gained two commits
+since then (`5bb24e399`, 2026-09-24, ModelOpt MIXED_PRECISION block-FP8
+dispatch/group_size refactor; `77983865d`, 2026-09-24, flashinfer_cutlass
+swiglu_limit clamp plumbing), read both diffs directly: neither touches
+`_SUPPORTED_ACT_STRS` (still `("silu", "relu2", "gelu")`, confirmed at line
+303 on HEAD) or the `is_gated` padding assert, so the Gemma4 MoE-GEMM
+blocker is unaffected. Local note: commit `3214ed2` (this repo,
+2026-09-22) bumped `default_sglang_image` to
+`xomoxcc/dgx-spark-sglang:0.5.20-sm121` (previous `0.5.19-sm121` kept as a
+commented rollback line), so the cluster now runs 0.5.20. All four Gemma-4
+profiles (`google-gemma-4-26b-a4b-it.yml`, `google-gemma-4-31b-it.yml`,
+`nvidia-gemma-4-26b-a4b-nvfp4.yml`, `nvidia-gemma-4-31b-it-nvfp4.yml`)
+still carry `attention_backend: "triton"`, confirmed unchanged and still
+mandatory on the now-deployed 0.5.20 image. No change to the bottom line:
+NVFP4 Gemma-4 MoE on SM121 remains blocked.
+
 ## Affected models
 
 | Model                                         | Type                               | Quantization | Current status (`0.5.11-gemma4-sm121` image)                                                                                                |
