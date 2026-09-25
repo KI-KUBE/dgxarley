@@ -213,6 +213,20 @@ on the new image too, its `target_contains` gate on the removed
 > image stays at `xomoxcc/dgx-spark-sglang:0.5.19-sm121`, a v0.5.20-sm121
 > image is being prepared but not yet built or deployed.
 
+> **Re-verified 2026-09-25:** Still resolved by removal, no new SGLang
+> release since v0.5.20 (2026-09-18, still latest per `gh release list`).
+> Nothing new to re-check on `jit_kernel/nvfp4.py` or `cutlass_moe_fp4`
+> (already source-confirmed absent on the v0.5.20 tag in the 2026-09-22
+> entry). `p26_cutlass_moe_zeroinit.py` remains a self-noop, its
+> `torch.empty` anchor still absent. `RETIRED_PATCHES.md` still does not
+> list p26 (re-checked today), the standing follow-up to retire it remains
+> open and unactioned. Local note: repo commit `3214ed2` (dated 2026-09-22
+> per `git log`) flipped `default_sglang_image` to
+> `xomoxcc/dgx-spark-sglang:0.5.20-sm121`; the live cluster is now confirmed
+> running that image on all sglang pods (checked today via `kubectl`). No
+> change to this doc's conclusions now that v0.5.20 is actually deployed
+> instead of merely built.
+
 Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, v0.5.13, and **v0.5.14** (released 2026-06-26 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
 
 The final root cause (uninitialized `torch.empty` on `a_map`) was identified
