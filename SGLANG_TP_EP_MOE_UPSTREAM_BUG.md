@@ -276,6 +276,27 @@ no substantive conclusion changes.
 > being prepared (repo commits 63e72da/f3f29e1, 2026-09-22) but not yet
 > built or deployed, no effect on this doc's conclusions yet.
 
+> **Re-verified 2026-09-25:** No new SGLang release since v0.5.20 (2026-09-18,
+> still latest). No new vLLM release since v0.30.0 (2026-09-22, still
+> latest). **vLLM PR #35598 was auto-closed by the stale bot on
+> 2026-09-24T01:45:23Z** ("automatically closed due to inactivity"),
+> confirmed via the issue timeline: labeled `stale` 2026-08-22, no further
+> human comment, closed by `github-actions[bot]`, not merged, not reopened.
+> This is the same administrative-closure pattern already logged for SGLang
+> #21602/#21603 and issue #24502 elsewhere in this doc, it does not fix the
+> bug, it just ends the PR's open lifetime. The "Related Upstream Issues &
+> PRs" list below still describes #35598 as open and should now be read as
+> superseded by this entry. SGLang #23531 remains OPEN, idle since
+> 2026-04-30, no change. Local note: repo commit `3214ed2` (dated 2026-09-22
+> per `git log`) flipped `default_sglang_image` to
+> `xomoxcc/dgx-spark-sglang:0.5.20-sm121`; the live cluster is now confirmed
+> running that image on all sglang pods (checked today via `kubectl`). This
+> doc's 2026-09-22 entry already source-confirmed `moe_wna16.py` and
+> `modelopt_quant.py` directly against the v0.5.20 tag (formatter-only diff,
+> qzeros/EP-scale bug unchanged, only line-shifted), so nothing new to
+> re-verify now that v0.5.20 is live. All three monkey-patches (p20, p23,
+> p28) remain required and unchanged.
+
 - vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, not merged. Author rebased onto `main` on 2026-04-13 (commit `c56eae0e`, merge-from-main only, no code changes); prior rebase 2026-03-05. Still only the initial Gemini bot review from 2026-02-28 — no human reviewer has engaged (mergify[bot] flagged a merge conflict 2026-05-23; 5 reviewers requested, none engaged; re-verified 2026-06-11)
 - vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch. **Closed without merge 2026-04-25** by author (`weiguangli-io`) citing 8+ weeks with no maintainer review; offered to reopen if it becomes relevant. The sub-bug it fixed (kernel dispatch num_experts) remains unaddressed in vLLM `main`
 - SGLang: no upstream issue or PR filed
