@@ -205,6 +205,21 @@ yet built or deployed; no local patch is involved for this bug (pure
 profile pin), so neither the bump nor its eventual deployment changes this
 doc's conclusions.
 
+**Re-verified 2026-09-25:** No new SGLang release since v0.5.20 (2026-09-18,
+still latest). PR #27968 remains CLOSED (stale bot, 2026-09-15, unchanged);
+Issue #27951 remains CLOSED (stale bot, 2026-08-19, unchanged); PR #21872
+remains CLOSED (stale-cap closure, 2026-08-26, unchanged); none reopened, no
+new activity on any of the three. Local note: repo commit `3214ed2` (dated
+2026-09-22 per `git log`) flipped `default_sglang_image` to
+`xomoxcc/dgx-spark-sglang:0.5.20-sm121`; the live cluster is now confirmed
+running that image on all sglang pods (checked today via `kubectl`). This
+doc's 2026-09-22 entry already source-confirmed the `create_moe_runner` gap
+directly against the v0.5.20 tag (new NPU/Ascend branch added, vanilla
+`Fp8MoEMethod` behavior for `flashinfer_cutlass`/`flashinfer_cutedsl`
+unchanged), so nothing new to re-verify now that v0.5.20 is live. No local
+patch is involved for this bug (pure profile pin); the workaround
+(`moe_runner_backend: triton`) remains the correct cluster configuration.
+
 Adjacent open work:
 
 - [PR #21872](https://github.com/sgl-project/sglang/pull/21872)
