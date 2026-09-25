@@ -812,6 +812,46 @@ The `env -u VIRTUAL_ENV` prefix is required because the parent shell's
 > - **PRs #28697/#28699/#28702 and the [PATCH-11] PR #113192 are all still OPEN, not merged**, so
 >   the patch stays load-bearing in full.
 
+> **2026-09-25 re-verify: adapter.py changed upstream (functional email-auth rewrite), new release
+> v2026.9.24, our synced baseline is now one landed commit behind:**
+> - **New release:** **v2026.9.24** (v0.21.5), published 2026-09-24T10:09:38Z, now latest. Our
+>   `hermes.image_tag` stays at v2026.9.21 (confirmed by grep in
+>   `roles/k8s_infra/defaults/main/hermes.yml` line 265, no bump this cycle).
+> - **adapter.py blob changed on `main`:** our synced baseline
+>   `3a1b481438295a294f292718a639d9b79aa90191` (48587 bytes) is now
+>   `c8e27c6955bd8bb8c0b6f5d9396ef4a84d2edd09` (50742 bytes).
+> - **`b5a300fe34`** (2026-09-22, in v2026.9.24), "fix(email): pairing, decline and gateway grants
+>   reach the gateway instead of dying in the adapter pre-gate." Rewrites `_sender_accepted()`, the
+>   exact function [PATCH-6] wraps. Removes the `_allowlist_in_effect()` static method, replaces it
+>   with `_open_access()` plus a new `_answers_unknown_senders()` helper, adds a
+>   `decode_json_list_literal` import from `gateway.platforms._shared`, and adds support for
+>   `unauthorized_dm_behavior: pair/decline`, `GATEWAY_ALLOWED_USERS`, gateway-side pairing-grant
+>   lookups via `_is_sender_authorized`, and a bare-local-part allowlist-bypass guard (upstream
+>   issue #119446). The wrap point still exists (`_sender_accepted(self, sender_addr, msg_data)`
+>   signature unchanged), but the body it wraps now has materially different internal logic and a
+>   different helper surface than the one our current patch coexists with.
+> - **`c13ea774e6`** (2026-09-23), an unrelated version-identity refactor, touches only
+>   `_send_imap_id()` (4 lines): replaces `from hermes_cli import __version__ as _hermes_version`
+>   with `from hermes_cli.version_info import get_version_info; version =
+>   get_version_info().base_version`. Not one of our [PATCH-N] sections. Our currently-shipped
+>   `roles/k8s_infra/files/hermes_email_gateway_patched.py` (line 671) still carries the old `from
+>   hermes_cli import __version__` import verbatim, inherited from the v2026.9.21 baseline it was
+>   rebuilt against. The commit message states `hermes_cli.__version__` "and generated _version.py
+>   are gone," so on a future bump past v2026.9.21 this import will raise `ImportError`, caught by
+>   the existing `except Exception: _hermes_version = "0"` guard: non-fatal, but the IMAP client ID
+>   would report version "0" instead of the real version.
+> - **Confirmed our local patch file still has the pre-rewrite shape:** the `_allowlist_in_effect`
+>   staticmethod and the old `_sender_accepted` body are present verbatim (grep hits at lines
+>   1522/1526), consistent with the file never having been re-synced past v2026.9.21.
+> - `plugin.yaml` (`8e9ca3d877b9ba373b4ee7f59eef05dff3cce056`, 1229 bytes) and `__init__.py`
+>   (`d4f1d7bf0e3fc5e823ed55dc6dd649e4e05c1523`, 54 bytes) unchanged.
+> - **PRs #28697/#28699/#28702 and #113192:** no new activity, `updatedAt` unchanged at
+>   2026-09-16/2026-09-17, all still OPEN.
+> - **Not performed here (report-only):** a real re-sync of [PATCH-6] against the new
+>   `_sender_accepted` shape is needed before or at the next `hermes.image_tag` bump past
+>   v2026.9.21; this is not a no-op diff-and-confirm like the last two cycles. The imap-id version
+>   import is a minor opportunistic fix for the same pass.
+
 1. Download the new upstream file:
 
    ```bash
