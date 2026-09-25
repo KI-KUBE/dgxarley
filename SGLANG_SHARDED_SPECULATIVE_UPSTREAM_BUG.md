@@ -323,6 +323,21 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 i
 > directly against the v0.5.20 tag, so once that image ships the workaround
 > requirement is unaffected.
 
+> **Re-verified 2026-09-25:** No new SGLang release since v0.5.20 (2026-09-18,
+> still latest per `gh release list`/`gh api tags`). Issue #32202 stays closed
+> (stale bot, 2026-09-22), no reopening, no new activity. PR #34622 unchanged,
+> still open, no activity since 2026-08-18. Local note: repo commit `3214ed2`
+> (dated 2026-09-22 per `git log`) flipped `default_sglang_image` to
+> `xomoxcc/dgx-spark-sglang:0.5.20-sm121`, and the live cluster is now
+> confirmed running that image on all sglang pods (`kubectl get pods -n
+> sglang`, head plus 3 workers, checked today). This doc's 2026-09-22 entry
+> already source-checked the bug directly against the v0.5.20 tag
+> (`ModelRunner._resolve_draft_load_format()` and `maybe_init_draft_worker()`,
+> logic byte-for-byte unchanged, only line-shifted), so nothing new to
+> re-verify now that v0.5.20 is actually live. The
+> `--speculative-draft-load-format auto` plus `--speculative-draft-model-path`
+> workaround remains required and unchanged.
+
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`
 
