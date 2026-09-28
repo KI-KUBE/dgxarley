@@ -147,6 +147,19 @@
 > upstream DeepSeek-V4 movement in depth; none of it touches `kv_lora_rank`
 > or the `_DeepseekV4ConfigAlias` mechanism. Monkey-patch still required, no
 > location change.
+>
+> **Re-verified 2026-09-28:** no new transformers release since v5.17.0
+> (2026-09-09); no new SGLang release since v0.5.20 (2026-09-18, `gh release
+> list` re-checked). Direct source check confirms `kv_lora_rank: int = 512`
+> is still present, unchanged, at `configuration_deepseek_v3.py:93` on both
+> the v5.17.0 tag and `transformers` `main`. `_DeepseekV4ConfigAlias`
+> (`sglang/srt/utils/hf_transformers/common.py`) unchanged on current
+> upstream/main, no commits to that file since 09-25. Cross-reference:
+> `UPSTREAM_DSV4_BUGS.md`'s 2026-09-28 entry found no movement affecting
+> config parsing either. Local patch
+> `roles/k8s_dgx/files/sglang_patches/p56_deepseek_v3_kv_lora.py`'s anchor
+> unchanged, not touched by any commit since 09-25. Monkey-patch still
+> required, no location change.
 
 
 ## Summary
