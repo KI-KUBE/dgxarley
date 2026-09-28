@@ -412,9 +412,8 @@ hermes:
     require_authenticated_sender_default: false
     # platforms.email.extra.quote_original for every user (per-user override:
     # hermes_users[*].email.quote_original). Appends the received email below
-    # the first successful reply to it, classic "> " quote style. Off by
-    # default so sending stays byte-identical to before this feature.
-    quote_original_default: false
+    # the first successful reply to it, classic "> " quote style.
+    quote_original_default: true
   # Matrix gateway. When true (per-user via hermes_users[*].matrix.enabled), the
   # SAME hermes-gateway sidecar in the webui pod also serves Matrix — no extra
   # pod/process: `hermes gateway run` auto-starts every platform with creds in
