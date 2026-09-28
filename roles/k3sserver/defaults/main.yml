@@ -2,9 +2,9 @@
 # defaults file for k3sserver
 # ~ $ curl -s https://api.github.com/repos/k3s-io/k3s/releases | jq -r '.[0].tag_name'
 # curl -s https://update.k3s.io/v1-release/channels | jq -r '.data[] | select(.id|IN("stable","latest")) | "\(.id)\t\(.latest)"'
-# v1.36.4+k3s1
+# v1.37.0+k3s1
 
-k3s_version: "v1.36.4+k3s1"
+k3s_version: "v1.37.0+k3s1"
 
 k3s_node_ip: "{{ ansible_facts.default_ipv4.address }}"
 
@@ -27,7 +27,7 @@ kubelet_image_minimum_gc_age: "24h"
 kubelet_eviction_hard: "memory.available<100Mi,nodefs.available<2%,nodefs.inodesFree<5%,imagefs.available<2%,imagefs.inodesFree<5%"
 kubelet_eviction_pressure_transition_period: "5m"
 
-# Node swap (KEP-2400, GA since k8s 1.30 — we run 1.36). OFF by default; enable
+# Node swap (KEP-2400, GA since k8s 1.30). OFF by default; enable
 # per group (e.g. group_vars/dgxsparks) so a node can use a disk-backed swapfile
 # to absorb the transient weight-load peak of borderline models (DeepSeek-V4-
 # Flash-FP8 on 4×GB10). Requires a swap device on the node AND a k3s restart to
