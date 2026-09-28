@@ -539,6 +539,21 @@ small (~50 MB) and the node has fast local storage.
   No new TUI npm-install/lockfile regression surfaced this cycle. The Action Item (EACCES
   re-verification with a non-10000 UID) remains outstanding and deferred by the user, not
   performed here.
+- **Re-verified 2026-09-28:** new release v2026.9.24 (v0.21.5, published 2026-09-24), release
+  notes grepped for `tui|npm install|lockfile|reinstall|EACCES|package-lock|workspace
+  lock|node_modules`: no npm-install/lockfile content (the sole hit is a generic "CLI and TUI"
+  mention in an unrelated feature blurb). `hermes.image_tag` remains `v2026.9.21` (confirmed by
+  grep in `roles/k8s_infra/defaults/main/hermes.yml`, no bump this cycle). Issue #66978
+  (Trigger 2 fix) remains CLOSED, unchanged since 2026-08-25. Issue #45657 remains CLOSED,
+  unchanged since 2026-09-20. Issue #81620 remains OPEN, same 2 comments, unchanged since
+  2026-08-21. PR #67011 remains CLOSED/unmerged as superseded, unchanged since 2026-09-09. PR
+  #61753 remains OPEN, unchanged since 2026-08-03. Checked `hermes_cli/web_server.py`,
+  `hermes_cli/tui_gateway/server.py` and `hermes_cli/subcommands/dashboard.py` for new commits
+  since the 09-22 check: `tui_gateway/server.py` and `subcommands/dashboard.py` have zero commits
+  in that window; `web_server.py` has several (reap-grace gating, cron-ticker standdown,
+  serve-loop fixes, inject_message routing, 09-24 to 09-27), none touching npm-install, lockfile
+  handling or EACCES. The Action Item (EACCES re-verification with a non-10000 UID) remains
+  outstanding and deferred by the user, not performed here.
 
 ## Action Items
 
