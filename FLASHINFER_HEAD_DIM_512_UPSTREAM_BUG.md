@@ -1,5 +1,11 @@
 # FlashInfer Upstream Bug: head_dim=512 not supported (Gemma-4 global attention)
 
+## Status 2026-09-28 (re-verify; no upstream movement)
+
+No new flashinfer release since v0.7.0 stable (2026-09-22, still GitHub "Latest"); no v0.7.0.post1 exists. Zero commits to `prefill.cuh` and zero to `persistent.cuh` since the 2026-09-25 check (last touches remain `b8107c7f` 2026-09-17, NVFP4-KV-repack scoped, out of scope; and PR #3684, 2026-08-13, unchanged). Issue #3297 remains closed (4 comments, unchanged since 2026-06-04), PR #3576 remains merged (2026-06-15), both unchanged.
+
+SGLang remains v0.5.20 (2026-09-18), still GitHub "Latest," no new release; `main` HEAD is now `df378bca` (2026-09-28T08:59:59Z). The Gemma4 attention-backend allowlist in `arg_groups/model_hook.py`, source-verified on `main`, is unchanged: `accepted_backends = ("trtllm_mha", "triton", "ascend", "intel_xpu", "intel_amx", "aiter")`, `flashinfer` still excluded. `attention_backend: triton` remains permanently mandatory for all four Gemma-4 profiles. No action needed.
+
 ## Status 2026-09-25 (re-verify; no upstream movement; cluster confirmed on SGLang 0.5.20/flashinfer 0.6.18.post1)
 
 No new flashinfer release since v0.7.0 stable (2026-09-22, still GitHub "Latest"); no v0.7.0.post1 exists. Zero commits to `prefill.cuh` since the 2026-09-22 check (last touch remains `b8107c7f`, 2026-09-17, NVFP4-KV-repack scoped, already out of scope). Zero commits to `persistent.cuh` since PR #3684 (2026-08-13, unchanged). Issue #3297 remains closed (4 comments, unchanged since 2026-06-04), PR #3576 remains merged (2026-06-15), both unchanged.
