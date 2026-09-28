@@ -34,68 +34,16 @@ HOW IT LOADS:
   gateway process and any subprocess it spawns). Idempotent + fail-safe: if the
   target is gone after an image bump it logs one line and changes nothing.
 
-RE-SYNC on a hermes.image_tag bump: confirm gateway.platforms.api_server still
-defines APIServerAdapter._check_auth(self, request) and that aiohttp still exposes
-the path as request.path. If upstream finally fixes the probe (sends the key) or
-makes /health/detailed public, DELETE this patch.
-
-Re-verified 2026-08-03 at v2026.7.30 (v0.19.1), the currently pinned tag: both
-anchors hold and the mismatch is unfixed, so this patch stays required.
-_check_auth now resolves a profile-scoped expected key first (named profiles fail
-closed), which our wrapper never reaches for the two health paths, and the router
-gained a /v1/health alias onto the same unauthenticated _handle_health.
-_probe_gateway_health still issues a bare urllib GET with no Authorization header
-and GATEWAY_HEALTH_URL is still the only cross-container mechanism (still marked
-deprecated, still no replacement config key). Live proof in the running pod: the
-banner below appears in the gateway log and the log has 0 "rejected invalid API
-key" warnings.
-
-Re-verified 2026-08-17 at v2026.8.16 (v0.20.2), the currently pinned tag, by
-source inspection of the tag: gateway/platforms/api_server.py still defines
-APIServerAdapter._check_auth(self, request); /health/detailed still calls it
-while /health and its /v1/health alias never do; hermes_cli/web_server.py::
-_probe_gateway_health still builds a bare urllib.request.Request(path,
-method="GET") with no Authorization header. Both anchors hold, the mismatch is
-still unfixed, so this patch stays required and unchanged.
-
-Re-verified 2026-08-28 at v2026.8.27, the currently pinned tag, by source
-inspection. gateway/platforms/api_server.py DID change between v2026.8.16 and
-v2026.8.27 (md5 ac116ba6 -> b1de168c, 391995 bytes), but every anchor this
-patch depends on is unchanged: APIServerAdapter._check_auth(self, request) has
-the same signature; the router still maps ("GET", "/health") and ("GET",
-"/v1/health") to _handle_health, whose body is a bare web.json_response with no
-_check_auth call, while ("GET", "/health/detailed") -> _handle_health_detailed
-still opens with `auth_err = self._check_auth(request)`. hermes_cli/web_server
-.py::_probe_gateway_health still builds `urllib.request.Request(path,
-method="GET")` with no Authorization header, and GATEWAY_HEALTH_URL is still
-present and still marked DEPRECATED ("scheduled for removal") with no
-replacement config key. Patch stays required and unchanged.
-
-Re-verified 2026-09-16 at v2026.9.14 (v0.21.3) by source inspection.
-APIServerAdapter._check_auth(self, request) keeps its signature. The routes are
-now a table: ("GET", "/health") and ("GET", "/v1/health") -> _handle_health (bare
-web.json_response, no auth), ("GET", "/health/detailed") ->
-_handle_health_detailed, which is wrapped by the new @_require_auth decorator.
-That decorator calls ``self._check_auth(request)`` at request time, so our
-class-level wrap still intercepts it. _probe_gateway_health moved to
-hermes_cli/web_server_gateway.py and still builds a bare
-urllib.request.Request(path, method="GET") with no Authorization header, trying
-/health/detailed first; GATEWAY_HEALTH_URL is still marked DEPRECATED. Patch stays
-required and unchanged.
-
-Re-verified 2026-09-22 at v2026.9.21 (v0.21.4), the currently pinned tag, by
-source inspection. gateway/platforms/api_server.py changed again in this window
-(239047 bytes, blob 4ea5a6eef7) but every anchor holds: _check_auth(self,
-request) -> Optional[web.Response] keeps its signature; the route table still
-maps ("GET", "/health") and ("GET", "/v1/health") to _handle_health, whose body
-is a bare web.json_response with no auth, while ("GET", "/health/detailed") ->
-_handle_health_detailed is still decorated with @_require_auth, which calls
-``self._check_auth(request)`` at request time and therefore still hits our
-class-level wrap. hermes_cli/web_server_gateway.py::_probe_gateway_health still
-builds ``urllib.request.Request(path, method="GET")`` with no Authorization
-header and still tries /health/detailed first; GATEWAY_HEALTH_URL is still read
-in hermes_cli/web_server.py and still documented as DEPRECATED with no
-replacement config key. Patch stays required and unchanged.
+RE-SYNC on a hermes.image_tag bump: confirm
+  * gateway.platforms.api_server still defines APIServerAdapter._check_auth(self, request),
+    and aiohttp still exposes the path as request.path;
+  * /health/detailed still reaches self._check_auth (since v2026.9.14 via the @_require_auth
+    decorator, which calls it at request time, so the class-level wrap still intercepts it);
+  * _probe_gateway_health (hermes_cli/web_server_gateway.py since v2026.9.14) still sends no
+    Authorization header.
+If upstream finally fixes the probe (sends the key) or makes /health/detailed public, DELETE
+this patch. Live check: the banner below appears in the gateway log and there are 0
+"rejected invalid API key" warnings.
 """
 
 import sys
