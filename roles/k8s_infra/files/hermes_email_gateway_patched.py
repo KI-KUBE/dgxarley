@@ -18,6 +18,13 @@ around the single _smtp_send call site so only the first successful reply
 per inbound mail quotes, the quote shrinks (or is dropped) to fit
 MAX_MESSAGE_LENGTH while the agent's own text is never shortened, and
 _standalone_send is untouched (never quotes).
+Updated 2026-09-25 to match PR #113192 review fixes: _send_email builds the
+reply inside the claim's try (a _new_reply error releases the claim instead of
+leaving it pending), and _last_original_by_sender is bounded by
+_QUOTE_LOOKUP_MAX like _original_by_msg_id. The PR's third fix (gate quoting
+on msg_data["sender_granted"] for pair/decline senders) is NOT ported: it
+depends on upstream's post-v2026.9.21 _sender_accepted rework (b5a300fe3) and
+must be taken on the next re-sync.
 
 Re-checked 2026-09-22 (v2026.9.14 -> v2026.9.21, v0.21.3 -> v0.21.4). NOT a
 re-sync: upstream did not touch this plugin in that window. adapter.py,
@@ -1073,7 +1080,7 @@ class EmailAdapter(BasePlatformAdapter):
         # Originals by Message-ID so parallel mails from one sender quote the right one; the per-sender entry
         # covers mails without a Message-ID. Only populated while quoting is on.
         self._original_by_msg_id: "OrderedDict[str, Dict[str, str]]" = OrderedDict()
-        self._last_original_by_sender: Dict[str, Dict[str, str]] = {}
+        self._last_original_by_sender: "OrderedDict[str, Dict[str, str]]" = OrderedDict()
         self._quote_lock = threading.Lock()  # sends run concurrently in executor threads
         self._seen_uids: set = set()
         self._seen_uids_max: int = 2000  # cap to prevent unbounded memory growth
@@ -1633,6 +1640,9 @@ class EmailAdapter(BasePlatformAdapter):
                 while len(self._original_by_msg_id) > _QUOTE_LOOKUP_MAX:
                     self._original_by_msg_id.popitem(last=False)
             self._last_original_by_sender[msg_data["sender_addr"]] = record
+            self._last_original_by_sender.move_to_end(msg_data["sender_addr"])
+            while len(self._last_original_by_sender) > _QUOTE_LOOKUP_MAX:
+                self._last_original_by_sender.popitem(last=False)
 
     def _claim_quote(
         self, to_addr: str, body: str, reply_to_msg_id: Optional[str]
@@ -1753,8 +1763,8 @@ class EmailAdapter(BasePlatformAdapter):
         # [PATCH-11] Claim before the MIME skeleton is built (so the quote lands in the same body the
         # Sent-folder APPEND archives); settle after _smtp_send so a retry after a failed send quotes again.
         body, quoted = self._claim_quote(to_addr, body, reply_to_msg_id)
-        msg, msg_id, subject = self._new_reply(to_addr, body, reply_to_msg_id, attach_empty_body=True)
         try:
+            msg, msg_id, subject = self._new_reply(to_addr, body, reply_to_msg_id, attach_empty_body=True)
             self._smtp_send(msg)
         except BaseException:
             self._settle_quote(quoted, sent=False)
