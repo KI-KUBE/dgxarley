@@ -297,6 +297,27 @@ no substantive conclusion changes.
 > re-verify now that v0.5.20 is live. All three monkey-patches (p20, p23,
 > p28) remain required and unchanged.
 
+> **Re-verified 2026-09-28:** No new SGLang release since v0.5.20 (2026-09-18,
+> still latest). No new vLLM release since v0.30.0 (2026-09-22, still
+> latest). `moe_wna16.py` unchanged on `main` (HEAD `df378bca42`,
+> 2026-09-28T16:59:59+08:00): `tp_rank = get_parallel().tp_rank` at line 457,
+> unguarded `param.data[expert_id, ...]` at lines 499/501/503, byte-for-byte
+> the same bug. `modelopt_quant.py`'s `else`-branch `w13_input_scale` (no EP
+> slice) drifted to line 2725-2726 on `main` (unrelated churn since
+> v0.5.20's line 2633); still unfixed. New on `main` only, not fixing our
+> bug: a new `_input_scale_to_local_experts()` helper (line 2283) and a
+> `_build_mega_moe_weights()` method appeared, EP-aware, but wired only into
+> a new `moe_a2a_backend=megamoe` path, not into the tracked `else` branch.
+> Worth re-checking on future cycles in case a follow-up PR reuses it there.
+> SGLang #23531 remains OPEN, idle since 2026-04-30. vLLM #35598 stays
+> CLOSED (2026-09-24), no reopen. The "Related Upstream Issues & PRs" static
+> list's vLLM #35598 line was corrected today to reflect the 2026-09-24
+> closure. New adjacent PR spotted, not ours: sgl-project/sglang#37796
+> ("2-bit experts, expert streaming, N-contiguous GEMV", open) touches a
+> different `moe_wna16.py` code path (generic GPTQ zeros unpack), not the
+> qzeros EP-remap closure. All three monkey-patches (p20, p23, p28) remain
+> required and unchanged.
+
 - vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, not merged. Author rebased onto `main` on 2026-04-13 (commit `c56eae0e`, merge-from-main only, no code changes); prior rebase 2026-03-05. Still only the initial Gemini bot review from 2026-02-28 — no human reviewer has engaged (mergify[bot] flagged a merge conflict 2026-05-23; 5 reviewers requested, none engaged; re-verified 2026-06-11)
 - vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch. **Closed without merge 2026-04-25** by author (`weiguangli-io`) citing 8+ weeks with no maintainer review; offered to reopen if it becomes relevant. The sub-bug it fixed (kernel dispatch num_experts) remains unaddressed in vLLM `main`
 - SGLang: no upstream issue or PR filed
@@ -711,7 +732,7 @@ However, the CUDA kernel-level issue cannot be patched. For NVFP4 + EP > 1, use
 ## Related Upstream Issues & PRs
 
 ### Directly addressing our bugs
-- vLLM [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — fix moe_wna16 qzeros EP (open, author rebased onto main 2026-04-13, only bot review)
+- vLLM [PR #35598](https://github.com/vllm-project/vllm/pull/35598): fix moe_wna16 qzeros EP (closed unmerged by the stale bot 2026-09-24, no maintainer review)
 - SGLang [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — fix EPLB Qwen3 missing `routed_experts_weights_of_layer` (closed without merge 2026-03-30, CI failure)
 - SGLang [PR #19767](https://github.com/sgl-project/sglang/pull/19767) — fix EPLB Qwen3.5 (merged 2026-03-09)
 - SGLang [#21602](https://github.com/sgl-project/sglang/issues/21602) — our report: NVFP4 input_scale not EP-aware (**auto-closed by stale bot 2026-05-30, no fix merged; workaround still required**)

@@ -227,6 +227,19 @@ on the new image too, its `target_contains` gate on the removed
 > change to this doc's conclusions now that v0.5.20 is actually deployed
 > instead of merely built.
 
+> **Re-verified 2026-09-28:** Still resolved by removal, no new SGLang
+> release since v0.5.20 (2026-09-18, still latest). Confirmed via
+> `git ls-tree` on upstream `main` (HEAD `df378bca42`, 2026-09-28): no
+> `nvfp4.py` MoE-shuffle module anywhere in the tree, and `cutlass_moe.py`
+> (untouched since 2026-09-25) still has no `cutlass_moe_fp4` function. The
+> one intervening commit, `38ec649048` (kernel-directory reorg, merged
+> 2026-09-26), does not touch `cutlass_moe.py` or reintroduce any
+> shuffle-rows code. `p26_cutlass_moe_zeroinit.py` remains a self-noop.
+> `RETIRED_PATCHES.md` still does not list p26; the standing follow-up to
+> retire it remains open and unactioned, needs explicit approval. Local
+> note: `default_sglang_image` confirmed unchanged at
+> `xomoxcc/dgx-spark-sglang:0.5.20-sm121`.
+
 Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, v0.5.13, and **v0.5.14** (released 2026-06-26 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
 
 The final root cause (uninitialized `torch.empty` on `a_map`) was identified

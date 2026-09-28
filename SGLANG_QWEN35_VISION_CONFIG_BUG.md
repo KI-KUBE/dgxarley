@@ -226,6 +226,17 @@
 > image; its anchor was already verified against the v0.5.20 tag on
 > 2026-09-22, no re-check needed here. Root cause and monkey-patch
 > requirement unchanged.
+>
+> **Re-verified 2026-09-28:** No new SGLang release since v0.5.20
+> (2026-09-18, still latest per `gh release list`). No new transformers
+> release since v5.17.0 (2026-09-09, still latest). No commits since
+> 2026-09-25 to `python/sglang/srt/configs/qwen3_5.py` or to
+> `srt/utils/hf_transformers/` at all (checked via `git log
+> --since=2026-09-25 upstream/main`, both empty); confirmed on `main` HEAD
+> (`df378bca42`, 2026-09-28T16:59:59+08:00) still six plain `__init__`
+> methods, no `from_dict`/`__post_init__` anywhere. PR #22839 and PR #22618
+> remain CLOSED unmerged, no reopen. Root cause and monkey-patch
+> requirement (`p57_hf_config_get_config.py`) unchanged.
 
 
 ## Summary

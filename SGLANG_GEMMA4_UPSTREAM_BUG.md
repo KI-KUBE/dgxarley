@@ -475,6 +475,19 @@ still carry `attention_backend: "triton"`, confirmed unchanged and still
 mandatory on the now-deployed 0.5.20 image. No change to the bottom line:
 NVFP4 Gemma-4 MoE on SM121 remains blocked.
 
+**Re-verified 2026-09-28:** No new SGLang release since v0.5.20 (2026-09-18,
+still latest). No commits since the 2026-09-25 check to
+`arg_groups/model_overrides/gemma4.py`, `arg_groups/model_hook.py`, or
+`modelopt_quant.py` on upstream `main` (HEAD `df378bca42`, 2026-09-28). All
+four originally tracked PRs (#22929/#22928/#22927/#22615), PRs #29304/#29305,
+and Issue #30887 remain CLOSED unmerged with zero activity since their
+previously logged closures, none reopened. No new issue or PR found for
+`gemma4 nvfp4` or the `is_gated` padding assert opened after 2026-09-16.
+Local note: `default_sglang_image` remains
+`xomoxcc/dgx-spark-sglang:0.5.20-sm121`; all four Gemma-4 profiles confirmed
+still on `attention_backend: "triton"`. No change to the bottom line: NVFP4
+Gemma-4 MoE on SM121 remains blocked.
+
 ## Affected models
 
 | Model                                         | Type                               | Quantization | Current status (`0.5.11-gemma4-sm121` image)                                                                                                |

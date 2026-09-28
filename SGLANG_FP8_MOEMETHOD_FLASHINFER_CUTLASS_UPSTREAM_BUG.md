@@ -220,6 +220,16 @@ unchanged), so nothing new to re-verify now that v0.5.20 is live. No local
 patch is involved for this bug (pure profile pin); the workaround
 (`moe_runner_backend: triton`) remains the correct cluster configuration.
 
+**Re-verified 2026-09-28:** No new SGLang release since v0.5.20 (2026-09-18,
+still latest). `fp8.py` untouched on upstream `main` since the 2026-09-25
+check (HEAD now `df378bca42`, 2026-09-28; the one intervening commit,
+`38ec649048`, is a kernel-directory reorg that does not touch `fp8.py`).
+PR #27968 remains CLOSED (stale bot, 2026-09-15, zero activity since); Issue
+#27951 remains CLOSED (2026-08-19, zero activity since); PR #21872 remains
+CLOSED (2026-08-26, zero activity since). No new issue or PR found searching
+for `Fp8MoEMethod flashinfer_cutlass` opened after 2026-09-16. Workaround
+(`moe_runner_backend: triton`) unchanged.
+
 Adjacent open work:
 
 - [PR #21872](https://github.com/sgl-project/sglang/pull/21872)
