@@ -750,6 +750,43 @@ watch only.
 > p34 retirement decision remains pending, unchanged from 08-15 (no new
 > TP4/real-weight confirmation run requested this cycle).
 
+> Re-checked 2026-09-28: PR #31481 unchanged in content since the 09-22
+> rebase (head still `7aa9049335de83ed1c2227c176041301a6309a29`, `updatedAt`
+> 2026-09-22T09:03:28Z, still 2 comments, 0 reviews, only the `deepseek`
+> label, `reviewDecision: REVIEW_REQUIRED`). `mergeable`/`mergeStateStatus`
+> stable at `MERGEABLE`/`BLOCKED` on two `gh` reads 3s apart, i.e. the 09-22
+> rebase still holds, no new drift. Fork remote branch head matches the PR
+> head exactly.
+
+> SGLang still at v0.5.20 (2026-09-18, latest, no new tag). `dsa_backend.py::
+> _forward_trtllm` on `upstream/main` (fetched fresh, tip `df378bca42`): zero
+> commits since the 09-22 rebase base; still hardcodes `backend="trtllm-gen"`
+> at line 3506 (unchanged from the 09-25 check). `overrides.py::
+> is_glm_sm12_fp8` block: zero commits touch the function (one unrelated
+> ROCm mxfp8-runner-backend commit, `425a1f8f24`, touched the file
+> elsewhere). `kv_cache_configurator.py`: one commit since 09-25
+> (`50e50e13ab`, #39731, PD admission/load reporting) does not touch
+> `calculate_mla_kv_cache_dim`. `forward_mla.py` and `flash_mla_sm120.py`:
+> zero commits. p34's redundancy question and design conclusion unchanged.
+
+> Dry-run rebase check (`git merge-tree --write-tree upstream/main
+> dsa-sm12x-native-sparse-mla`, no push, no worktree touched): clean merge
+> tree, no conflicts. No rebase needed right now, PR already `MERGEABLE`.
+
+> PR #32779 (Triton sparse MLA prefill) did not merge this cycle: still
+> `state: OPEN`, `mergedAt: null`, head unchanged since 09-22
+> (`6848fe723e7487e6c4b44ae7bb44b74463ac66aa`), still one `APPROVED` review
+> (nvpohanh, 09-14) and one `COMMENTED` (b8zhong, 08-12), no second
+> approval, labels unchanged (performance/run-ci/jit-kernel/GLM), no new
+> activity since "All NV pipelines have passed." (09-22). Broad grep of
+> upstream commits since 09-25 for indexer/sparse_mla/sm12/GB10 found
+> nothing else relevant (NPU top-k support and DSv4.1/AMD low-ratio-indexer
+> work, both out of scope for the GLM_NSA/SM12x path this doc tracks).
+
+> p34 retirement decision remains pending, unchanged from 08-15 (no new
+> TP4/real-weight confirmation run requested this cycle). No factual errors
+> found in the 09-25 entry.
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via

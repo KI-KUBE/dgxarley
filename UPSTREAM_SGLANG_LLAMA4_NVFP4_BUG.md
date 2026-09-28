@@ -364,3 +364,26 @@ anchors, and update the two heredoc blocks in `sglang_launch.sh`. Verify with th
   patches and the profile's `moe_runner_backend: triton` pin stay correct.
   Re-check next cycle whether a v0.5.21+ release (or a `main`-tracking
   build) picks up `56fee88`.
+- **2026-09-28** - No new SGLang release since v0.5.20 (2026-09-18, still
+  latest). `git tag --contains
+  56fee88e236b7666b87adeceecfb14230a482f61` returns empty on a freshly
+  fetched `upstream/main`: PR #35504's fix is still not in any tag.
+  `mllama4.py` has zero touching commits since 2026-09-25; `llama4.py` had
+  two refactor commits (`81f27fb3a7`, `35b369ebba`, both
+  `Llama4DecoderLayer` communicator/layer_facts plumbing) that do not touch
+  `Llama4Attention`'s `RadixAttention(...)` construction. Confirmed on
+  `main` HEAD (`df378bca42`, 2026-09-28T16:59:59+08:00): all five patched
+  anchors are unchanged in substance, only line-shifted from the unrelated
+  llama4.py commits (`_handle_expert_scale_params` at `mllama4.py:854`,
+  `permute_qk_weight_for_rotary` at `mllama4.py:613`, still `attn_out =
+  self.language_model.config.hidden_size` and `modules[-1] == "weight"`
+  only for both q and k, `_handle_scale_remapping` at `mllama4.py:731`,
+  still no `loaded_weight` copy; `RadixAttention(...)` in
+  `Llama4Attention.__init__` at `llama4.py:296`, still without
+  `quant_config=quant_config`). PR #35032 (loader fixes 1-3) unchanged,
+  still OPEN, no activity since 2026-08-16. Issue #34192 stays closed via
+  PR #35504's merge (2026-09-22), unchanged. The 5 local
+  `sglang_launch.sh`/`p52`/`p53` patches and the profile's
+  `moe_runner_backend: triton` pin stay correct. Re-check next cycle
+  whether a v0.5.21+ release (or a `main`-tracking build) picks up
+  `56fee88`.

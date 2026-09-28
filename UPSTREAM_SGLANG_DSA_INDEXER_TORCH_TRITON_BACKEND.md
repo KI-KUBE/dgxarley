@@ -557,6 +557,34 @@ REST/GraphQL now report `mergeable: MERGEABLE` / `mergeStateStatus: BLOCKED`
 > Conclusion unchanged: p30/p35 remain necessary on v0.5.20/current main; no
 > upstream fix has landed or is imminent.
 
+> Re-checked 2026-09-28: PR #31480 unchanged in content since the 09-10 rebase
+> (head still `8d3944adb22eba57e258c7129f54333c7896fcf8`, `updatedAt`
+> 2026-09-10T13:10:42Z, still 3 comments, 0 reviews, no `run-ci` label,
+> `reviewDecision: REVIEW_REQUIRED`). `mergeable`/`mergeStateStatus` stable at
+> `MERGEABLE`/`BLOCKED` on two `gh` reads 3s apart, no drift since 09-25. Fork
+> remote branch head (`git ls-remote origin`) matches the PR head exactly.
+
+> SGLang still at v0.5.20 (2026-09-18, latest per `gh release list`, no new
+> tag). `paged_mqa_logits_backend.py` on `upstream/main` (fetched fresh, tip
+> `df378bca42`): zero commits since v0.5.20; still only DEEPGEMM/CUTEDSL/
+> AITER, no `torch` value. `exec_.py`'s `dsa_paged_mqa_logits_backend` choices
+> still exactly `["auto", "deepgemm", "cutedsl", "aiter"]`. `dsa_backend.py`:
+> zero commits. `dsa_indexer.py` had one cosmetic import-reorg commit
+> (`38ec649048`, #41243, merged 2026-09-26), zero dispatch-logic change. Two
+> other DSA commits since 09-25 (`4bb645b8e2` #41311, `63d320c723` #40854)
+> touch only `kpool_prefill_cuda_graph.py` / `dsa_indexer_kpool.py`
+> (GLM-5.3-Flash KPool path), not the generic paged-MQA-logits dispatch this
+> doc tracks. p30 not redundant, design conclusion unchanged.
+
+> Dry-run rebase check (`git merge-tree --write-tree upstream/main
+> dsa-indexer-torch-triton-backend`, no push, no worktree touched): clean
+> merge tree, no conflicts. No rebase needed right now, the PR already
+> reports `MERGEABLE`.
+
+> Conclusion unchanged: p30/p35 remain necessary on v0.5.20/current main; no
+> upstream fix has landed or is imminent. No factual errors found in the
+> 09-25 entry.
+
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
 > Triton fast path (unblocks DSA models on SM120/SM121)
 
