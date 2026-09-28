@@ -2,9 +2,9 @@
 receives, SMTP sends. Configured via EMAIL_* env vars or ``platforms.email`` in config.yaml (see website docs).
 
 ------------------------------------------------------------------------------
-LOCAL PATCH (dgxarley) — synced to upstream tag v2026.9.21
-(plugins/platforms/email/adapter.py, 48587 bytes, blob 3a1b481438). Current for
-the pinned image (hermes.image_tag v2026.9.21). plugin.yaml and __init__.py are
+LOCAL PATCH (dgxarley) — synced to upstream tag v2026.9.24
+(plugins/platforms/email/adapter.py, 50705 bytes, blob 7d68f2dfbe). Current for
+the pinned image (hermes.image_tag v2026.9.24). plugin.yaml and __init__.py are
 byte-identical to v2026.8.31, so the ConfigMap subPath mount target is unchanged.
 
 PATCH-11 added 2026-09-16: quotes the received email below replies (opt-in,
@@ -22,9 +22,32 @@ Updated 2026-09-25 to match PR #113192 review fixes: _send_email builds the
 reply inside the claim's try (a _new_reply error releases the claim instead of
 leaving it pending), and _last_original_by_sender is bounded by
 _QUOTE_LOOKUP_MAX like _original_by_msg_id. The PR's third fix (gate quoting
-on msg_data["sender_granted"] for pair/decline senders) is NOT ported: it
-depends on upstream's post-v2026.9.21 _sender_accepted rework (b5a300fe3) and
-must be taken on the next re-sync.
+on msg_data["sender_granted"] for pair/decline senders) was ported with the
+v2026.9.24 re-sync below.
+Updated 2026-09-28 (PR #113192 commit 2bda5c1): quoting is gated on the
+gateway's final-reply marker metadata["notify"] (present in v2026.9.21,
+base.py _mark_notify_metadata); metadata is passed through send / send_image /
+send_multiple_images / send_document as `final`, and _claim_quote quotes only
+final-reply sends. Status, progress and busy-ack sends no longer quote (a busy
+ack for a second mail arriving mid-turn previously took that mail's quote).
+
+Re-synced 2026-09-28 (v2026.9.21 -> v2026.9.24, v0.21.4 -> v0.21.5). Exactly
+one upstream commit touched this file, b5a300fe34 ("fix(email): pairing,
+decline and gateway grants reach the gateway instead of dying in the adapter
+pre-gate"); plugin.yaml and __init__.py keep their blob shas. It rewrote only
+_sender_accepted (+ the decode_json_list_literal import): _allowlist_in_effect
+became _open_access, new _answers_unknown_senders (platforms.email.extra.
+unauthorized_dm_behavior pair|decline), allowlists are parsed like the
+gateway's (GATEWAY_ALLOWED_USERS, JSON list literals), bare local-part matches
+are dropped (#119446), and approved pairings are honoured via
+_is_sender_authorized. A 3-way merge (black-formatted v2026.9.21 baseline,
+this file, black-formatted v2026.9.24) applied with ZERO conflicts: none of
+our [PATCH-N] sections sit inside _sender_accepted, and [PATCH-6]'s
+try/finally wraps its CALL, so every drop path still finalizes. On top, the
+PR #113192 sender_granted fix: _sender_accepted records
+msg_data["sender_granted"], and _dispatch_message only remembers a granted
+sender's mail for quoting (a not-granted one clears the per-sender fallback
+via _forget_sender_original). PRs #28697/#28699/#28702/#113192 still OPEN.
 
 Re-checked 2026-09-22 (v2026.9.14 -> v2026.9.21, v0.21.3 -> v0.21.4). NOT a
 re-sync: upstream did not touch this plugin in that window. adapter.py,
@@ -413,13 +436,16 @@ patch sections re-applied:
             in the v2026.8.13 baseline. See the "Forward-ported" note above.
   [PATCH-10] _imap_default_security(): port-derived IMAP security default
             (993 → tls, else starttls) in __init__ and _standalone_send
-  [PATCH-11] Quote the received email below the first successful reply to
+  [PATCH-11] Quote the received email below the turn's final reply to
             it (opt-in): module-level _format_quote_date() / _build_quote()
             helpers; __init__ reads quote_original / quote_max_chars /
             quote_header from config.extra (env EMAIL_QUOTE_ORIGINAL /
             EMAIL_QUOTE_MAX_CHARS win); _dispatch_message calls
             _remember_original() right after _sender_accepted (inside the
-            [PATCH-6] try, so a dropped mail is never remembered);
+            [PATCH-6] try, so a dropped mail is never remembered; only for
+            msg_data["sender_granted"], else _forget_sender_original());
+            _claim_quote() gates on metadata["notify"] (final), passed
+            through send / send_image / send_multiple_images / send_document;
             _claim_quote()/_settle_quote() wrap the single _smtp_send()
             call site in _send_email / _send_with_files.
             _standalone_send is untouched (never quotes).
@@ -494,7 +520,12 @@ from gateway.platforms.helpers import cancel_task
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.config import Platform, PlatformConfig
 from utils import is_truthy_value
-from gateway.platforms._shared import get_scoped_secret as _get_secret, coerce_port, send_error
+from gateway.platforms._shared import (
+    get_scoped_secret as _get_secret,
+    coerce_port,
+    decode_json_list_literal,
+    send_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1068,7 +1099,7 @@ class EmailAdapter(BasePlatformAdapter):
             self._require_authenticated_sender = not _esecret_bool("EMAIL_TRUST_FROM_HEADER", False)
         # Optional authserv-id pinning Authentication-Results to the operator's own server (defeats an injected header sorting first).
         self._authserv_id = (extra.get("authserv_id", "") or _get_secret("EMAIL_AUTHSERV_ID", "")).strip().lower()
-        # [PATCH-11] Quote the inbound mail under the first successful reply to it (default off; env wins
+        # [PATCH-11] Quote the inbound mail under the turn's final reply to it (default off; env wins
         # over config.yaml, same precedence as every other EMAIL_*/extra pair above).
         self._quote_original = _esecret_bool(
             "EMAIL_QUOTE_ORIGINAL", is_truthy_value(extra.get("quote_original"), default=False)
@@ -1526,38 +1557,72 @@ class EmailAdapter(BasePlatformAdapter):
         )
 
     @staticmethod
-    def _allowlist_in_effect() -> bool:
-        """True when EMAIL_/GATEWAY_ALLOWED_USERS gates access (without one the gateway default-denies, so the spoofable From: grants nothing)."""
-        return any(_get_secret(name, "").strip() for name in ("EMAIL_ALLOWED_USERS", "GATEWAY_ALLOWED_USERS"))
+    def _open_access() -> bool:
+        """True when the gateway admits any sender, so a forged From: gains nothing. The gateway's own order:
+        EMAIL_ALLOW_ALL_USERS wins over a list, GATEWAY_ALLOW_ALL_USERS applies only while no list is set."""
+        if _get_secret("EMAIL_ALLOW_ALL_USERS", "").strip().lower() in _TRUTHY:
+            return True
+        return _get_secret("GATEWAY_ALLOW_ALL_USERS", "").strip().lower() in _TRUTHY and not any(
+            _get_secret(name, "").strip() for name in ("EMAIL_ALLOWED_USERS", "GATEWAY_ALLOWED_USERS")
+        )
+
+    def _answers_unknown_senders(self) -> bool:
+        """True when ``platforms.email.unauthorized_dm_behavior`` opts into ``pair`` or ``decline``."""
+        behavior = (self.config.extra or {}).get("unauthorized_dm_behavior")
+        return isinstance(behavior, str) and behavior.strip().lower() in {"pair", "decline"}
 
     def _sender_accepted(self, sender_addr: str, msg_data: Dict[str, Any]) -> bool:
-        """Pre-dispatch sender gate: self, automated, allowlist, From: authentication."""
+        """Pre-dispatch sender gate: self, automated, authorization, From: authentication.
+
+        Records the authorization verdict as ``msg_data["sender_granted"]`` (False for pair/decline answers)."""
         if sender_addr == self._address.lower():
             return False
         if _is_automated_sender(sender_addr, {}):
             logger.debug("[Email] Dropping automated sender at dispatch: %s", sender_addr)
             return False
-        # Drop senders the gateway would never authorize before a MessageEvent (and thread context) exists —
-        # otherwise a dispatch/authorization race can send a reply even though the handler returned None.
         allowed_raw = _get_secret("EMAIL_ALLOWED_USERS", "").strip()
-        if not allowed_raw:
-            if not self._allow_all_senders():
+        # Parsed like the gateway's allowlists (JSON list literals included), or '["alice"]' would dodge the guard below.
+        listed = set()
+        for raw in (allowed_raw, _get_secret("GATEWAY_ALLOWED_USERS", "")):
+            raw = decode_json_list_literal(raw)
+            listed.update(
+                str(a).strip().lower()
+                for a in (raw if isinstance(raw, list) else str(raw).split(","))
+                if str(a).strip()
+            )
+        if sender_addr.lower() in listed:
+            granted = True
+        elif sender_addr.split("@", 1)[0].lower() in listed:
+            # The gateway's check also matches an address by its bare local part (#119446), so an entry like "alice"
+            # would admit, or pair, alice@<any domain>; the domain is the sender's to choose.
+            logger.debug("[Email] Dropping sender whose local part alone matches an allowlist entry: %s", sender_addr)
+            return False
+        else:
+            # Approved pairings grant access too, and only the gateway's own check sees them. Its verdict also decides
+            # open access: GATEWAY_ALLOW_ALL_USERS beside a GATEWAY_ALLOWED_USERS list grants a stranger nothing there.
+            verdict = self._is_sender_authorized(sender_addr, "dm", sender_addr)
+            granted = verdict if verdict is not None else (not allowed_raw and self._allow_all_senders())
+        # Drop senders the gateway would neither authorize nor answer (pair/decline) before a MessageEvent (and thread
+        # context) exists — otherwise a dispatch/authorization race can send a reply even though the handler returned None.
+        msg_data["sender_granted"] = granted  # [PATCH-11]
+        if not granted and not self._answers_unknown_senders():
+            logger.debug(
+                "[Email] Dropping unauthorized sender at dispatch (unknown senders are ignored): %s", sender_addr
+            )
+            return False
+        # Reject spoofed senders (GHSA-rxqh-5572-8m77): short of open access, every grant keys on the attacker-controlled
+        # From:, and a pairing code or decline is mailed back to it, open access or not; fail-closed. Only a granted
+        # sender's drop warns: forged mail from strangers is routine, and the opt-out hint would be wrong advice for it.
+        if self._require_authenticated_sender and not msg_data.get("sender_authenticated", False):
+            if not granted:
                 logger.debug(
-                    "[Email] Dropping sender at dispatch — EMAIL_ALLOWED_USERS is unset and open access is not opted in: %s",
+                    "[Email] Not answering unknown sender with unauthenticated From: %s (%s)",
                     sender_addr,
+                    msg_data.get("auth_reason", "no verdict"),
                 )
                 return False
-        elif sender_addr.lower() not in {a.strip().lower() for a in allowed_raw.split(",") if a.strip()}:
-            logger.debug("[Email] Dropping non-allowlisted sender at dispatch: %s", sender_addr)
-            return False
-        # Reject spoofed senders (GHSA-rxqh-5572-8m77): the allowlist keys on the attacker-controlled
-        # From:. Only matters when an allowlist GRANTS access and allow-all is off; fail-closed.
-        if (
-            self._require_authenticated_sender
-            and self._allowlist_in_effect()
-            and not self._allow_all_senders()
-            and not msg_data.get("sender_authenticated", False)
-        ):
+            if self._open_access():
+                return True
             logger.warning(
                 "[Email] Dropping sender with unauthenticated From: %s (%s). If your mail server does not "
                 "stamp Authentication-Results, set platforms.email.require_authenticated_sender: false "
@@ -1589,9 +1654,12 @@ class EmailAdapter(BasePlatformAdapter):
             kinds = {att["type"] for att in attachments}
             self._thread_context[sender_addr] = {"subject": subject, "message_id": msg_data["message_id"]}
             # [PATCH-11] After _sender_accepted (already returned above on a drop) and inside the [PATCH-6]
-            # try, so a self/automated/non-allowlisted/unauthenticated sender is never remembered for quoting.
+            # try; pair/decline replies to not-granted senders never quote.
             if self._quote_original:
-                self._remember_original(msg_data)
+                if msg_data.get("sender_granted"):
+                    self._remember_original(msg_data)
+                else:
+                    self._forget_sender_original(sender_addr)
             name = msg_data["sender_name"] or sender_addr
             event = MessageEvent(
                 text=text or "(empty email)",
@@ -1644,16 +1712,22 @@ class EmailAdapter(BasePlatformAdapter):
             while len(self._last_original_by_sender) > _QUOTE_LOOKUP_MAX:
                 self._last_original_by_sender.popitem(last=False)
 
+    def _forget_sender_original(self, sender_addr: str) -> None:
+        """[PATCH-11] Drop the per-sender fallback so a reply to a not-granted mail cannot quote an earlier one."""
+        with self._quote_lock:
+            self._last_original_by_sender.pop(sender_addr, None)
+
     def _claim_quote(
-        self, to_addr: str, body: str, reply_to_msg_id: Optional[str]
+        self, to_addr: str, body: str, reply_to_msg_id: Optional[str], *, final: bool
     ) -> Tuple[str, Optional[Dict[str, str]]]:
         """[PATCH-11] ``(body with quote, claimed record)``; the record is ``None`` when nothing was quoted.
 
-        Only the first successful reply per inbound mail quotes: the claim marks the record pending so a
-        concurrent send skips it, ``_settle_quote`` finalizes it after SMTP success or releases it on failure.
-        The agent's own text is never shortened; the quote shrinks (or is dropped) to fit MAX_MESSAGE_LENGTH.
+        Only a turn's final-reply send (``final``, from ``metadata["notify"]``) quotes: the claim marks the
+        record pending so a concurrent send skips it, ``_settle_quote`` finalizes it after SMTP success or
+        releases it on failure. The agent's own text is never shortened; the quote shrinks (or is dropped) to
+        fit MAX_MESSAGE_LENGTH.
         """
-        if not self._quote_original:
+        if not self._quote_original or not final:
             return body, None
         original_msg_id = (reply_to_msg_id or self._thread_context.get(to_addr, {}).get("message_id") or "").strip()
         with self._quote_lock:
@@ -1709,9 +1783,10 @@ class EmailAdapter(BasePlatformAdapter):
     async def send(
         self, chat_id: str, content: str, reply_to: Optional[str] = None, metadata: Optional[Dict[str, Any]] = None
     ) -> SendResult:
-        """Send an email reply to the given address."""
+        """Send an email reply to the given address; [PATCH-11] only a turn's final-reply send quotes."""
+        final = bool((metadata or {}).get("notify"))  # [PATCH-11]
         return await self._run_send(
-            self._send_email, (chat_id, content, reply_to), "[Email] Send failed to %s: %s", chat_id
+            self._send_email, (chat_id, content, reply_to, final), "[Email] Send failed to %s: %s", chat_id
         )
 
     def _message_id_domain(self) -> str:
@@ -1758,11 +1833,11 @@ class EmailAdapter(BasePlatformAdapter):
         # (= _send_email_with_attachment{,s}), so one call site covers all three.
         self._append_to_sent(msg.as_bytes())
 
-    def _send_email(self, to_addr: str, body: str, reply_to_msg_id: Optional[str] = None) -> str:
+    def _send_email(self, to_addr: str, body: str, reply_to_msg_id: Optional[str] = None, final: bool = False) -> str:
         """Send an email via SMTP. Runs in executor thread."""
         # [PATCH-11] Claim before the MIME skeleton is built (so the quote lands in the same body the
         # Sent-folder APPEND archives); settle after _smtp_send so a retry after a failed send quotes again.
-        body, quoted = self._claim_quote(to_addr, body, reply_to_msg_id)
+        body, quoted = self._claim_quote(to_addr, body, reply_to_msg_id, final=final)
         try:
             msg, msg_id, subject = self._new_reply(to_addr, body, reply_to_msg_id, attach_empty_body=True)
             self._smtp_send(msg)
@@ -1781,12 +1856,13 @@ class EmailAdapter(BasePlatformAdapter):
         *,
         lenient: bool,
         reply_to_msg_id: Optional[str] = None,
+        final: bool = False,
     ) -> str:
         """Send a reply with attachments; *lenient* logs-and-skips unattachable files instead of raising.
         An explicit *reply_to_msg_id* threads the mail like ``_send_email`` does (#10131)."""
         # [PATCH-11] Same claim/settle contract as _send_email (see there); wraps the attach loop too so a
         # failed attachment (non-lenient) also releases the claim for the retry.
-        body, quoted = self._claim_quote(to_addr, body, reply_to_msg_id)
+        body, quoted = self._claim_quote(to_addr, body, reply_to_msg_id, final=final)
         try:
             msg, msg_id, _ = self._new_reply(to_addr, body, reply_to_msg_id)
             for path, name in files:
@@ -1811,8 +1887,8 @@ class EmailAdapter(BasePlatformAdapter):
         reply_to: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> SendResult:
-        """Send an image URL as part of an email body (``metadata`` unused)."""
-        return await self.send(chat_id, f"{caption or ''}\n\nImage: {image_url}".strip(), reply_to)
+        """Send an image URL as part of an email body."""
+        return await self.send(chat_id, f"{caption or ''}\n\nImage: {image_url}".strip(), reply_to, metadata)
 
     async def send_multiple_images(
         self,
@@ -1838,18 +1914,21 @@ class EmailAdapter(BasePlatformAdapter):
                 logger.warning("[Email] Skipping missing image: %s", local_path)
         if not local_paths and not body_parts:
             return SendResult(success=False, error="no valid images in batch")
+        final = bool((metadata or {}).get("notify"))  # [PATCH-11]
         try:
             message_id = await asyncio.get_running_loop().run_in_executor(
-                None, self._send_email_with_attachments, chat_id, "\n\n".join(body_parts), local_paths
+                None, self._send_email_with_attachments, chat_id, "\n\n".join(body_parts), local_paths, final
             )
         except Exception as e:
             logger.error("[Email] Multi-image send failed, falling back: %s", e, exc_info=True)
             return await super().send_multiple_images(chat_id, images, metadata, human_delay)
         return SendResult(success=True, message_id=message_id)
 
-    def _send_email_with_attachments(self, to_addr: str, body: str, file_paths: List[str]) -> str:
+    def _send_email_with_attachments(self, to_addr: str, body: str, file_paths: List[str], final: bool = False) -> str:
         """Send an email with multiple file attachments via SMTP (unattachable files are skipped)."""
-        msg_id = self._send_with_files(to_addr, body, [(Path(f), Path(f).name) for f in file_paths], lenient=True)
+        msg_id = self._send_with_files(
+            to_addr, body, [(Path(f), Path(f).name) for f in file_paths], lenient=True, final=final
+        )
         logger.info("[Email] Sent multi-attachment email to %s (%d files)", to_addr, len(file_paths))
         return msg_id
 
@@ -1862,10 +1941,11 @@ class EmailAdapter(BasePlatformAdapter):
         reply_to: Optional[str] = None,
         **kwargs,
     ) -> SendResult:
-        """Send a file as an email attachment."""
+        """Send a file as an email attachment; [PATCH-11] only a turn's final-reply send quotes."""
+        final = bool((kwargs.get("metadata") or {}).get("notify"))  # [PATCH-11]
         return await self._run_send(
             self._send_email_with_attachment,
-            (chat_id, caption or "", file_path, file_name, reply_to),
+            (chat_id, caption or "", file_path, file_name, reply_to, final),
             "[Email] Send document failed: %s",
         )
 
@@ -1876,6 +1956,7 @@ class EmailAdapter(BasePlatformAdapter):
         file_path: str,
         file_name: Optional[str] = None,
         reply_to_msg_id: Optional[str] = None,
+        final: bool = False,
     ) -> str:
         """Send an email with a single file attachment via SMTP (raises if unattachable)."""
         return self._send_with_files(
@@ -1884,6 +1965,7 @@ class EmailAdapter(BasePlatformAdapter):
             [(Path(file_path), file_name or Path(file_path).name)],
             lenient=False,
             reply_to_msg_id=reply_to_msg_id,
+            final=final,
         )
 
     async def get_chat_info(self, chat_id: str) -> Dict[str, Any]:
