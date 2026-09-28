@@ -1185,6 +1185,47 @@ No wall status change, no FIXED_ rename this cycle. Next check: same as
 #38792's PP-overlap work or the DSV4.1 code footprint reaches a tagged
 release.
 
+**Update 2026-09-28 (audit): no movement. SGLang still v0.5.20; #39482/#38792
+still unreleased; new commits since 09-25 are DSV4.1-only, none touch
+tracked walls.**
+
+SGLang **v0.5.20** (released 2026-09-18) remains the latest release (`gh
+release list` re-checked, no `v0.5.20.postN`, no `v0.5.21`). PR #39482 and PR
+#38792 (both flagged 09-22/09-25) confirmed still NOT ancestors of the
+v0.5.20 tag (`git merge-base --is-ancestor`), still unreleased. Current
+upstream/main `deep_gemm_wrapper/configurer.py` re-verified unchanged from
+the 09-25 description: gate reads `if sm_version in (120, 121) and not
+_sm120_deep_gemm_apis_available(): ...`.
+
+Zero commits since 09-25 touch `deep_gemm_wrapper/`,
+`moe_runner/deep_gemm_sm120.py`, `dsv4/candidate_indexer_deep_gemm.py`, or
+`dsv4/metadata.py` (the Wall 3/4/5 lever files). Three new commits touch
+adjacent files, all DSV4.1-only kernel-reorg work: #41243 (2026-09-26,
+kernel-organization refactor, incidental `deepseek_v4.py` file moves),
+#41125 (2026-09-26, "[DSv4.1] Move the low-ratio index top-k"), #41291
+(2026-09-25, "[DSv4.1] Move the ratio-1/2 index top-k ops", removes a
+DSV4.1-specific `deep_gemm_fp4_paged_mqa_logits()` helper from
+`dsv4/indexer.py`, unrelated to our Wall 7 `--dsa-topk-backend`/
+`SGLANG_DSA_FUSE_TOPK` plumbing). None change wall status. `wqkv_a` naming
+(section 2) unchanged on current main.
+
+Issue tracking, re-verified 2026-09-28: #26324 still closed, no activity
+since 2026-08-21. #33636 still open, no new comments since 2026-08-25 (8
+total), updated_at unchanged at 2026-09-14. #32750 idle since 2026-08-06.
+#23602 idle since 2026-08-13.
+
+DSV4.1: cookbook page unchanged in substance, still "not shipped in an
+SGLang release yet", no SM120/SM121/GB10 cell. Code footprint keeps growing
+(31 files now grep-match deepseek_v41/DeepseekV41 vs 4 named files at
+09-25), still informational only.
+
+Local: no changes since 09-25 to p56, p67, RETIRED_PATCHES.md, or
+default_sglang_image (still xomoxcc/dgx-spark-sglang:0.5.20-sm121).
+
+No wall status change, no FIXED_ rename this cycle. Next check: same as
+09-25 (watch for #39482/#38792 landing in a tag, and DSV4.1 reaching a
+tagged release).
+
 ---
 
 ## Upstream references
