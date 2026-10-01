@@ -3,487 +3,70 @@ receives, SMTP sends. Configured via EMAIL_* env vars or ``platforms.email`` in 
 
 ------------------------------------------------------------------------------
 LOCAL PATCH (dgxarley) — synced to upstream tag v2026.9.24
-(plugins/platforms/email/adapter.py, 50705 bytes, blob 7d68f2dfbe). Current for
-the pinned image (hermes.image_tag v2026.9.24). plugin.yaml and __init__.py are
-byte-identical to v2026.8.31, so the ConfigMap subPath mount target is unchanged.
-
-PATCH-11 added 2026-09-16: quotes the received email below replies (opt-in,
-platforms.email.extra.quote_original / EMAIL_QUOTE_ORIGINAL). Ported from a
-local reference implementation exercised against upstream main, submitted
-upstream as PR NousResearch/hermes-agent#113192 (branch
-vroomfondel:feat/email-quote-original). See the [PATCH-11] markers below and the _build_quote /
-_claim_quote docstrings for the design: a bounded per-Message-ID lookup
-(plus a per-sender fallback for mails without a Message-ID), claim/settle
-around the single _smtp_send call site so only the first successful reply
-per inbound mail quotes, the quote shrinks (or is dropped) to fit
-MAX_MESSAGE_LENGTH while the agent's own text is never shortened, and
-_standalone_send is untouched (never quotes).
-Updated 2026-09-25 to match PR #113192 review fixes: _send_email builds the
-reply inside the claim's try (a _new_reply error releases the claim instead of
-leaving it pending), and _last_original_by_sender is bounded by
-_QUOTE_LOOKUP_MAX like _original_by_msg_id. The PR's third fix (gate quoting
-on msg_data["sender_granted"] for pair/decline senders) was ported with the
-v2026.9.24 re-sync below.
-Updated 2026-09-28 (PR #113192 commit 2bda5c1): quoting is gated on the
-gateway's final-reply marker metadata["notify"] (present in v2026.9.21,
-base.py _mark_notify_metadata); metadata is passed through send / send_image /
-send_multiple_images / send_document as `final`, and _claim_quote quotes only
-final-reply sends. Status, progress and busy-ack sends no longer quote (a busy
-ack for a second mail arriving mid-turn previously took that mail's quote).
-
-Re-synced 2026-09-28 (v2026.9.21 -> v2026.9.24, v0.21.4 -> v0.21.5). Exactly
-one upstream commit touched this file, b5a300fe34 ("fix(email): pairing,
-decline and gateway grants reach the gateway instead of dying in the adapter
-pre-gate"); plugin.yaml and __init__.py keep their blob shas. It rewrote only
-_sender_accepted (+ the decode_json_list_literal import): _allowlist_in_effect
-became _open_access, new _answers_unknown_senders (platforms.email.extra.
-unauthorized_dm_behavior pair|decline), allowlists are parsed like the
-gateway's (GATEWAY_ALLOWED_USERS, JSON list literals), bare local-part matches
-are dropped (#119446), and approved pairings are honoured via
-_is_sender_authorized. A 3-way merge (black-formatted v2026.9.21 baseline,
-this file, black-formatted v2026.9.24) applied with ZERO conflicts: none of
-our [PATCH-N] sections sit inside _sender_accepted, and [PATCH-6]'s
-try/finally wraps its CALL, so every drop path still finalizes. On top, the
-PR #113192 sender_granted fix: _sender_accepted records
-msg_data["sender_granted"], and _dispatch_message only remembers a granted
-sender's mail for quoting (a not-granted one clears the per-sender fallback
-via _forget_sender_original). PRs #28697/#28699/#28702/#113192 still OPEN.
-
-Re-checked 2026-09-22 (v2026.9.14 -> v2026.9.21, v0.21.3 -> v0.21.4). NOT a
-re-sync: upstream did not touch this plugin in that window. adapter.py,
-plugin.yaml and __init__.py all keep their v2026.9.14 blob shas (adapter
-3a1b481438295a294f292718a639d9b79aa90191, 48587 bytes), so every [PATCH-N]
-carries over byte-for-byte and only the tag line above moved. Cross-module risk
-was checked explicitly, because the window is huge (~1812 PRs, ~5071 commits)
-and gateway/config.py, gateway/platforms/{base,event,helpers}.py, utils.py,
-tools/send_message_tool.py and hermes_cli/gateway.py all changed: the diff of
-this file against the v2026.9.21 baseline adds only stdlib imports
-(collections.OrderedDict, threading, time, email.utils), so every cross-module
-symbol we touch is one upstream's own (byte-identical) adapter also imports.
-PlatformConfig.from_dict still promotes bare platform keys into ``extra`` with an
-explicit ``extra:`` winning, so the platforms.email.extra.* toggles keep
-resolving. PRs #28697/#28699/#28702 and the [PATCH-11] PR #113192 are all still
-OPEN, so nothing can be dropped yet.
-
-Re-synced 2026-09-16 (v2026.8.31 -> v2026.9.14, v0.21.0 -> v0.21.3). A REAL
-re-sync, effectively a re-port: between the two tags upstream rewrote this file
-(62238 -> 48587 bytes) in ~17 commits, chiefly the "small_group" / "platforms"
-dedupe refactors (a07dceb01f, 192058fda4, de114b3af1, 9b1990583d), configurable
-IMAP/SMTP transport security (92a9864517, 4d02c78102), the IMAP-ID capability
-gate (25be5e2120, 66f1668850), MessageEvent moving to gateway/platforms/event.py
-(ab2f4602de), message_id on build_source (719cb67bdb), attachment sends threading
-on reply_to (b146cf1d0e) and send_multiple_images returning a SendResult
-(91adf584a4). A 3-way merge produced 17 conflicts, so the new file was rebuilt
-from the black-formatted v2026.9.14 baseline and every [PATCH-N] re-applied by
-hand. How each section landed:
-
-  1. [PATCH-3] SLIMMED. Upstream now owns TLS mode selection
-     (EMAIL_IMAP_SECURITY / imap_security: tls|starttls|plain, plus
-     EMAIL_IMAP_TLS_VERIFY) in EmailAdapter._connect_imap, and a logged-in,
-     INBOX-SELECTed, always-_close_imap-ed handle via the _inbox() context
-     manager. Our instance _open_imap() wrapper is GONE: _finalize_message uses
-     ``with self._inbox()`` and re-SELECTs its source folder. The module-level
-     _open_imap_conn lost its port heuristic and login; it is now an exact twin
-     of upstream's _connect_imap (security + verify args), used only by
-     _imap_append_to_sent, which does the login + _send_imap_id itself and now
-     takes imap_security / imap_tls_verify. _ensure_folder, _imap_move,
-     _search_message_id, _append_to_sent are unchanged in behaviour.
-  2. [PATCH-10] NEW. Upstream's imap_security defaults to "tls" for EVERY port,
-     which would break our 143/STARTTLS mailboxes (vault imap_port: 143, no
-     security key set) the moment the image is bumped. _imap_default_security()
-     restores the port rule our old _open_imap_conn had (993 -> tls, else
-     starttls, mirroring upstream's own 465/else SMTP default) and is passed as
-     the _normalize_security default in __init__ and _standalone_send. An
-     explicit security setting still wins.
-  3. [PATCH-4] ANCHOR MOVE. connect() was split into _probe_imap() /
-     _probe_smtp(). The folder CREATEs now sit at the top of _probe_imap's
-     ``with self._inbox()`` block; process_existing became an ``elif`` between
-     upstream's reconnect-restore branch and its mark-all-seen ``else``
-     (same outer/inner composition as before, flattened), reusing upstream's
-     single ``passed`` log line.
-  4. [PATCH-5] same position (``if parsed is not None:`` in
-     _fetch_new_messages), now on the ``with self._inbox() as imap`` handle.
-  5. [PATCH-6] upstream extracted the drop-checks into _sender_accepted(); the
-     try/finally now wraps that call + the event build + handle_message.
-  6. [PATCH-7] COLLAPSED to ONE call site: upstream funnels _send_email and
-     _send_with_files (= _send_email_with_attachment{,s}) through _smtp_send(),
-     so the APPEND sits once at the end of _smtp_send instead of three times.
-  7. [PATCH-8] _standalone_send now uses upstream's _open_smtp (it previously
-     did a bare SMTP+STARTTLS); the IMAP archival config resolves security /
-     verify like EmailAdapter.__init__ and the helper call follows server.quit().
-  8. [PATCH-2] attributes appended after _skip_attachments; the lifecycle log
-     line also reports the resolved imap_security.
-  9. Verification: ast.parse + black --check; the diff against the black-formatted
-     v2026.9.14 baseline inspected hunk-by-hunk (only [PATCH-1..8,10], nothing
-     upstream dropped); a mock-IMAP harness exercised INBOX -> Working -> Done,
-     process_existing true/false, the drop path finalize and the Sent APPEND.
-     All three upstream PRs (#28697/#28699/#28702) were still OPEN at this tag.
-
-Re-synced 2026-09-03 (v2026.8.16 -> v2026.8.31). Upstream v2026.8.16 and
-v2026.8.27 are BYTE-IDENTICAL for this file, so the earlier bump to
-v2026.8.27 needed no work and the header simply went stale. From v2026.8.27
-to v2026.8.31 upstream changed exactly two lines: a call to the new
-BasePlatformAdapter._wire_plugin_handlers() at the very end of connect(),
-just before ``return True``. It touches none of our anchors, so all of
-[PATCH-1]..[PATCH-9] carry over unchanged; the call was reproduced verbatim
-at the same position. Note the method does NOT exist before v2026.8.31
-(it is defined in gateway/platforms/base.py only from that tag), so this
-file and hermes.image_tag must move together.
-
-Re-synced 2026-08-17 (v2026.8.13 -> v2026.8.16, v0.20.2). Small but NOT
-byte-identical: exactly one upstream commit touched this file, 480342232a
-("fix(gateway): close leaked poller sockets in weixin/email adapters",
-#79889), and both of its call sites land on our anchors.
-
-  1. NEW module-level _close_imap(imap) (upstream, verbatim, placed where
-     upstream put it: right after SMTP_CONNECT_TIMEOUT). It calls logout()
-     and, on ANY exception, chases it with shutdown(). Rationale (upstream's
-     own docstring, kept): IMAP4.logout() only guards against OSError, but a
-     broken connection makes _simple_command('LOGOUT') raise IMAP4.abort,
-     which is not an OSError -- so logout() propagates BEFORE its own
-     shutdown() and the TCP socket stays open, leaking one fd per failed
-     poll/connect until the process hits "[Errno 24] Too many open files".
-
-  2. connect() -- ANCHOR MOVE, [PATCH-4] rewoven. Upstream wrapped the whole
-     IMAP-test body in an inner try/finally (``imap = None`` ... ``finally:
-     if imap is not None: _close_imap(imap)``) and DROPPED the three
-     per-branch ``imap.logout()`` calls. Our block (the [PATCH-4]
-     folder-ensure CREATEs, the self._open_imap() routing, and the
-     process_existing conditional composed as the ``else`` of upstream's
-     is_reconnect/snapshot branch) was re-indented into that inner try
-     unchanged, and its three logout() calls were removed alongside
-     upstream's. The ``self._seen_uids_snapshot[...] = ...`` assignment stays
-     AFTER the inner try/finally, exactly where upstream put it.
-
-  3. _fetch_new_messages() -- ``imap: Optional[imaplib.IMAP4] = None`` added
-     above the outer try (upstream, for the annotation), and the finally's
-     ``try: imap.logout() except: pass`` replaced by ``_close_imap(imap)``.
-     [PATCH-3]'s self._open_imap() routing and [PATCH-5]'s Working-folder
-     MOVE sit on context this diff does not touch and are unchanged.
-
-  4. [PATCH-1] (this docstring), [PATCH-2], [PATCH-6], [PATCH-7] and
-     [PATCH-8] sit on code the upstream diff does not touch and reapplied
-     unchanged at identical anchors.
-
-  5. dgxarley EXTENSION of the fix: our OWN two IMAP teardowns -- the
-     module-level _imap_append_to_sent() ([PATCH-3]) and the instance
-     _finalize_message() ([PATCH-3]/[PATCH-6] lifecycle) -- carried the
-     identical leaky ``try: imap.logout() except: pass`` pattern. Upstream
-     never saw those call sites (they do not exist upstream), so both were
-     routed through _close_imap() for parity: same bug class, one leaked fd
-     per Sent-APPEND / per finalize MOVE against a broken connection.
-
-  6. Verification performed for this re-sync: ast.parse() on the new file;
-     black --check clean; a full diff of the new file against the v2026.8.16
-     baseline inspected hunk-by-hunk to confirm it contains only
-     [PATCH-1]..[PATCH-8] plus black reformatting and the [UPSTREAM] comment
-     markers (nothing upstream dropped or reverted); plugin.yaml and
-     __init__.py confirmed byte-identical to v2026.8.13, so the ConfigMap
-     subPath mount target is unchanged.
-
-Re-synced 2026-08-15 (v2026.8.3 -> v2026.8.13, v0.20.1). This was a real
-re-sync, not a byte-identical check: upstream restructured _fetch_new_messages
-and connect() significantly. Summary of what changed and how it was handled:
-
-  1. PATCH-9 RETIRED. The v2026.8.13 baseline now contains upstream commit
-     65f407184d verbatim (module-level _CHARSET_ALIASES + _safe_decode(),
-     consumed by _decode_header_value() and all three _extract_text_body()
-     payload-decode sites) -- confirmed by diffing those three functions
-     against the new baseline before deleting anything. The forward-port
-     block (helpers + inline [PATCH-9] call-site comments) has been removed
-     from this file. No behavior changed: the baseline's version is
-     byte-identical to what we were carrying.
-
-  2. Three unrelated upstream fixes landed in this bump, none colliding with
-     our patches:
-       - a7f0abc845: partial-batch dispatch (a mid-fetch exception now
-         returns whatever was parsed so far instead of dropping the batch),
-         seen-after-fetch UID marking (a UID is only added to _seen_uids once
-         an IMAP response for it has arrived, not right after SEARCH), and a
-         reconnect UID-baseline restore (new class-level _seen_uids_snapshot
-         dict, keyed by address, restored on connect(is_reconnect=True) so a
-         same-process reconnect does not re-mark the whole mailbox seen and
-         silently skip mail that arrived during the outage).
-       - 9b8da52f41: IMAP fetch failures (not just IMAP connect failures) now
-         route through the fatal-error hook (_last_fetch_failed /
-         _last_fetch_error, surfaced from _check_inbox() via
-         _set_fatal_error() + _notify_fatal_error()), so the gateway's
-         reconnect/backoff machinery reacts to a broken mailbox check instead
-         of treating it as "nothing new".
-       - 91bc822330: connect() now classifies terminal vs transient failures
-         explicitly (smtplib.SMTPAuthenticationError -> non-retryable
-         email_auth_error; generic IMAP/SMTP failures -> retryable).
-     None of this is touched by our patches -- it is preserved verbatim.
-
-  3. ANCHOR MOVES caused by (2), and how each PATCH-N section was rewoven:
-       - _fetch_new_messages() split the per-message parsing out into a new
-         method, _parse_fetched_message(uid, raw_email), which returns
-         Optional[Dict] (None = silently-skipped automated sender) and can
-         raise (caller logs the UID and continues -- a poison message no
-         longer aborts the batch). [PATCH-5]'s INBOX -> Working MOVE used to
-         sit inline between body/attachment extraction and the results.append
-         call; it cannot live inside _parse_fetched_message() any more
-         because that method no longer has access to the open `imap` handle
-         nor a name that overlaps with the caller's `uid`. It was moved to
-         the CALLER (_fetch_new_messages), right after
-         "if parsed is not None:" and before "results.append(parsed)" --
-         same open `imap` connection, same gating (done_folder AND
-         working_folder AND a Message-ID present), same non-fatal
-         warn-and-continue on a failed MOVE, source_folder still injected
-         into the dict before it is appended. This preserves upstream's
-         per-message poison guard (a MOVE never runs for a message that
-         failed to parse) and the seen-after-fetch marking (untouched, still
-         happens before the parse/move step).
-       - connect()'s conditional pre-fill ([PATCH-4], process_existing) used
-         to be the only branch inside the try block; upstream now ALSO
-         branches on is_reconnect + a same-process _seen_uids_snapshot to
-         decide between "restore the previous baseline" and "mark everything
-         seen". These are orthogonal decisions -- is_reconnect/snapshot is
-         about surviving a same-process outage, process_existing is about
-         what a COLD start should do with a pre-existing backlog -- so they
-         were composed as outer/inner: is_reconnect+snapshot stays the
-         OUTER branch (upstream's new reconnect-restore behavior, verbatim,
-         untouched), and our process_existing conditional was moved INTO the
-         upstream "else" (first connect, or no snapshot yet) branch, in place
-         of upstream's unconditional mark-all-seen. Folder-ensure (Working /
-         Done / Sent CREATE) and routing the connection open through
-         self._open_imap() ([PATCH-4]'s other half) sit unchanged, just above
-         the imap.select("INBOX") call, before the branch.
-       - _fetch_new_messages() and connect() now build the IMAP connection
-         via self._open_imap() ([PATCH-3]'s wrapper) instead of upstream's
-         inline imaplib.IMAP4_SSL(...) + login() + _send_imap_id() sequence,
-         same as before this bump.
-       - _dispatch_message() is untouched by the upstream diff, so [PATCH-6]
-         (the try/finally around the drop-checks + handle_message, finalizing
-         the mail out of Working on every path) reapplied at the identical
-         anchor with no changes.
-       - [PATCH-1] (this docstring), [PATCH-2] (__init__ attributes),
-         [PATCH-3] (the _open_imap_conn / _imap_append_to_sent module-level
-         helpers and the _open_imap / _ensure_folder / _imap_move /
-         _search_message_id / _finalize_message / _append_to_sent instance
-         wrappers), [PATCH-7] (_send_email{,_with_attachment,_with_attachments}
-         Sent-folder APPEND) and [PATCH-8] (_standalone_send Sent-folder
-         APPEND) all sit on upstream code this diff does not touch and
-         reapplied unchanged at the same anchors.
-
-  4. Verification performed for this re-sync: `ast.parse()` on the new file;
-     a diff of the new file against the v2026.8.13 baseline was inspected
-     hunk-by-hunk to confirm it contains only [PATCH-1]..[PATCH-8] (no
-     [PATCH-9], nothing upstream reverted); grepped for the working_folder /
-     done_folder / sent_folder / process_existing config.extra reads (still
-     present, unchanged); confirmed _safe_decode / _CHARSET_ALIASES appear
-     exactly once (from the baseline, no leftover [PATCH-9] duplicate).
-
-The v2026.7.30 -> v2026.8.3 bump was the first real re-sync since v2026.7.7.2:
-the divergence the earlier header warned about (upstream main 2026-08-02,
-commit ff89f1b862, +1744 bytes) landed in that tag. It was purely the
-profile-scoped secret refactor (see the fold-in block below) and touched NO
-[PATCH-N] section. plugin.yaml (name: email-platform, hence the runtime
-module hermes_plugins.email_platform.adapter) and __init__.py were
-byte-identical at v2026.8.3 and remain so at v2026.8.13, so the ConfigMap
-subPath mount target is unchanged. The re-sync check stays mandatory on
-EVERY bump. See HERMES_EMAIL_UPSTREAM.md.
-
-The v2026.7.7.2 -> v2026.7.20 -> v2026.7.30 bumps were all BYTE-IDENTICAL
-re-checks (md5 39ed5d135762806451a944a9b279b8ad, 50848 bytes) and forced no
-[PATCH-N] work.
-
-FILE MOVED at the v2026.7.1 bump: upstream #41112/#3823 landed the plugin
-refactor -- the adapter moved from gateway/platforms/email.py to
-plugins/platforms/email/adapter.py and the static _PLATFORMS["email"] dict
-was replaced by a register(ctx)->ctx.register_platform() plugin entry point
-(see the "Plugin migration glue" block at the bottom of this file). The
-ConfigMap subPath mount in hermes_webui_deployment.yaml.j2 was re-targeted to
-/opt/hermes/plugins/platforms/email/adapter.py to match. Previous sync target
-was v2026.6.19 (gateway/platforms/email.py, md5 a3f7dc61f40388bf806481b189b48e00).
-
-Upstream changes folded in during the v2026.6.19 -> v2026.7.1 re-sync (all are
-upstream-only; none collide with the [PATCH-N] logic):
-  - Plugin migration: the register()/_build_adapter/_is_connected/
-    _standalone_send glue block at end of file (untouched -- our patch never
-    referenced the old _PLATFORMS dict).
-  - SENDER AUTHENTICATION (GHSA-rxqh-5572-8m77): new module-level
-    _domain_of / _domains_aligned / _verify_sender_authentication +
-    _AUTH_METHOD_RE / _AUTH_PROP_RE regexes, EmailAdapter fields
-    _require_authenticated_sender (env EMAIL_TRUST_FROM_HEADER / config
-    require_authenticated_sender) + _authserv_id, the _allow_all_senders /
-    _allowlist_in_effect statics, the sender_authenticated/auth_reason keys in
-    _fetch_new_messages' results dict, and the reject-gate in _dispatch_message.
-    Our [PATCH-5] source_folder key sits ALONGSIDE the two auth keys in the
-    same results dict; our [PATCH-6] try/finally WRAPS the reject-gate so an
-    unauthenticated-From drop still finalizes the mail out of Working.
-  - __init__ now parses ports via utils.env_int / env_bool and falls back to
-    config.extra for address/imap_host/smtp_host; our [PATCH-2] extra.get()
-    reads reuse the same `extra` local.
-  - connect() gained a `*, is_reconnect` kwarg + a missing-config fail-closed
-    guard (_set_fatal_error); [PATCH-4] only rewrites the IMAP-test body below
-    that guard.
-  - check_email_requirements() now .strip()s and treats blank as missing.
-  - `import time` was REMOVED upstream -- re-added below (our _append_to_sent
-    needs time.time() for imaplib.Time2Internaldate).
-
-Upstream changes folded in during the v2026.7.1 -> v2026.7.7.2 re-sync (all are
-upstream-only robustness fixes; none collide with the [PATCH-N] logic, each sits
-on original context our patches leave untouched):
-  - _fetch_new_messages: guard `raw_email = msg_data[0][1]` against
-    IndexError/TypeError + non-bytes payloads (skip the UID, don't abort the
-    batch). Sits ABOVE our [PATCH-5] Working-MOVE, on original context.
-  - new EmailAdapter._message_id_domain() helper: EMAIL_ADDRESS without an `@`
-    now falls back to "localhost" instead of crashing send with IndexError.
-  - the three _send_email{,_with_attachment,_with_attachments} msg_id sites now
-    call _message_id_domain() instead of self._address.split('@')[1]. These are
-    the same three methods our [PATCH-7] Sent-APPEND lives in; the msg_id line
-    sits ABOVE each [PATCH-7] block, on original context.
-  Our three PRs (#28697/#28699/#28702) were still OPEN at that tag, so no
-  [PATCH-N] section could be dropped.
-
-Upstream changes folded in during the v2026.7.30 -> v2026.8.3 re-sync (one
-mechanical refactor, PR #50094 / the #59076 hunks; no [PATCH-N] section touched):
-  - PROFILE-SCOPED SECRETS: every ``EMAIL_*`` read now goes through the new
-    module-level _get_esecret() (alias _get_secret) / _esecret_int() /
-    _esecret_bool() helpers instead of os.getenv / utils.env_int / utils.env_bool,
-    so a secondary profile under gateway multiplexing reads ITS OWN credentials
-    (agent.secret_scope.get_secret) while the default profile still falls back to
-    os.environ on UnscopedSecretError. The `from utils import env_int, env_bool`
-    import was replaced by `from utils import is_truthy_value` accordingly.
-    ``GATEWAY_*`` reads deliberately stay on os.getenv (upstream does the same).
-    agent/secret_scope.py already exists at v2026.7.30, so the new import is not
-    a hard forward-only dependency.
-  - dgxarley EXTENSION of that refactor: our [PATCH-8] _standalone_send() block
-    reads EMAIL_IMAP_HOST / EMAIL_IMAP_PORT for the Sent-folder APPEND -- upstream
-    has no such reads there, so they were converted to _get_secret() by hand for
-    parity (an unscoped IMAP host under multiplexing would archive a secondary
-    profile's reply into the default profile's mailbox).
-
-Forward-ported ahead of the pinned tag (2026-08-09 -> RETIRED 2026-08-15):
-upstream commit 65f407184d (2026-08-08, "fix(email): never let unknown or
-malformed charsets abort the IMAP fetch", closes #35901/#55381/#55383) was not
-in any release tag as of v2026.8.3, so it was forward-ported byte-for-byte as
-[PATCH-9] (module-level _CHARSET_ALIASES + _safe_decode(), consumed by
-_decode_header_value() and the three _extract_text_body() payload-decode call
-sites). The v2026.8.13 baseline now contains this commit natively (verified by
-diffing those three functions against the new baseline), so [PATCH-9] has been
-REMOVED from this file as of the 2026-08-15 re-sync -- see item 1 above.
+(plugins/platforms/email/adapter.py, 50705 bytes, blob 7d68f2dfbe). Must move in
+lockstep with hermes.image_tag: the baseline calls base-class methods that only
+exist from its own tag on. Re-sync procedure: HERMES_EMAIL_UPSTREAM.md.
 
 Adds four behaviours that upstream lacks:
 
   1.  Two-stage IMAP folder lifecycle:
         INBOX  -- fetch -->  Hermes_Working  -- handle_message() done -->  Hermes_Done
-      so that anything sitting in Hermes_Working after a crash is visible
-      as "interrupted in mid-processing", and INBOX stays empty of work
-      already acknowledged.
+      so anything left in Hermes_Working after a crash is visibly "interrupted".
+  2.  Sent-mail archival via IMAP APPEND (upstream only sends via SMTP).
+  3.  Opt-in processing of pre-existing INBOX mail on startup (upstream marks
+      everything already there as seen).
+  4.  Opt-in quoting of the received email below the turn's final reply to it.
 
-  2.  Sent-mail archival via IMAP APPEND to Sent folder (upstream only
-      pushes via SMTP and never writes to the user's IMAP).
+Knobs live in config.yaml under an explicit ``extra:`` block (an explicit
+``extra:`` value wins over a bare platform key). The two quote knobs also accept
+an env override (EMAIL_QUOTE_ORIGINAL / EMAIL_QUOTE_MAX_CHARS win):
 
-  3.  Opt-in processing of pre-existing INBOX mail on startup (upstream
-      hard-codes "ignore everything already there").
-
-  4.  Opt-in quoting of the received email below the first successful
-      reply to it, in the classic ``> `` style (upstream sends the agent's
-      answer only).
-
-All behavioural knobs are configured via config.yaml, nested under an
-explicit ``extra:`` block (the loader only folds ``platforms.<name>.extra`` into
-config.extra; bare keys are dropped). The four lifecycle/archival knobs below
-are config.yaml-only (mirroring the upstream PRs -- see the Upstreaming note
-below); the two [PATCH-11] quote knobs additionally accept an env override
-(EMAIL_QUOTE_ORIGINAL / EMAIL_QUOTE_MAX_CHARS win over config.yaml), matching
-upstream's own env-first convention for platform settings:
-
-  platforms.email.extra.working_folder     default "Hermes_Working"  ("" skips the
-                                                              Working stage → INBOX→Done)
-  platforms.email.extra.done_folder        default "Hermes_Done"  ("" disables all
-                                                              moves; mail stays in INBOX
-                                                              with \\Seen -- also skips
-                                                              the Working stage)
-  platforms.email.extra.sent_folder        default "Sent"   ("" disables IMAP APPEND)
-  platforms.email.extra.process_existing   default true     (false = mark all
-                                                              existing UNSEEN INBOX
-                                                              UIDs as seen on startup
-                                                              and only process truly
-                                                              new ones)
-  platforms.email.extra.quote_original     default false    (quote the inbound mail
-                                                              below the first successful
-                                                              reply to it; env
-                                                              EMAIL_QUOTE_ORIGINAL wins)
-  platforms.email.extra.quote_max_chars    default 10000    (length cap on the quoted
-                                                              block, header excluded;
-                                                              env EMAIL_QUOTE_MAX_CHARS
-                                                              wins)
+  platforms.email.extra.working_folder     default "Hermes_Working"  ("" → INBOX→Done)
+  platforms.email.extra.done_folder        default "Hermes_Done"     ("" → no moves at all)
+  platforms.email.extra.sent_folder        default "Sent"            ("" → no APPEND)
+  platforms.email.extra.process_existing   default true              (upstream PR: false)
+  platforms.email.extra.quote_original     default false
+  platforms.email.extra.quote_max_chars    default 10000             (quote body only)
   platforms.email.extra.quote_header       default "On {date}, {name} <{address}> wrote:"
-                                                             (config-only; {date}/{name}/
-                                                              {address} placeholders)
 
-When this file is bumped, the upstream source must be re-downloaded and the
-patch sections re-applied:
+Patch sections (grep for the markers):
 
   [PATCH-1] module docstring (this block)
   [PATCH-2] __init__: new self._* attributes (+ lifecycle log line)
-  [PATCH-3] new helpers: module-level _open_imap_conn (twin of upstream's
-            _connect_imap) + _imap_append_to_sent (shared Sent APPEND);
-            EmailAdapter._ensure_folder, _imap_move, _search_message_id,
-            _finalize_message, _append_to_sent
+  [PATCH-3] helpers: module-level _open_imap_conn (twin of upstream's
+            _connect_imap) + _imap_append_to_sent; EmailAdapter._ensure_folder,
+            _imap_move, _search_message_id, _finalize_message, _append_to_sent
   [PATCH-4] _probe_imap(): folder ensure + process_existing ``elif`` between
             upstream's reconnect-restore and mark-all-seen branches
-  [PATCH-5] _fetch_new_messages(): INBOX→Working MOVE per UID after
-            _parse_fetched_message() returns
-  [PATCH-6] _dispatch_message(): try/finally → finalize MOVE on every path
+  [PATCH-5] _fetch_new_messages(): INBOX→Working MOVE after
+            _parse_fetched_message(), only if done_folder AND working_folder AND
+            a Message-ID are present
+  [PATCH-6] _dispatch_message(): try/finally around _sender_accepted + event
+            build + handle_message, so every drop path finalizes out of Working
   [PATCH-7] _smtp_send(): APPEND to Sent (single sink for all adapter sends)
-  [PATCH-8] _standalone_send() (plugin glue): APPEND to Sent via the shared
-            helper, so the out-of-process cron / `hermes send` path archives too
-  [PATCH-9] RETIRED 2026-08-15 -- was the 65f407184d forward-port, now native
-            in the v2026.8.13 baseline. See the "Forward-ported" note above.
+  [PATCH-8] _standalone_send(): APPEND to Sent via the shared helper (cron /
+            `hermes send` path)
+  [PATCH-9] retired (charset fix, native upstream since v2026.8.13)
   [PATCH-10] _imap_default_security(): port-derived IMAP security default
-            (993 → tls, else starttls) in __init__ and _standalone_send
-  [PATCH-11] Quote the received email below the turn's final reply to
-            it (opt-in): module-level _format_quote_date() / _build_quote()
-            helpers; __init__ reads quote_original / quote_max_chars /
-            quote_header from config.extra (env EMAIL_QUOTE_ORIGINAL /
-            EMAIL_QUOTE_MAX_CHARS win); _dispatch_message calls
-            _remember_original() right after _sender_accepted (inside the
-            [PATCH-6] try, so a dropped mail is never remembered; only for
-            msg_data["sender_granted"], else _forget_sender_original());
-            _claim_quote() gates on metadata["notify"] (final), passed
-            through send / send_image / send_multiple_images / send_document;
-            _claim_quote()/_settle_quote() wrap the single _smtp_send()
-            call site in _send_email / _send_with_files.
-            _standalone_send is untouched (never quotes).
+            (993 → tls, else starttls); upstream defaults to tls on every port,
+            which breaks port-143 mailboxes. An explicit setting still wins.
+  [PATCH-11] quoting: _format_quote_date() / _build_quote(); _remember_original()
+            inside the [PATCH-6] try, only for msg_data["sender_granted"] (else
+            _forget_sender_original()); _claim_quote() quotes only final-reply
+            sends (metadata["notify"]), _claim_quote()/_settle_quote() wrap the
+            single _smtp_send() call site. _standalone_send never quotes.
 
-Upstreaming note: all of these behaviours are being upstreamed --
-  - Sent-folder APPEND ([PATCH-3] shared _imap_append_to_sent helper +
-    [PATCH-7] adapter call site + [PATCH-8] standalone path) in
-    PR NousResearch/hermes-agent#28697.
-  - process-existing ([PATCH-4] conditional connect()-time pre-fill) in
-    PR NousResearch/hermes-agent#28699.
-  - INBOX→Working→Done lifecycle ([PATCH-3/4/5/6]) in
-    PR NousResearch/hermes-agent#28702.
-  - Quote the received email under replies ([PATCH-11]) in
-    PR NousResearch/hermes-agent#113192.
-[PATCH-10] is dgxarley-only: upstream deliberately defaults to implicit TLS;
-setting ``imap_security: starttls`` per user would make it unnecessary.
-All three PRs' review-driven changes are adopted here so the patch matches what
-we submitted:
-  - APPEND status-tuple check (warn on NO/BAD instead of assuming success):
-    backported into _imap_append_to_sent.
-  - Shared-helper refactor + standalone-path parity (#28697 review): the Sent
-    APPEND is factored into the module-level _imap_append_to_sent, called from
-    both EmailAdapter._append_to_sent AND _standalone_send (cron / `hermes
-    send`), so the "every SMTP send archives" guarantee holds off the live
-    adapter too.
-  - Lifecycle bug-fixes (#28702 review): the Working MOVE in _fetch_new_messages
-    is gated on done_folder AND working_folder AND a Message-ID being present
-    (no Done → no moves; no Message-ID → cannot relocate after MOVE), and
-    _dispatch_message wraps its sender gate + handle_message in one try/finally
-    so an early drop (self / automated / non-allowlisted / unauthenticated) can't
-    strand mail in Working.
-  - ALL behavioural knobs (working_folder, done_folder, sent_folder,
-    process_existing) are read from config.yaml `platforms.email.extra.*`
-    (config.extra), NOT env vars. Since v2026.9.x PlatformConfig.from_dict also
-    promotes bare platform keys into extra, but an explicit ``extra:`` value
-    wins on a clash, so hermes_config.yaml.j2 keeps the ``extra:`` nesting.
-    NOTE our process_existing default is True (process the backlog), unlike
-    upstream's False.
+dgxarley-only deviations from upstream code paths: our own IMAP teardowns go
+through _close_imap() (same fd-leak class as upstream #79889), and
+_standalone_send's IMAP reads use the profile-scoped _get_secret().
+
+Upstreaming (all OPEN; drop the matching sections once merged):
+  - #28697 Sent-folder APPEND          [PATCH-3/7/8]
+  - #28699 process_existing            [PATCH-4]
+  - #28702 Working/Done lifecycle      [PATCH-3/4/5/6]
+  - #113192 quote original             [PATCH-11]
+[PATCH-10] stays dgxarley-only (per-user ``imap_security: starttls`` would make
+it unnecessary).
 ------------------------------------------------------------------------------
 """
 
