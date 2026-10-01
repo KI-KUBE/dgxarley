@@ -1,0 +1,12 @@
+set -e
+# fs.protected_regular=2 denies O_CREAT on a 991-owned file in the sticky emptyDir, even for root
+rm -f /run/synapse/homeserver.yaml
+sed "s|__NODE_IP__|${NODE_IP}|g" /config/homeserver.yaml > /run/synapse/homeserver.yaml
+chown 991:991 /run/synapse/homeserver.yaml
+chmod 0400 /run/synapse/homeserver.yaml
+{% if matrix.enable_token_authenticator %}
+# constraint on the image's own packages: an unpinned transitive upgrade (cryptography 50 via jwcrypto 1.6.1) breaks pyOpenSSL
+pip freeze > /tmp/image-constraints.txt
+pip install --no-cache-dir -c /tmp/image-constraints.txt synapse-token-authenticator
+{% endif %}
+exec /start.py
