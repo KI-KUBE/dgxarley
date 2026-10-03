@@ -35,11 +35,12 @@
 #   itself was CLOSED unmerged; the architecture landed on upstream main via
 #   #37500 (2026-09-08, after the v0.5.19 tag), plus "Enable NVIDIA NVFP4 on DGX
 #   Spark" #39126 (2026-09-13, tested on nvidia/Qwen3.8-Flash-Next-NVFP4, not
-#   this RadixArk export). Expected native in v0.5.20; re-check whether p65 is
-#   still needed on that bump.
+#   this RadixArk export). Native since v0.5.20; the profile now inherits the
+#   default image (0.5.21-sm121 gate-verified 2026-10-03, CPU-only).
 #
 # HOW IT GETS SERVED HERE (two halves, deliberately split)
-#   BUILD half: scripts/patches/sglang-0.5.18-sm121.recipe now sets
+#   BUILD half (HISTORICAL, 0.5.18 only; v0.5.20+ ships qwen4_exp natively and
+#   no longer needs it): scripts/patches/sglang-0.5.18-sm121.recipe sets
 #     APPLY_QWEN4EXP_PR36497=1, which applies scripts/patches/sglang-qwen4exp-
 #     pr36497.patch (upstream PR #36497, CLOSED unmerged, captured from the
 #     upstream-owned branch qwen4-main-squashed @ 99c9362e; 94 files,
@@ -54,9 +55,8 @@
 #     at all, and a DEFENSIVE veto that keeps it off a path which is silently
 #     wrong here. The veto lives at runtime precisely so it survives image
 #     re-bumps.
-#   The image is built (spark5, 2026-08-28). Gate it with:
-#     EXPECT_QWEN4EXP=1 scripts/verify_sglang_image.sh \
-#         xomoxcc/dgx-spark-sglang:0.5.18-sm121 spark5
+#   Gate any candidate image with:
+#     EXPECT_QWEN4EXP=1 scripts/verify_sglang_image.sh <image> spark5
 #   which fails unless qwen4_exp imports AND the SM121 veto is live.
 #
 # ############################################################################
@@ -223,18 +223,13 @@ _model_profile:
     knowledge_cutoff: null  # not disclosed for the Qwen3.8-Flash-Next base
     release_date: "2026-08-24"  # Qwen/Qwen3.8-Flash-Next base (HF createdAt). This NVFP4 export 2026-08-25.
     info_url: "https://huggingface.co/RadixArk/Qwen3.8-Flash-Next-NVFP4"
-    # The STANDARD 0.5.18-sm121 tag, not a variant: its recipe now sets
-    # APPLY_QWEN4EXP_PR36497=1, so the architecture is in the normal image.
-    # The tag is on Docker Hub since 2026-08-28. Pinned rather than inherited
-    # from default_sglang_image on purpose: 0.5.17-sm121 and everything older
-    # have no qwen4_exp at all, and neither does the current default
-    # 0.5.19-sm121 (patch no longer applies, see STATUS), so inheriting the
-    # default would point this profile at an image that cannot load the
-    # checkpoint.
-    # Gate with:
+    # Image: no override → default_sglang_image. Needs a v0.5.20+ image
+    # (qwen4_exp native via #37500); 0.5.19-sm121 and older-than-0.5.18 tags
+    # cannot load the checkpoint. 0.5.21-sm121 passed the qwen4_exp gate
+    # 2026-10-03:
     #   EXPECT_QWEN4EXP=1 scripts/verify_sglang_image.sh \
-    #       xomoxcc/dgx-spark-sglang:0.5.18-sm121 spark5
-    sglang_image: "xomoxcc/dgx-spark-sglang:0.5.18-sm121"
+    #       xomoxcc/dgx-spark-sglang:0.5.21-sm121 spark5
+    # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.18-sm121"  # prior pin, carried the #36497 backport
     nccl_transport: "roce"
     # TP=4 with the #36845 SM121 QSA kernel widened to the TP4 shape (6 q, 1
     # replicated kv) by p66, a local deviation from upstream that was validated
