@@ -61,6 +61,10 @@ against git objects (no working-tree checkout):
     safe outcome (never half-patch a file), just not a distinct "EDIT 2
     already applied" line -- re-check EDIT 1's anchor first if main-tracking.
 
+ABSORBED in v0.5.21: both edits are native there (SM121-aware probe via
+`_sm120_deep_gemm_apis_available()` and `get_device_sm() in (120, 121)`), so the
+`when=` gate keys on that helper and the patch self-disables on that ref.
+
 DELETE WHEN the pinned image ships a configurer.py at or past #39482 (i.e.
 `get_device_sm() in (120, 121)` for the UE8M0 line and the SM121-aware probe
 in `_compute_enable_deep_gemm`) natively -- check both edits independently,
@@ -68,7 +72,7 @@ since upstream may ship them at different times (as main currently does for
 EDIT 2 but not EDIT 1's exact anchor).
 """
 
-from _patchlib import Patch, gate_env
+from _patchlib import Patch, gate_env, target_contains
 
 TARGET = "sglang/srt/layers/deep_gemm_wrapper/configurer.py"
 
@@ -77,7 +81,7 @@ GATE_ENV = "SGLANG_OPT_DEEPGEMM_SM121_PACKED_SCALE"
 patch = Patch(
     name="DeepGEMM SM121 packed-scale selection (#39482)",
     target=TARGET,
-    when=gate_env(GATE_ENV, "1"),
+    when=gate_env(GATE_ENV, "1") and not target_contains(TARGET, "_sm120_deep_gemm_apis_available"),
 )
 
 OLD_PROBE_GATE = """    # SM120 support (mma.sync block-scale, no TMEM) landed in DeepGEMM#324;

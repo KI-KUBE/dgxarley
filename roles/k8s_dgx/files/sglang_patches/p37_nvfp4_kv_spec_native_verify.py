@@ -305,6 +305,52 @@ NEW_READ_V0519 = """        # is_decode_mode is read further down in forward_ext
             kv_cache = (k_cache, v_cache)"""
 
 
+# >= v0.5.21: upstream rebuilt forward_extend around `uses_native_fp4`, which is
+# SM100-only (not is_xqa_impl). XQA (SM120/SM121) FP4 verify therefore still takes
+# the dequant-workspace read, so the FP4 read + scales are re-enabled for the
+# verify/draft-extend-v2 modes only. Upstream now also writes the KV scales and
+# passes kv_cache_sf and the verify mask natively.
+OLD_READ_V0521 = """        if uses_native_fp4:
+            kv_cache, kv_cache_block_scales = self._get_nvfp4_decode_kv_cache(layer)
+            k_cache, v_cache = kv_cache
+        else:"""
+
+NEW_READ_V0521 = """        if uses_native_fp4 or (  # [dgxarley-nvfp4-read]
+            self.is_nvfp4_kvcache and is_decode_mode
+        ):
+            kv_cache, kv_cache_block_scales = self._get_nvfp4_decode_kv_cache(layer)
+            k_cache, v_cache = kv_cache
+        else:"""
+
+OLD_SCALES_V0521 = """        attention_sink = kwargs.get("sinks", None)
+        if uses_native_fp4:
+            k_scale, v_scale = self._get_nvfp4_bmm_scales(layer)"""
+
+NEW_SCALES_V0521 = """        attention_sink = kwargs.get("sinks", None)
+        if uses_native_fp4 or (  # [dgxarley-nvfp4-scales]
+            self.is_nvfp4_kvcache and is_decode_mode
+        ):
+            k_scale, v_scale = self._get_nvfp4_bmm_scales(layer)"""
+
+OLD_CALL_V0521 = """                mask = (
+                    self._xqa_spec_dec_mask
+                    if forward_batch.forward_mode.is_target_verify()
+                    and self.forward_metadata.max_seq_len_q > 1
+                    else None
+                )
+"""
+
+NEW_CALL_V0521 = (
+    OLD_CALL_V0521 + """                if (  # [dgxarley-nvfp4-call] XQA needs the mask for draft-extend-v2 too
+                    mask is None
+                    and self.is_nvfp4_kvcache
+                    and self.forward_metadata.max_seq_len_q > 1
+                ):
+                    _q_len = int(self.forward_metadata.max_seq_len_q)
+                    mask = self._dgxarley_causal_draft_mask(q.shape[0] // _q_len, _q_len)
+"""
+)
+
 OLD_SCALES = """        # sink: additional value per head in the denominator of the softmax.
         attention_sink = kwargs.get("sinks", None)
         bmm1_scale, bmm2_scale = self._get_bmm_scales(layer, q_scale)"""
@@ -433,6 +479,7 @@ CALL_VARIANTS = [
     # >= v0.5.18
     _call_variant("                    multi_ctas_kv_counter_buffer=self._multi_ctas_kv_counter_buffer,\n"),
     (_OLD_CALL_V0519, _NEW_CALL_V0519),  # >= v0.5.19
+    (OLD_CALL_V0521, NEW_CALL_V0521),  # >= v0.5.21
 ]
 
 # >= v0.5.19 also added a RAGGED verify layout (spec_info.ragged_verify_layout,
@@ -485,17 +532,27 @@ NEW_HELPER = """    def _get_nvfp4_bmm_scales(self, layer: RadixAttention) -> tu
 
 @trtllm.run
 def apply_trtllm(p: Patch) -> None:
-    p.replace(OLD_GUARD, NEW_GUARD, marker="[dgxarley-nvfp4-guard]", what="guard")
-    p.replace(OLD_WRITE, NEW_WRITE, marker="[dgxarley-nvfp4-write]", what="kv write")
+    if "native FP4 KV cache supports decode only" in p.code or "[dgxarley-nvfp4-guard]" in p.code:
+        p.replace(OLD_GUARD, NEW_GUARD, marker="[dgxarley-nvfp4-guard]", what="guard")  # removed upstream in v0.5.21
+    _write_native = (
+        "*self._kv_write_scales(layer)" in p.code and OLD_WRITE not in p.code and "[dgxarley-nvfp4-write]" not in p.code
+    )
+    if not _write_native:  # native since v0.5.21
+        p.replace(OLD_WRITE, NEW_WRITE, marker="[dgxarley-nvfp4-write]", what="kv write")
     p.replace_any(
         [
             (OLD_READ, NEW_READ),  # <= v0.5.18
             (OLD_READ_V0519, NEW_READ_V0519),  # >= v0.5.19
+            (OLD_READ_V0521, NEW_READ_V0521),  # >= v0.5.21
         ],
         marker="[dgxarley-nvfp4-read]",
         what="kv read",
     )
-    p.replace(OLD_SCALES, NEW_SCALES, marker="[dgxarley-nvfp4-scales]", what="scales")
+    p.replace_any(
+        [(OLD_SCALES, NEW_SCALES), (OLD_SCALES_V0521, NEW_SCALES_V0521)],
+        marker="[dgxarley-nvfp4-scales]",
+        what="scales",
+    )
     p.replace_any(CALL_VARIANTS, marker="[dgxarley-nvfp4-call]", what="kernel call")
     if "is_ragged_verify" in p.code:  # >= v0.5.19 only
         p.replace(

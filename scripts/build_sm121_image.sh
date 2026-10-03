@@ -79,7 +79,42 @@ BRANCH_NAME="sm121"
 # source patches (PRs #22929/#22928) are also applied — the underlying
 # build steps and SM121 sgl-kernel patches are identical.
 #
-# Current line (v0.5.20 - SELECTED 2026-09-22, NOT YET BUILT):
+# Current line (v0.5.21 - SELECTED 2026-10-03, NOT YET BUILT):
+#   sglang-0.5.21-sm121.recipe         - SGLang v0.5.21 (released 2026-10-02).
+#                                        Build side is quiet once more: the
+#                                        sgl-kernel tree stays at
+#                                        python/sglang/kernels/aot (package
+#                                        0.4.7), torch stays 2.13.0 (BASE_IMAGE
+#                                        unchanged, no new base build), and
+#                                        flashinfer 0.6.18.post1 / transformers
+#                                        5.12.1 / kernels 0.14.1 / cutlass-dsl
+#                                        4.6.2 / tokenizers 0.22.2 are ALL
+#                                        unchanged. What moves:
+#                                        (a) SGL_KERNEL_PATCH_VARIANT
+#                                        "-v0.5.20" -> "-v0.5.21", COSMETIC:
+#                                        the four patch bodies are byte-
+#                                        identical, only hunk line numbers move
+#                                        (-4) because #40033 moved the
+#                                        speculative kernels to JIT and removed
+#                                        four csrc/speculative/*.cu SOURCES
+#                                        entries. The -v0.5.20 set still applies
+#                                        silently at offset -4, so the suffix is
+#                                        discipline, not a tripwire.
+#                                        (b) upstream pyproject pins xgrammar
+#                                        ==0.2.7 and sentencepiece==0.2.1, but
+#                                        scitrera's Dockerfile installs xgrammar
+#                                        unpinned and missing_deps.py only
+#                                        checks presence, so the image may ship
+#                                        xgrammar 0.2.8 / sentencepiece 0.2.2
+#                                        (OPEN RISK H in the recipe).
+#                                        All APPLY_* flags keep their v0.5.20
+#                                        values, re-verified against raw
+#                                        v0.5.21. The runtime patch replay and
+#                                        the release-notes review are tracked as
+#                                        TODO markers in the recipe header.
+#                                        Tag: xomoxcc/dgx-spark-sglang:0.5.21-sm121
+#
+# Previous line (v0.5.20 - SELECTED 2026-09-22, BUILT + PUSHED 2026-09-22):
 #   sglang-0.5.20-sm121.recipe         - SGLang v0.5.20 (released 2026-09-18,
 #                                        713 PRs). Build side is again quiet:
 #                                        sgl-kernel tree stays at
@@ -412,7 +447,30 @@ BRANCH_NAME="sm121"
 #RECIPE_NAME="sglang-0.5.15.post1-sm121"
 #IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121"
 
-# v0.5.20 (2026-09-22): ACTIVE SELECTION, NOT YET BUILT. SGLang v0.5.20
+# v0.5.21 (2026-10-03): ACTIVE SELECTION, NOT YET BUILT. SGLang v0.5.21
+# (released 2026-10-02). Build-side nothing that feeds a knob moved except one
+# cosmetic suffix: SGL_KERNEL_DIR, BASE_IMAGE (torch stays 2.13.0),
+# FLASHINFER_VERSION (v0.5.21 still pins 0.6.18), transformers, kernels,
+# cutlass-dsl 4.6.2 and tokenizers are all UNCHANGED.
+#   * SGL_KERNEL_PATCH_VARIANT="-v0.5.21": the four CMakeLists patch BODIES are
+#     byte-identical to the -v0.5.20 ones, re-anchored because #40033 removed
+#     four csrc/speculative/*.cu SOURCES entries. Regenerated at zero fuzz /
+#     zero offset; the -v0.5.20 set still applies at offset -4, so a forgotten
+#     suffix builds a correct tree instead of aborting.
+#   * Source patches re-verified against raw v0.5.21: dsv4-mtp-marlin applies
+#     (offset 282) and is still needed, tilelang applies (offset 46); qwen4exp,
+#     nemotron35, qwen36 and dsv4-nvfp4 stay gated off (native/merged).
+#   * Dockerfile chain clean against scitrera origin/main (unchanged at 2a3b1b7).
+#   * Upstream tightened xgrammar==0.2.7 / sentencepiece==0.2.1; our image
+#     installs xgrammar unpinned (OPEN RISK H), and the speculative kernels are
+#     now JIT-compiled at first use (OPEN RISK I).
+# STILL OPEN before promoting: the runtime patch set has NOT been replayed
+# against this ref (OPEN RISK A) and the release-notes review is pending.
+RECIPE_NAME="sglang-0.5.21-sm121"
+IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.21-sm121"
+
+# Rollback: v0.5.20 (selected 2026-09-22, built + pushed 2026-09-22 as
+# xomoxcc/dgx-spark-sglang:0.5.20-sm121; no acceptance-gate run). SGLang v0.5.20
 # (released 2026-09-18, 713 PRs). Build-side nothing that feeds a knob moved:
 # SGL_KERNEL_DIR, BASE_IMAGE (torch stays 2.13.0), FLASHINFER_VERSION (v0.5.20
 # still pins 0.6.18), transformers, kernels, cutlass-dsl 4.6.2 and tokenizers
@@ -444,8 +502,8 @@ BRANCH_NAME="sm121"
 # idempotent on both. Details per patch in OPEN RISK A of the recipe. What is
 # still unproven is what only the in-driver acceptance gate can prove on a built
 # image.
-RECIPE_NAME="sglang-0.5.20-sm121"
-IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.20-sm121"
+#RECIPE_NAME="sglang-0.5.20-sm121"
+#IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.20-sm121"
 
 # Rollback: v0.5.19 (selected 2026-09-10, never built). SGLang v0.5.19
 # (released 2026-09-03/05, 786 PRs). Build-side this is the quietest bump of the

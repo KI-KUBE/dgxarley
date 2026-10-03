@@ -127,12 +127,13 @@ def apply(p: Patch) -> None:
         marker=BUF_MARKER,
         what="buffered_multi_thread_safetensors_weights_iterator per-shard logger.info",
     )
-    p.replace(
-        OLD_MT,
-        NEW_MT,
-        marker=MT_MARKER,
-        what="multi_thread_safetensors_weights_iterator per-shard logger.info",
-    )
+    if "def multi_thread_safetensors_weights_iterator(" in p.code:  # removed upstream in v0.5.21
+        p.replace(
+            OLD_MT,
+            NEW_MT,
+            marker=MT_MARKER,
+            what="multi_thread_safetensors_weights_iterator per-shard logger.info",
+        )
     # dgxarley: see module docstring note above -- prepend a bare `import os`
     # when missing, but only when we are about to write the file anyway (i.e.
     # at least one of the edits above actually changed something).
