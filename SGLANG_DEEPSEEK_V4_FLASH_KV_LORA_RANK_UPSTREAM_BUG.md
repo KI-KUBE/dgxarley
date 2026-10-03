@@ -160,6 +160,8 @@
 > `roles/k8s_dgx/files/sglang_patches/p56_deepseek_v3_kv_lora.py`'s anchor
 > unchanged, not touched by any commit since 09-25. Monkey-patch still
 > required, no location change.
+>
+> **Re-verified 2026-10-03:** transformers shipped v5.18.0 (2026-09-30), SGLang shipped v0.5.21 (2026-10-02, tag commit e00930c5489053f26d86b179cee0d087f846acbb). Direct source check confirms `kv_lora_rank: int = 512` is still present, unchanged, at `configuration_deepseek_v3.py:93` on the v5.18.0 tag, so DeepSeek-V4-Flash's `kv_lora_rank: null` still fails strict validation upstream. SGLang v0.5.21 still pins `transformers==5.12.1` (same as v0.5.20); upstream main bumped to 5.17.0 via #39012 (547286bb5a, 2026-09-30), not in v0.5.21. `_DeepseekV4ConfigAlias(_HFDeepseekV3Config)` in `sglang/srt/utils/hf_transformers/common.py` is still present at v0.5.21 with no `kv_lora_rank` handling (the file only grew DeepSeek-V4.1 config class registration, +30 lines vs v0.5.20). Local patch `roles/k8s_dgx/files/sglang_patches/p56_deepseek_v3_kv_lora.py` anchor (`    kv_lora_rank: int = 512`) unchanged and not touched locally since 09-28. Monkey-patch still required, no location change. Cross-reference: `UPSTREAM_DSV4_BUGS.md` 2026-10-03 entry (v0.5.21 contains #39482/#38792; unrelated to config parsing).
 
 
 ## Summary
