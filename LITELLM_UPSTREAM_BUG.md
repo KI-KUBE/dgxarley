@@ -311,6 +311,19 @@ commits unchanged (247b21a5fa / e60e09c0d3), `updatedAt` unchanged at 2026-09-23
 `mergeable_state` recompute from `main` advancing, not new PR activity). The HAProxy TLS sidecar
 workaround remains required.
 
+**2026-10-03 re-verify, still broken; no fix in v1.103.1/v1.103.2:** LiteLLM advanced from
+v1.103.0 to **v1.103.2** (stable, published 2026-10-01T06:37Z; v1.103.1 on 09-30), plus point
+releases v1.102.2 (09-30), v1.101.3 (09-30), v1.101.4 (10-01), v1.100.4 (09-30) and prereleases
+v1.104.0-rc.1/rc.2 and v1.105.0-dev.1/dev.2 (to 10-02). Scanned the v1.103.1, v1.103.2, v1.101.3,
+v1.101.4 and v1.104.0-rc.2 changelogs: zero hits for ollama, ssl_verify, module_level_aclient or
+BaseLLMAIOHTTPHandler. `litellm/llms/ollama/completion/handler.py` on `main` is byte-identical
+(blob 449952217b5e420c92ca20ff9cdff62aa95468e4, 4148 bytes): `[TODO]: migrate embeddings to a
+base handler as well.` at line 4, `await litellm.module_level_aclient.post(url=api_base,
+json=data)` without `ssl_verify` at line 98. Issue #30778 remains closed (`not_planned`, closed
+2026-09-24T00:03:04Z, 1 comment). PRs #30810 and #30848 remain open and unmerged, head commits
+unchanged (247b21a5fa / e60e09c0d3), `updatedAt` unchanged at 2026-09-23. The HAProxy TLS
+sidecar workaround remains required.
+
 ## Upstream Fix
 
 The embedding path in `litellm/llms/ollama/completion/handler.py` should stop using
