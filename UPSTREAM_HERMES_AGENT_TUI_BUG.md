@@ -554,6 +554,23 @@ small (~50 MB) and the node has fast local storage.
   serve-loop fixes, inject_message routing, 09-24 to 09-27), none touching npm-install, lockfile
   handling or EACCES. The Action Item (EACCES re-verification with a non-10000 UID) remains
   outstanding and deferred by the user, not performed here.
+- **Re-verified 2026-10-03:** no new release since v2026.9.24 (v0.21.5, 2026-09-24);
+  `hermes.image_tag` is now `v2026.9.24` (bumped from `v2026.9.21` after the 09-28 entry; the
+  v2026.9.24 release notes were already grepped on 09-28, no tui/npm install/lockfile/EACCES
+  content). **Issue #81620 is now CLOSED** (2026-09-28T19:32:03Z by @OutThisLife); closing
+  comment: same cause as #45657, fixed by PR #94729 (check scoped to the ui-tui workspace
+  closure; launcher reuses a completed install through a receipt in
+  `scripts/build/node-deps.mjs` and only prepares dependencies when the TUI build is stale,
+  `hermes_cli/main_tui_launch.py`), so dashboard reconnects no longer trigger an npm install.
+  The 09-28 entry's "remains OPEN" for #81620 is superseded. PR #94729 per the API:
+  `state: MERGED`, `mergedAt: 2026-08-25T19:09:09Z`. #66978 and #45657 remain CLOSED, PR
+  #67011 remains CLOSED/unmerged, PR #61753 remains OPEN (unchanged since 2026-08-03). No
+  commits to `tui_gateway/server.py` or `subcommands/dashboard.py`; `web_server.py` commits
+  since 09-28 (cron-ticker gating, serve shutdown, telemetry opt-in, local-backend retire on
+  code skew) do not touch npm-install, lockfile or EACCES. The Action Item (EACCES
+  re-verification with a non-10000 UID) remains outstanding and deferred by the user, not
+  performed here.
+
 
 ## Action Items
 
