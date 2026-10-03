@@ -1,5 +1,11 @@
 # FlashInfer Upstream Bug: head_dim=512 not supported (Gemma-4 global attention)
 
+## Status 2026-10-03 (re-verify; flashinfer v0.7.0.post1 and SGLang v0.5.21 released, both irrelevant to the tracked dispatch gap)
+
+flashinfer released v0.7.0.post1 (2026-09-29, now GitHub "Latest"; diff against v0.7.0 is `aot.py`, `jit/gemm/core.py`, two tests and `version.txt`), then pre-releases v0.7.1rc1 (2026-09-30) and v0.7.1rc2 (2026-10-02). Zero commits to `prefill.cuh` since the 2026-09-28 check. One new commit touches `persistent.cuh`: `99c158c6` (2026-09-29, PR #5329, "specialize persistent BatchAttention for equal KV strides"), a shared-K/V-offset perf specialization of the same kind as `db0cdc26` (PR #4736) on the prefill side; it does not touch `KTraits::IsInvalid()` or the `CTA_TILE_Q`/`NUM_MMA_*` dispatch this doc tracks. Issue #3297 remains closed (4 comments, unchanged since 2026-06-04), PR #3576 remains merged (2026-06-15), both unchanged.
+
+SGLang released v0.5.21 on 2026-10-02T01:09:04Z (now GitHub "Latest"), superseding v0.5.20; `main` HEAD is `7be5e347` (2026-10-03T09:21:55Z), and `main` now pins `flashinfer_python[cu13]==0.7.0.post1` (the v0.5.21 tag itself still pins 0.6.18). The Gemma4 attention-backend allowlist in `arg_groups/model_hook.py`, source-verified on `main`, is unchanged: `accepted_backends = ("trtllm_mha", "triton", "ascend", "intel_xpu", "intel_amx", "aiter")`, `flashinfer` still excluded. `attention_backend: triton` remains permanently mandatory for all four Gemma-4 profiles. No action needed.
+
 ## Status 2026-09-28 (re-verify; no upstream movement)
 
 No new flashinfer release since v0.7.0 stable (2026-09-22, still GitHub "Latest"); no v0.7.0.post1 exists. Zero commits to `prefill.cuh` and zero to `persistent.cuh` since the 2026-09-25 check (last touches remain `b8107c7f` 2026-09-17, NVFP4-KV-repack scoped, out of scope; and PR #3684, 2026-08-13, unchanged). Issue #3297 remains closed (4 comments, unchanged since 2026-06-04), PR #3576 remains merged (2026-06-15), both unchanged.
