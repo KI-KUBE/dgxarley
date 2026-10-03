@@ -354,6 +354,22 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 i
 > identical. The `--speculative-draft-load-format auto` plus
 > `--speculative-draft-model-path` workaround remains required and unchanged.
 
+> **Re-verified 2026-10-03:** SGLang v0.5.21 was released 2026-10-02. At the
+> v0.5.21 tag, `_resolve_draft_load_format()` is at `model_runner.py:1447`
+> and `maybe_init_draft_worker()` at `scheduler.py:1006` (same line numbers
+> as `main` showed on 2026-09-28, so the tag was cut shortly after that).
+> On `main` HEAD (`7be5e3473c`, 2026-10-03T02:21:55-0700) they drifted to
+> `model_runner.py:1449` and `scheduler.py:1010`, pure line drift from
+> stacked refactors (`a9c97c9f69`, `986cb8268b`, `499e86db98` in
+> `model_runner.py`/`tp_worker.py`; `986cb8268b` and `499e86db98` checked:
+> no `load_format` or `_init_model_config` change). The root-cause gate is
+> unchanged: `_resolve_draft_load_format()` still returns `None` unless
+> `speculative_draft_load_format` is explicitly set. Issue #32202 stays
+> closed (2026-09-22). PR #34622 remains OPEN, no activity since
+> 2026-08-18. The `--speculative-draft-load-format auto` plus
+> `--speculative-draft-model-path` workaround remains required and
+> unchanged.
+
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`
 
