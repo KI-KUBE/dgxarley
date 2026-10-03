@@ -134,6 +134,16 @@ contracts listed above `hermes.image_tag`.
 - Upstream `c13ea774e6` (on `main`, not yet in a tag) replaces `from hermes_cli import
   __version__` in `_send_imap_id()` with `hermes_cli.version_info.get_version_info()`. It is
   non-fatal (`except Exception` falls back to `"0"`), but take it along at the next re-sync.
+- 2026-10-03: still no tag after v2026.9.24 (adapter.py blob 7d68f2dfbe, 50705 B). On `main`
+  (blob 419a12ebd2, 55859 B) adapter.py has since gained, beyond `c13ea774e6`: six
+  `fix(email)` commits from 2026-09-27 (From parsing via the stdlib, SPF/DKIM/DMARC clause
+  scoping; `d0c588972e` to `3f4533b9de`), `9bcbe7b5df` (i18n pass, 2026-09-28, +3/-2) and
+  `33c7018054` (2026-10-02, `splits_long_messages = True` so oversized cron output goes out as
+  one email). None of these are in v2026.9.24. Expect merge conflicts around [PATCH-6] and
+  [PATCH-11] (sender and auth handling) at the next re-sync. PRs #28697, #28699, #28702 and
+  #113192 are all still open and `CONFLICTING` (fresh `gh pr view` on 2026-10-03), with no
+  maintainer review or comment activity.
+
 
 ## Operational notes
 
