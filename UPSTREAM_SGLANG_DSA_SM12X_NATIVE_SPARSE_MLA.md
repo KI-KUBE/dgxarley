@@ -787,6 +787,53 @@ watch only.
 > TP4/real-weight confirmation run requested this cycle). No factual errors
 > found in the 09-25 entry.
 
+> Re-checked 2026-10-03: PR #31481 unchanged in content since the 09-22
+> rebase (head still `7aa9049335de83ed1c2227c176041301a6309a29`, `updatedAt`
+> 2026-09-22T09:03:28Z, no new comments or reviews, `reviewDecision:
+> REVIEW_REQUIRED`). `mergeable`/`mergeStateStatus` stable at
+> `MERGEABLE`/`BLOCKED` on two `gh` reads 5s apart. Fork remote branch head
+> matches the PR head exactly.
+
+> SGLang v0.5.21 was tagged 2026-10-02 (now latest). `upstream/main` (fetched
+> fresh, tip `7be5e3473c`): `flash_mla_sm120.py` zero commits;
+> `forward_mla.py` only the module-rename refactor `de9f850b36` (#41555);
+> `kv_cache_configurator.py` took `8055ccd2cd`, `ec0006673a`, `eb9c9ee99d` and
+> `f0e4001930` (linear-attention accounting, NPU DCP, QSA indexer fp8 cache,
+> SWA pool memory-saver), none checked against `calculate_mla_kv_cache_dim`
+> beyond a clean merge-tree; `dsa_backend.py` took `42f2e4fcb7` (#41987),
+> `3ed6367d3f` (#41337), `e9b0d0c0a3` (#40911) and `7889fbab9a` (#32196), none
+> touching the `_forward_trtllm` backend selection. p34's redundancy question
+> and design conclusion unchanged.
+
+> Dry-run rebase check (`git merge-tree --write-tree upstream/main
+> dsa-sm12x-native-sparse-mla`, no push, no worktree touched): clean merge
+> tree, no conflicts. No rebase needed right now, PR already `MERGEABLE`.
+
+> PR #32779 (Triton sparse MLA prefill) did not merge: still `OPEN`,
+> `mergedAt: null`, `MERGEABLE`/`BLOCKED`, `REVIEW_REQUIRED`, still only
+> nvpohanh's `APPROVED` (09-14), no second approval. Head moved from
+> `6848fe723e` to `f7348866ac` (updatedAt 2026-10-02T16:36Z) after ch-wan's
+> review of 09-29 (11 findings: unvalidated union tile shape, unbounded
+> `_UNION_WS`, int32 overflow at large head counts, `index_kpool > 1` not
+> rejected, per-layer host sync, stale PR description, and a request to launch
+> end to end on SM120 or leave the `flash_mla_sm120.py` allowlist alone) and
+> nvpohanh's 10-01 comment (union numbers measured on the old bytemap path).
+> yunyang1999 answered both on 10-02: per-group dedup replaced the bytemap,
+> validator added, docs and tests added, description rewritten, recommended
+> setting `--dsa-triton-union 2`. CI was re-triggered (`/tag-and-rerun-ci`,
+> `/rerun-failed-ci` x4) and the rollup shows 20 FAILURE / 117 SUCCESS / 48
+> SKIPPED, so the 09-22 "All NV pipelines have passed" state no longer holds.
+> The author also states mainline DSA already runs on SM120 via
+> auto-selected `flashinfer_sparse_mla` (consistent with our p34 note); the
+> PR's SM120 gain is about 1% per-token, 1.13-1.14x with union at 4096 tokens
+> or more.
+
+> p34 retirement decision remains pending, unchanged from 08-15 (no new
+> TP4/real-weight confirmation run requested this cycle). Even if #32779
+> merges it only adds an opt-in prefill backend and does not change the p34
+> question. No factual errors found in the 09-28 entry other than that
+> "green NV CI" is now stale.
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
