@@ -239,6 +239,8 @@ on the new image too, its `target_contains` gate on the removed
 > retire it remains open and unactioned, needs explicit approval. Local
 > note: `default_sglang_image` confirmed unchanged at
 > `xomoxcc/dgx-spark-sglang:0.5.20-sm121`.
+>
+> **Re-verified 2026-10-03:** Still resolved by removal. SGLang **v0.5.21** was published 2026-10-02 (tag commit `e00930c548`), now the latest release. Confirmed at the v0.5.21 tag and on upstream `main` (HEAD `7be5e3473c`, 2026-10-03): no `nvfp4.py` MoE-shuffle module exists, and `cutlass_moe.py` contains no `cutlass_moe_fp4` or `_shuffle_rows_torch` (its only top-level function is `cutlass_fused_experts_fp8`). Its sole change since v0.5.20 is a one-line import-path move (`silu_and_mul_clamp` to `sglang.kernels.ops.moe.dsv4`); no commits since the 2026-09-26 reorg `38ec649048`. No new related issue or PR after 2026-09-28. `p26_cutlass_moe_zeroinit.py` remains a self-noop; `RETIRED_PATCHES.md` still does not list p26, and the retirement follow-up remains open and needs explicit approval. Local note: `default_sglang_image` unchanged at `xomoxcc/dgx-spark-sglang:0.5.20-sm121`.
 
 Bug exists in SGLang v0.5.10, v0.5.10.post1, v0.5.11, v0.5.12, v0.5.12.post1, v0.5.13, and **v0.5.14** (released 2026-06-26 — `_shuffle_rows_torch` OOB unaddressed; see Status section above).
 
