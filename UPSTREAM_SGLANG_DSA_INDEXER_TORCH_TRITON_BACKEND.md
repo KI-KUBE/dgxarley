@@ -585,6 +585,34 @@ REST/GraphQL now report `mergeable: MERGEABLE` / `mergeStateStatus: BLOCKED`
 > upstream fix has landed or is imminent. No factual errors found in the
 > 09-25 entry.
 
+> Re-checked 2026-10-03: PR #31480 unchanged in content since the 09-10 rebase
+> (head still `8d3944adb22eba57e258c7129f54333c7896fcf8`, `updatedAt`
+> 2026-09-10T13:10:42Z, no new comments or reviews, `reviewDecision:
+> REVIEW_REQUIRED`). `mergeable`/`mergeStateStatus` stable at
+> `MERGEABLE`/`BLOCKED` on two `gh` reads 5s apart. Fork remote branch head
+> (`git ls-remote origin`) matches the PR head exactly.
+
+> SGLang v0.5.21 was tagged 2026-10-02 (now latest; v0.5.20 was 2026-09-18).
+> `upstream/main` (fetched fresh, tip `7be5e3473c`): `paged_mqa_logits_backend.py`
+> has no commits since 09-28; `exec_.py`'s `dsa_paged_mqa_logits_backend`
+> choices are still `["auto", "deepgemm", "cutedsl", "aiter"]`, no `torch`.
+> Since 09-28 `dsa_backend.py` took `42f2e4fcb7` (#41987, k-pool indexer CPU
+> seq_lens sync removal, 2 lines) and `3ed6367d3f` (#41337, FlashMLA KV format
+> naming, +3 lines), plus `e9b0d0c0a3` (#40911, AMD CUDA gating) and
+> `7889fbab9a` (#32196, EAGLE DP metadata). None changes the generic
+> paged-MQA-logits dispatch this doc tracks. The remaining DSA/indexer
+> commits are AMD gfx950 (#38583, #41488), NPU DCP (#37787) and QSA/Qwen
+> (#39721, #39893), out of scope. p30 not redundant, design conclusion
+> unchanged.
+
+> Dry-run rebase check (`git merge-tree --write-tree upstream/main
+> dsa-indexer-torch-triton-backend`, no push, no worktree touched): clean
+> merge tree, no conflicts despite the `dsa_backend.py` edits above. No
+> rebase needed right now, the PR already reports `MERGEABLE`.
+
+> Conclusion unchanged: p30/p35 remain necessary on current main; no upstream
+> fix has landed or is imminent. No factual errors found in the 09-28 entry.
+
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
 > Triton fast path (unblocks DSA models on SM120/SM121)
 
