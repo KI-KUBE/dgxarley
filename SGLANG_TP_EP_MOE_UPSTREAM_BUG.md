@@ -318,9 +318,41 @@ no substantive conclusion changes.
 > qzeros EP-remap closure. All three monkey-patches (p20, p23, p28) remain
 > required and unchanged.
 
+> **Re-verified 2026-10-03:** SGLang v0.5.21 was released 2026-10-02
+> (v0.5.20 previous); at that tag `moe_wna16.py` still has the bug
+> (`tp_rank = get_parallel().tp_rank`, unguarded `param.data[expert_id, ...]`)
+> and `modelopt_quant.py`'s generic `else` branch
+> `w13_input_scale = layer.w13_input_scale.max(dim=-1).values...` is
+> unchanged at line 2726. **The qzeros half is now FIXED on `main`:** PR
+> [#41807](https://github.com/sgl-project/sglang/pull/41807) ("Shard MoE
+> WNA16 and Quark INT4-FP8 weights by the MoE placement") merged
+> 2026-09-30T20:25:39Z as `e289989933`, not yet in any tag (v0.5.21 predates
+> it). It replaces `tp_rank = get_parallel().tp_rank` with
+> `layer.moe_tp_rank` and writes the qzeros through a new
+> `_local_expert_ids(layer, expert_id)` helper (EPLB physical replicas, then
+> the EP slice via `_map_global_expert_id_to_local_expert_id`), so global
+> expert ids are no longer used to index the local `param.data`. That covers
+> the bug this doc describes (global expert id used as local index, wrong TP
+> rank under EP). `p20_moe_wna16_qzeros_ep.py` becomes redundant on the
+> first image that contains `e289989933` (expected v0.5.22+; its anchor will
+> drift, so it should noop with a warning, confirm before deploying). The
+> modelopt half is NOT fixed: on `main` HEAD (`7be5e3473c`) the `else`
+> branch is at line 2734 with no EP slice. `_input_scale_to_local_experts()`
+> (line 2283) is used only for `w2_input_scale` in the `moe_a2a_backend=megamoe`
+> branch (line 2702), and the only other EP slice (`_slice_scale`,
+> `enable_flashinfer_cutedsl_moe` branch) predates this window, so neither
+> covers the tracked branch. Only new `modelopt_quant.py` commit since
+> 09-28 is `5423a4d885` (MegaMoE W13 layout, #39388), unrelated. SGLang
+> #23531 remains OPEN (idle since 2026-04-30), #20963 CLOSED, adjacent #37796
+> OPEN (idle since 2026-09-14). vLLM v0.30.0 is still latest (no new
+> release, no re-check needed); vLLM #35598 stays CLOSED (2026-09-24).
+> Patches p23 and p28 remain required and unchanged; p20 required until an
+> image with `e289989933` ships.
+> required and unchanged.
+
 - vLLM: [PR #35598](https://github.com/vllm-project/vllm/pull/35598) — open since 2026-02-28, not merged. Author rebased onto `main` on 2026-04-13 (commit `c56eae0e`, merge-from-main only, no code changes); prior rebase 2026-03-05. Still only the initial Gemini bot review from 2026-02-28 — no human reviewer has engaged (mergify[bot] flagged a merge conflict 2026-05-23; 5 reviewers requested, none engaged; re-verified 2026-06-11)
 - vLLM: [PR #36026](https://github.com/vllm-project/vllm/pull/36026) — fix wrong num_experts in moe_wna16 kernel dispatch. **Closed without merge 2026-04-25** by author (`weiguangli-io`) citing 8+ weeks with no maintainer review; offered to reopen if it becomes relevant. The sub-bug it fixed (kernel dispatch num_experts) remains unaddressed in vLLM `main`
-- SGLang: no upstream issue or PR filed
+- SGLang: no upstream issue or PR filed for the modelopt half; the moe_wna16 qzeros half was fixed independently by PR #41807 (see Related Upstream Issues & PRs)
 
 Files:
 - SGLang: `sglang/srt/layers/quantization/moe_wna16.py`, lines 491–504 (v0.5.9)
@@ -732,6 +764,7 @@ However, the CUDA kernel-level issue cannot be patched. For NVFP4 + EP > 1, use
 ## Related Upstream Issues & PRs
 
 ### Directly addressing our bugs
+- SGLang [PR #41807](https://github.com/sgl-project/sglang/pull/41807): shard MoE WNA16 and Quark INT4-FP8 weights by the MoE placement. **Merged 2026-09-30** as `e289989933`; fixes the moe_wna16 qzeros EP half on `main`, not in v0.5.21
 - vLLM [PR #35598](https://github.com/vllm-project/vllm/pull/35598): fix moe_wna16 qzeros EP (closed unmerged by the stale bot 2026-09-24, no maintainer review)
 - SGLang [PR #21461](https://github.com/sgl-project/sglang/pull/21461) — fix EPLB Qwen3 missing `routed_experts_weights_of_layer` (closed without merge 2026-03-30, CI failure)
 - SGLang [PR #19767](https://github.com/sgl-project/sglang/pull/19767) — fix EPLB Qwen3.5 (merged 2026-03-09)
