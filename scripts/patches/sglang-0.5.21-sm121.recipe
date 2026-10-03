@@ -102,9 +102,57 @@
 #      The other dockerfile-* patches are gated off by this recipe's flags.
 #
 # ── OPEN RISKS, validate before this recipe is promoted ──────────────────────
-#   A. RUNTIME patches (roles/k8s_dgx/files/sglang_patches/):
-#      TODO(runtime-replay): offline replay against v0.5.21 (and the v0.5.20
-#      control) is being done in parallel; paste the result here.
+#   A. RUNTIME patches (roles/k8s_dgx/files/sglang_patches/): REPLAYED and then
+#      RE-ANCHORED 2026-10-03 against v0.5.21. Offline replay is now 0
+#      ANCHOR-DRIFT on v0.5.21 AND on the v0.5.20 control, in all FIVE gate
+#      scenarios (base, glm, hy3, qwen38 with TP=4, allgates), and idempotent on
+#      both (pass 2: nothing patched, gate-skip counts identical to pass 1).
+#      The v0.5.20 patched trees are byte-identical to the pre-edit patch set,
+#      so every older spelling still works. v0.5.19 was NOT replayed; older
+#      pinned images are covered only by the additive/conditional edit shape.
+#      NOTE: spark5 was unreachable (powered off), so the harness was rebuilt
+#      locally (not the /root/patchreplay-0519 one): fake dist-packages =
+#      upstream python/sglang + this recipe's source patches (marlin offset 282,
+#      tilelang offset 46, both apply) + the real pinned deps. Dependency pins
+#      are UNCHANGED in v0.5.21 (flashinfer 0.6.18, transformers 5.12.1,
+#      cutlass-dsl 4.6.2), so the v0.5.20 pins were reused. The scenario set is a
+#      reconstruction of replay3.sh's, not a copy. Before the edits the v0.5.20
+#      control was clean and v0.5.21 drifted in exactly p10, p37 and p67.
+#      WHAT DRIFTED AND WHAT WAS DONE (3 patches):
+#        p10 - upstream DELETED multi_thread_safetensors_weights_iterator, so
+#              Patch 3 is now conditional on the function existing. Patches 1
+#              and 2 (single-thread, buffered) still apply.
+#        p67 - ABSORBED. configurer.py now has _sm120_deep_gemm_apis_available()
+#              and widens both the probe gate and DEEPGEMM_SCALE_UE8M0 to
+#              (120, 121) natively. Self-gated on that helper, so older pinned
+#              instances with the env gate on keep both edits.
+#        p37 - trtllm_mha part re-ported, PARTIALLY absorbed. Upstream rebuilt
+#              forward_extend around uses_native_fp4, which is SM100 GenMHA only
+#              (not is_xqa_impl), so SM120/SM121 verify still reads the dequant
+#              workspace and the silent word-salad fix is still needed. Native
+#              now: removal of the decode-only raise, the KV scale write
+#              (*self._kv_write_scales), kv_cache_sf pass-through and the
+#              target-verify XQA mask. So the guard and write edits became
+#              conditional, the call edit is reduced to supplying the mask for
+#              draft-extend-v2, and the FP4 read and bmm-scale edits got a
+#              v0.5.21 spelling gated on is_nvfp4_kvcache and is_decode_mode.
+#              Hybrid routing and the flashinfer draft-extend fill (parts 1 and
+#              3) are unchanged upstream and apply as before.
+#      Audited for SILENT absorption and found none: p30/p35 (dsa_indexer
+#      changes are ROCm/aiter only, paged_mqa_logits_backend.py unchanged), p34
+#      (_forward_trtllm still hardcodes backend="trtllm-gen"), p66 (the QSA
+#      _SUPPORTED_HEAD_TOPOLOGIES is still {(12,1),(24,2)}, TP4 widening still
+#      needed), p29/p56/p60 (same dep versions, same files). Every other patch
+#      injects a byte-identical diff on v0.5.21 and v0.5.20.
+#      What the replay still canNOT answer: (1) whether p37's re-ported XQA FP4
+#      read, scales and mask give CORRECT speculative output on GB10; run the
+#      nvfp4-KV + MTP GSM8K check on the built image, upstream's extend path was
+#      rebuilt; (2) whether the modules p30/p35 GENERATE import (the harness
+#      reduces write_module's import probe to a syntax check; same known
+#      check_generated_imports false positive as v0.5.20); (3) v0.5.21's new
+#      --prefill-kv-cache-dequant-dtype, the reworked NVFP4 KV pool (scale
+#      buffers may be None) and the layer_boundary/residual_batch model
+#      refactors showed no drift but need a boot test.
 #   B. INHERITED from v0.5.16, still open: moe_runner_backend cutlass / triton
 #      for NVFP4 is gone (#30448), so nvidia/Qwen3.5-397B-A17B-NVFP4 (cutlass)
 #      and Minimax-M2.5 @ PP=4 (triton) still need re-testing or re-pinning, and

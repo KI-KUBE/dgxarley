@@ -40,6 +40,9 @@ bare state_dict -- the old single-value anchor never matched. New anchor also
 covers the drop_cache_after_load tail so that logic is not silently dropped by
 the patch.
 
+v0.5.21 deleted multi_thread_safetensors_weights_iterator, so Patch 3 is
+conditional on the function still existing.
+
 Note: weight_utils.py itself does not import `os` at module scope pre-patch;
 the original heredoc unconditionally prepended a bare `import os` (needed by
 the new logger.info calls' `os.path.basename(...)`) whenever it was missing,

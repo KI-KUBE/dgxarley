@@ -118,6 +118,16 @@ layout (spec_info.ragged_verify_layout -> metadata.is_ragged_verify) calls the
 kernel without block scales or mask. Correctness there with an FP4 cache is
 unverified, and this patch exists because the failure mode is silent word salad,
 so that combination raises with an actionable message instead.
+
+RE-ANCHORED 2026-10-03 for v0.5.21 (trtllm_mha, part 2 only): upstream rebuilt
+forward_extend around `uses_native_fp4`, which is SM100 GenMHA only
+(`not is_xqa_impl`), so SM120/SM121 verify still reads the dequant workspace.
+The decode-only raise was removed (guard edit now conditional), the KV scale
+write (`*self._kv_write_scales(layer)`), kv_cache_sf pass-through and the
+target-verify XQA mask (`_xqa_spec_dec_mask`) are native (write edit skipped,
+call edit reduced to a mask for draft-extend-v2). The FP4 read and the bmm
+scales are re-enabled for verify/draft-extend-v2 on XQA only. Parts 1 and 3
+(hybrid routing, flashinfer draft-extend fill) are unchanged upstream.
 """
 
 from _patchlib import Patch, target_contains
@@ -305,11 +315,7 @@ NEW_READ_V0519 = """        # is_decode_mode is read further down in forward_ext
             kv_cache = (k_cache, v_cache)"""
 
 
-# >= v0.5.21: upstream rebuilt forward_extend around `uses_native_fp4`, which is
-# SM100-only (not is_xqa_impl). XQA (SM120/SM121) FP4 verify therefore still takes
-# the dequant-workspace read, so the FP4 read + scales are re-enabled for the
-# verify/draft-extend-v2 modes only. Upstream now also writes the KV scales and
-# passes kv_cache_sf and the verify mask natively.
+# >= v0.5.21: native FP4 extend is SM100-only (not is_xqa_impl), so XQA verify still needs this FP4 read.
 OLD_READ_V0521 = """        if uses_native_fp4:
             kv_cache, kv_cache_block_scales = self._get_nvfp4_decode_kv_cache(layer)
             k_cache, v_cache = kv_cache
