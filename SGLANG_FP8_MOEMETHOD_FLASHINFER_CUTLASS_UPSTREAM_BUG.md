@@ -2,7 +2,7 @@
 
 ## Status
 
-**Open upstream — no fix in flight for vanilla `Fp8MoEMethod` as of 2026-06-11.**
+**Resolved by fallback since SGLang v0.5.20 (`cebca698e2`, PR #39126): `flashinfer_cutlass`/`flashinfer_cutedsl` now fall back to triton for FP8 experts; no flashinfer_cutlass FP8 kernel exists (see Re-verified 2026-10-03). The text below describes v0.5.19 and earlier.**
 Originally verified on SGLang `v0.5.11` ("The Tenacity Release", tagged 2026-05-05)
 with the upstream image `scitrera/dgx-spark-sglang:0.5.11` (FlashInfer 0.6.10,
 sgl-kernel 0.4.2). Reproduced on Qwen3.6-35B-A3B-FP8, 4×GB10 (SM12.0a), TP=4,
@@ -22,7 +22,7 @@ MoE-refactor series migrated related backends to `MoeRunner`: **PR #25525**
 comment in `fp8.py` is still there as of 0.5.12.post1. Issue #20719 remains open
 (re-verified 2026-06-11).
 
-The bug is plainly visible in the source — `Fp8MoEMethod.create_moe_runner`
+On v0.5.19 and earlier (superseded by the Re-verified 2026-10-03 entry), the bug is plainly visible in the source: `Fp8MoEMethod.create_moe_runner`
 ends with an explicit `# TODO(cwan): refactor other backends` for everything
 that is not triton/aiter/deep_gemm/fi_trtllm.
 
@@ -229,6 +229,8 @@ PR #27968 remains CLOSED (stale bot, 2026-09-15, zero activity since); Issue
 CLOSED (2026-08-26, zero activity since). No new issue or PR found searching
 for `Fp8MoEMethod flashinfer_cutlass` opened after 2026-09-16. Workaround
 (`moe_runner_backend: triton`) unchanged.
+
+**Re-verified 2026-10-03: RESOLVED in v0.5.20 (missed by the 09-22/09-25/09-28 entries, which wrongly said "no fix").** SGLang **v0.5.21** was published 2026-10-02 (tag commit `e00930c548`, 2026-09-29), now the latest release. Source on the v0.5.20 and v0.5.21 tags: `Fp8MoEMethod.create_moe_runner` in `fp8.py` (v0.5.20 line ~2509-2521, v0.5.21 line ~2777-2790) has a new branch, added by `cebca698e2` (PR #39126, "[Qwen3.8] Enable NVIDIA NVFP4 on DGX Spark ...", merged 2026-09-13, first shipped in v0.5.20; absent in v0.5.17-v0.5.19). If the resolved backend is `flashinfer_cutlass` or `flashinfer_cutedsl`, it logs "Fp8MoEMethod has no %s path; using triton for its fp8 experts." and substitutes `MoeRunnerBackend.TRITON` before the allowlist, so `self.runner` is always set and the `AttributeError` no longer occurs. This is a fallback, not flashinfer_cutlass FP8 support: FP8 experts run on triton, identical to the `moe_runner_backend: triton` workaround. The `# TODO(cwan): refactor other backends` comment is still present (line 2538 on v0.5.20, 2800 on v0.5.21) but is unreachable for these two backends. The deployed `0.5.20-sm121` image already includes the fix. Issue #27951 (CLOSED 2026-08-19), PR #27968 (CLOSED 2026-09-15, unmerged) and PR #21872 (CLOSED 2026-08-26, unmerged) are unchanged and not reopened. No new issue or PR found for `Fp8MoEMethod flashinfer_cutlass` after 2026-09-28. upstream/main (HEAD `7be5e3473c`) keeps the fallback. Whether profiles may drop the `moe_runner_backend: triton` pin is a deployment decision, not re-tested on the cluster.
 
 Adjacent open work:
 
