@@ -387,3 +387,31 @@ anchors, and update the two heredoc blocks in `sglang_launch.sh`. Verify with th
   `moe_runner_backend: triton` pin stay correct. Re-check next cycle
   whether a v0.5.21+ release (or a `main`-tracking build) picks up
   `56fee88`.
+- **2026-10-03** - SGLang v0.5.21 was released 2026-10-02 (v0.5.20
+  previous, tag commit `e00930c548`). `git tag --contains
+  56fee88e236b7666b87adeceecfb14230a482f61` now returns `v0.5.21`: PR
+  #35504's fix (flashinfer_cutlass `apply_router_weight_on_input` support via
+  `_prescale_router_weight_on_input()` in `moe_runner/flashinfer_cutlass.py`,
+  plus removal of the two `assert not apply_router_weight_on_input` guards
+  there and the matching one in `modelopt_quant.py`) first ships in this tag.
+  Diff of `56fee88` checked: it touches only `flashinfer_cutlass.py` and
+  `modelopt_quant.py`, never `llama4.py`/`mllama4.py`, so it does not fix any
+  of the five patched anchors. Anchor check at the v0.5.21 tag AND on `main`
+  HEAD (`7be5e3473c`, 2026-10-03): all five unchanged in substance:
+  `_handle_expert_scale_params` (`mllama4.py:854`) still has the fused-3D
+  scale gap, `permute_qk_weight_for_rotary` (`mllama4.py:613`) still
+  `attn_out = self.language_model.config.hidden_size` and
+  `modules[-1] == "weight"` only for both q and k, `_handle_scale_remapping`
+  (`mllama4.py:731`) still no `loaded_weight` copy, and `RadixAttention(...)`
+  in `Llama4Attention.__init__` (`llama4.py:302` at v0.5.21, `:299` on main)
+  still without `quant_config=quant_config`. Ten refactor commits touched
+  `llama4.py` since 09-28 (none changes the `RadixAttention(...)`
+  construction or adds `quant_config`); `mllama4.py` has none. So the 5
+  local `sglang_launch.sh`/`p52`/`p53` patches stay required on v0.5.21 and
+  on main. The only item `56fee88` resolves is the profile-side
+  `moe_runner_backend: triton` pin (flashinfer_cutlass no longer asserts on
+  `apply_router_weight_on_input=True` from v0.5.21); it is unvalidated on
+  this cluster (SM121; the PR title targets SM120), and whether to revisit
+  the pin is a pending user decision. PR #35032 (loader fixes 1-3)
+  unchanged, still OPEN, no activity since 2026-08-16. Issue #34192 stays
+  closed via PR #35504's merge (2026-09-22).
