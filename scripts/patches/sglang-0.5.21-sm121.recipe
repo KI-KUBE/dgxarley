@@ -21,10 +21,11 @@
 # (eagle_utils, ngram_utils, packbit, speculative_sampling) from the AOT
 # sgl-kernel build to JIT, so the AOT SOURCES list lost four entries.
 #
-# TODO(release-review): v0.5.21 breaking-changes review and SM12x redundancy
-# check (what upstream absorbed that we carry by hand) is being done in
-# parallel and will be merged here. Until then see OPEN RISK C / F below, which
-# are still the v0.5.20 texts and NOT re-checked against this ref.
+# Runtime side: three runtime patches drifted (p10, p37, p67) and are
+# re-anchored; p67 is absorbed upstream and self-gates off. Behaviour changes
+# worth a re-measure: FlashInfer MoE fused finalize now OFF by default (#40105,
+# every flashinfer_cutlass NVFP4 profile), Rust radix-tree core default
+# (#39627) and DeepGEMM UE8M0 on SM121 now unconditional. See OPEN RISK A / C / F.
 #
 # ── DELTA vs sglang-0.5.20-sm121.recipe ─────────────────────────────────────
 #   1. SGLANG_VERSION 0.5.20 to 0.5.21, SGLANG_REF to v0.5.21.
@@ -55,6 +56,9 @@
 #      0.3.1 last cycle). Upstream's own docker/Dockerfile only bumped
 #      MSCCLPP_VERSION to sglang-v0.10.1 and a GDRCopy libgdrapi glob; we build
 #      from scitrera's Dockerfile.sglang-nightly, so neither applies.
+#   7. NEW knobs XGRAMMAR_VERSION=0.2.7 / SENTENCEPIECE_VERSION=0.2.1 plus
+#      scripts/patches/dockerfile-xgrammar-sentencepiece-pin.patch, so the
+#      image honours upstream's tightened pins (OPEN RISK H).
 #
 # ── PATCH VERIFY (2026-10-03, host-side, against raw v0.5.21 source) ─────────
 #   OK sgl-kernel-arch-prune-v0.5.21.patch        regenerated, content identical
@@ -104,20 +108,23 @@
 # ── OPEN RISKS, validate before this recipe is promoted ──────────────────────
 #   A. RUNTIME patches (roles/k8s_dgx/files/sglang_patches/): REPLAYED and then
 #      RE-ANCHORED 2026-10-03 against v0.5.21. Offline replay is now 0
-#      ANCHOR-DRIFT on v0.5.21 AND on the v0.5.20 control, in all FIVE gate
-#      scenarios (base, glm, hy3, qwen38 with TP=4, allgates), and idempotent on
+#      ANCHOR-DRIFT on v0.5.21 AND on the v0.5.20 control, in all FOUR gate
+#      scenarios (bare, glm52, hy3, qwen38 with TP=4), and idempotent on
 #      both (pass 2: nothing patched, gate-skip counts identical to pass 1).
 #      The v0.5.20 patched trees are byte-identical to the pre-edit patch set,
 #      so every older spelling still works. v0.5.19 was NOT replayed; older
 #      pinned images are covered only by the additive/conditional edit shape.
-#      NOTE: spark5 was unreachable (powered off), so the harness was rebuilt
-#      locally (not the /root/patchreplay-0519 one): fake dist-packages =
-#      upstream python/sglang + this recipe's source patches (marlin offset 282,
-#      tilelang offset 46, both apply) + the real pinned deps. Dependency pins
-#      are UNCHANGED in v0.5.21 (flashinfer 0.6.18, transformers 5.12.1,
-#      cutlass-dsl 4.6.2), so the v0.5.20 pins were reused. The scenario set is a
-#      reconstruction of replay3.sh's, not a copy. Before the edits the v0.5.20
-#      control was clean and v0.5.21 drifted in exactly p10, p37 and p67.
+#      Replayed on spark5 with the original harness: /root/patchreplay-0521
+#      (copy of patchreplay-0519; `SRC=dist-src-0521 TAG=0521 HARNESS=harness3
+#      ./replay3.sh`, control `SRC=dist-src-0520 TAG=0520`), scenarios bare /
+#      glm52 / hy3 / qwen38, gate-skip counts 24/22/19/21 on both refs. Fake
+#      dist-packages = upstream python/sglang + this recipe's source patches
+#      (marlin offset 282, tilelang offset 46) + the real pinned deps, which are
+#      UNCHANGED in v0.5.21. check_generated_imports.py reports only the known
+#      fp8_kernel false positive, identically on both refs. An independent
+#      local reconstruction (plus an all-gates scenario) agreed. Before the
+#      edits the v0.5.20 control was clean and v0.5.21 drifted in exactly p10,
+#      p37 and p67.
 #      WHAT DRIFTED AND WHAT WAS DONE (3 patches):
 #        p10 - upstream DELETED multi_thread_safetensors_weights_iterator, so
 #              Patch 3 is now conditional on the function existing. Patches 1
@@ -154,16 +161,89 @@
 #      buffers may be None) and the layer_boundary/residual_batch model
 #      refactors showed no drift but need a boot test.
 #   B. INHERITED from v0.5.16, still open: moe_runner_backend cutlass / triton
-#      for NVFP4 is gone (#30448), so nvidia/Qwen3.5-397B-A17B-NVFP4 (cutlass)
-#      and Minimax-M2.5 @ PP=4 (triton) still need re-testing or re-pinning, and
-#      compressed-tensors NVFP4 MoE with apply_router_weight_on_input=True still
-#      asserts instead of running. Re-checked: no NVFP4 cutlass_moe_fp4 /
-#      nvfp4_blockwise_moe source exists in v0.5.21 either. See TURBOQUANT.md.
-#   C. v0.5.21 BREAKING CHANGES:
-#      TODO(release-review): fill from the v0.5.21 release notes. The v0.5.20
-#      list (SM120 FP8 per-channel route #38006, deleted cutlass_mla / non-Marlin
-#      gptq / AWQ AOT dequantize / Dual Chunk FA #32114, --enable-response-store
-#      #39122, ...) is already part of the v0.5.20 baseline and is not repeated.
+#      for NVFP4 is gone (#30448). Re-checked on v0.5.21: modelopt_quant.py
+#      create_moe_runner raises NotImplementedError for cutlass, and triton
+#      builds a runner but apply() ends in "Unsupported moe_runner_backend for
+#      NVFP4 MoE". Affected modelopt profiles pinning triton:
+#      nvidia-llama-4-scout-17b-16e-instruct-nvfp4 and
+#      nvidia-diffusiongemma-26b-a4b-it-nvfp4. (Qwen3.5-397B now pins
+#      flashinfer_cutlass, no longer affected.) The compressed-tensors NVFP4
+#      scheme ignores the backend and silently runs FlashInfer-CUTLASS for
+#      anything but flashinfer_trtllm (redhatai-qwen3.6, saricles-minimax-m2.5
+#      pin triton), and still asserts on apply_router_weight_on_input=True
+#      (compressed_tensors_w4a4_nvfp4_moe.py:350). No NVFP4 cutlass_moe_fp4 /
+#      nvfp4_blockwise_moe source exists in v0.5.21 either. See TURBOQUANT.md
+#      and F (#35504) for the Llama-4 near-miss.
+#   C. NEW in v0.5.21, from the release's own "Breaking Changes", checked
+#      against sglang_launch.sh, tasks/sglang_instance.yml and the profiles:
+#      * NOTHING WE PASS IS REMOVED OR RENAMED. A field-by-field comparison
+#        of arg_groups/fields/*.py (v0.5.20 vs v0.5.21) drops only
+#        --elastic-ep-rejoin and keep_mm_feature_on_device, and the
+#        --kv-cache-dtype value fp4_e2m1; none is set here (profiles use
+#        kv_cache_dtype auto / fp8_e4m3). Every tool_call_parser and
+#        reasoning_parser name in the profiles is still registered
+#        (parser_names.py, reasoning_parser_names.py), incl. hunyuan, mimo,
+#        minimax-m3, nemotron_3, gemma4, glm47, deepseekv4.
+#      * SGLANG_ENABLE_SPEC_V2 (sglang_enable_spec_v2, 18 profiles) loses even
+#        its "has been removed" warning (speculative_hook.py); inert since
+#        v0.5.14, harmless. SGLANG_USE_JIT_ALL_REDUCE (sglang_instance.yml)
+#        was a _DeprecatedEnv in v0.5.20 and is deleted now; we also set
+#        SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2, so the pair stays harmless.
+#        SGLANG_NSA_* aliases are gone; we only pass SGLANG_DSA_*.
+#      * FlashInfer MoE FUSED FINALIZE IS OFF BY DEFAULT (#40105, environ.py
+#        SGLANG_FLASHINFER_MOE_FUSED_FINALIZE False). The flashinfer_cutlass
+#        runner reads it (flashinfer_cutlass.py:328/541), i.e. every NVFP4
+#        MoE profile pinning moe_runner_backend flashinfer_cutlass (about 40
+#        entries). Numerically safer (see G) but costs MoE decode latency:
+#        re-measure tok/s on one profile before comparing with v0.5.20
+#        numbers. SGLANG_FLASHINFER_MOE_FUSED_FINALIZE=1 restores the old
+#        behaviour.
+#      * UNIFIED RADIX TREE NOW DEFAULTS TO THE RUST CORE (#39627). It is not
+#        a pip dependency: tree_core_registry.py wants the bundled extension
+#        or a source checkout plus cargo/rustc, else it logs "Using the
+#        Python TreeCore: <reason>" and falls back (also for session radix,
+#        components beyond FULL/SWA/MAMBA, torch outside 2.11-2.13). UNVERIFIED
+#        which way the built image goes. Check the boot log; if cargo exists
+#        in the image a source build could run at pod start, pin
+#        SGLANG_UNIFIED_RADIX_TREE_CORE_BACKEND=python in that case.
+#      * chat_template inside a REQUEST's chat_template_kwargs is rejected
+#        unless --trust-request-chat-template (#28135). We set the template
+#        and kwargs server-side (--chat-template, --chat-template-kwargs) and
+#        LiteLLM extra_body only carries keys like enable_thinking, so
+#        unaffected. Grep before adding any per-request chat_template.
+#      * API: non-streaming tool_calls[].index is now the call ordinal, not
+#        the tool's position in the request (#39574, serving_chat.py);
+#        #39773 repairs prompts on mistral_common tokenizers (tool_choice
+#        auto never fired), which touches our Mistral-native profiles. The
+#        removed endpoints (/get_weight_version, /weight_version, /get_load,
+#        /clear_hicache_storage_backend) are not used in roles/, scripts/ or
+#        dgxarley/; probes use /health. The custom logit processors we use
+#        (Qwen3 / DeepSeekR1 ThinkingBudget) are built in and exempt from the
+#        full-shape-logits rule; both classes still exist.
+#      * No new SM12x default for CUDA graph, chunked prefill or attention /
+#        MoE backend auto-selection (cuda_graph_hook / memory_hook /
+#        attention_hook diffs are refactors plus the new
+#        --cuda-graph-prefill-max-context). The one NEW forced resolution is
+#        --kv-cache-dtype nvfp4 (kv_cache_hook.py
+#        handle_nvfp4_prefill_kv_dequant_dtype): prefill flashinfer, decode
+#        trtllm_mha, and it RAISES on any other explicit prefill / decode
+#        backend. No profile uses nvfp4 KV today; matters for p37 experiments
+#        only. New knob --prefill-kv-cache-dequant-dtype (auto resolves to
+#        fp8_e4m3 off SM100; native nvfp4 prefill is SM100 only).
+#      * DEEPGEMM ON SM121 CHANGES UNDER US (#39482 plus the #38792 probe
+#        rework, configurer.py): GB10 now always runs the SM120 API probe
+#        (fp8_einsum, m_grouped_fp8_fp4_gemm_nt_contiguous,
+#        transform_sf_into_required_layout) and selects UE8M0 packed scales.
+#        Only profiles with DeepGEMM enabled see it: the three gemma entries
+#        (disable_deep_gemm: false) and those without the key (chroma
+#        embedding, qwen2.5-coder awq, mistral-small-4 nvfp4, qwen3-coder-30b).
+#        The rest, incl. both DSV4 profiles, set disable_deep_gemm: true and
+#        SGLANG_ENABLE_JIT_DEEPGEMM=false returns before the probe. If
+#        sgl-deep-gemm 0.2.0 lacks one of the three APIs, DeepGEMM turns
+#        itself off on GB10 silently; grep the boot log.
+#      * #40033 moved the speculative kernels (eagle tree build, verify
+#        sampling, ngram) from AOT sgl-kernel to JIT: the first speculative
+#        boot compiles them on the node (see I).
 #   D. TORCH: no gap. v0.5.21 still pins torch==2.13.0 (torchaudio 2.11.0),
 #      exactly what BASE_IMAGE ships. No new base build for this recipe.
 #   E. INHERITED dependency shapes the missing_deps step will try to install:
@@ -174,31 +254,70 @@
 #      checks PRESENCE, not version, so a package already installed from the
 #      previous layer stays at its old version; see H for the two that matter
 #      this cycle.
-#   F. SM12x WORK IN v0.5.21 WE HAVE NOT EXERCISED:
-#      TODO(release-review): redundancy check of p30/p34/p35 and the other
-#      hand-carried SM12x work against upstream additions in v0.5.21. The v0.5.20
-#      text (#29927 DeepGEMM paged-MQA on SM120, #30805, #31470) still stands as
-#      "check before re-porting runtime anchors".
+#   F. SM12x WORK IN v0.5.21, mapped to our runtime patches (second,
+#      independent replay against raw v0.5.21 / v0.5.20 trees, four gate
+#      scenarios; agrees with A, the ONLY differing outcome is p67):
+#      * p67 (#39482, plus #38792 reworking the probe into
+#        _sm120_deep_gemm_apis_available): ABSORBED, self-gates off. The
+#        profile knob opt_deepgemm_sm121_packed_scale is inert from here on and
+#        the upstream behaviour is now UNCONDITIONAL (see C).
+#      * p30 / p34 / p35 vs #29927: NOT redundant, and #29927 is not new (it is
+#        in v0.5.20 too). It is DeepSeek-V4 only: dsv4/indexer.py,
+#        deepseek_v4_backend.py, moe_runner/deep_gemm_sm120.py. The GlmMoeDsa
+#        path (dsa_indexer.py, dsa_backend.py) is untouched for SM12x:
+#        paged_mqa_logits_backend.py still maps auto / deepgemm to DEEPGEMM and
+#        cutedsl needs SM100. New indexer work (#39095 / #40854 free-memory-
+#        budgeted MQA logits chunking, ROCm-only packed top-k v2) is not a
+#        replacement.
+#      * p37 vs #32269 (XQA SpecDec verify) and #36340 (SM100 NVFP4 GenMHA +
+#        spec): PARTIALLY absorbed, KEEP. Upstream builds _xqa_spec_dec_mask
+#        in TRTLLMHAAttnBackend (is_xqa_impl = is_sm90 or is_sm120, the probe
+#        covers any 12.x incl. GB10) and passes mask= for TARGET_VERIFY only.
+#        #36340 is SM100-only (uses_trtllm_gen_native_fp4 is False on GB10).
+#        So on GB10 still ours: hybrid verify routing (part 1), flashinfer
+#        draft-extend prefix fill (part 3), the FP4 read and scales in
+#        trtllm_mha forward_extend, the DRAFT_EXTEND_V2 mask and the
+#        ragged-verify guard. Mask layout matches (bit-packed uint16 causal).
+#        Never run on a GPU; the 2026-07-29 GSM8K A/B must be repeated.
+#      * #35504 (Llama4 NVFP4 router input weights on SM120): adds
+#        _prescale_router_weight_on_input to the flashinfer_cutlass runner, but
+#        modelopt_quant.py:3228 still asserts not apply_router_weight_on_input
+#        in the same branch (re-added by the #39939 merge, so the fix is
+#        dead). One assert from running nvidia-llama-4-scout on
+#        flashinfer_cutlass; candidate local patch is deleting that assert.
+#        UNTESTED. The compressed-tensors scheme (line 350) is untouched.
+#      * p65 / p66: unchanged from v0.5.20. qwen38_qsa_sm121 is byte-identical,
+#        _SUPPORTED_HEAD_TOPOLOGIES still {(12, 1), (24, 2)}; p66 still only
+#        widens it to TP4. The qwen_sparse_attn_backend diff is ROCm only.
+#      * Dead on BOTH refs (gate / already applied, same as v0.5.20; retire
+#        once no pinned older image remains): p21 p22 p24 p26 p28 p31 p33 p36
+#        p44 p50 p51 p62 p63.
+#      * Not exercised, no anchor overlap: #38792 SM120 DSV4 prefill
+#        (SGLANG_OPT_SM120_DIRECT_SWA_KV, SGLANG_PP_COMM_OVERLAP, both default
+#        off; FP8_WO_A_GEMM on SM12x now honours an explicit setting, ours is
+#        false), #34528 optional FlashInfer PCIe-IPC all-reduce for
+#        switch-free SM120 hosts, #41292 MXFP4 triton_kernels warps, the
+#        Qwen3.8 perf / PP items (#40041, #40501, #41166) and the DSV4.1 /
+#        GLM-5.3-Flash / GigaChat 3.5 / IQuest Q1 model drops.
 #   G. INHERITED: NVFP4 ATTENTION on SM121 (flashinfer #3897) is still only
 #      KERNEL-level verified (2026-07-28 on spark5), never validated end to end
 #      through SGLang with a real uniform-NVFP4 model. flashinfer does not move
 #      this cycle (0.6.18.post1 on three refs now), so earlier verdicts are not
 #      invalidated by a driver bump. Judge output quality by pattern-grep plus
 #      token distribution plus tail, not by finish_reason.
-#   H. NEW: version pins that upstream tightened but our image does not honour.
-#      scitrera's Dockerfile.sglang-nightly installs `xgrammar` UNPINNED in the
-#      "remaining deps" step before missing_deps.py runs, so the image gets
-#      PyPI latest (0.2.8 on 2026-10-03), not v0.5.21's ==0.2.7; missing_deps.py
-#      then sees it as present and leaves it. Likewise sentencepiece: v0.5.21
-#      pins ==0.2.1 because 0.2.2 (current latest) rejects null pieces in
-#      InternVL tokenizers; if anything earlier in the build installs it
-#      unpinned the image ships 0.2.2. Neither has a recipe knob or a dockerfile
-#      patch today (same mechanism as the tokenizers 0.23.0rc0 incident that
-#      TOKENIZERS_VERSION guards against). Check
-#      `pip list | grep -iE 'xgrammar|sentencepiece'` on the built image; if
-#      either deviates, add a pin knob in the style of dockerfile-tokenizers-pin.
-#      InternVL is not served here, so sentencepiece is low priority; xgrammar
-#      0.2.8 vs 0.2.7 matters only for structured output / tool-call grammars.
+#   H. NEW: version pins that upstream tightened but our image would not
+#      honour. scitrera's Dockerfile.sglang-nightly installs `xgrammar`
+#      UNPINNED in the "remaining deps" step before missing_deps.py runs, so
+#      the image would get PyPI latest (0.2.8 on 2026-10-03), not v0.5.21's
+#      ==0.2.7; missing_deps.py then sees it as present and leaves it.
+#      Likewise sentencepiece: v0.5.21 pins ==0.2.1 because 0.2.2 (current
+#      latest) rejects null pieces in InternVL tokenizers. HANDLED 2026-10-03
+#      by the new knobs XGRAMMAR_VERSION / SENTENCEPIECE_VERSION and
+#      scripts/patches/dockerfile-xgrammar-sentencepiece-pin.patch (same
+#      mechanism as TOKENIZERS_VERSION, --no-deps, last pip action of the
+#      builder stage). NOT yet validated on a built image: check
+#      `pip list | grep -iE 'xgrammar|sentencepiece'` and that sglang still
+#      imports.
 #   I. NEW: #40033 moved eagle_utils / ngram_utils / packbit /
 #      speculative_sampling to JIT. They are no longer in the AOT wheel we build
 #      with arch-prune, so speculative decoding (EAGLE / NEXTN / MTP / ngram,
@@ -286,6 +405,15 @@ HF_HUB_MIN_VERSION=1.26.0
 # Enforced by scripts/patches/dockerfile-tokenizers-pin.patch as the last pip
 # action of the builder stage.
 TOKENIZERS_VERSION=0.22.2
+
+# xgrammar 0.2.7 / sentencepiece 0.2.1 - exactly v0.5.21's pyproject pins
+# (xgrammar ==0.2.1 -> ==0.2.7 via #39026; sentencepiece newly pinned because
+# 0.2.2 rejects null pieces in InternVL tokenizers). Needed for the same reason
+# as TOKENIZERS_VERSION: the upstream Dockerfile installs xgrammar unpinned and
+# missing_deps.py checks presence only. Enforced by
+# scripts/patches/dockerfile-xgrammar-sentencepiece-pin.patch. See OPEN RISK H.
+XGRAMMAR_VERSION=0.2.7
+SENTENCEPIECE_VERSION=0.2.1
 
 SGLANG_VERSION=0.5.21
 SGLANG_REF="v0.5.21"

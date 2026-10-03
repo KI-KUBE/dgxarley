@@ -104,9 +104,10 @@ BRANCH_NAME="sm121"
 #                                        ==0.2.7 and sentencepiece==0.2.1, but
 #                                        scitrera's Dockerfile installs xgrammar
 #                                        unpinned and missing_deps.py only
-#                                        checks presence, so the image may ship
-#                                        xgrammar 0.2.8 / sentencepiece 0.2.2
-#                                        (OPEN RISK H in the recipe).
+#                                        checks presence; new recipe knobs
+#                                        XGRAMMAR_VERSION / SENTENCEPIECE_VERSION
+#                                        + dockerfile-xgrammar-sentencepiece-
+#                                        pin.patch enforce them (OPEN RISK H).
 #                                        All APPLY_* flags keep their v0.5.20
 #                                        values, re-verified against raw
 #                                        v0.5.21. The runtime patch replay and
@@ -461,11 +462,14 @@ BRANCH_NAME="sm121"
 #     (offset 282) and is still needed, tilelang applies (offset 46); qwen4exp,
 #     nemotron35, qwen36 and dsv4-nvfp4 stay gated off (native/merged).
 #   * Dockerfile chain clean against scitrera origin/main (unchanged at 2a3b1b7).
-#   * Upstream tightened xgrammar==0.2.7 / sentencepiece==0.2.1; our image
-#     installs xgrammar unpinned (OPEN RISK H), and the speculative kernels are
-#     now JIT-compiled at first use (OPEN RISK I).
-# STILL OPEN before promoting: the runtime patch set has NOT been replayed
-# against this ref (OPEN RISK A) and the release-notes review is pending.
+#   * Upstream tightened xgrammar==0.2.7 / sentencepiece==0.2.1; enforced by
+#     the new XGRAMMAR_VERSION / SENTENCEPIECE_VERSION knobs and
+#     dockerfile-xgrammar-sentencepiece-pin.patch (OPEN RISK H). The speculative
+#     kernels are now JIT-compiled at first use (OPEN RISK I).
+#   * Runtime patch replay (spark5, original harness) is clean after
+#     re-anchoring p10 / p37 / p67 (OPEN RISK A); release review in C / F.
+# STILL OPEN before promoting: acceptance gate on the built image (p37 GSM8K
+# A/B, MoE tok/s after #40105, boot log for Rust radix core + DeepGEMM probe).
 RECIPE_NAME="sglang-0.5.21-sm121"
 IMAGE_TAG="xomoxcc/dgx-spark-sglang:0.5.21-sm121"
 
@@ -1996,6 +2000,23 @@ apply_patches() {
         echo "tokenizers-pin Dockerfile patched"
     fi
 
+    # 2i. Exact-pin xgrammar + sentencepiece (ARG XGRAMMAR_VERSION /
+    #     SENTENCEPIECE_VERSION + gated uv pip install). SGLang v0.5.21 pins
+    #     xgrammar==0.2.7 and sentencepiece==0.2.1, but the upstream Dockerfile
+    #     installs xgrammar unpinned and missing_deps.py checks presence only.
+    #     See patches/dockerfile-xgrammar-sentencepiece-pin.patch.
+    #     Always applied, no-op when the recipe leaves both versions empty.
+    #     MUST run after tokenizers-pin (trailing-context-only on the split).
+    if [[ -f "${PATCHES_DIR}/dockerfile-xgrammar-sentencepiece-pin.patch" ]]; then
+        echo "Applying dockerfile-xgrammar-sentencepiece-pin.patch..."
+        patch --dry-run -p1 < "${PATCHES_DIR}/dockerfile-xgrammar-sentencepiece-pin.patch" \
+            || die "xgrammar-sentencepiece-pin Dockerfile patch dry-run failed, upstream Dockerfile drifted; regenerate dockerfile-xgrammar-sentencepiece-pin.patch"
+        patch -p1 < "${PATCHES_DIR}/dockerfile-xgrammar-sentencepiece-pin.patch"
+        grep -q 'ARG XGRAMMAR_VERSION' container-build/Dockerfile.sglang-nightly \
+            || die "xgrammar-sentencepiece-pin Dockerfile patch verification failed"
+        echo "xgrammar-sentencepiece-pin Dockerfile patched"
+    fi
+
     # 3. Drop in the recipe file. run_build() parses it inline and calls
     #    `podman build` directly, bypassing container-build/build-image.sh
     #    (which uses `docker buildx build` — podman has no buildx subcommand).
@@ -2033,7 +2054,7 @@ run_build() {
     [[ -f "${recipe_file}" ]] || die "Recipe not found: ${recipe_file}"
 
     local R_DOCKERFILE R_TARGET R_BASE_IMAGE R_FLASHINFER_VERSION
-    local R_TRANSFORMERS_VERSION R_KERNELS_VERSION R_CUTLASS_DSL_VERSION R_AUDIO_DEPS R_ACCELERATE_DEPS R_HF_HUB_MIN_VERSION R_TOKENIZERS_VERSION R_SGLANG_VERSION R_SGLANG_REF R_IMAGE_TAG
+    local R_TRANSFORMERS_VERSION R_KERNELS_VERSION R_CUTLASS_DSL_VERSION R_AUDIO_DEPS R_ACCELERATE_DEPS R_HF_HUB_MIN_VERSION R_TOKENIZERS_VERSION R_XGRAMMAR_VERSION R_SENTENCEPIECE_VERSION R_SGLANG_VERSION R_SGLANG_REF R_IMAGE_TAG
     local R_FLASH_MLA_REPO R_FLASH_MLA_REF R_DSV4_KERNEL_REPO R_DSV4_KERNEL_REF R_DSV4_KERNEL_ARCH
     # shellcheck disable=SC1090
     source <(
@@ -2053,6 +2074,8 @@ run_build() {
         echo "R_ACCELERATE_DEPS='${ACCELERATE_DEPS-accelerate}'"
         echo "R_HF_HUB_MIN_VERSION='${HF_HUB_MIN_VERSION:-}'"
         echo "R_TOKENIZERS_VERSION='${TOKENIZERS_VERSION:-}'"
+        echo "R_XGRAMMAR_VERSION='${XGRAMMAR_VERSION:-}'"
+        echo "R_SENTENCEPIECE_VERSION='${SENTENCEPIECE_VERSION:-}'"
         echo "R_SGLANG_VERSION='${SGLANG_VERSION}'"
         echo "R_SGLANG_REF='${SGLANG_REF}'"
         echo "R_FLASH_MLA_REPO='${FLASH_MLA_REPO:-}'"
@@ -2107,6 +2130,8 @@ run_build() {
     echo "  ACCELERATE_DEPS      = ${R_ACCELERATE_DEPS:-<empty, opted out>}"
     echo "  HF_HUB_MIN_VERSION   = ${R_HF_HUB_MIN_VERSION:-<unset, hub left as resolved>}"
     echo "  TOKENIZERS_VERSION   = ${R_TOKENIZERS_VERSION:-<unset, tokenizers left as resolved>}"
+    echo "  XGRAMMAR_VERSION     = ${R_XGRAMMAR_VERSION:-<unset, xgrammar left as resolved>}"
+    echo "  SENTENCEPIECE_VERSION= ${R_SENTENCEPIECE_VERSION:-<unset, sentencepiece left as resolved>}"
     echo "  SGLANG_VERSION       = ${R_SGLANG_VERSION}"
     echo "  SGLANG_REF           = ${R_SGLANG_REF}"
     echo "  FLASH_MLA_REPO       = ${R_FLASH_MLA_REPO:-<unset>}"
@@ -2147,6 +2172,8 @@ run_build() {
         --build-arg "ACCELERATE_DEPS=${R_ACCELERATE_DEPS}" \
         --build-arg "HF_HUB_MIN_VERSION=${R_HF_HUB_MIN_VERSION:-}" \
         --build-arg "TOKENIZERS_VERSION=${R_TOKENIZERS_VERSION:-}" \
+        --build-arg "XGRAMMAR_VERSION=${R_XGRAMMAR_VERSION:-}" \
+        --build-arg "SENTENCEPIECE_VERSION=${R_SENTENCEPIECE_VERSION:-}" \
         --build-arg "SGLANG_VERSION=${R_SGLANG_VERSION}" \
         --build-arg "SGLANG_REF=${R_SGLANG_REF}" \
         --build-arg "FLASH_MLA_REPO=${R_FLASH_MLA_REPO:-}" \

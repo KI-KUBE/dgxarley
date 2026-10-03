@@ -1,0 +1,68 @@
+Exact-pin `xgrammar` and `sentencepiece` to the versions SGLang's pyproject pins,
+because the image does not honour those pins on its own.
+
+SGLang v0.5.21 tightened two pins in python/pyproject.toml:
+
+  "xgrammar==0.2.7",        (was ==0.2.1; #39026, XGrammar V4.1 DSML constraints)
+  "sentencepiece==0.2.1",   (was unpinned; 0.2.2 rejects null pieces in InternVL
+                             tokenizers, cherry-pick #41788)
+
+Why the image would otherwise miss them:
+
+  * Dockerfile.sglang-nightly installs `xgrammar` UNPINNED in the "remaining
+    deps" step, so it resolves to PyPI latest (0.2.8 on 2026-10-03).
+  * stages/missing_deps.py only checks PRESENCE of a dependency, never its
+    version, so it leaves whatever an earlier step installed in place. The same
+    applies to sentencepiece if anything earlier pulls it in unpinned (0.2.2 is
+    the current latest, i.e. exactly the release upstream pins away from).
+
+  ARG XGRAMMAR_VERSION=""       # empty = leave xgrammar as resolved (older recipes)
+  ARG SENTENCEPIECE_VERSION=""  # empty = leave sentencepiece as resolved
+  XGRAMMAR_VERSION=0.2.7        # in sglang-0.5.21-sm121.recipe and later
+  SENTENCEPIECE_VERSION=0.2.1   # in sglang-0.5.21-sm121.recipe and later
+
+Same mechanism as dockerfile-tokenizers-pin.patch: gated `uv pip install
+--no-deps` in the builder stage, before the dist-packages split, so it is carried
+into the runtime stage. --no-deps is safe here: sentencepiece has no runtime
+dependencies, and xgrammar 0.2.7's (apache-tvm-ffi>=0.1.10, pydantic, torch,
+transformers, numpy, typing-extensions) are a subset of what 0.2.8 already
+required (apache-tvm-ffi>=0.1.11), so they are satisfied by the time this runs and
+the step can change exactly the two pinned packages. aarch64 wheels exist on PyPI
+for both (xgrammar 0.2.7 cp312, sentencepiece 0.2.1).
+
+PLACEMENT: LAST in the builder stage, applied AFTER dockerfile-tokenizers-pin.patch
+in apply_patches(). The hunk is TRAILING-CONTEXT-ONLY (anchored on the upstream
+dist-packages split block), so it lands directly before the split regardless of
+which optional dockerfile-*.patch steps ran before it.
+
+NOT YET VALIDATED in a built image. After the 0.5.21-sm121 build check
+`pip list | grep -iE 'xgrammar|sentencepiece'` and that `import sglang` plus
+srt.entrypoints.http_server still import.
+
+Remove once SGLang's own pins are honoured by the resolve (i.e. once
+missing_deps.py compares versions, or the upstream Dockerfile pins xgrammar).
+
+Apply to: container-build/Dockerfile.sglang-nightly in the local clone of
+scitrera/cuda-containers.
+
+--- a/container-build/Dockerfile.sglang-nightly
++++ b/container-build/Dockerfile.sglang-nightly
+@@ -523,3 +523,18 @@
++# dgxarley: exact-pin xgrammar / sentencepiece; missing_deps.py checks presence only, so the unpinned install above wins.
++ARG XGRAMMAR_VERSION=""
++ARG SENTENCEPIECE_VERSION=""
++RUN --mount=type=cache,id=uv-cache,target=/root/.cache/uv \
++    if [ -n "$XGRAMMAR_VERSION" ]; then \
++        echo "=== Pinning xgrammar==${XGRAMMAR_VERSION} ==="; \
++        uv pip install --no-deps "xgrammar==${XGRAMMAR_VERSION}"; \
++        python3 -c "import xgrammar; print('xgrammar', xgrammar.__version__)"; \
++    fi; \
++    if [ -n "$SENTENCEPIECE_VERSION" ]; then \
++        echo "=== Pinning sentencepiece==${SENTENCEPIECE_VERSION} ==="; \
++        uv pip install --no-deps "sentencepiece==${SENTENCEPIECE_VERSION}"; \
++        python3 -c "import sentencepiece; print('sentencepiece', sentencepiece.__version__)"; \
++    fi
++
+ # Break up dist-packages into smaller layers to avoid hitting Docker layer size limits
+ COPY stages/directory_split2.sh /opt/directory_split2.sh
+ RUN chmod +x /opt/directory_split2.sh && \
