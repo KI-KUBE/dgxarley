@@ -1226,6 +1226,20 @@ No wall status change, no FIXED_ rename this cycle. Next check: same as
 09-25 (watch for #39482/#38792 landing in a tag, and DSV4.1 reaching a
 tagged release).
 
+**Update 2026-10-03 (audit): SGLang v0.5.21 released 2026-10-02 (tag commit e00930c5489053f26d86b179cee0d087f846acbb); it contains PR #39482 and PR #38792, so the exact-match `sm_version == 120` DeepGEMM gate is fixed in a release.**
+
+`gh release list` shows v0.5.21 (published 2026-10-02T01:09:04Z) as Latest. `git merge-base --is-ancestor` confirms 3d1b9e7549a3 (#39482, commit date 2026-09-17) and 5e9342d16f (#38792, 2026-09-19) are both ancestors of v0.5.21. `deep_gemm_wrapper/configurer.py` at v0.5.21 reads `if sm_version in (120, 121) and not _sm120_deep_gemm_apis_available(): return False` (helper probes `fp8_einsum`, `m_grouped_fp8_fp4_gemm_nt_contiguous`, `transform_sf_into_required_layout`) and `DEEPGEMM_SCALE_UE8M0 = ENABLE_JIT_DEEPGEMM and (get_platform().is_sm100 or get_device_sm() in (120, 121))`. The SM121 exclusion is gone natively; whether DeepGEMM actually enables on GB10 still depends on the image's DeepGEMM build exposing the three probed APIs (not yet verified on hardware).
+
+Local patch p67 (`SGLANG_OPT_DEEPGEMM_SM121_PACKED_SCALE`): replayed both anchors against v0.5.21 `configurer.py`. OLD_PROBE_GATE (`if sm_version == 120:` with the DeepGEMM#324 comment) no longer exists and OLD_SCALE_UE8M0 (`get_device_sm() == 120`) no longer exists either (already `in (120, 121)`), so p67 would report ANCHOR-DRIFT, write nothing and never raise. It is redundant on v0.5.21; it remains relevant only for the currently deployed 0.5.20-sm121 image (default_sglang_image unchanged, no local changes to p56, p67, RETIRED_PATCHES.md since 09-25).
+
+Commits since 09-28 touching `deep_gemm_wrapper/` or `moe_runner/deep_gemm_sm120.py`: none. `deepseek_v4.py`/dsv4 changes on upstream/main (HEAD 7be5e3473cdbb2d2ffab252eed4b6b4bcfabdf0d, 2026-10-03) are DSV4.1/AMD/refactor only (#41251 Hopper paths and Blackwell prefill selection, #42128 SWA page size, #41163 c4 indexer pool, #39313 MegaMoE shared-expert fusion, #41308 gfx950); none change SM120/SM121 wall status beyond the gate above.
+
+DSV4.1: now present in a tagged release (v0.5.21 notes list DeepSeek-V4.1 Flash, #40352 and the dsv4.1 kernel/model PRs; cookbook page DeepSeek-V4_1 listed). No SM120/SM121/GB10 support for V4.1 confirmed (cookbook cell not verified).
+
+Issue tracking, 2026-10-03: #26324 closed (2026-08-21), #33636 open (updated 2026-09-14), #32750 open idle since 2026-08-06, #23602 open idle since 2026-08-13; #39482 and #38792 closed. Correction to the 09-28 entry: #39482's commit date is 2026-09-17 (GitHub close 2026-09-18).
+
+Next check: a 0.5.21-sm121 image and recipe do not exist yet; the image bump and the p67 retirement are pending user decisions. Once an image exists, verify DeepGEMM enables on GB10 without p67. No FIXED_ rename yet (needs hardware confirmation).
+
 ---
 
 ## Upstream references
