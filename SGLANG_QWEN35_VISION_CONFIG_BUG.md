@@ -238,6 +238,19 @@
 > remain CLOSED unmerged, no reopen. Root cause and monkey-patch
 > requirement (`p57_hf_config_get_config.py`) unchanged.
 
+> **Re-verified 2026-10-03:** SGLang v0.5.21 was released 2026-10-02
+> (previous v0.5.20). At the v0.5.21 tag and on `main` HEAD
+> (`7be5e3473c`, 2026-10-03T02:21:55-0700),
+> `python/sglang/srt/configs/qwen3_5.py` is unchanged: still six plain
+> `__init__` methods, no `from_dict`/`__post_init__`, and zero commits to it
+> since 2026-09-28. `srt/utils/hf_transformers/` saw only the transformers
+> 5.17.0 pin bump (`547286bb5a`, #39012) and an unrelated model-support
+> commit (`79cafec013`). transformers v5.18.0 (2026-09-30) is new; SGLang
+> `main` pins 5.17.0 and this doc's behaviour was not re-tested on 5.18.0.
+> PR #22839 and PR #22618 remain CLOSED unmerged, no reopen. Root cause and
+> monkey-patch requirement (`p57_hf_config_get_config.py`) unchanged on
+> v0.5.21.
+
 
 ## Summary
 
