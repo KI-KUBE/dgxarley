@@ -123,6 +123,11 @@
     # symmetric secrets in plaintext. Mounted read-only via subPath.
     # =======================================================================
 
+    - name: Render synapse config
+      ansible.builtin.set_fact:
+        _matrix_homeserver_yaml: "{{ lookup('template', 'matrix/matrix_homeserver.yaml.j2') }}"
+        _matrix_log_config: "{{ lookup('template', 'matrix/matrix_log.config.j2') }}"
+
     - name: Create synapse-config Secret (homeserver.yaml + log.config)
       kubernetes.core.k8s:
         state: present
@@ -134,8 +139,8 @@
             namespace: "{{ matrix.namespace }}"
           type: Opaque
           stringData:
-            homeserver.yaml: "{{ lookup('template', 'matrix/matrix_homeserver.yaml.j2') }}"
-            log.config: "{{ lookup('template', 'matrix/matrix_log.config.j2') }}"
+            homeserver.yaml: "{{ _matrix_homeserver_yaml }}"
+            log.config: "{{ _matrix_log_config }}"
 
     # =======================================================================
     # Synapse server
@@ -187,6 +192,10 @@
               metadata:
                 labels:
                   app: synapse
+                annotations:
+                  # subPath mounts never refresh; Synapse reads its config only at start.
+                  checksum/homeserver-config: "{{ _matrix_homeserver_yaml | hash('sha1') }}"
+                  checksum/log-config: "{{ _matrix_log_config | hash('sha1') }}"
               spec:
                 restartPolicy: Always
                 # Pin to amd64 (k3smaster is the only amd64 node) — keeps it off
