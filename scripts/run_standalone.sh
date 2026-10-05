@@ -188,18 +188,25 @@ launch_dir="${CACHE_DIR}/launch-${NAME}"
 mkdir -p "${launch_dir}"
 
 cat > "${launch_dir}/download.py" <<'EOF'
-import os, sys
-from huggingface_hub import snapshot_download
+import os, subprocess, sys
 model = os.environ["SGLANG_MODEL"]
 if os.path.isdir(model):
     sys.exit(0)
-kw = dict(repo_id=model, cache_dir="/root/.cache/huggingface/hub")
-try:
-    path = snapshot_download(**kw)
-except Exception as e:
-    print(f"WARNING: download failed ({e}), falling back to local cache", file=sys.stderr)
-    path = snapshot_download(local_files_only=True, **kw)
-print(f"=== model ready: {path}", flush=True)
+code = (
+    "import sys; from huggingface_hub import snapshot_download; "
+    "print(snapshot_download(repo_id=sys.argv[1], cache_dir='/root/.cache/huggingface/hub', "
+    "local_files_only=sys.argv[2] == '1'))"
+)
+# no-xet retry: hf_xet "Unable to parse string as hex hash value" (FIXED_UPSTREAM_HF_XET_BUG.md)
+attempts = [("xet", {}, "0"), ("no-xet", {"HF_HUB_DISABLE_XET": "1"}, "0"), ("local cache", {}, "1")]
+for label, extra_env, offline in attempts:
+    r = subprocess.run([sys.executable, "-c", code, model, offline],
+                       env={**os.environ, **extra_env}, stdout=subprocess.PIPE, text=True)
+    if r.returncode == 0:
+        print(f"=== model ready ({label}): {r.stdout.strip().splitlines()[-1]}", flush=True)
+        sys.exit(0)
+    print(f"WARNING: model download via {label} failed", file=sys.stderr, flush=True)
+sys.exit(f"ERROR: {model} is neither downloadable nor complete in the local cache")
 EOF
 
 cat > "${launch_dir}/launch.sh" <<'EOF'
@@ -223,7 +230,6 @@ env_args=(
     -e "SGLANG_MODEL=${MODEL}"
     -e "TP=${TP}"
     -e HF_HOME=/root/.cache/huggingface
-    -e HF_HUB_DISABLE_XET=1
     -e "SKIP_DOWNLOAD=${SKIP_DOWNLOAD:-0}"
 )
 for e in "${P_ENV[@]}"; do env_args+=(-e "${e}"); done
