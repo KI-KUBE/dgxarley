@@ -30,7 +30,7 @@
 #   IMAGE         from the preset (xomoxcc/dgx-spark-sglang:0.5.21-sm121)
 #   MODEL_ARGS    sglang args replacing the preset args entirely
 #   SPEC          1 (qwen38_nvidia: 0 = no MTP speculation)
-#   MEM_FRACTION  0.82 (qwen38 presets)
+#   MEM_FRACTION  0.88 (qwen38 presets)
 #   MAX_RUNNING   4 (qwen38 presets: max running requests = decode cuda-graph max bs)
 #   REF           main (branch, tag or commit; resolved to a SHA, cached as patches-<sha>,
 #                 offline fallback: last SHA seen for REF, else the newest cache)
@@ -38,6 +38,7 @@
 #   CACHE_DIR     ${XDG_CACHE_HOME:-$HOME/.cache}/dgxarley-standalone
 #   HF_CACHE      $HOME/.cache/huggingface
 #   PLE_DIR       /var/tmp/sglang-ple-offload (presets with P_PLE=1)
+#   PLE_KEEP      0 (1 = keep the previous PLE table file instead of deleting it before boot)
 #   NAME          sglang-standalone
 #   PORT          30000
 #   HF_TOKEN      passed through when set
@@ -62,13 +63,13 @@ qwen38_common() {
         --kv-cache-dtype auto
         --attention-backend flashinfer
         --moe-runner-backend flashinfer_cutlass
-        --mem-fraction-static "${MEM_FRACTION:-0.82}"
+        --mem-fraction-static "${MEM_FRACTION:-0.87}"
         --context-length 262144
         --page-size 64
         --chunked-prefill-size 4096
         --max-running-requests "${MAX_RUNNING:-4}"
         --cuda-graph-max-bs-decode "${MAX_RUNNING:-4}"
-        --mamba-radix-cache-strategy extra_buffer
+        --mamba-radix-cache-strategy extra_buffer_lazy
         --reasoning-parser qwen3
         --tool-call-parser qwen3_coder
         --ple-offload-embedding
@@ -248,6 +249,10 @@ mount_args=(
 )
 if [[ "${P_PLE}" == "1" ]]; then
     mkdir -p "${PLE_DIR}"
+    # SGLang rewrites the whole table each boot: ~17 MB/s into a populated file, GB/s into a fresh sparse one
+    if [[ "${PLE_KEEP:-0}" != "1" ]]; then
+        rm -f "${PLE_DIR}"/ple_table_*.bin
+    fi
     mount_args+=(-v "${PLE_DIR}:/ple")
 fi
 
