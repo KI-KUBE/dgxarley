@@ -31,6 +31,7 @@
 #   MODEL_ARGS    sglang args replacing the preset args entirely
 #   SPEC          1 (qwen38_nvidia: 0 = no MTP speculation)
 #   MEM_FRACTION  0.82 (qwen38 presets)
+#   MAX_RUNNING   4 (qwen38 presets: max running requests = decode cuda-graph max bs)
 #   REF           main (branch, tag or commit; resolved to a SHA, cached as patches-<sha>,
 #                 offline fallback: last SHA seen for REF, else the newest cache)
 #   REPO          vroomfondel/dgxarley
@@ -49,7 +50,12 @@ set -euo pipefail
 
 qwen38_common() {
     P_IMAGE="xomoxcc/dgx-spark-sglang:0.5.21-sm121"
-    P_ENV=(SGLANG_ENABLE_JIT_DEEPGEMM=false)
+    P_ENV=(
+        SGLANG_ENABLE_JIT_DEEPGEMM=false
+        SGLANG_QWEN4_PLE_FILE_PREFETCH=1
+        SGLANG_QWEN4_PLE_REUSE=1  # not read by 0.5.21, which reuses the /ple file by name+size
+        SGLANG_MAMBA_SSM_DTYPE=float32  # non-float32 breaks spec decode
+    )
     P_PLE=1
     P_ARGS=(
         --trust-remote-code
@@ -60,8 +66,8 @@ qwen38_common() {
         --context-length 262144
         --page-size 64
         --chunked-prefill-size 4096
-        --max-running-requests 16
-        --cuda-graph-max-bs-decode 32
+        --max-running-requests "${MAX_RUNNING:-4}"
+        --cuda-graph-max-bs-decode "${MAX_RUNNING:-4}"
         --mamba-radix-cache-strategy extra_buffer
         --reasoning-parser qwen3
         --tool-call-parser qwen3_coder
