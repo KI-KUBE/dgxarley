@@ -255,7 +255,7 @@ tty_args=(-i)
 [[ -t 0 && -t 1 ]] && tty_args+=(-t)
 
 echo "=== starting ${NAME}: preset ${PRESET}, ${IMAGE} / ${MODEL} on :${PORT}"
-podman run --rm "${tty_args[@]}" --name "${NAME}" \
+podman run --rm --init "${tty_args[@]}" --name "${NAME}" \
     --label "dgxarley.patches.repo=${REPO}" \
     --label "dgxarley.patches.ref=${REF}" \
     --label "dgxarley.patches.sha=${sha}" \
