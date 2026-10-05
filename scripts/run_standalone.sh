@@ -1,0 +1,262 @@
+#!/usr/bin/env bash
+#
+# run_standalone.sh — run the dgxarley SGLang image on a single DGX Spark with plain podman
+#
+# Fetches roles/k8s_dgx/files/sglang_patches from GitHub into a local cache, mounts
+# it at /patches, downloads MODEL into HF_CACHE unless complete, runs the patches in
+# filename order (as sglang_launch.sh does) and then starts sglang.launch_server in
+# the foreground (Ctrl-C stops and removes the container). Needs only podman, curl
+# and tar on the host.
+#
+# Presets (TP=1, one preset_<name> function per model, PRESET=list shows them):
+#   qwen38_nvidia    nvidia/Qwen3.8-Flash-Next-NVFP4, modelopt_mixed, EAGLE MTP (default)
+#   qwen38_radixark  RadixArk/Qwen3.8-Flash-Next-NVFP4, modelopt_fp4, no MTP
+#   custom           any MODEL, args only from MODEL_ARGS / the command line
+# Both Qwen3.8 checkpoints exceed the unified pool, so their presets offload the 51 GB
+# PLE table to a file-backed mmap (PLE_DIR, must be local NVMe). Not cluster-validated.
+#
+# Usage:
+#   scripts/run_standalone.sh [extra sglang args]
+#
+#   scripts/run_standalone.sh
+#   PRESET=qwen38_radixark scripts/run_standalone.sh --context-length 65536
+#   SPEC=0 MEM_FRACTION=0.75 scripts/run_standalone.sh
+#   PRESET=custom MODEL=Qwen/Qwen3-8B scripts/run_standalone.sh --reasoning-parser qwen3
+#   PRESET=list scripts/run_standalone.sh
+#
+# Environment overrides:
+#   PRESET        qwen38_nvidia | qwen38_radixark | custom | list
+#   MODEL         from the preset (required for custom)
+#   IMAGE         from the preset (xomoxcc/dgx-spark-sglang:0.5.21-sm121)
+#   MODEL_ARGS    sglang args replacing the preset args entirely
+#   SPEC          1 (qwen38_nvidia: 0 = no MTP speculation)
+#   MEM_FRACTION  0.82 (qwen38 presets)
+#   REF           main (branch, tag or commit; resolved to a SHA, cached as patches-<sha>,
+#                 offline fallback: last SHA seen for REF, else the newest cache)
+#   REPO          vroomfondel/dgxarley
+#   CACHE_DIR     ${XDG_CACHE_HOME:-$HOME/.cache}/dgxarley-standalone
+#   HF_CACHE      $HOME/.cache/huggingface
+#   PLE_DIR       /var/tmp/sglang-ple-offload (presets with P_PLE=1)
+#   NAME          sglang-standalone
+#   PORT          30000
+#   HF_TOKEN      passed through when set
+#   SKIP_DOWNLOAD 1 = no pre-download, SGLang resolves MODEL itself (online)
+
+set -euo pipefail
+
+# Each preset_<name> sets the defaults for one model: P_MODEL, P_IMAGE, P_ARGS
+# (sglang args), P_ENV (extra container env) and P_PLE (1 = mount PLE_DIR at /ple).
+
+qwen38_common() {
+    P_IMAGE="xomoxcc/dgx-spark-sglang:0.5.21-sm121"
+    P_ENV=(SGLANG_ENABLE_JIT_DEEPGEMM=false)
+    P_PLE=1
+    P_ARGS=(
+        --trust-remote-code
+        --kv-cache-dtype auto
+        --attention-backend flashinfer
+        --moe-runner-backend flashinfer_cutlass
+        --mem-fraction-static "${MEM_FRACTION:-0.82}"
+        --context-length 262144
+        --page-size 64
+        --chunked-prefill-size 4096
+        --max-running-requests 16
+        --cuda-graph-max-bs-decode 32
+        --mamba-radix-cache-strategy extra_buffer
+        --reasoning-parser qwen3
+        --tool-call-parser qwen3_coder
+        --ple-offload-embedding
+        --ple-offload-backend file
+        --ple-offload-dir /ple
+    )
+}
+
+# roles/k8s_dgx/model_profiles/nvidia-qwen3.8-flash-next-nvfp4.yml; SPEC=0 disables MTP
+preset_qwen38_nvidia() {
+    qwen38_common
+    P_MODEL="nvidia/Qwen3.8-Flash-Next-NVFP4"
+    P_ARGS+=(
+        --quantization modelopt_mixed
+        --fp4-gemm-backend flashinfer_cutlass
+        --mm-attention-backend triton_attn
+    )
+    if [[ "${SPEC:-1}" == "1" ]]; then
+        # num_draft_tokens > 4 raises in QwenSparseAttnBackend (indexer_compress_ratio)
+        P_ARGS+=(
+            --speculative-algo EAGLE
+            --speculative-num-steps 3
+            --speculative-eagle-topk 1
+            --speculative-num-draft-tokens 4
+            --speculative-moe-runner-backend triton
+        )
+    fi
+}
+
+# roles/k8s_dgx/model_profiles/radixark-qwen3.8-flash-next-nvfp4.yml
+preset_qwen38_radixark() {
+    qwen38_common
+    P_MODEL="RadixArk/Qwen3.8-Flash-Next-NVFP4"
+    P_ARGS+=(--quantization modelopt_fp4)
+}
+
+# Any model: MODEL is required, sglang args come from MODEL_ARGS and the command line.
+preset_custom() {
+    P_IMAGE="xomoxcc/dgx-spark-sglang:0.5.21-sm121"
+    P_MODEL=""
+    P_ARGS=()
+    P_ENV=()
+    P_PLE=0
+}
+
+list_presets() {
+    declare -F | awk '$3 ~ /^preset_/ {sub(/^preset_/, "", $3); print "  " $3}'
+}
+
+PRESET="${PRESET:-qwen38_nvidia}"
+if [[ "${PRESET}" == "list" ]]; then
+    list_presets
+    exit 0
+fi
+declare -F "preset_${PRESET}" >/dev/null || {
+    echo "ERROR: unknown PRESET '${PRESET}', available:" >&2
+    list_presets >&2
+    exit 2
+}
+"preset_${PRESET}"
+
+IMAGE="${IMAGE:-${P_IMAGE}}"
+MODEL="${MODEL:-${P_MODEL}}"
+[[ -n "${MODEL}" ]] || { echo "ERROR: PRESET=${PRESET} needs MODEL" >&2; exit 2; }
+REF="${REF:-main}"
+REPO="${REPO:-vroomfondel/dgxarley}"
+CACHE_DIR="${CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/dgxarley-standalone}"
+HF_CACHE="${HF_CACHE:-$HOME/.cache/huggingface}"
+PLE_DIR="${PLE_DIR:-/var/tmp/sglang-ple-offload}"
+NAME="${NAME:-sglang-standalone}"
+PORT="${PORT:-30000}"
+TP=1
+
+PATCH_PATH="roles/k8s_dgx/files/sglang_patches"
+
+[[ "${1:-}" == "--" ]] && shift
+EXTRA_ARGS=("$@")
+
+if podman container exists "${NAME}"; then
+    echo "ERROR: container '${NAME}' exists; remove it with 'podman rm -f ${NAME}'" >&2
+    exit 2
+fi
+
+mkdir -p "${CACHE_DIR}"
+ref_file="${CACHE_DIR}/ref-${REF//\//_}"
+
+sha="$(curl -fsSL --max-time 15 -H "Accept: application/vnd.github.sha" \
+    "https://api.github.com/repos/${REPO}/commits/${REF}" 2>/dev/null || true)"
+if [[ "${sha}" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "=== ${REPO}@${REF} -> ${sha}"
+    echo "${sha}" > "${ref_file}"
+else
+    sha=""
+    if [[ -s "${ref_file}" && -d "${CACHE_DIR}/patches-$(< "${ref_file}")" ]]; then
+        sha="$(< "${ref_file}")"
+    else
+        newest="$(ls -1td "${CACHE_DIR}"/patches-* 2>/dev/null | head -n1 || true)"
+        [[ -n "${newest}" ]] && sha="${newest##*/patches-}"
+    fi
+    [[ -n "${sha}" ]] || { echo "ERROR: cannot resolve ${REPO}@${REF} and no cached patches in ${CACHE_DIR}" >&2; exit 2; }
+    echo "WARNING: cannot resolve ${REPO}@${REF}, falling back to cached patches-${sha}" >&2
+fi
+
+patch_dir="${CACHE_DIR}/patches-${sha}"
+if [[ -d "${patch_dir}" ]]; then
+    echo "    cached: ${patch_dir}"
+else
+    tmp_dir="$(mktemp -d "${CACHE_DIR}/.tmp.XXXXXX")"
+    trap 'rm -rf "${tmp_dir}"' EXIT
+    echo "=== fetching ${PATCH_PATH} @ ${sha}"
+    curl -fsSL "https://codeload.github.com/${REPO}/tar.gz/${sha}" \
+        | tar -xzf - -C "${tmp_dir}" --strip-components=1 --wildcards "*/${PATCH_PATH}/*.py"
+    [[ -n "$(compgen -G "${tmp_dir}/${PATCH_PATH}/p[0-9][0-9]_*.py")" ]] \
+        || { echo "ERROR: no patches found under ${PATCH_PATH} at ${sha}" >&2; exit 2; }
+    mv "${tmp_dir}/${PATCH_PATH}" "${patch_dir}"
+fi
+touch "${patch_dir}"
+echo "    $(ls "${patch_dir}"/p[0-9][0-9]_*.py | wc -l) patches -> ${patch_dir}"
+
+mkdir -p "${HF_CACHE}"
+
+launch_dir="${CACHE_DIR}/launch-${NAME}"
+mkdir -p "${launch_dir}"
+
+cat > "${launch_dir}/download.py" <<'EOF'
+import os, sys
+from huggingface_hub import snapshot_download
+model = os.environ["SGLANG_MODEL"]
+if os.path.isdir(model):
+    sys.exit(0)
+kw = dict(repo_id=model, cache_dir="/root/.cache/huggingface/hub")
+try:
+    path = snapshot_download(**kw)
+except Exception as e:
+    print(f"WARNING: download failed ({e}), falling back to local cache", file=sys.stderr)
+    path = snapshot_download(local_files_only=True, **kw)
+print(f"=== model ready: {path}", flush=True)
+EOF
+
+cat > "${launch_dir}/launch.sh" <<'EOF'
+#!/usr/bin/env bash
+set -e
+if [ "${SKIP_DOWNLOAD}" != "1" ]; then
+    python3 /launch/download.py
+    export HF_HUB_OFFLINE=1
+fi
+for p in /patches/p[0-9][0-9]_*.py; do python3 "$p"; done
+exec python3 -m sglang.launch_server "$@"
+EOF
+
+if [[ -n "${MODEL_ARGS:-}" ]]; then
+    read -r -a model_args <<< "${MODEL_ARGS}"
+else
+    model_args=("${P_ARGS[@]}")
+fi
+
+env_args=(
+    -e "SGLANG_MODEL=${MODEL}"
+    -e "TP=${TP}"
+    -e HF_HOME=/root/.cache/huggingface
+    -e HF_HUB_DISABLE_XET=1
+    -e "SKIP_DOWNLOAD=${SKIP_DOWNLOAD:-0}"
+)
+for e in "${P_ENV[@]}"; do env_args+=(-e "${e}"); done
+[[ -n "${HF_TOKEN:-}" ]] && env_args+=(-e "HF_TOKEN=${HF_TOKEN}")
+
+mount_args=(
+    -v "${HF_CACHE}:/root/.cache/huggingface"
+    -v "${patch_dir}:/patches:ro"
+    -v "${launch_dir}:/launch:ro"
+)
+if [[ "${P_PLE}" == "1" ]]; then
+    mkdir -p "${PLE_DIR}"
+    mount_args+=(-v "${PLE_DIR}:/ple")
+fi
+
+tty_args=(-i)
+[[ -t 0 && -t 1 ]] && tty_args+=(-t)
+
+echo "=== starting ${NAME}: preset ${PRESET}, ${IMAGE} / ${MODEL} on :${PORT}"
+podman run --rm "${tty_args[@]}" --name "${NAME}" \
+    --label "dgxarley.patches.repo=${REPO}" \
+    --label "dgxarley.patches.ref=${REF}" \
+    --label "dgxarley.patches.sha=${sha}" \
+    --label "dgxarley.preset=${PRESET}" \
+    --device nvidia.com/gpu=all \
+    --ipc=host --network=host \
+    --ulimit memlock=-1 --ulimit stack=67108864 \
+    "${mount_args[@]}" \
+    "${env_args[@]}" \
+    --entrypoint bash \
+    "${IMAGE}" /launch/launch.sh \
+    --model-path "${MODEL}" \
+    --tp "${TP}" \
+    --host 0.0.0.0 --port "${PORT}" \
+    "${model_args[@]}" \
+    "${EXTRA_ARGS[@]}"
