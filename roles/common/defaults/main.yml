@@ -29,6 +29,9 @@ iptables_xosrc_ips: []
 iptables_lifeline_ips: []
 iptables_k3s_external_ips: []
 iptables_static_dns_ips: []
+# Host-level SGLang from scripts/run_standalone.sh (podman --network=host), opened to localnets
+standalone_sglang_firewall_enabled: false
+standalone_sglang_port: 30000
 
 # DynDNS hostname for ipset updates (overridden by vault)
 dyndns_hostname: "dyn.example.com"

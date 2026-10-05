@@ -167,6 +167,11 @@ iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 1984 -m set --match-se
 iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 8554 -m set --match-set localnets src -j RETURN
 {% endif %}
 
+{% if standalone_sglang_firewall_enabled | default(false) | bool %}
+# standalone SGLang (scripts/run_standalone.sh, podman --network=host)
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport {{ standalone_sglang_port | int }} -m set --match-set localnets src -j RETURN
+{% endif %}
+
 {% if wantsrookceph | default(false) %}
 # Rook/Ceph: MON (v1+v2), OSD range, MGR prometheus metrics
 iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dports 6789,3300 -m set --match-set k3snodes src -j RETURN
