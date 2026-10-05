@@ -260,7 +260,7 @@ tty_args=(-i)
 [[ -t 0 && -t 1 ]] && tty_args+=(-t)
 
 echo "=== starting ${NAME}: preset ${PRESET}, ${IMAGE} / ${MODEL} on :${PORT}"
-podman run --rm --init "${tty_args[@]}" --name "${NAME}" \
+podman run --rm "${tty_args[@]}" --name "${NAME}" \
     --label "dgxarley.patches.repo=${REPO}" \
     --label "dgxarley.patches.ref=${REF}" \
     --label "dgxarley.patches.sha=${sha}" \
@@ -270,8 +270,8 @@ podman run --rm --init "${tty_args[@]}" --name "${NAME}" \
     --ulimit memlock=-1 --ulimit stack=67108864 \
     "${mount_args[@]}" \
     "${env_args[@]}" \
-    --entrypoint bash \
-    "${IMAGE}" /launch/launch.sh \
+    --entrypoint /usr/bin/tini \
+    "${IMAGE}" -- bash /launch/launch.sh \
     --model-path "${MODEL}" \
     --tp "${TP}" \
     --host 0.0.0.0 --port "${PORT}" \
