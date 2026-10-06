@@ -14,7 +14,7 @@
 # Newest release: gh api repos/k8snetworkplumbingwg/multus-cni/releases/latest --jq '.tag_name'
 set -euo pipefail
 
-MULTUS_REF="${MULTUS_REF:-v4.3.0}"
+MULTUS_REF="${MULTUS_REF:-v4.3.1}"
 UPSTREAM_URL="https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/${MULTUS_REF}/deployments/multus-daemonset-thick.yml"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEST="${SCRIPT_DIR}/multus-daemonset-thick.yml"

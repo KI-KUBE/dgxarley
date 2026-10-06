@@ -1,7 +1,7 @@
 # Downloaded from:
-#   https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/v4.3.0/deployments/multus-daemonset-thick.yml
-# Upstream release: v4.3.0
-# Upstream SHA256: 2d622f697809644a12704497bbf5c3256adc1e7f5b5504655e4993743651b585
+#   https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/v4.3.1/deployments/multus-daemonset-thick.yml
+# Upstream release: v4.3.1
+# Upstream SHA256: 24fb29530b760d28126bba76bd91fac8fd74100b53d9fc65943c223e3a82be30
 # Patched by: roles/k8s_dgx/files/update_multus_manifest.sh
 #
 # K3s fixes applied:
@@ -40,7 +40,7 @@
 #    herd again — a deadlock that does not clear by itself (seen 2026-07-28 on
 #    elite800 after a reboot). CPU stays at 100m.
 #
-# 6. image tag: snapshot-thick → v4.3.0-thick.
+# 6. image tag: snapshot-thick → v4.3.1-thick.
 #    Upstream hardcodes the rolling snapshot-thick tag in every manifest, release
 #    tags included, so the release checkout alone does not pin the image. Without
 #    this any pod restart could pull a different master build of the daemon.
@@ -124,6 +124,15 @@ rules:
       - update
       - watch
   - apiGroups:
+      - "resource.k8s.io"
+    resources:
+      - resourceclaims
+      - resourceclaims/status
+      - resourceslices
+    verbs:
+      - get
+      - list
+  - apiGroups:
       - ""
       - events.k8s.io
     resources:
@@ -206,7 +215,7 @@ spec:
       serviceAccountName: multus
       containers:
         - name: kube-multus
-          image: ghcr.io/k8snetworkplumbingwg/multus-cni:v4.3.0-thick
+          image: ghcr.io/k8snetworkplumbingwg/multus-cni:v4.3.1-thick
           command: [ "/usr/src/multus-cni/bin/multus-daemon" ]
           resources:
             requests:
@@ -253,7 +262,7 @@ spec:
                   fieldPath: spec.nodeName
       initContainers:
         - name: install-multus-binary
-          image: ghcr.io/k8snetworkplumbingwg/multus-cni:v4.3.0-thick
+          image: ghcr.io/k8snetworkplumbingwg/multus-cni:v4.3.1-thick
           command:
             - "/usr/src/multus-cni/bin/install_multus"
             - "-d"
@@ -271,7 +280,7 @@ spec:
             - name: cnibin
               mountPath: /host/var/lib/rancher/k3s/data
               mountPropagation: HostToContainer
-      terminationGracePeriodSeconds: 10
+      terminationGracePeriodSeconds: 30
       volumes:
         - name: cni
           hostPath:
