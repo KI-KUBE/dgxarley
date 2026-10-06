@@ -25,6 +25,25 @@ Examples:
     pin-drift --updates-only         # hide the pins that are current
     pin-drift --only hermes-agent    # a single pin (repeatable)
     pin-drift --config ../pin_drift.yml
+
+Attributes:
+    CONFIG_NAME: File name of the pin declarations, searched upwards from the
+        current directory.
+    GITHUB_API_HOST: Host of the GitHub REST API.
+    GITCRYPT_MAGIC: Leading bytes of a file that git-crypt has not decrypted.
+    DEFAULT_TAG_PATTERN: Regular expression a release tag must match to count
+        as a version (``1.2``, ``v1.2.3``, ...).
+    REQUEST_TIMEOUT_SECONDS: Timeout of a single release API request.
+    MAX_WORKERS: Number of upstream projects queried concurrently.
+    PAGE_SIZE: Per upstream kind, the query parameter name and the largest page
+        size the API accepts.
+    console: Rich console for the result table and the summary (stdout).
+    err_console: Rich console for progress and error messages (stderr).
+    CLI_HELP: Help text of the ``pin-drift`` command.
+    app: Typer application exposing :func:`main`.
+    UPDATE_STATUSES: Statuses that mean an update is available.
+    STATUS_ORDER: Sort order of the findings, most urgent first.
+    STATUS_STYLE: Rich style per status in the result table.
 """
 
 import os
@@ -37,12 +56,12 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal, Self, TypedDict, cast
+from typing import Final, Literal, Self, TypedDict
 
 import requests
 import typer
 import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, field_validator, model_validator
 from rich.console import Console
 from rich.table import Table
 
@@ -51,21 +70,25 @@ from dgxarley import configure_logging, glogger, print_banner
 configure_logging()
 glogger.enable("dgxarley")
 
-CONFIG_NAME = "pin_drift.yml"
-GITHUB_API_HOST = "api.github.com"
-GITCRYPT_MAGIC = b"\x00GITCRYPT"
-DEFAULT_TAG_PATTERN = r"^v?\d+(?:\.\d+)+$"
-REQUEST_TIMEOUT_SECONDS = 20
-MAX_WORKERS = 8
+type VersionKey = tuple[int, ...]
+type UpstreamKind = Literal["github", "forgejo"]
+type UpstreamSource = Literal["releases", "tags"]
+
+CONFIG_NAME: Final[str] = "pin_drift.yml"
+GITHUB_API_HOST: Final[str] = "api.github.com"
+GITCRYPT_MAGIC: Final[bytes] = b"\x00GITCRYPT"
+DEFAULT_TAG_PATTERN: Final[str] = r"^v?\d+(?:\.\d+)+$"
+REQUEST_TIMEOUT_SECONDS: Final[int] = 20
+MAX_WORKERS: Final[int] = 8
 # GitHub caps a page at 100 entries, Forgejo/Gitea at 50 by default.
-PAGE_SIZE = {"github": ("per_page", 100), "forgejo": ("limit", 50)}
+PAGE_SIZE: Final[dict[UpstreamKind, tuple[str, int]]] = {"github": ("per_page", 100), "forgejo": ("limit", 50)}
 
-_WIDE = 200
+_WIDE: Final[int] = 200
 
-console = Console(width=None if sys.stdout.isatty() else _WIDE)
-err_console = Console(stderr=True, width=None if sys.stderr.isatty() else _WIDE)
+console: Final[Console] = Console(width=None if sys.stdout.isatty() else _WIDE)
+err_console: Final[Console] = Console(stderr=True, width=None if sys.stderr.isatty() else _WIDE)
 
-CLI_HELP = """Check whether version pins in the repo lag behind their upstream release.
+CLI_HELP: Final[str] = """Check whether version pins in the repo lag behind their upstream release.
 
 Reads the pins declared in pin_drift.yml from the repo files and compares each
 against the release list of its upstream project. Read-only.
@@ -74,19 +97,45 @@ The exit code is 1 as soon as at least one pin has an update available, so the
 script works as a gate in a pipeline.
 """
 
-app = typer.Typer(add_completion=False)
-
-type VersionKey = tuple[int, ...]
+app: Final[typer.Typer] = typer.Typer(add_completion=False)
 
 
 class ReleaseEntry(TypedDict, total=False):
+    """One entry of a release or tag listing, reduced to the fields used here.
+
+    The same shape covers both endpoints of both forges: a ``releases`` entry
+    carries ``tag_name`` (plus ``name`` as a free-form title), a ``tags`` entry
+    carries the tag in ``name``. Every key is optional because each endpoint
+    fills only its own subset.
+
+    Attributes:
+        tag_name: Git tag of a release.
+        name: Release title (``releases``, may be null on GitHub) or the tag
+            itself (``tags``).
+        prerelease: Whether the release is marked as a pre-release.
+        draft: Whether the release is an unpublished draft.
+    """
+
     tag_name: str
-    name: str
+    name: str | None
     prerelease: bool
     draft: bool
 
 
+_RELEASE_LISTING: Final[TypeAdapter[list[ReleaseEntry]]] = TypeAdapter(list[ReleaseEntry])
+
+
 class PinStatus(StrEnum):
+    """Outcome of comparing a pin with the newest upstream version.
+
+    Attributes:
+        CURRENT: The pin is at (or ahead of) the newest upstream version.
+        PATCH: A newer version differs from the pin beyond the minor component.
+        MINOR: A newer version differs from the pin in the minor component.
+        MAJOR: A newer version differs from the pin in the major component.
+        UNCLEAR: The pin or the upstream list could not be evaluated.
+    """
+
     CURRENT = "current"
     PATCH = "patch"
     MINOR = "minor"
@@ -94,9 +143,9 @@ class PinStatus(StrEnum):
     UNCLEAR = "unclear"
 
 
-UPDATE_STATUSES = (PinStatus.MAJOR, PinStatus.MINOR, PinStatus.PATCH)
-STATUS_ORDER = (*UPDATE_STATUSES, PinStatus.UNCLEAR, PinStatus.CURRENT)
-STATUS_STYLE = {
+UPDATE_STATUSES: Final[tuple[PinStatus, ...]] = (PinStatus.MAJOR, PinStatus.MINOR, PinStatus.PATCH)
+STATUS_ORDER: Final[tuple[PinStatus, ...]] = (*UPDATE_STATUSES, PinStatus.UNCLEAR, PinStatus.CURRENT)
+STATUS_STYLE: Final[dict[PinStatus, str]] = {
     PinStatus.CURRENT: "green",
     PinStatus.PATCH: "yellow",
     PinStatus.MINOR: "bold yellow",
@@ -107,12 +156,27 @@ STATUS_STYLE = {
 
 @dataclass(frozen=True)
 class Upstream:
-    kind: Literal["github", "forgejo"]
+    """An upstream project whose release list a pin is compared against.
+
+    Hashable, so pins sharing an upstream share a single API request.
+
+    Attributes:
+        kind: Which forge API to talk to.
+        repo: ``owner/repo`` for GitHub, ``host/owner/repo`` for Forgejo.
+        source: Whether to read the ``releases`` or the ``tags`` endpoint.
+    """
+
+    kind: UpstreamKind
     repo: str
-    source: Literal["releases", "tags"]
+    source: UpstreamSource
 
     @property
     def url(self) -> str:
+        """API URL of the release or tag listing.
+
+        Returns:
+            The listing URL on ``api.github.com`` or on the Forgejo host.
+        """
         if self.kind == "github":
             return f"https://{GITHUB_API_HOST}/repos/{self.repo}/{self.source}"
         host, _, path = self.repo.partition("/")
@@ -120,10 +184,33 @@ class Upstream:
 
     @property
     def display(self) -> str:
+        """Human-readable name for the result table.
+
+        Returns:
+            The repo path, suffixed with ``(forgejo)`` for a Forgejo upstream.
+        """
         return self.repo if self.kind == "github" else f"{self.repo} (forgejo)"
 
 
 class PinSpec(BaseModel):
+    """One pin as declared in ``pin_drift.yml``.
+
+    Exactly one extraction method (``var``, ``image``, ``pattern``) and exactly
+    one upstream (``github``, ``forgejo``) must be set, plus at least one file.
+
+    Attributes:
+        name: Unique name of the pin, used by ``--only`` and in the table.
+        file: A single file carrying the pin, relative to the config file.
+        files: Further files carrying the same pin; all must agree.
+        var: YAML key whose scalar value is the pin.
+        image: Container image reference whose tag is the pin.
+        pattern: Regular expression with exactly one capture group for the pin.
+        github: GitHub ``owner/repo`` of the upstream.
+        forgejo: Forgejo ``host/owner/repo`` of the upstream.
+        source: Whether upstream versions come from releases or from tags.
+        tag_pattern: Regular expression an upstream tag must match to count.
+    """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
@@ -134,12 +221,23 @@ class PinSpec(BaseModel):
     pattern: str | None = None
     github: str | None = None
     forgejo: str | None = None
-    source: Literal["releases", "tags"] = "releases"
+    source: UpstreamSource = "releases"
     tag_pattern: str = DEFAULT_TAG_PATTERN
 
     @field_validator("pattern", "tag_pattern")
     @classmethod
     def _compiles(cls, value: str | None) -> str | None:
+        """Reject a regular expression that does not compile.
+
+        Args:
+            value: The configured expression, or ``None`` if unset.
+
+        Returns:
+            The unchanged value.
+
+        Raises:
+            ValueError: If ``value`` is not a valid regular expression.
+        """
         if value is not None:
             try:
                 re.compile(value)
@@ -149,6 +247,16 @@ class PinSpec(BaseModel):
 
     @model_validator(mode="after")
     def _exactly_one_of_each(self) -> Self:
+        """Enforce the either/or rules between the fields.
+
+        Returns:
+            The validated model.
+
+        Raises:
+            ValueError: If no file is given, if not exactly one extraction
+                method or not exactly one upstream is set, or if ``pattern``
+                does not have exactly one capture group.
+        """
         if not self.paths:
             raise ValueError("needs 'file' or 'files'")
         if sum(item is not None for item in (self.var, self.image, self.pattern)) != 1:
@@ -161,10 +269,21 @@ class PinSpec(BaseModel):
 
     @property
     def paths(self) -> tuple[str, ...]:
+        """All files carrying the pin.
+
+        Returns:
+            ``file`` (if set) followed by ``files``.
+        """
         return (*((self.file,) if self.file else ()), *self.files)
 
     @property
     def extractor(self) -> re.Pattern[str]:
+        """Compiled expression that captures the pin from a file's text.
+
+        Returns:
+            A pattern with exactly one capture group, built from ``var``,
+            ``image`` or ``pattern`` (whichever is set).
+        """
         if self.var is not None:
             return re.compile(rf"^\s*{re.escape(self.var)}:\s*[\"']?([^\"'\s#]+)", re.MULTILINE)
         if self.image is not None:
@@ -173,18 +292,37 @@ class PinSpec(BaseModel):
 
     @property
     def upstream(self) -> Upstream:
+        """The upstream project of this pin.
+
+        Returns:
+            An :class:`Upstream` for whichever of ``github`` / ``forgejo`` is set.
+        """
         if self.github is not None:
             return Upstream("github", self.github, self.source)
         return Upstream("forgejo", self.forgejo or "", self.source)
 
 
 class PinConfig(BaseModel):
+    """Top-level structure of ``pin_drift.yml``.
+
+    Attributes:
+        pins: All declared pins, in file order.
+    """
+
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     pins: tuple[PinSpec, ...]
 
     @model_validator(mode="after")
     def _unique_names(self) -> Self:
+        """Reject two pins with the same name.
+
+        Returns:
+            The validated model.
+
+        Raises:
+            ValueError: If a pin name occurs more than once.
+        """
         names = [spec.name for spec in self.pins]
         duplicates = sorted({name for name in names if names.count(name) > 1})
         if duplicates:
@@ -194,12 +332,29 @@ class PinConfig(BaseModel):
 
 @dataclass(frozen=True)
 class TagLookup:
+    """Result of querying one upstream: either its tags or an error.
+
+    Attributes:
+        tags: Published version tags (drafts and pre-releases excluded).
+        error: Short reason why the lookup failed; empty on success.
+    """
+
     tags: tuple[str, ...] = ()
     error: str = ""
 
 
 @dataclass(frozen=True)
 class Finding:
+    """The evaluated state of one pin.
+
+    Attributes:
+        spec: The pin declaration.
+        pinned: The version read from the repo, ``None`` if unreadable.
+        latest: The newest matching upstream version, ``None`` if unknown.
+        status: How far the pin lags behind ``latest``.
+        note: Extra explanation for the table (problem, floating tag, ...).
+    """
+
     spec: PinSpec
     pinned: str | None
     latest: str | None
@@ -208,11 +363,43 @@ class Finding:
 
 
 def version_key(text: str) -> VersionKey:
+    """Turn a version string into a comparable tuple of integers.
+
+    Args:
+        text: A tag or pin such as ``v1.2.3`` or ``13.2.0-ubuntu``.
+
+    Returns:
+        The numeric components in order, e.g. ``(1, 2, 3)``; empty if the text
+        carries no version number.
+
+    Examples:
+        >>> version_key("v1.2.3")
+        (1, 2, 3)
+        >>> version_key("k3s-1.30")
+        (1, 30)
+    """
     # A number running into a letter belongs to a word ("k3s"), not to the version.
     return tuple(int(part) for part in re.findall(r"\d+(?![A-Za-z\d])", text))
 
 
 def classify(pinned: VersionKey, candidate: VersionKey) -> PinStatus:
+    """Classify how far ``candidate`` is ahead of ``pinned``.
+
+    Args:
+        pinned: Version key of the pin.
+        candidate: Version key of an upstream release.
+
+    Returns:
+        :attr:`PinStatus.CURRENT` if the candidate is not newer at the pin's
+        precision, otherwise the first differing component as MAJOR, MINOR or
+        PATCH.
+
+    Examples:
+        >>> classify((5, 1), (5, 1, 3))
+        <PinStatus.CURRENT: 'current'>
+        >>> classify((1, 2, 3), (1, 3, 0))
+        <PinStatus.MINOR: 'minor'>
+    """
     # Truncating to the pin's precision makes a floating "5.1" cover every 5.1.x.
     head = candidate[: len(pinned)]
     if head <= pinned:
@@ -222,6 +409,15 @@ def classify(pinned: VersionKey, candidate: VersionKey) -> PinStatus:
 
 
 def find_config(start: Path) -> Path | None:
+    """Search ``start`` and its parents for the pin declarations.
+
+    Args:
+        start: Directory to start the search in.
+
+    Returns:
+        The first ``pin_drift.yml`` found, or ``None`` if there is none up to
+        the filesystem root.
+    """
     for directory in (start, *start.parents):
         candidate = directory / CONFIG_NAME
         if candidate.is_file():
@@ -230,8 +426,20 @@ def find_config(start: Path) -> Path | None:
 
 
 def load_config(path: Path) -> PinConfig:
+    """Read and validate the pin declarations.
+
+    Args:
+        path: Path of ``pin_drift.yml``.
+
+    Returns:
+        The validated configuration.
+
+    Raises:
+        typer.Exit: With code 2 if the file cannot be read, is not valid YAML
+            or does not match the schema.
+    """
     try:
-        raw = yaml.safe_load(path.read_text())
+        raw: object = yaml.safe_load(path.read_text())
         return PinConfig.model_validate(raw)
     except (OSError, yaml.YAMLError, ValidationError) as exc:
         err_console.print(f"[red]{path} is not usable:[/] {exc}")
@@ -239,6 +447,13 @@ def load_config(path: Path) -> PinConfig:
 
 
 def github_token() -> str | None:
+    """Find a GitHub API token.
+
+    Checks ``GITHUB_TOKEN`` and ``GH_TOKEN`` first, then asks the ``gh`` CLI.
+
+    Returns:
+        The token, or ``None`` to fall back to anonymous access.
+    """
     for name in ("GITHUB_TOKEN", "GH_TOKEN"):
         if os.environ.get(name):
             return os.environ[name]
@@ -253,6 +468,18 @@ def github_token() -> str | None:
 
 
 def fetch_tags(upstream: Upstream, token: str | None) -> TagLookup:
+    """Fetch the first page of an upstream's releases or tags.
+
+    Never raises on network or API problems; those end up in
+    :attr:`TagLookup.error` so one broken upstream does not stop the run.
+
+    Args:
+        upstream: The project to query.
+        token: GitHub token, sent only to GitHub; ``None`` for anonymous access.
+
+    Returns:
+        The published tags (drafts and pre-releases skipped), or an error.
+    """
     headers = {"Accept": "application/json"}
     if upstream.kind == "github" and token:
         headers["Authorization"] = f"Bearer {token}"
@@ -267,25 +494,33 @@ def fetch_tags(upstream: Upstream, token: str | None) -> TagLookup:
         detail = response.text.strip()[:80].replace("\n", " ")
         return TagLookup(error=f"HTTP {response.status_code} {detail}")
     try:
-        payload = response.json()
-    except ValueError:
-        return TagLookup(error="no JSON in the response")
-    if not isinstance(payload, list):
+        entries = _RELEASE_LISTING.validate_json(response.content)
+    except ValidationError:
         return TagLookup(error="unexpected response shape")
 
-    entries = cast(list[ReleaseEntry], payload)
     if upstream.source == "tags":
-        return TagLookup(tags=tuple(entry["name"] for entry in entries if entry.get("name")))
+        return TagLookup(tags=tuple(name for entry in entries if (name := entry.get("name"))))
     return TagLookup(
         tags=tuple(
-            entry["tag_name"]
+            tag
             for entry in entries
-            if entry.get("tag_name") and not entry.get("prerelease") and not entry.get("draft")
+            if (tag := entry.get("tag_name")) and not entry.get("prerelease") and not entry.get("draft")
         )
     )
 
 
 def read_pin(spec: PinSpec, root: Path) -> tuple[str | None, str]:
+    """Read the pinned version from all files of a pin.
+
+    Args:
+        spec: The pin declaration.
+        root: Directory the pin's file paths are relative to.
+
+    Returns:
+        ``(version, "")`` if every file carries the same pin, otherwise
+        ``(None, problem)`` describing the first unreadable, git-crypt-locked
+        or pin-less file, or the conflicting values.
+    """
     found: set[str] = set()
     for relative in spec.paths:
         try:
@@ -294,7 +529,7 @@ def read_pin(spec: PinSpec, root: Path) -> tuple[str | None, str]:
             return None, f"{relative}: {exc.strerror or type(exc).__name__}"
         if data.startswith(GITCRYPT_MAGIC):
             return None, f"{relative}: git-crypt locked"
-        matches = spec.extractor.findall(data.decode(errors="replace"))
+        matches: list[str] = spec.extractor.findall(data.decode(errors="replace"))
         if not matches:
             return None, f"{relative}: pin not found"
         found.update(matches)
@@ -304,6 +539,17 @@ def read_pin(spec: PinSpec, root: Path) -> tuple[str | None, str]:
 
 
 def evaluate(spec: PinSpec, root: Path, lookup: TagLookup) -> Finding:
+    """Compare one pin against its upstream's tags.
+
+    Args:
+        spec: The pin declaration.
+        root: Directory the pin's file paths are relative to.
+        lookup: The already fetched tags of the pin's upstream.
+
+    Returns:
+        The finding, with a note for a floating tag, a pin ahead of upstream
+        or a newer release within the pinned major.
+    """
     pinned, problem = read_pin(spec, root)
     if pinned is None:
         return Finding(spec, None, None, PinStatus.UNCLEAR, problem)
@@ -314,7 +560,9 @@ def evaluate(spec: PinSpec, root: Path, lookup: TagLookup) -> Finding:
         return Finding(spec, pinned, None, PinStatus.UNCLEAR, f"upstream: {lookup.error}")
 
     matcher = re.compile(spec.tag_pattern)
-    candidates = sorted((version_key(tag), tag) for tag in lookup.tags if matcher.search(tag))
+    candidates: list[tuple[VersionKey, str]] = sorted(
+        (version_key(tag), tag) for tag in lookup.tags if matcher.search(tag)
+    )
     if not candidates:
         return Finding(spec, pinned, None, PinStatus.UNCLEAR, f"no upstream {spec.source} match tag_pattern")
 
@@ -334,16 +582,34 @@ def evaluate(spec: PinSpec, root: Path, lookup: TagLookup) -> Finding:
 
 
 def analyse(specs: Sequence[PinSpec], root: Path, token: str | None) -> list[Finding]:
+    """Evaluate all pins, querying each distinct upstream once in parallel.
+
+    Args:
+        specs: The pins to check.
+        root: Directory the pins' file paths are relative to.
+        token: GitHub token, or ``None`` for anonymous access.
+
+    Returns:
+        One finding per pin, most urgent status first, then by name.
+    """
     upstreams = sorted({spec.upstream for spec in specs}, key=lambda item: (item.kind, item.repo, item.source))
     with err_console.status(f"[cyan]asking {len(upstreams)} upstream projects...[/]"):
         with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-            lookups = dict(zip(upstreams, pool.map(lambda item: fetch_tags(item, token), upstreams)))
+            lookups: dict[Upstream, TagLookup] = dict(
+                zip(upstreams, pool.map(lambda item: fetch_tags(item, token), upstreams))
+            )
     findings = [evaluate(spec, root, lookups[spec.upstream]) for spec in specs]
     findings.sort(key=lambda item: (STATUS_ORDER.index(item.status), item.spec.name))
     return findings
 
 
 def render(findings: Sequence[Finding], updates_only: bool) -> None:
+    """Print the findings as a table.
+
+    Args:
+        findings: The evaluated pins, already sorted.
+        updates_only: Skip the pins whose status is current.
+    """
     table = Table(title="Pin drift: pinned version against upstream release")
     table.add_column("Pin")
     table.add_column("Upstream")
@@ -380,6 +646,20 @@ def main(
     updates_only: bool = typer.Option(False, "--updates-only", help="Hide the pins that are current."),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress the table, print only the summary."),
 ) -> None:
+    """Check the declared pins and print the drift.
+
+    Args:
+        config_path: Pin declarations; ``None`` searches upwards from the
+            current directory.
+        only: Restrict the check to these pin names.
+        updates_only: Hide the pins that are current.
+        quiet: Print only the summary line, not the table.
+
+    Raises:
+        typer.Exit: Always. Code 0 if no pin has an update, 1 if at least one
+            has, 2 if the configuration is missing, invalid, or ``--only``
+            names an unknown pin.
+    """
     print_banner(module=Path(__file__).stem)
 
     path = config_path or find_config(Path.cwd())
@@ -404,7 +684,7 @@ def main(
     if not quiet:
         render(findings, updates_only)
 
-    counts = {status: sum(item.status is status for item in findings) for status in PinStatus}
+    counts: dict[PinStatus, int] = {status: sum(item.status is status for item in findings) for status in PinStatus}
     console.print(
         f"{len(findings)} pins checked, "
         f"[bold red]{counts[PinStatus.MAJOR]} major[/], "
