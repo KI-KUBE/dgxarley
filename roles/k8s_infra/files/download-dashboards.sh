@@ -30,6 +30,7 @@ mkdir -p "$DASH_DIR" "$SRC_DIR"
 # scanned BOTH and produced the duplicates. They are rebuilt into $DASH_DIR
 # below; src/ is kept as the warm cache.
 find "$DASH_ROOT" -maxdepth 1 -type f -name '*.json' -delete 2>/dev/null || true
+rm -f "$DASH_DIR/k8s-addons-trivy-operator-16337.json" "$SRC_DIR/k8s-addons-trivy-operator-16337.json"
 # Re-fetch a cached RAW download only if older than this many days.
 #   N>0 : refresh after N days  |  0 : always re-fetch  |  -1 : cache forever
 CACHE_TTL_DAYS="${GRAFANA_DASHBOARD_CACHE_TTL_DAYS:-7}"
@@ -99,7 +100,6 @@ raw kubernetes-15661.json "https://grafana.com/api/dashboards/15661/revisions/la
 # Format: "ID:filename"
 DOTDC_DASHBOARDS="
   19105:k8s-addons-prometheus
-  16337:k8s-addons-trivy-operator
   15761:k8s-system-api-server
   15762:k8s-system-coredns
   15757:k8s-views-global
