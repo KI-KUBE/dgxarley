@@ -6,6 +6,17 @@ Standalone helper scripts that are run manually outside of Ansible playbooks.
 > `dgxarley/integration/sglang_bench.py` (console script `sglang-bench`,
 > `pip install -e '.[sglang-bench]'`). See its module docstring for usage.
 
+## check_pin_drift.sh
+
+Wrapper around `pin-drift` / `keel-drift` from the dgxarley package (`dgxarley/k3shelperstuff/`), runnable from any cwd.
+
+```bash
+scripts/check_pin_drift.sh [pin] [--updates-only ...]   # repo-root pin_drift.yml vs. upstream releases
+scripts/check_pin_drift.sh keel [--drift-only ...]      # Keel workloads on $KUBE_CONTEXT vs. registry digests
+```
+
+Uses `<repo>/.venv/bin/python` (so the checkout's code), falls back to the PyPI release via `uvx`. GitHub token from `GITHUB_TOKEN`/`GH_TOKEN`/`gh auth token`. Overrides: `DGXARLEY_PYTHON`, `DGXARLEY_SPEC`, `KUBE_CONTEXT`, `PIN_DRIFT_CONFIG`. Exit code 1 means at least one pin or workload is behind.
+
 ## luks_encrypt_spark.sh
 
 In-place LUKS encryption for DGX Spark (ARM64) root partitions **without requiring a live USB boot**. The entire process runs from the live system using a two-phase approach that backs up the root filesystem to RAM, repartitions, encrypts, and restores.
