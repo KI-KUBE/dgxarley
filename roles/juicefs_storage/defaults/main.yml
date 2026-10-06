@@ -238,7 +238,7 @@ juicefs_backup_meta_interval: "24h"
 #             NOTE: the list query also returns the 1.0.1-preview.* tags; since
 #             the 1.0.0 GA (2026-09-16) releases/latest resolves and skips those.
 juicefs_version: "1.4.1"                 # juicedata/juicefs release (arm64+amd64, LTS)
-juicefs_rustfs_version: "1.0.0"          # rustfs/rustfs release
+juicefs_rustfs_version: "1.0.1"          # rustfs/rustfs release
 juicefs_rustfs_libc: musl                # musl (static) or gnu
 juicefs_valkey_apt_package: valkey-server  # noble: 7.2.x — sufficient for JuiceFS
 
