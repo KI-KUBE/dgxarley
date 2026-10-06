@@ -90,8 +90,9 @@
       # passwd entry — harmless only for as long as no user gets that uid, at which
       # point they could replace binaries that root executes. Without preserving
       # ownership everything lands root-owned and existing directories keep theirs.
+      # --remove-destination: in-place overwrite of a running podman/conmon fails with ETXTBSY.
       ansible.builtin.command:
-        cmd: "cp -a --no-preserve=ownership {{ _podman_static_tmp.path }}/podman-linux-{{ _podman_static_arch }}/usr {{ _podman_static_tmp.path }}/podman-linux-{{ _podman_static_arch }}/etc /"
+        cmd: "cp -a --no-preserve=ownership --remove-destination {{ _podman_static_tmp.path }}/podman-linux-{{ _podman_static_arch }}/usr {{ _podman_static_tmp.path }}/podman-linux-{{ _podman_static_arch }}/etc /"
       changed_when: true
 
     - name: reload systemd to pick up static podman units
@@ -125,6 +126,19 @@
     mode: "0644"
     backup: true
 
+- name: remove the static bundle's fuse-overlayfs storage drop-in
+  # podman >= 6 honors storage.conf.d/, and this drop-in overrides mount_program in storage.conf.
+  ansible.builtin.file:
+    path: /etc/containers/storage.conf.d/00-podman-static.conf
+    state: absent
+  when: podman_static_enabled | default(false) | bool
+
+- name: reset /etc/containers ownership left by the bundle's CI uid
+  ansible.builtin.shell: find /etc/containers ! -user root -print -exec chown root:root {} +
+  register: _containers_chown
+  changed_when: _containers_chown.stdout | length > 0
+  when: podman_static_enabled | default(false) | bool
+
 - name: Check for an existing containers storage.conf
   ansible.builtin.stat:
     path: /etc/containers/storage.conf
@@ -140,23 +154,24 @@
   # the native-overlay compiled defaults already, and containers/storage reads a single
   # storage.conf whole (no merge) — writing a partial file there would drop the
   # [storage] base (driver/runroot) and break podman ("runroot must be set"). A
-  # storage.conf.d/ drop-in was tested and is NOT honored by this containers-storage
-  # version, so an in-place edit of the existing file is the only working lever.
+  # storage.conf.d/ drop-in is NOT honored by podman 5.x (podman 6 does honor it, hence
+  # the bundle drop-in removal above), so an in-place edit is the version-agnostic lever.
   # NOTE: config-only; pre-existing fuse-built storage may need a manual
   # `podman system reset` (destructive) if the next build hits a driver mismatch.
   community.general.ini_file:
     path: /etc/containers/storage.conf
-    section: storage.options.overlay
+    section: "{{ item.section }}"
     option: "{{ item.opt }}"
     value: "{{ item.val }}"
     create: false
     mode: "0644"
     backup: true
   loop:
-    - { opt: mount_program, val: '""' }
-    - { opt: mountopt, val: '"nodev"' }
+    - { section: storage, opt: driver, val: '"overlay"' }
+    - { section: storage.options.overlay, opt: mount_program, val: '""' }
+    - { section: storage.options.overlay, opt: mountopt, val: '"nodev"' }
   loop_control:
-    label: "{{ item.opt }}"
+    label: "{{ item.section }}.{{ item.opt }}"
   when: containers_storage_conf.stat.exists
 
 - name: enable linger for root
