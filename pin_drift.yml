@@ -1,0 +1,171 @@
+# Version pins checked by `pin-drift` (dgxarley/k3shelperstuff/pin_drift.py).
+#
+# Per entry:
+#   name         unique label
+#   file(s)      repo-relative file(s) carrying the pin; all of them must agree
+#   var          YAML key whose scalar value is the version            (one of
+#   image        image repo; the tag after the colon is the version     these
+#   pattern      raw regex with exactly one capture group               three)
+#   github       owner/repo                                            (one of
+#   forgejo      host/owner/repo                                        these two)
+#   source       releases (default) or tags
+#   tag_pattern  regex an upstream tag must match (default: ^v?\d+(\.\d+)+$)
+#
+# Rolling tags (latest, main, main-stable) do not belong here: `keel-drift`
+# compares those by digest.
+
+pins:
+  # --- k8s_infra: apps ---
+  - name: hermes-agent
+    github: NousResearch/hermes-agent
+    file: roles/k8s_infra/defaults/main/hermes.yml
+    pattern: 'image_tag:\s*"(v\d{4}\.[\d.]+)"'
+  - name: honcho
+    github: plastic-labs/honcho
+    file: roles/k8s_infra/defaults/main/honcho.yml
+    image: ghcr.io/plastic-labs/honcho
+  - name: hindsight
+    github: vectorize-io/hindsight
+    file: roles/k8s_infra/defaults/main/hindsight.yml
+    var: hindsight_version
+  - name: forgejo
+    forgejo: codeberg.org/forgejo/forgejo
+    files:
+      - roles/k8s_infra/defaults/main/forgejo.yml
+      - group_vars/all/main/forgejo.yml
+      - group_vars/all/vault/forgejo.yml
+    pattern: 'forgejo/forgejo",\s*tag:\s*"([\d.]+)"'
+  - name: uptime-kuma
+    github: louislam/uptime-kuma
+    file: roles/k8s_infra/tasks/monitoring/uptimekuma.yml
+    image: louislam/uptime-kuma
+  - name: redis
+    github: redis/redis
+    file: roles/k8s_infra/tasks/databases/redis.yml
+    image: redis
+
+  # --- k8s_infra: secret management / core ---
+  - name: sealed-secrets
+    github: bitnami-labs/sealed-secrets
+    file: roles/k8s_infra/defaults/main/secret_management.yml
+    var: sealed_secrets_version
+  - name: external-secrets
+    github: external-secrets/external-secrets
+    file: roles/k8s_infra/defaults/main/secret_management.yml
+    var: eso_version
+  - name: kyverno
+    github: kyverno/kyverno
+    file: roles/k8s_infra/defaults/main/secret_management.yml
+    var: kyverno_version
+  - name: cert-manager
+    github: cert-manager/cert-manager
+    file: roles/k8s_infra/files/cert-manager_cert-manager.yml
+    pattern: 'cert-manager-(?:controller|webhook|cainjector):(v[\d.]+)'
+  - name: node-feature-discovery
+    github: kubernetes-sigs/node-feature-discovery
+    file: roles/k8s_infra/files/nfd_node-feature-discovery.yml
+    image: registry.k8s.io/nfd/node-feature-discovery
+  - name: smarter-device-manager
+    github: smarter-project/smarter-device-manager
+    source: tags
+    file: roles/k8s_infra/tasks/core/smarter_devices.yml
+    image: ghcr.io/smarter-project/smarter-device-manager
+
+  # --- k8s_infra: monitoring ---
+  - name: prometheus
+    github: prometheus/prometheus
+    file: roles/k8s_infra/tasks/monitoring/prometheus.yml
+    image: prom/prometheus
+  - name: node-exporter
+    github: prometheus/node_exporter
+    file: roles/k8s_infra/tasks/monitoring/nodeexporter.yml
+    image: prom/node-exporter
+  - name: alertmanager
+    github: prometheus/alertmanager
+    file: roles/k8s_infra/tasks/monitoring/alertmanager.yml
+    image: prom/alertmanager
+  - name: kube-state-metrics
+    github: kubernetes/kube-state-metrics
+    file: roles/k8s_infra/tasks/monitoring/ksm.yml
+    image: registry.k8s.io/kube-state-metrics/kube-state-metrics
+  - name: grafana
+    github: grafana/grafana
+    files:
+      - roles/k8s_infra/defaults/main/monitoring.yml
+      - roles/k8s_infra/tasks/monitoring/grafana.yml
+    image: grafana/grafana
+  - name: loki
+    github: grafana/loki
+    file: roles/k8s_infra/tasks/monitoring/loki.yml
+    image: grafana/loki
+  - name: fluent-bit
+    github: fluent/fluent-bit
+    files:
+      - roles/k8s_infra/defaults/main/monitoring.yml
+      - group_vars/all/main/monitoring.yml
+      - group_vars/all/vault/monitoring.yml
+    image: fluent/fluent-bit
+  - name: nut-exporter
+    github: DRuggeri/nut_exporter
+    file: roles/k8s_infra/tasks/monitoring/nut_exporter.yml
+    image: druggeri/nut_exporter
+
+  # --- k8s_dgx ---
+  - name: sglang
+    github: sgl-project/sglang
+    file: roles/k8s_dgx/defaults/main/sglang.yml
+    pattern: '^default_sglang_image:\s*"xomoxcc/dgx-spark-sglang:([\d.]+)-sm121"'
+  - name: multus
+    github: k8snetworkplumbingwg/multus-cni
+    files:
+      - roles/k8s_dgx/files/multus-daemonset-thick.yml
+      - roles/k8s_dgx/files/update_multus_manifest.sh
+    pattern: '(?:multus-cni:|MULTUS_REF:-)(v[\d.]+)'
+  - name: nvidia-device-plugin
+    github: NVIDIA/k8s-device-plugin
+    file: roles/k8s_dgx/templates/nvidia-device-plugin.yml.j2
+    image: nvcr.io/nvidia/k8s-device-plugin
+  - name: dcgm-exporter
+    github: NVIDIA/dcgm-exporter
+    file: roles/k8s_dgx/defaults/main/nvidia.yml
+    image: nvcr.io/nvidia/k8s/dcgm-exporter
+    tag_pattern: '^[\d.]+-[\d.]+$'
+
+  # --- node-level roles ---
+  - name: k3s
+    github: k3s-io/k3s
+    file: roles/k3sserver/defaults/main.yml
+    var: k3s_version
+    tag_pattern: '^v[\d.]+\+k3s\d+$'
+  - name: sops
+    github: getsops/sops
+    file: roles/k3sserver/defaults/main.yml
+    var: sops_version
+  - name: age
+    github: FiloSottile/age
+    file: roles/k3sserver/defaults/main.yml
+    var: age_version
+  - name: cni-plugins
+    github: containernetworking/plugins
+    file: roles/dgx_prepare/defaults/main.yml
+    var: cni_plugins_version
+  - name: juicefs
+    github: juicedata/juicefs
+    file: roles/juicefs_storage/defaults/main.yml
+    var: juicefs_version
+  - name: rustfs
+    github: rustfs/rustfs
+    file: roles/juicefs_storage/defaults/main.yml
+    var: juicefs_rustfs_version
+  - name: bottom
+    github: ClementTsang/bottom
+    file: roles/common/defaults/main.yml
+    var: bottom_version
+  - name: yq
+    github: mikefarah/yq
+    file: roles/common/defaults/main.yml
+    var: yq_version
+  - name: podman-static
+    github: mgoltzsche/podman-static
+    file: roles/common/defaults/main.yml
+    var: podman_static_version
