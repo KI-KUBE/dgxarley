@@ -208,7 +208,7 @@ grafanalogs_teardown: false
 # Same pin as the Prometheus Grafana. The sister repo runs `:latest`; keel
 # (force + match-tag + poll) then walks majors unattended, which for Grafana
 # means unannounced schema migrations of grafana.db.
-grafanalogs_image: "grafana/grafana:13.2.0-ubuntu"
+grafanalogs_image: "grafana/grafana:13.2.3-ubuntu"
 grafanalogs_tls_issuer: "letsencrypt-production"
 # Set false to manage the grafanalogs A record outside this repo.
 grafanalogs_manage_dns: true
