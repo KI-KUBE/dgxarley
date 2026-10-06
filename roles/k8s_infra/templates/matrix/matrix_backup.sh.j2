@@ -1,0 +1,19 @@
+#!/bin/sh
+set -eu
+
+DATA="/data"
+DEST="{{ rustfs_rc_alias }}/{{ rustfs_rc_backup_bucket }}/matrix"
+
+echo "=== Matrix backup: $(date +%Y%m%d_%H%M%S) ==="
+
+# Content-addressed name: a regenerated key can never overwrite the old one.
+KEY_SHA=$(sha256sum "${DATA}/signing.key" | cut -c1-16)
+echo "signing.key -> ${DEST}/signing-key/signing.key.${KEY_SHA}"
+rc cp -q "${DATA}/signing.key" "${DEST}/signing-key/signing.key.${KEY_SHA}"
+
+echo "media_store -> ${DEST}/media_store/"
+rc mirror --no-progress \
+  --exclude "url_cache/**" --exclude "url_cache_thumbnails/**" \
+  "${DATA}/media_store" "${DEST}/media_store"
+
+echo "=== Matrix backup complete ==="

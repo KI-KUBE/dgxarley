@@ -1128,6 +1128,88 @@
         - item.item.email not in ((item.stdout | from_json).threepids | default([]) | map(attribute='address') | list)
       no_log: true
 
+    - name: Create matrix-backup-script ConfigMap
+      kubernetes.core.k8s:
+        state: "{{ 'present' if matrix_backup_enabled | bool else 'absent' }}"
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: matrix-backup-script
+            namespace: "{{ matrix.namespace }}"
+          data:
+            backup.sh: "{{ lookup('template', 'matrix/matrix_backup.sh.j2') }}"
+
+    - name: Create matrix-backup CronJob
+      kubernetes.core.k8s:
+        state: "{{ 'present' if matrix_backup_enabled | bool else 'absent' }}"
+        definition:
+          apiVersion: batch/v1
+          kind: CronJob
+          metadata:
+            name: matrix-backup
+            namespace: "{{ matrix.namespace }}"
+          spec:
+            schedule: "{{ matrix_backup_schedule }}"
+            timeZone: "{{ matrix.time_zone }}"
+            successfulJobsHistoryLimit: 3
+            failedJobsHistoryLimit: 3
+            concurrencyPolicy: Forbid
+            jobTemplate:
+              spec:
+                backoffLimit: 0
+                template:
+                  spec:
+                    # Same node as the synapse hostPath data dir and the host's rc binary/config.
+                    nodeSelector:
+                      kubernetes.io/arch: "amd64"
+                    restartPolicy: Never
+                    containers:
+                      - name: matrix-backup
+                        image: alpine:3.22
+                        command: ["/bin/sh", "/scripts/backup.sh"]
+                        env:
+                          - name: TZ
+                            value: "{{ matrix.time_zone }}"
+                        securityContext:
+                          runAsUser: 0
+                        resources:
+                          requests:
+                            cpu: 50m
+                            memory: 64Mi
+                          limits:
+                            cpu: 1000m
+                            memory: 512Mi
+                        volumeMounts:
+                          - name: backup-script
+                            mountPath: /scripts
+                          - name: synapse-data
+                            mountPath: /data
+                            readOnly: true
+                          - name: rc-binary
+                            mountPath: /usr/local/bin/rc
+                            readOnly: true
+                          - name: rc-config
+                            mountPath: /root/.config/rc
+                            readOnly: true
+                    volumes:
+                      - name: backup-script
+                        configMap:
+                          name: matrix-backup-script
+                          defaultMode: 0755
+                      - name: synapse-data
+                        hostPath:
+                          path: "{{ matrix.data_base }}"
+                          type: Directory
+                      - name: rc-binary
+                        hostPath:
+                          path: /usr/local/bin/rc
+                          type: File
+                      - name: rc-config
+                        hostPath:
+                          path: /root/.config/rc
+                          type: Directory
+
 # ===========================================================================
 # Teardown (opt-in `-e matrix_teardown=true`). Namespace delete cascades all
 # matrix resources (Deployments, Services, ConfigMap, Secrets, Middlewares,

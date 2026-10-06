@@ -105,6 +105,11 @@ matrix_cinny_teardown: false
 matrix_element_enabled: true
 matrix_element_teardown: false
 
+# Nightly CronJob: signing.key + media_store -> {{ rustfs_rc_alias }}/{{ rustfs_rc_backup_bucket }}/matrix/.
+# Additive only (no overwrite, no delete); url_cache* is regenerable and skipped.
+matrix_backup_enabled: true
+matrix_backup_schedule: "30 2 * * *"
+
 # --- Element call stack (Jitsi widget + Element Call) + integration manager ---
 # Element ships two independent group-call paths plus an integration manager, all
 # three pointed at Element's own hosted services by default. These knobs are
