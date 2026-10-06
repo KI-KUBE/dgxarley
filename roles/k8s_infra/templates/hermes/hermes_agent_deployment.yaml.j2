@@ -29,14 +29,6 @@ metadata:
     app: hermes
     hermes-component: agent
     hermes-user: "{{ item.username }}"
-  annotations:
-    # Keel auto-update: poll DockerHub for newer tags. The agent ships SemVer
-    # tags (vYYYY.M.D), so `minor` lets keel pull both date-bumps and patch
-    # bumps but never crosses an intentional major. Daily poll is plenty.
-    keel.sh/policy: minor
-    keel.sh/match-tag: "true"
-    keel.sh/pollSchedule: "@every 24h"
-    keel.sh/trigger: poll
 spec:
   replicas: 1
   strategy:

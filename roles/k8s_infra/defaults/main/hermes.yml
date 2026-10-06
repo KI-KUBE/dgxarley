@@ -27,7 +27,6 @@ hermes_network_policies_enabled: false
 hermes:
   namespace: "hermes"
   # Image contract: ENTRYPOINT /init (s6-overlay) + docker/main-wrapper.sh; never set command:, only args:.
-  # keel bumps only containers[*].image; keep this tag in sync or the next --tags hermes run rolls pods back.
   # Re-check on every bump (details in the patch file headers + HERMES_EMAIL_UPSTREAM.md):
   #  * plugins/platforms/email/adapter.py vs the hermes_email_gateway_patched.py base -> re-sync [PATCH-N].
   #  * hermes_health_patch.py anchor APIServerAdapter._check_auth(self, request); /health stays unauthenticated.
@@ -35,12 +34,7 @@ hermes:
   #  * HERMES_DASHBOARD_BASIC_AUTH_*, TERMINAL_CWD, API_SERVER_KEY (>=16 chars), dashboard CLI flags.
   #  * host-wide gateway lock ($HERMES_GATEWAY_LOCK_DIR unset -> container fs, not the shared /opt/data).
   image_tag: "v2026.9.24"            # agent image (nousresearch/hermes-agent)
-  # busybox helper image (fix-perms / init-dashboard-themes initContainers, log-tail
-  # sidecar). PINNED, never "latest": the deployment's keel policy (minor, poll
-  # @every 24h) applies to every container, rewrote log-tail busybox:latest ->
-  # 1.38 and restarted all hermes pods at ~18:19 CEST after each ansible deploy
-  # (seen 2026-09-14 and 2026-09-16, found via keel logs in Loki). Keel will still
-  # bump log-tail on a new busybox minor; raise this pin then.
+  # busybox helper image (fix-perms / init-dashboard-themes initContainers, log-tail sidecar)
   busybox_image: "busybox:1.38"
   # NOTE: the venv site-packages dir (mount point for the hermes_health_patch
   # .py/.pth) is NOT configured here — it carries a pythonX.Y segment that bumps

@@ -62,11 +62,6 @@
         namespace: smarter-device-manager
         labels:
           app: smarter-device-manager
-        annotations:
-          keel.sh/policy: patch
-          keel.sh/match-tag: "true"
-          keel.sh/pollSchedule: "@every 24h"
-          keel.sh/trigger: poll
       spec:
         selector:
           matchLabels:
