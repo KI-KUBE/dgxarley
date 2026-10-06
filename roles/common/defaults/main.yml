@@ -59,7 +59,7 @@ podman_short_name_mode: permissive
 # arm64 bundle before bumping: https://github.com/mgoltzsche/podman-static/releases
 podman_static_enabled: true
 # curl -s https://api.github.com/repos/mgoltzsche/podman-static/releases/latest | jq -r '.tag_name'
-podman_static_version: "5.8.4"
+podman_static_version: "6.1.3"
 
 # Purge the (now shadowed) apt podman + its orphaned rootless deps once pure-static is
 # proven working. OPT-IN + only acts when podman_static_enabled: apt podman survives as
