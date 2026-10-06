@@ -8,6 +8,8 @@ from pydantic import ValidationError
 
 from dgxarley.k3shelperstuff.pin_drift import (
     GITCRYPT_MAGIC,
+    ClusterSnapshot,
+    Finding,
     PinConfig,
     PinSpec,
     PinStatus,
@@ -15,8 +17,11 @@ from dgxarley.k3shelperstuff.pin_drift import (
     classify,
     evaluate,
     find_config,
+    image_repo,
     read_pin,
+    same_version,
     version_key,
+    with_running,
 )
 
 
@@ -77,6 +82,7 @@ def test_classify(pinned: tuple[int, ...], candidate: tuple[int, ...], expected:
         {"var": None, "pattern": "(unbalanced"},
         {"tag_pattern": "(unbalanced"},
         {"unknown_key": 1},
+        {"running_image": "foo/bar", "running_kubelet": True},
     ],
 )
 def test_spec_rejects_invalid(overrides: dict[str, object]) -> None:
@@ -171,3 +177,59 @@ def test_repo_config_is_valid() -> None:
     for spec in config.pins:
         for relative in spec.paths:
             assert (root / relative).is_file(), f"{spec.name}: {relative} is missing"
+
+
+@pytest.mark.parametrize(
+    ("running", "pinned", "expected"),
+    [
+        ("0.40.0", "v0.40.0", True),
+        ("v4.3.1-thick", "v4.3.1", True),
+        ("v1.37.1+k3s1", "v1.37.1+k3s1", True),
+        ("v4.3.0-thick", "v4.3.1", False),
+        ("latest", "main", False),
+    ],
+)
+def test_same_version(running: str, pinned: str, expected: bool) -> None:
+    assert same_version(running, pinned) is expected
+
+
+def test_image_repo_folds_docker_hub() -> None:
+    assert image_repo("redis") == image_repo("docker.io/library/redis:8.10")
+    assert image_repo("prom/prometheus:v3") == image_repo("index.docker.io/prom/prometheus")
+
+
+def _cluster() -> ClusterSnapshot:
+    images = {
+        image_repo("nousresearch/hermes-agent"): frozenset({"v2026.9.24", "v2026.9.14"}),
+        image_repo("prom/prometheus"): frozenset({"v3.15.0"}),
+    }
+    return ClusterSnapshot("test", images, frozenset({"v1.37.1+k3s1"}))
+
+
+def test_cluster_running() -> None:
+    cluster = _cluster()
+    hermes = _spec(var=None, pattern="(x)", running_image="nousresearch/hermes-agent")
+    assert cluster.running(hermes) == ("v2026.9.14", "v2026.9.24")
+    assert cluster.running(_spec(var=None, image="docker.io/prom/prometheus")) == ("v3.15.0",)
+    assert cluster.running(_spec(running_kubelet=True)) == ("v1.37.1+k3s1",)
+    assert cluster.running(_spec()) == ()
+
+
+def test_with_running_notes_rollout() -> None:
+    cluster = _cluster()
+    spec = _spec(var=None, pattern="(x)", running_image="nousresearch/hermes-agent")
+
+    partial = with_running(Finding(spec, "v2026.9.24", "v2026.9.24", PinStatus.CURRENT), cluster)
+    assert not partial.rolled_out
+    assert partial.note == "partially rolled out"
+
+    ahead = with_running(Finding(spec, "v2026.10.1", "v2026.10.1", PinStatus.CURRENT, "floating tag"), cluster)
+    assert ahead.note == "floating tag; not rolled out"
+
+    prom = _spec(var=None, image="prom/prometheus")
+    done = with_running(Finding(prom, "v3.15.0", "v3.15.0", PinStatus.CURRENT), cluster)
+    assert done.rolled_out
+    assert done.note == ""
+
+    absent = with_running(Finding(_spec(), "v1.0.0", "v1.0.0", PinStatus.CURRENT), cluster)
+    assert (absent.running, absent.rolled_out) == ((), True)

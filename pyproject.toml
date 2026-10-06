@@ -88,7 +88,7 @@ build = [
     "hatch",
 ]
 # Runtime deps for dgxarley.k3shelperstuff.keel_drift (the Keel drift check)
-# and pin_drift (needs typer only).
+# and pin_drift (kubernetes only for its running column).
 # update_local_k3s_keys needs nothing beyond the standard library.
 k3s = [
     "kubernetes",

@@ -10,6 +10,8 @@
 #   forgejo      host/owner/repo                                        these two)
 #   source       releases (default) or tags
 #   tag_pattern  regex an upstream tag must match (default: ^v?\d+(\.\d+)+$)
+#   running_image    image(s) whose tags in live pods are the running version (default: image)
+#   running_kubelet  true: the running version is the nodes' kubelet version
 #
 # Rolling tags (latest, main, main-stable) do not belong here: `keel-drift`
 # compares those by digest.
@@ -20,6 +22,7 @@ pins:
     github: NousResearch/hermes-agent
     file: roles/k8s_infra/defaults/main/hermes.yml
     pattern: 'image_tag:\s*"(v\d{4}\.[\d.]+)"'
+    running_image: nousresearch/hermes-agent
   - name: honcho
     github: plastic-labs/honcho
     file: roles/k8s_infra/defaults/main/honcho.yml
@@ -28,6 +31,9 @@ pins:
     github: vectorize-io/hindsight
     file: roles/k8s_infra/defaults/main/hindsight.yml
     var: hindsight_version
+    running_image:
+      - ghcr.io/vectorize-io/hindsight-api
+      - ghcr.io/vectorize-io/hindsight-control-plane
   - name: forgejo
     forgejo: codeberg.org/forgejo/forgejo
     files:
@@ -35,6 +41,7 @@ pins:
       - group_vars/all/main/forgejo.yml
       - group_vars/all/vault/forgejo.yml
     pattern: 'forgejo/forgejo",\s*tag:\s*"([\d.]+)"'
+    running_image: codeberg.org/forgejo/forgejo
   - name: uptime-kuma
     github: louislam/uptime-kuma
     file: roles/k8s_infra/tasks/monitoring/uptimekuma.yml
@@ -61,6 +68,10 @@ pins:
     github: cert-manager/cert-manager
     file: roles/k8s_infra/files/cert-manager_cert-manager.yml
     pattern: 'cert-manager-(?:controller|webhook|cainjector):(v[\d.]+)'
+    running_image:
+      - quay.io/jetstack/cert-manager-controller
+      - quay.io/jetstack/cert-manager-webhook
+      - quay.io/jetstack/cert-manager-cainjector
   - name: node-feature-discovery
     github: kubernetes-sigs/node-feature-discovery
     file: roles/k8s_infra/files/nfd_node-feature-discovery.yml
@@ -121,6 +132,7 @@ pins:
       - roles/k8s_dgx/files/multus-daemonset-thick.yml
       - roles/k8s_dgx/files/update_multus_manifest.sh
     pattern: '(?:multus-cni:|MULTUS_REF:-)(v[\d.]+)'
+    running_image: ghcr.io/k8snetworkplumbingwg/multus-cni
   - name: nvidia-device-plugin
     github: NVIDIA/k8s-device-plugin
     file: roles/k8s_dgx/templates/nvidia-device-plugin.yml.j2
@@ -136,6 +148,7 @@ pins:
     github: k3s-io/k3s
     file: roles/k3sserver/defaults/main.yml
     var: k3s_version
+    running_kubelet: true
     tag_pattern: '^v[\d.]+\+k3s\d+$'
   - name: sops
     github: getsops/sops

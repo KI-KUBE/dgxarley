@@ -7,12 +7,13 @@
 # Env overrides:
 #   DGXARLEY_PYTHON  interpreter with dgxarley installed     (default: <repo>/.venv/bin/python, else uvx dgxarley from PyPI)
 #   DGXARLEY_SPEC    uvx package spec for the PyPI fallback  (default: dgxarley)
-#   KUBE_CONTEXT     kubeconfig context for keel             (default: ht@dgxarley)
+#   KUBE_CONTEXT     kubeconfig context for keel + pin's running column (default: ht@dgxarley)
 set -euo pipefail
 
 readonly REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly KUBE_CONTEXT="${KUBE_CONTEXT:-ht@dgxarley}"
 readonly SPEC="${DGXARLEY_SPEC:-dgxarley}"
+export KUBE_CONTEXT
 
 tool=pin
 case "${1:-}" in
@@ -30,7 +31,6 @@ case "${tool}" in
     module=dgxarley.k3shelperstuff.pin_drift
     ;;
   keel)
-    export KUBE_CONTEXT
     module=dgxarley.k3shelperstuff.keel_drift
     ;;
 esac
