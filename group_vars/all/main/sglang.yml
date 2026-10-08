@@ -47,6 +47,7 @@ sglang_port: 8000
 # sglang_model: "nvidia/GLM-5.2-NVFP4"                          # 753B/40B MoE (256 exp/8 active +1 shared), GlmMoeDsa (MLA+DSA), NVFP4 (modelopt, official NVIDIA) → PP=4/TP=1 (EP4/TP4 OOMs); 1M ctx; needs transformers>=5.3.0. UNVALIDATED first-contact
 # sglang_model: "0xSero/GLM-5.2-504B"                           # ⛔ NO PROFILE IN REPO (the v1 keep-168 profile was deleted as untested in dcb65b5, superseded by the v2 re-cut below) — selecting this line fails at render on sglang_model_profiles[...]. Kept as a pointer only; use the v2 below
 # sglang_model: "vroomfondel/GLM-5.3-Flash-NVFP4-W4A4"
+# sglang_model: "nvidia/GLM-5.3-Flash-NVFP4"                    # 320B/18B hybrid KDA+MLA/DSA (KPool), official NVIDIA NVFP4 (experts + dense MLP FP4, attn/shared BF16) → TP4, 262K ctx. ⛔ boot blocked on SM121 KPool DSA path (see profile header)
 
 # sglang_model: "0xSero/glm-5.2-reap-504B-v2"                   # ~504B GLM-5.2 REAP keep-168 v2 re-cut (256→168 exp, UNIFORM prune), NVFP4 (modelopt) → TP4/EP1, 16K ctx, MTP/NEXTN; glm45/glm47 parsers. UNVALIDATED first-contact
 # sglang_model: "vroomfondel/glm-5.2-reap-504B-v2-W4A4"        # ⚗️ EXPERIMENTAL: OUR surgical NVFP4 W4A4 requant of the v2 above — o_proj+q_b_proj BF16→W4A4 (data-free, ~80% of attn weight bytes; quantizer/surgical_attn_nvfp4.py), rest byte-identical. hf_hub_offline (rsynced into the JuiceFS cache; PRIVATE HF mirror). Heuristic input_scale (no calib) → MUST pass GSM8K gate vs the base before trusting. Same DSA/MTP config as v2.
