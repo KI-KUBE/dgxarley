@@ -1,52 +1,55 @@
 # Model profile: vroomfondel/GLM-5.3-Flash-NVFP4-W4A4
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 #
-# ── STATUS (2026-09-16): BLOCKED, NEVER BOOTED ANYWHERE ─────────────────────────
+# ── STATUS (2026-10-08): NEVER BOOTED ANYWHERE, ROUTE CHOSEN: TILELANG + BF16 KV ──
 # Our own surgical NVFP4 W4A4 top-up (quantizer/surgical_glm5next_nvfp4.py)
 # of LibertAIDAI/GLM-5.3-Flash-NVFP4, which is a ModelOpt experts-only NVFP4 export
 # of zai-org/GLM-5.3-Flash. The card says it plainly: no token has ever been
-# generated from this checkpoint. Two independent blockers stand between this
-# profile and a boot on GB10/SM121:
+# generated from this checkpoint. The chosen attention route is the upstream
+# cookbook NVFP4 recipe (dsa tilelang prefill+decode, bf16 KV) plus runtime patch
+# p68_dsa_tilelang_sm121_tile.py. Kernel level is GPU-verified, end-to-end boot has
+# NOT been attempted. Open items:
 #
-#   1. NO IMAGE CARRIES THE ARCHITECTURE. glm5_next support landed upstream AFTER
-#      the v0.5.19 tag (v0.5.19 released 2026-09-05; "GLM-5.3-Flash support" #36507
-#      merged 2026-09-06; "Support GLM-5.3 Flash NVFP4 loading" #38621 merged
-#      2026-09-09). The default xomoxcc/dgx-spark-sglang:0.5.19-sm121 has no
-#      Glm5NextForConditionalGeneration and fails at model resolution. The upstream
-#      cookbook itself says "not in a public sglang release yet" and ships the
-#      purpose-built lmsysorg/sglang:glm-5.3-flash image (x86/datacenter only).
-#      Needed: a main-ahead sm121 recipe pinned to a main commit >= #38621.
+#   1. IMAGE (resolved). The default image is xomoxcc/dgx-spark-sglang:0.5.21-sm121
+#      (default_sglang_image in roles/k8s_dgx/defaults/main/sglang.yml); v0.5.21
+#      contains srt/models/glm5_next.py (#36507, #38621), so it carries the
+#      architecture and this profile needs no image override.
 #
-#   2. NO SM121 DSA ATTENTION PATH FOR KPOOL. GLM-5.3-Flash uses DSA with
+#   2. DSA ATTENTION (route chosen, unbooted). GLM-5.3-Flash uses DSA with
 #      index_kpool=4 (compressed indexer keys). upstream dsa_backend_kpool.py
 #      raises NotImplementedError unless the DSA prefill/decode impl is one of
 #      fa3 / tilelang / trtllm ("index_kpool > 1 appends tail tokens to
-#      topk_indices"). On SM121 all three are dead as shipped (DSA_speedup.md):
-#      fa3 is gated to SM8x/9x, tilelang: the v1 kernel (tail_dim==0, GLM-5.3-Flash) is VERIFIED
-#      2026-10-08 on spark5 to launch and match a float32 reference with a retuned tile
-#      block_I=32/num_stages=1/threads=128 (kernel level only, DSA_speedup.md; the stock
-#      tile fails launch on smem, and the v2 kernel used by GLM-5.2 stays dead),
-#      trtllm is trtllm-gen FMHA (ISA wall). The upstream SM12x auto-route to
-#      flashinfer_sparse_mla (#26928) is keyed on GlmMoeDsaForCausalLM only AND is
-#      not on the KPool allow-list. Our p34 (trtllm on SM12x + fp8 KV → flashinfer
-#      native SM120/121 sparse MLA) is the only plausible route, since it keeps the
-#      "trtllm" impl name KPool accepts, but it was written against the GlmMoeDsa
-#      code, must be re-anchored on the post-#36507 dsa_backend, and has to handle
-#      the KPool tail tokens appended to topk_indices. Same for the indexer: upstream
-#      main still offers only auto/deepgemm/cutedsl/aiter for paged-MQA logits
-#      (DeepGEMM hard-blocks SM121), so p30/p35 (torch + triton indexer) must be
-#      ported too, now on top of the KPool top-k JIT kernel (kpool_topk_transform).
+#      topk_indices"). On SM121 fa3 is gated to SM8x/9x and trtllm is trtllm-gen
+#      FMHA (ISA wall). tilelang: the v1 kernel (tail_dim==0, GLM-5.3-Flash) was
+#      VERIFIED 2026-10-08 on spark5 to launch and match a float32 reference with a
+#      retuned tile block_I=32/num_stages=1/threads=128 (kernel level only,
+#      DSA_speedup.md; the stock tile fails launch on smem; the v2 kernel used by
+#      GLM-5.2 stays dead). p68 injects that tile on SM12x (gated on
+#      SGLANG_DSA_DECODE_BACKEND/SGLANG_DSA_PREFILL_BACKEND == tilelang). The KPool
+#      glue is fine: _forward_tilelang (dsa_backend.py:3056-3085) pads the 2051-wide
+#      kpool topk to 2112, prefill and decode share the kernel, no arch gate.
+#      TileLang DSA rejects fp8 KV (cookbook: "not a valid CUDA combination"), hence
+#      bf16 KV. Retired alternative: p34 (trtllm on SM12x + fp8 KV -> flashinfer
+#      native SM120/121 sparse MLA), which would need a KPool re-anchor.
 #
-#      Second route around blocker 2 (kernel VERIFIED 2026-10-08 on spark5, end-to-end
-#      boot not yet tried): dsa_*_backend "tilelang" + bf16 KV (the cookbook recipe;
-#      fp8 KV is only a prerequisite of p34, not of this route) + a small runtime tile
-#      patch (candidate name p6x_dsa_tilelang_sm121_tile.py, does not exist yet), instead
-#      of porting p34 to KPool. Patch point: tilelang_sparse_fwd in dsa_backend.py passes
-#      no tile args to sparse_attention_fwd_kernel_v1, so the factory defaults must be
-#      changed to (32,1,128). Verified for both decode and verify row counts.
+#   3. INDEXER (hard blocker, unpatched). GLM-5.3-Flash uses the separate class
+#      IndexerKPool (dsa_indexer_kpool.py, chosen in models/deepseek_v2.py:2070),
+#      which calls deep_gemm.fp8_paged_mqa_logits (decode) and
+#      deep_gemm.fp8_mqa_logits (ragged prefill) DIRECTLY, not via the
+#      paged_mqa_logits_backend dispatch. p30 (torch) and p35 (triton) therefore do
+#      NOT reach it, and DeepGEMM hard-blocks these ops on SM121. Needs a new patch
+#      routing IndexerKPool's logits to the torch/triton implementations (candidate
+#      p69).
 #
-# The backend values below are the ONLY combination that can work once both
-# blockers are fixed. They are a plan, not a measured config.
+#   4. KDA / mHC (unverified on SM121). KDA layers use the Triton KDA kernel
+#      (NvidiaKDAKernel is major==10 only, no SM12x gate found, untested on GB10).
+#      mHC uses TileLang kernels by default (SGLANG_OPT_USE_TILELANG_MHC_PRE/POST,
+#      torch fallback when 0) plus deep_gemm.tf32_hc_prenorm_gemm while
+#      SGLANG_OPT_DEEPGEMM_HC_PRENORM=1 (default); torch fallbacks exist via those
+#      env vars.
+#
+# The backend values below are the cookbook route plus p68; they are a plan, not a
+# measured config.
 #
 # ── ARCHITECTURE (verified against config.json 2026-09-16) ─────────────────────
 # Glm5NextForConditionalGeneration, model_type glm5_next (text: glm5_next_text,
@@ -85,15 +88,12 @@ _model_profile:
     info_url: "https://huggingface.co/vroomfondel/GLM-5.3-Flash-NVFP4-W4A4"
     # ALTERNATIVE (experts-only base, calibrated scales): https://huggingface.co/LibertAIDAI/GLM-5.3-Flash-NVFP4
     # ALTERNATIVE (upstream-cookbook NVFP4 W4A4): https://huggingface.co/RadixArk/GLM-5.3-Flash-NVFP4
-    # Image: no override → default_sglang_image, which CANNOT load glm5_next (blocker 1).
-    # Set this to the main-ahead GLM-5.3 build once it exists.
-    # sglang_image: "xomoxcc/dgx-spark-sglang:<main-ahead>-glm53-sm121"  # NOT BUILT
     nccl_transport: "roce"
     # 64 attention heads, 64 KV heads, 64 KDA heads, 32 indexer heads → TP=4 divides
     # all of them. Cookbook runs TP=4 on GB300/GB200.
     tp_size: 4
     # Conservative first contact. KV only grows on 11 MLA layers (512-dim latent,
-    # fp8 → ~5.6 KB/token for all 11 layers, plus kpool-compressed indexer keys), so
+    # bf16 → ~11 KB/token for all 11 layers, plus kpool-compressed indexer keys), so
     # 262K is cheap memory-wise; raise toward the 1M native window once it serves.
     context_length: 262144
     quantization: "modelopt_fp4"
@@ -106,19 +106,14 @@ _model_profile:
     page_size: 64
     moe_runner_backend: "flashinfer_cutlass"  # cookbook NVFP4 recipe + our SM121 NVFP4 MoE path
     fp4_gemm_backend: "flashinfer_cutlass"
-    # fp8 KV is REQUIRED for the only viable SM121 attention route: p34 reroutes
-    # dsa_*_backend=trtllm to flashinfer's native SM120/121 sparse MLA only with the
-    # fp8 (656-byte packed) KV pool. Cookbook's NVFP4 recipe uses bf16 + tilelang,
-    # which is dead on SM121.
-    kv_cache_dtype: "fp8_e4m3"
+    # tilelang DSA rejects fp8 KV; fp8 KV was only the p34 prerequisite.
+    kv_cache_dtype: "bfloat16"
     mem_fraction_static: "0.80"
-    # DSA attention (blocker 2). "trtllm" is the only KPool-accepted impl name that
-    # p34 can reroute on SM12x; without a ported p34 this dies in TllmGenFmhaRunner.
+    # p68 retunes the tilelang tile on SM12x (v1 kernel only).
     attention_backend: "dsa"
-    dsa_decode_backend: "trtllm"
-    dsa_prefill_backend: "trtllm"
-    # Indexer: DeepGEMM fp8_paged_mqa_logits hard-blocks SM121; torch is our p30
-    # choice (not an upstream option), p35 the triton-fused logits on top of it.
+    dsa_decode_backend: "tilelang"
+    dsa_prefill_backend: "tilelang"
+    # These two keys do not cover IndexerKPool (calls deep_gemm directly); see header item 3.
     dsa_paged_mqa_logits_backend: "torch"
     dsa_indexer_triton: true
     jit_max_jobs: 4
