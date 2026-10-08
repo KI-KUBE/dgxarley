@@ -46,6 +46,13 @@
 # zero runtime errors. Performance parity with the dev image; the detailed n=1/n=8
 # numbers below are from the 0.5.13-mtp matrix and still describe the tuning optimum.
 #
+# MTPv2 DRAFT HEAD 2026-10-08 (UNVALIDATED) — swapped the built-in MTP head for the
+# separately distributed nvidia/Nemotron-3-Super-120B-A12B-BF16-MTPv2 (3B, BF16, only
+# mtp.layers.* keys; embed/lm_head are shared from the target by the EAGLE worker).
+# NVIDIA: SPEED-Bench mean accept_len 3.45 -> 4.31 at draft 7. Steps 3/4 kept from the
+# built-in-head optimum; with higher acceptance a deeper draft may now win, re-sweep.
+# Revert: empty speculative_draft_model_path + drop speculative_draft_model_quantization.
+#
 # >>> IMAGE CAVEAT — RESOLVED 2026-06-04 <<<  Although the model card serves this on a
 # DEDICATED dev image (lmsysorg/sglang:dev-cu13-nemotronh-nano-omni-reasoning-v3), the
 # mainline UPSTREAM base scitrera/dgx-spark-sglang:0.5.12 DOES carry the
@@ -248,7 +255,7 @@ _model_profile:
     #   So DO NOT bump this to the cookbook 5/5 — 3/4 is the empirical optimum on this model.
     #
     # algo is EAGLE, NOT NEXTN — SGLang drives Nemotron's embedded MTP layer as an
-    # EAGLE-style tail draft; no external draft model (speculative_draft_model_path "").
+    # EAGLE-style tail draft; the MTPv2 head replaces the built-in one (see header).
     # NVIDIA Advanced Deployment Guide (2026-06, where the cookbook 5/5 comes from):
     #   https://docs.nvidia.com/nemotron/latest/usage-cookbook/Nemotron-3-Super/AdvancedDeploymentGuide/README.html
     #
@@ -273,7 +280,9 @@ _model_profile:
     speculative_num_steps: 3  # VALIDATED WINNER 2026-06-16 — beats cookbook 5/5; do NOT raise
     speculative_num_draft_tokens: 4  # VALIDATED WINNER 2026-06-16 — beats cookbook 5/5 + 5/7
     speculative_eagle_topk: 1
-    speculative_draft_model_path: ""
+    speculative_draft_model_path: "nvidia/Nemotron-3-Super-120B-A12B-BF16-MTPv2"
+    # BF16 draft without hf_quant_config; otherwise it inherits the target's modelopt_fp4.
+    speculative_draft_model_quantization: "unquant"
     # enable_spec_v2: REMOVED in v0.5.14 — spec-v2 is now the UNCONDITIONAL worker
     #   ("SGLANG_ENABLE_SPEC_V2 has been removed" in the boot log). Nothing to set; the
     #   0.5.13 Case 14 "boots but no win" finding is moot. (--disable-overlap-schedule
