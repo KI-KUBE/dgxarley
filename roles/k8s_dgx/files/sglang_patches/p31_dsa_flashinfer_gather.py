@@ -5,7 +5,8 @@ datacenter-Blackwell-only ISA (live crash: "Unsupported architecture" at
 TllmGenFmhaRunner autotune), flashmla_sparse/flashmla_kv's sgl_kernel extension is
 not built in this image, fa3 has a hard SM90/SM100-only gate, and tilelang compiles
 on SM121 but has a proven smem-vs-compile contradiction (no block_I both fits the
-~99 KB budget and compiles). Full survey + verdict: DSA_speedup.md.
+~99 KB budget and compiles; stock tile; the v1 kernel works on SM121 with a retuned
+tile, see DSA_speedup.md 2026-10-08). Full survey + verdict: DSA_speedup.md.
 
 Instead of a new kernel: gather the indexer's top-k selected KV (the "gather" prep
 ALREADY exists -- dsa_backend.py::forward_decode builds

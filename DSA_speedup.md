@@ -104,7 +104,7 @@ CUDA-graph autotune of the MLA decode attention: `TllmGenFmhaRunner ... Unsuppor
 | `trtllm` (auto-default when kv fp8 + major>=10) | trtllm-gen FMHA (`TllmGenFmhaRunner`) | ISA wall, live crash |
 | `flashmla_sparse` / `flashmla_kv` | `sgl_kernel.flash_mla` (`flashmla_ops`) | extension NOT built in image (ImportError; only `sm100/common_ops`) |
 | `fa3` | flash-attention-v3 | hard gate `_is_fa3_supported()` = major==8 or 9; GB10=12 -> False |
-| `tilelang` | `dsa/tilelang_kernel.py` (own JIT) | PROVEN DEAD (GPU-tested): smem/compile contradiction, see below |
+| `tilelang` | `dsa/tilelang_kernel.py` (own JIT) | v2 (tail>0, GLM-5.2) PROVEN DEAD; v1 (tail=0, GLM-5.3-Flash) WORKS with retuned tile (32,1,128), GPU-verified 2026-10-08, see below |
 | `aiter` | ROCm | N/A (AMD) |
 | indexer `dsa_paged_mqa_logits_backend=torch` | our port | WORKS (this is what got the boot past the indexer) |
 
@@ -118,7 +118,7 @@ exhausted.** The MLA decode attention has the same datacenter-vs-consumer gap, a
 is NO ready merged torch reference in the image to port.
 
 The tilelang lead (the only backend that even compiles on SM121) was GPU-tested against the smem budget and
-is **proven dead**, not merely uncertain. `sparse_attention_fwd_kernel_v2` smem =
+is **proven dead for the v2 kernel** (measured on v2; the v1 kernel is retracted below), not merely uncertain. `sparse_attention_fwd_kernel_v2` smem =
 `1160*H + 2306*block_I + 2*H*block_I` (H=64 for GLM-5.2), dominated by the 4x KV double-buffer (2-stage
 pipeline), linear in block_I. There is a hard contradiction:
 
@@ -135,7 +135,54 @@ both. Shrinking below the budget would need a kernel REWRITE (single- instead of
 the 3-warpgroup barrier choreography), not a parameter change.
 
 So the DEDICATED DSA attention kernels are all dead on SM121 (trtllm-gen ISA, flashmla not built, fa3 gate,
-tilelang smem contradiction).
+tilelang v2 smem contradiction; the v1 kernel used by GLM-5.3-Flash is the exception, see the 2026-10-08 subsection below).
+
+### RETRACTED FOR v1 (2026-10-08, GPU-verified on spark5): tilelang tile block_I=32 / num_stages=1 / threads=128
+
+Verified on spark5 (GB10, podman, xomoxcc/dgx-spark-sglang:0.5.21-sm121, tilelang 0.1.12). The table above was
+measured on the v2 kernel and REMAINS VALID for v2; the "proven dead" verdict is retracted only for v1.
+
+Kernel: `sglang/kernels/ops/attention/dsa/tilelang_kernel.py` (`srt/layers/attention/nsa/tilelang_kernel.py` is a
+shim). Wrapper `tilelang_sparse_fwd(q, kv, indices, sm_scale, d_v=512)`, called from
+`srt/layers/attention/dsa_backend.py`; at ~line 1444 it picks
+`sparse_attention_fwd_kernel_v1 if tail_dim == 0 else sparse_attention_fwd_kernel_v2` and passes NO tile args, so
+the factory defaults always apply (= the runtime-patch point).
+- v1 (tail_dim == 0, GLM-5.3-Flash: MLA latent 512, no rope dims):
+  `sparse_attention_fwd_kernel_v1(num_heads, dim, tail_dim, topk, *, kv_group=1, sm_scale=None, is_causal=True,
+  block_I=64, num_stages=2, threads=256)`, plain T.Pipelined kernel.
+- v2 (tail_dim > 0, GLM-5.2 / DeepSeek-style 512+64): `block_I=64` only, threads HARDCODED 384, no num_stages,
+  warp-specialized with a producer loop hardcoded to 64 rows. v2 stays dead: block_I=64 fails launch (smem 170048 B
+  at H=16, 190592 B at H=32), block_I=32 at H=16 compiles but hits cudaErrorIllegalAddress at launch (64-row
+  producer), block_I=32 at H=32 fails launch (114816 B). No working v2 tile found.
+
+v1 matrix (batch 4, topk 2048, decode = 4 query rows and verify = 32 query rows, random bf16 q/kv with -1 padded
+rows, reference = float32 gathered attention in torch, rel err = ||o-ref||/||ref||,
+`shared_memory_per_block_optin` = 101376 B). Tile = (block_I, num_stages, threads):
+
+| H | tile | result |
+|---|---|---|
+| 32 (reporter's TP=2) | (64,2,256) stock | launch FAILS: "Failed to set the allowed dynamic shared memory size to 169984" (the reported number) |
+| 32 | (32,1,128) | launches both shapes, rel err 2.25e-3 / 2.22e-3, max abs 1.7e-4, 0.143 / 0.144 ms per call |
+| 32 | (32,2,128) | launches, same error and timing |
+| 32 | (16,1,128), (32,1,256) | COMPILE FAIL (fragment layout error) |
+| 16 (our TP=4) | (64,2,256) stock | launch FAILS at 151552 B |
+| 16 | (32,1,128) | launches both shapes, rel err 2.26e-3 / 2.23e-3, 0.140 / 0.141 ms |
+| 16 | (32,2,128) | launches |
+| 16 | (16,1,128), (32,1,256) | COMPILE FAIL, "AssertionError: warp_row_tiles must be greater than 16, got 8" (MMA assert) |
+
+Reproduced: the reported coupling (threads must be 128 before block_I can be 32) and the block_I=16 assert.
+num_stages=1 is not strictly required at H=16/32 (num_stages=2 also launched), but 1 is the safe choice. Exact smem
+of the working tiles was not measured (offset-derived estimates: ~51 KB at H=16, ~70 KB at H=32 for (32,1,128)).
+
+NOT reproduced: the report's "plain decode fits at stock tiles, only the verify shape (ntpr=8) fails". Stock v1
+fails at decode too; the smem request is static and independent of the query row count. Irrelevant here (the tile
+is needed anyway).
+
+NOT verified: end-to-end SGLang boot (tile not wired into the wrapper yet), the real GLM-5.3 KV layout (test used
+bf16 KV, not fp8), any working v2 tile.
+
+Artifacts: `scripts/debughelper/tilelang_sm121_tile_test.py` (+ `.sh` runner); run log on spark5
+`/root/tilelang_test/run.log`.
 
 ## VIABLE PATH FOUND 2026-07-16 (GPU-prototyped): gather + reuse the working dense fa2 kernel
 
