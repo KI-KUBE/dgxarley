@@ -32,14 +32,15 @@
 #      bf16 KV. Retired alternative: p34 (trtllm on SM12x + fp8 KV -> flashinfer
 #      native SM120/121 sparse MLA), which would need a KPool re-anchor.
 #
-#   3. INDEXER (hard blocker, unpatched). GLM-5.3-Flash uses the separate class
+#   3. INDEXER (resolved two ways, unbooted). GLM-5.3-Flash uses the separate class
 #      IndexerKPool (dsa_indexer_kpool.py, chosen in models/deepseek_v2.py:2070),
 #      which calls deep_gemm.fp8_paged_mqa_logits (decode) and
 #      deep_gemm.fp8_mqa_logits (ragged prefill) DIRECTLY, not via the
-#      paged_mqa_logits_backend dispatch. p30 (torch) and p35 (triton) therefore do
-#      NOT reach it, and DeepGEMM hard-blocks these ops on SM121. Needs a new patch
-#      routing IndexerKPool's logits to the torch/triton implementations (candidate
-#      p69).
+#      paged_mqa_logits_backend dispatch, so p30/p35 never reached it. GPU-verified
+#      2026-10-08 on spark5 (image 0.5.21-sm121): BOTH DeepGEMM calls run on SM121
+#      and match a float32 reference, so `auto` would work. p69 adds the torch/triton
+#      arm (paged decode/verify only, p30 semantics, -inf masks + CUDA graph replay
+#      verified at function level); ragged prefill stays on DeepGEMM.
 #
 #   4. KDA / mHC (unverified on SM121). KDA layers use the Triton KDA kernel
 #      (NvidiaKDAKernel is major==10 only, no SM12x gate found, untested on GB10).
@@ -113,7 +114,7 @@ _model_profile:
     attention_backend: "dsa"
     dsa_decode_backend: "tilelang"
     dsa_prefill_backend: "tilelang"
-    # These two keys do not cover IndexerKPool (calls deep_gemm directly); see header item 3.
+    # IndexerKPool reaches these only via p69 (paged path); ragged prefill stays on DeepGEMM.
     dsa_paged_mqa_logits_backend: "torch"
     dsa_indexer_triton: true
     jit_max_jobs: 4
