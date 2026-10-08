@@ -19,10 +19,12 @@
   changed_when: false
   failed_when: false
 
+# First line only: sops --version also prints "a new version of sops (vX.Y.Z) is available".
 - name: install sops {{ sops_version }} binary
   when: >-
     _sops_current.rc != 0 or
-    sops_version not in (_sops_current.stdout | default(''))
+    (_sops_current.stdout_lines | default([]) | first | default(''))
+    is not search('^sops ' ~ (sops_version | regex_escape) ~ '(\s|$)')
   get_url:
     url: "https://github.com/getsops/sops/releases/download/v{{ sops_version }}/sops-v{{ sops_version }}.linux.{{ _sops_age_arch }}"
     dest: /usr/local/bin/sops
