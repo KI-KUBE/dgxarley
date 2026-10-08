@@ -22,7 +22,10 @@
 #      raises NotImplementedError unless the DSA prefill/decode impl is one of
 #      fa3 / tilelang / trtllm ("index_kpool > 1 appends tail tokens to
 #      topk_indices"). On SM121 all three are dead as shipped (DSA_speedup.md):
-#      fa3 is gated to SM8x/9x, tilelang has the smem/compile contradiction,
+#      fa3 is gated to SM8x/9x, tilelang: the v1 kernel (tail_dim==0, GLM-5.3-Flash) is VERIFIED
+#      2026-10-08 on spark5 to launch and match a float32 reference with a retuned tile
+#      block_I=32/num_stages=1/threads=128 (kernel level only, DSA_speedup.md; the stock
+#      tile fails launch on smem, and the v2 kernel used by GLM-5.2 stays dead),
 #      trtllm is trtllm-gen FMHA (ISA wall). The upstream SM12x auto-route to
 #      flashinfer_sparse_mla (#26928) is keyed on GlmMoeDsaForCausalLM only AND is
 #      not on the KPool allow-list. Our p34 (trtllm on SM12x + fp8 KV → flashinfer
@@ -33,6 +36,14 @@
 #      main still offers only auto/deepgemm/cutedsl/aiter for paged-MQA logits
 #      (DeepGEMM hard-blocks SM121), so p30/p35 (torch + triton indexer) must be
 #      ported too, now on top of the KPool top-k JIT kernel (kpool_topk_transform).
+#
+#      Second route around blocker 2 (kernel VERIFIED 2026-10-08 on spark5, end-to-end
+#      boot not yet tried): dsa_*_backend "tilelang" + bf16 KV (the cookbook recipe;
+#      fp8 KV is only a prerequisite of p34, not of this route) + a small runtime tile
+#      patch (candidate name p6x_dsa_tilelang_sm121_tile.py, does not exist yet), instead
+#      of porting p34 to KPool. Patch point: tilelang_sparse_fwd in dsa_backend.py passes
+#      no tile args to sparse_attention_fwd_kernel_v1, so the factory defaults must be
+#      changed to (32,1,128). Verified for both decode and verify row counts.
 #
 # The backend values below are the ONLY combination that can work once both
 # blockers are fixed. They are a plan, not a measured config.
