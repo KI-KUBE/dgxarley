@@ -1,0 +1,87 @@
+# Model profile: nvidia/GLM-5.3-Flash-NVFP4
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# ── STATUS (2026-10-08): UNVALIDATED, NEVER BOOTED ON GB10 ──────────────────────
+# Official NVIDIA ModelOpt NVFP4 export of zai-org/GLM-5.3-Flash (calibrated,
+# modelopt 0.47.0, recipe nvfp4_experts_dense_mlp-kv_fp8_cast). Same architecture
+# as vroomfondel/GLM-5.3-Flash-NVFP4-W4A4; see that profile for the full blocker
+# analysis. Current state of its two blockers:
+#
+#   1. ARCHITECTURE: RESOLVED. v0.5.20 (2026-09-18) carries #36507 (GLM-5.3-Flash
+#      support) and #38621 (GLM-5.3 Flash NVFP4 loading), so the default
+#      xomoxcc/dgx-spark-sglang:0.5.21-sm121 resolves Glm5NextForConditionalGeneration.
+#      Not yet confirmed by an actual boot.
+#
+#   2. SM121 DSA ATTENTION WITH KPOOL: STILL OPEN. index_kpool=4 restricts the DSA
+#      impl to fa3 / tilelang / trtllm, all dead on SM121 as shipped (tilelang: retuned tile (32,1,128)
+#      GPU-verified for the v1 kernel 2026-10-08, see DSA_speedup.md; end-to-end unverified). p34 (trtllm →
+#      flashinfer native SM120/121 sparse MLA) is the only plausible route but has
+#      not been ported to the KPool tail-token topk_indices. p30 only has its import
+#      anchors adapted to the v0.5.20 kpool rework, no functional KPool support.
+#      Expect the boot to die in TllmGenFmhaRunner or KPool's NotImplementedError.
+#
+# ── ARCHITECTURE (verified against config.json 2026-10-08) ─────────────────────
+# Glm5NextForConditionalGeneration, model_type glm5_next. 320B total / 18B active.
+# 45 layers: 34 KDA linear-attention + 11 MLA/DSA (3,7,...,43; kv_lora_rank 512,
+# q_lora_rank 1536, qk_nope_head_dim 256, qk_rope_head_dim 0). DSA indexer 32 heads,
+# topk 2048, index_kpool 4. mHC (hc_mult 4). MoE 288 routed experts, 8 active + 1
+# shared, layers 0-2 dense. MTP layer 45 (num_nextn_predict_layers 1). Vision tower.
+# max_position_embeddings 1048576.
+#
+# ── QUANT (verified against hf_quant_config.json 2026-10-08) ───────────────────
+# NVFP4 W4A4 (group 16, calibrated on cnn_dailymail + Nemotron-Post-Training-v2),
+# kv_cache_quant_algo FP8. FP4: routed experts + dense MLP layers 0-2. BF16 (excluded):
+# all self_attn (incl. KDA, MLA, DSA indexer), shared experts, router gates, MTP
+# layer 45, vision, lm_head, embed_tokens. The card's prose says shared experts are
+# quantized; the exclude list says otherwise and wins. BF16 shared + FP4 routed is
+# exactly the case where #38621 disables shared-expert fusion.
+# 33 shards, 190.4 GiB → ~48 GiB/GPU at TP=4.
+# Card accuracy vs BF16: GPQA-D 0.921 vs 0.922, SciCode 0.577 vs 0.562, MMMU-Pro
+# 0.763 vs 0.769, AA-LCR 0.711 vs 0.71, IFBench 0.605 vs 0.613, TB2.1 0.832 vs 0.826.
+#
+# Card SGLang recipe (4x Blackwell): --quantization modelopt_fp4 --tp-size 4
+#   --dsa-prefill-backend trtllm --dsa-decode-backend trtllm --kv-cache-dtype fp8_e4m3
+#   --moe-runner-backend flashinfer_cutlass --reasoning-parser glm45
+#   --tool-call-parser glm47 --mem-fraction-static 0.85
+_model_profile:
+  "nvidia/GLM-5.3-Flash-NVFP4":
+    knowledge_cutoff: null  # not disclosed on the zai-org/GLM-5.3-Flash card
+    release_date: "2026-08-25"  # zai-org/GLM-5.3-Flash base (HF createdAt). NVIDIA NVFP4 repo per card: HF 2026-09-09.
+    info_url: "https://huggingface.co/nvidia/GLM-5.3-Flash-NVFP4"
+    # ALTERNATIVE (our surgical W4A4 top-up incl. attention): https://huggingface.co/vroomfondel/GLM-5.3-Flash-NVFP4-W4A4
+    nccl_transport: "roce"
+    tp_size: 4  # card recipe; 64 attn / 64 KDA / 32 indexer heads all divide by 4
+    # KV only grows on the 11 MLA layers; raise toward 1M once it serves.
+    context_length: 262144
+    quantization: "modelopt_fp4"
+    trust_remote_code: false  # no auto_map in the repo; SGLang has native glm5_next code
+    page_size: 64  # KPool DSA asserts page_size == 64
+    moe_runner_backend: "flashinfer_cutlass"  # cookbook flashinfer_trtllm is trtllm-gen, SM100-only
+    fp4_gemm_backend: "flashinfer_cutlass"
+    kv_cache_dtype: "fp8_e4m3"  # checkpoint kv_cache_quant_algo=FP8; also required by p34
+    mem_fraction_static: "0.80"
+    attention_backend: "dsa"
+    # trtllm is the only KPool-accepted impl that p34 can reroute on SM12x (blocker 2).
+    dsa_decode_backend: "trtllm"
+    dsa_prefill_backend: "trtllm"
+    dsa_paged_mqa_logits_backend: "torch"  # p30; DeepGEMM fp8_paged_mqa_logits hard-blocks SM121
+    dsa_indexer_triton: true  # p35
+    jit_max_jobs: 4
+    disable_piecewise_cuda_graph: true
+    disable_cuda_graph: false
+    cuda_graph_max_bs: 32
+    pp_async_batch_depth: 0
+    disable_deep_gemm: true  # NVFP4 scale_fmt != ue8m0
+    reasoning_parser: "glm45"
+    tool_call_parser: "glm47"
+    num_experts: 288
+    ep_size: 1
+    recommended_sampling:
+      temperature: 1.0  # generation_config.json
+      top_p: 0.95       # generation_config.json
+    # MTP layer 45 is BF16. OFF until a clean base boot + GSM8K gate.
+    speculative_enabled: false
+    speculative_algo: "EAGLE"
+    speculative_num_steps: 5  # cookbook B200 recipe; acceptance on GB10 unmeasured
+    speculative_eagle_topk: 1
+    speculative_num_draft_tokens: 6  # = num_steps + 1
