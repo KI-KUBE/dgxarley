@@ -75,28 +75,24 @@
 # >>> CO-LOCATION as the vision companion next to Super (2026-10-09, UNTESTED) <<<
 # Standalone at 0.60 this profile takes ~73 GB/rank (bootlog: weights 9.8 GB, mamba
 # auto-fit 2211 slots = 25.3 GB, KV fp8 28.1 GB = 19.6M tokens at 1.43 KB/token,
-# 35 GB free after capture). Next to Super (15 GB free at 0.75, ~33 GB at 0.60) the
-# profile stays as is and the INSTANCE pins the footprint. The effective
-# `_sglang_vision_instance` lives in group_vars/all/vault/sglang.yml (the vault
-# copy overrides defaults/main/sglang_instances.yml); replace the Qwen3-VL entry:
-#   _sglang_vision_instance:
+# 35 GB free after capture). Next to Super (capped to ~83 GB/rank via its instance's
+# max_total_tokens, ~35 GB left) the profile stays as is and the INSTANCE pins the
+# footprint. The effective `_sglang_vision_instance` lives in
+# group_vars/all/vault/sglang.yml (the vault copy replaces the one in
+# defaults/main/sglang_instances.yml); topology (nodes 1-4, tp 4, pp 1, ep 1) and
+# sriov_key sglang_vision (VF block already carries head + 3 workers) come from the
+# profile defaults, the instance adds only the caps:
 #     model: "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"
-#     nodes: [1, 2, 3, 4]        # TP4 like standalone; the sglang_vision VF block already carries head + 3 workers
-#     sriov_key: "sglang_vision"
-#     tp_size: 4
-#     pp_size: 1
-#     ep_size: 1
-#     mem_fraction_static: "0.90"  # reserve (1 - f) * 121 GB = 12 GB must fit in what Super left free
-#     max_total_tokens: 262144     # 0.4 GB fp8; the binding KV cap
 #     context_length: 131072
-#     max_running_requests: 8
-#     max_mamba_cache_size: 48     # ~5 slots/request, ~11 MB/slot = 0.5 GB (auto-fit would grab 47 % of rest)
+#     max_total_tokens: 524288     # 4 x 128K or 8 x 64K, ~0.75 GB fp8; the binding KV cap
+#     max_running_requests: 8      # clamp stays below max_mamba_cache_size // ~3 = 16
+#     max_mamba_cache_size: 48     # ~11 MB/slot = 0.5 GB (auto-fit would grab 47 % of rest memory)
 #     cuda_graph_max_bs: 8
+#     mem_fraction_static: "0.90"  # reserve (1 - f) * 121 GB = 12 GB; small so the caps bind regardless of start order
 #     external_enabled: false
-# Expected footprint ~15 GB/rank: 9.8 weights + ~1 pools + ~1.5 graphs + ~2.5 overhead.
-# Requires Super at mem_fraction_static 0.60 (its profile has the commented line) and
-# litellm_vision_model repointed. Expect lower peaks than standalone: Super's
-# MoE/Mamba kernels time-slice the same GB10, and bs is capped at 8.
+# Expected footprint ~15 GB/rank: 9.8 weights + 0.75 KV + 0.5 mamba + ~1.5 graphs +
+# ~2.5 overhead. litellm_vision_model already points at this id. Expect lower peaks
+# than standalone: Super's MoE/Mamba kernels time-slice the same GB10, bs capped at 8.
 _model_profile:
   "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4":
     knowledge_cutoff: "2026-02"  # NOT separately published for Nano-Omni; family post-training value — VERIFY

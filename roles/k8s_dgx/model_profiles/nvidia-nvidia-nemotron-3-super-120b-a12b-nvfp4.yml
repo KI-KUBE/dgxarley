@@ -76,11 +76,14 @@
 # tokens), 24.7 GB free after pools, 15.5 GB after CUDA-graph capture, nodes show
 # 15 to 17 GB available. Omni at TP4 needs ~15 GB/rank even when pinned (10 GB
 # weights + pools + graphs + overhead), so it does NOT fit next to 0.75.
-# To co-locate: mem_fraction_static 0.60 (rest memory drops by ~18 GB, KV pool to
-# ~10M tokens, still ~19 full 524K contexts) or 0.55 (~24 GB freed, ~7M tokens).
-# Everything else stays; the Omni side is pinned in its instance definition (see
-# the CO-LOCATION block in the Omni profile). Deploy order: Super first (the
-# auto-fit of the second instance only sees what the first one left free).
+# To co-locate, the `default` INSTANCE caps the KV pool instead of lowering the
+# fraction: max_total_tokens 16777216 (32 x 524288, ~36 GB incl. draft KV) in
+# _sglang_default_instance (group_vars/all/vault/sglang.yml) brings Super to ~83 GB
+# per rank and leaves ~35 GB. The cap is absolute, so the footprint no longer
+# depends on which instance starts first (the fraction only bounds the auto-fit,
+# and the auto-fit still exceeds the cap when Omni starts first: ~17M tokens).
+# The Omni side is pinned in its instance definition (CO-LOCATION block in the
+# Omni profile). Both pods per GPU need nvidia_gpu_timeslice_replicas >= 2 (is 5).
 _model_profile:
   "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4":
     knowledge_cutoff: "2026-02"  # post-training cutoff (HF card); pre-training 2025-06 — use latest for LCB contamination
@@ -171,7 +174,7 @@ _model_profile:
     # ~23.6 GB still free after CUDA-graph capture — i.e. 0.80 is comfortable and could
     # go higher if more KV is wanted. No OOM at 262K/512K/1M.
     mem_fraction_static: "0.75"
-    # mem_fraction_static: "0.60"  # co-location with the Omni vision companion, frees ~18 GB/rank (header CO-LOCATION block)
+    # Co-location with the Omni companion caps the pool via the instance's max_total_tokens, not here (header CO-LOCATION block).
     # attention_backend: MUST NOT be triton — SGLang's apply_nemotron_h_defaults hook
     # hard-asserts against it ("NemotronHForCausalLM does not support triton attention
     # backend, as the first layer might not be an attention layer"; the hybrid pattern
