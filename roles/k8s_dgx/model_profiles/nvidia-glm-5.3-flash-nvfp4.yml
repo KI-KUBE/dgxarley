@@ -64,7 +64,7 @@ _model_profile:
     # trtllm is the only KPool-accepted impl that p34 can reroute on SM12x (blocker 2).
     dsa_decode_backend: "trtllm"
     dsa_prefill_backend: "trtllm"
-    dsa_paged_mqa_logits_backend: "torch"  # p30; DeepGEMM fp8_paged_mqa_logits hard-blocks SM121
+    dsa_paged_mqa_logits_backend: "torch"  # p30 (live-proven); DeepGEMM runs on 0.5.21 but is unvalidated end-to-end
     dsa_indexer_triton: true  # p35
     jit_max_jobs: 4
     disable_piecewise_cuda_graph: true
