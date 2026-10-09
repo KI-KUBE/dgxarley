@@ -1,0 +1,74 @@
+---
+# Model profile: nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-NVFP4-QAD
+# Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
+#
+# PURPOSE: small vision companion (image understanding, OCR, document and
+# screenshot parsing, video via EVS) for a text-only default instance. Runs as
+# its OWN single-node sglang_instance (tp=1), co-located via GPU time-slicing;
+# it must NOT be selected as sglang_model on the 4-node layout (tp_size 1 there
+# resolves to pp=4). Wiring: set it as `model` of `_sglang_vision_instance`
+# (defaults/main/sglang_instances.yml) and as litellm_vision_model; tp 1 on one
+# node or tp 2 on spark3+spark4 like the Qwen3-VL companion it replaces.
+#
+# ── STATUS: spark5 SMOKE OK 2026-10-08 (single GB10, image 0.5.21-sm121) ──────
+# Boots patch-free with --quantization modelopt_fp4 --trust-remote-code, eager
+# AND with CUDA graphs (decode graphs bs 1..61 captured in 2.9 s; prefill graphs
+# are auto-disabled for multimodal archs). Weights 11.7 GB/GPU, load 63 s.
+# Text completion coherent; a synthetic image (red circle centre, blue rectangle
+# top right) was described correctly in the CUDA-graph run. Single-stream decode
+# ~27 tok/s at n=1. NOT measured: concurrency, GSM8K, real images, video, long
+# context, the parsers below. Logs: spark5 /root/nano12bvl_test/run*.log.
+#
+# ── ARCHITECTURE (config.json, verified 2026-10-08) ──────────────────────────
+# NemotronH_Nano_VL_V2 (SGLang models/nano_nemotron_vl.py, own config class in
+# configs/nano_nemotron_vl.py, listed as multimodal in model_config.py; the repo's
+# remote code is not used). Text core NemotronHForCausalLM: 62 layers, hidden
+# 5120, DENSE (relu2 MLP 20480, no MoE), hybrid pattern M-M-M-M*... = 6 attention
+# layers (40 heads / 8 KV heads, head_dim 128) + Mamba2 (128 heads, head_dim 80,
+# state 128), max_position_embeddings 131072 (card: up to 128K). Vision tower
+# RADIO (ViT-H/16, force_image_size 512, patch 16, 256 image tokens per 512 tile,
+# use_thumbnail), projector 20480, video_pruning_rate 0.7 (EVS). Vocab 132096.
+# Quant (modelopt 0.39, QAD): NVFP4 group 16 on the text linears; BF16 for the
+# vision tower, projector (mlp1), conv1d and lm_head; kv_cache_quant_algo null.
+# ~7.7 GB safetensors. HF repo created 2025-10-22, last update 2026-09-02,
+# license nvidia-open-model-license, not gated. Sibling repos: -FP8 (15.4 GB),
+# -BF16 (26.4 GB). The model card lists vLLM/B100 only; SGLang runs it anyway.
+#
+# ── KV / memory ───────────────────────────────────────────────────────────────
+# Only 6 attention layers: KV = 2 * 6 * 8 * 128 B = 12288 B/token fp8, 24576 B/token
+# bf16 (spark5 at mem 0.6 allocated 1.25M bf16 tokens = 28.8 GB). 128K context in
+# bf16 is 3.2 GB, so KV is never the constraint; the Mamba state pool is (per
+# request, scales with max_running_requests). Co-located footprint = weights
+# ~11.7 GB + KV (max_total_tokens) + Mamba pool + ~2.5 GB overhead. Next to a
+# default instance at mem_fraction_static 0.75 (~90 GB held) this does NOT fit;
+# lower the default instance's fraction first (see the Qwen3-VL companion notes).
+_model_profile:
+  "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-NVFP4-QAD":
+    knowledge_cutoff: null  # not disclosed on the card
+    release_date: "2025-10-22"  # HF repo creation (NVFP4-QAD checkpoint); QAD weights refreshed 2026-09-02
+    info_url: "https://huggingface.co/nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-NVFP4-QAD"
+    tp_size: 1   # 11.7 GB weights, single GB10; no NCCL/QSFP at tp=1 (run as a 1-node instance)
+    context_length: 131072  # max_position_embeddings; a co-located instance trims this to its max_total_tokens
+    quantization: "modelopt_fp4"
+    trust_remote_code: true
+    kv_cache_dtype: "bfloat16"  # spark5-verified; fp8_e4m3 untested (no baked KV scales, KV is tiny anyway)
+    # HIGH fraction so the instance's absolute max_total_tokens is the binding cap (deterministic footprint).
+    mem_fraction_static: "0.85"
+    max_running_requests: 8   # Mamba state pool scales per request; companion load is low-QPS
+    attention_backend: "flashinfer"  # auto-selected on spark5 (6 GQA layers, head_dim 128)
+    # mamba_backend stays at the triton default (spark5-verified); flashinfer mamba is an untested probe.
+    chunked_prefill_size: 8192  # large image/video prefills
+    disable_cuda_graph: false   # decode graphs verified on spark5
+    disable_piecewise_cuda_graph: true  # prefill graphs are auto-disabled for multimodal archs anyway
+    cuda_graph_max_bs: 16
+    disable_deep_gemm: true  # DeepGEMM targets FP8 block scales, not NVFP4
+    pp_async_batch_depth: 0
+    # Reasoning: chat template uses <think>...</think> with enable_thinking (default on) and
+    # /think and /no_think system markers; nemotron_3 is the matching <think> detector.
+    reasoning_parser: "nemotron_3"
+    # Tool calls: template emits <TOOLCALL>[...]</TOOLCALL> (Llama-Nemotron JSON list) and
+    # <AVAILABLE_TOOLS>; the 0.5.21 image has no detector for that format, so none is set.
+    recommended_sampling:
+      temperature: 0.6  # Nemotron Nano v2 card value for reasoning mode; VERIFY against the VL card
+      top_p: 0.95
+    speculative_enabled: false  # dense NemotronH without an MTP head

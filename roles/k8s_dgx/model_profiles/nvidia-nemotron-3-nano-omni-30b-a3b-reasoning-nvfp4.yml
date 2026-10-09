@@ -44,11 +44,20 @@
 # This profile PINS the SM121 build below: it is the NVFP4-MoE-on-SM121-hardened image
 # (the stock scitrera image device-asserts on the triton/cutlass NVFP4 MoE path —
 # CUTLASS_NVFP4_SM121_PRD.md), the correct base for an NVFP4 model on GB10.
-# >>> AUDIO GAP — librosa NOT in the image <<< the model code has a real audio path
-# (get_audio_feature / is_audio, Parakeet encoder) that needs librosa at runtime, and
-# NO image in scripts/patches/ installs it (verified). Consequence: TEXT + IMAGE/VIDEO
-# should work; AUDIO input will fail until librosa is added to the recipe (or pip-installed
-# into the running pod). Add `librosa` to the 0.5.13-sm121 recipe if audio is required.
+# >>> AUDIO: librosa 1.0.0 IS in the 0.5.21-sm121 image, audio input still UNTESTED <<< the model
+# code has a real audio path (get_audio_feature / is_audio, Parakeet encoder) that needs librosa at
+# runtime; 0.5.13-sm121 lacked it, 0.5.21-sm121 ships it. TEXT + IMAGE verified on 0.5.21
+# (image smoke: red circle described correctly); no audio request has been sent yet.
+#
+# >>> VALIDATED 2026-10-08 (0.5.21-sm121) re-matrix (TP=4), profile UNCHANGED <<<
+# TESTLOG: TESTLOGS/sglang_nn4_tp4_ep1/nemotron-3-nano-omni-30b-a3b-reasoning-nvfp4/
+#   TESTLOG_sglang-0.5.21-sm121_nemotron-3-nano-omni-30b-a3b-reasoning-nvfp4_4n.md
+# Baseline (this profile) peaks: n=1 118.5, n=4 329.8, n=8 507.3, n=16 769.5 tok/s (0.5.13: 437.9 at n=8).
+# ep_size 4 now BOOTS and serves (0.5.13 crash gone) but is SLOWER: n=8 465.8 (-8 %), n=16 753.1.
+# mamba_ssm_dtype bfloat16 doubles the mamba pool (2211 -> 4348) yet is throughput-neutral
+# (n=8 511.5, +0.8 %, n=16 793.2, +3 %), quality identical; max_running_requests stays 32 -> not adopted.
+# 2026-10-09 mamba_backend flashinfer (case 03): boots, clean, but SLOWER: peaks n=1 114.7, n=4 293.0, n=8 485.0 (-4.4 %), n=16 734.3 (-4.6 %). Not adopted; case 05 (ep 4 + flashinfer) skipped.
+# 2026-10-09 cuda_graph_backend_prefill breakable (case 06): flag lands, but SGLang logs "Disable prefill CUDA graph because some layers do not apply Standard GQA" (hybrid Mamba), so it is a no-op: n=8 483.7 (-4.7 %), n=16 762.7 (-0.9 %), noise. Not adopted.
 #
 # >>> VALIDATED 2026-06-25 — 13-case matrix run (TP=4 EP=1) <<<
 # TESTLOG: TESTLOGS/sglang_nn4_tp4_ep1/nemotron-3-nano-omni-30b-a3b-reasoning-nvfp4/
@@ -126,7 +135,9 @@ _model_profile:
     # NVFP4 scale_fmt != ue8m0 → DeepGemm JIT not optimized; disable (same as all NVFP4 here).
     disable_deep_gemm: true
     num_experts: 128
-    # ep_size=1 is the VALIDATED default. EP=4 is CONFIRMED-BROKEN here (reproduced ≥2× via Loki:
+    # ep_size=1 is the VALIDATED default. 0.5.21-sm121 RETEST (2026-10-08): ep_size 4 boots, serves and is clean,
+    # but is ~8 % slower at n=8 (465.8 vs 507.3 peak tok/s) -> stays 1. The 0.5.13 notes below are HISTORICAL.
+    # (0.5.13) EP=4 was CONFIRMED-BROKEN (reproduced ≥2× via Loki:
     # a pre-matrix manual run 2026-06-25 14:39-14:45Z with EP2/EP3 rank labels, AND matrix case 11
     # 17:11Z) — every ep>1 attempt dies DETERMINISTICALLY with the SAME stack:
     #   cuda_graph_runner.py:543 → hybrid_linear_attn_backend init_cuda_graph_state →
@@ -139,6 +150,8 @@ _model_profile:
     # Dynamic-safe form if sglang_nnodes ever changes:
     #   ep_size: "{{ sglang_nnodes if (128 % (sglang_nnodes | int) == 0) else 1 }}"
     ep_size: 1
+    # mamba_backend: flashinfer  # 2026-10-09: n8 -4.4 %, n16 -4.6 % vs triton, not worth it
+    # cuda_graph_backend_prefill: breakable  # 2026-10-09: no-op on hybrid Mamba (prefill graph auto-disabled), n8 -4.7 %, n16 -0.9 %
     # reasoning-parser = nemotron_3 per the HF MODEL CARD (user choice 2026-06-24),
     # matching the validated Super-120B sibling. NOTE the conflict: SGLang's own cookbook
     # (§4.8) uses deepseek-r1 across all three quants — if <think> tags leak into content
@@ -174,8 +187,7 @@ _model_profile:
     # max_running_requests=32 — left auto (that clamp is fine for current load); set it explicitly
     # only if concurrency tuning needs it. See the Super profile's long note for the mechanics.
     #
-    # Pin the SM121-hardened build: it carries the Omni class (v0.5.13) AND the NVFP4 MoE SM121 fix
-    # the stock image lacks. TEXT path VALIDATED on this build (2026-06-25 matrix). image/video
-    # untested (architecturally present, not exercised). ⚠️ AUDIO still needs librosa added to this
-    # image's recipe (see AUDIO GAP in header) — the Parakeet path fails at runtime without it.
+    # No per-profile image pin: the cluster default xomoxcc/dgx-spark-sglang:0.5.21-sm121 carries the Omni class
+    # and the NVFP4 MoE SM121 fix. TEXT validated on 0.5.13 and 0.5.21, IMAGE smoke OK on 0.5.21,
+    # video untested, AUDIO untested (librosa present on 0.5.21, see header).
     # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.17-sm121"

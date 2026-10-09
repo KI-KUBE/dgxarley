@@ -46,7 +46,16 @@
 # zero runtime errors. Performance parity with the dev image; the detailed n=1/n=8
 # numbers below are from the 0.5.13-mtp matrix and still describe the tuning optimum.
 #
-# MTPv2 DRAFT HEAD 2026-10-08 (UNVALIDATED) — swapped the built-in MTP head for the
+# MTPv2 DRAFT HEAD 2026-10-08 (FIRST BOOT OK, image 0.5.21-sm121, TP4/EP4): draft loads as
+# NemotronHForCausalLMMTP (96 s, 1.54 GB/rank), target_verify/draft graphs 8.7/5.4/1.1 s,
+# fired up ~5 min after container start; n=1 accept len 2.8 to 4.0 (built-in head ~2.7),
+# n=1 decode 62 to 90 tok/s (built-in head 54). GSM8K sweep (2n questions, peak tok/s,
+# TESTLOG_sglang-0.5.21-sm121_..._mtpv2_4n.md): n1 70, n2 123, n4 201, n8 267, n16 306,
+# n32 328; accept len median 3.2 to 3.55; 126/126 correct, 0 truncations. Built-in head
+# reference n8 peak 199.7 (older image). No full GSM8K split yet.
+# A/B 2026-10-08 (same image): built-in head 3/4 peaks n8 237, n16 287, n32 301; MTPv2 3/4 beats it by 13 to 9%.
+# SWEEP 2026-10-08 (steps x topk x draft, 4/32/64/128 questions): 4/1/5 wins (n8 peak 277, n16 377, n32 513); 3/1/4, 5/1/6, 6/1/7 and topk 2 (3/2/6, 5/2/8) lose; topk 1 forces draft=steps+1.
+# MTPv2 DRAFT HEAD 2026-10-08: swapped the built-in MTP head for the
 # separately distributed nvidia/Nemotron-3-Super-120B-A12B-BF16-MTPv2 (3B, BF16, only
 # mtp.layers.* keys; embed/lm_head are shared from the target by the EAGLE worker).
 # NVIDIA: SPEED-Bench mean accept_len 3.45 -> 4.31 at draft 7. Steps 3/4 kept from the
@@ -277,8 +286,8 @@ _model_profile:
     # lighter 3/4 winner fits ctx524288 with more headroom. Drop mem_fraction_static if OOM.
     speculative_enabled: true
     speculative_algo: EAGLE
-    speculative_num_steps: 3  # VALIDATED WINNER 2026-06-16 — beats cookbook 5/5; do NOT raise
-    speculative_num_draft_tokens: 4  # VALIDATED WINNER 2026-06-16 — beats cookbook 5/5 + 5/7
+    speculative_num_steps: 4  # 2026-10-08 sweep winner (4/1/5), see MTPv2 testlog Run 4
+    speculative_num_draft_tokens: 5  # 2026-10-08 sweep: topk 1 forces draft = steps + 1
     speculative_eagle_topk: 1
     speculative_draft_model_path: "nvidia/Nemotron-3-Super-120B-A12B-BF16-MTPv2"
     # BF16 draft without hf_quant_config; otherwise it inherits the target's modelopt_fp4.
