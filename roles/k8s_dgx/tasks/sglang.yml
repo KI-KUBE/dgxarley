@@ -11,7 +11,8 @@
 #   _sglang_active_sriov_key = inst.sriov_key -> selects the VF + QSFP IP block
 #   _sglang_active_{tp,pp,ep} = inst overrides ("" = derive from profile/nnodes)
 #   _sglang_active_max_total_tokens = inst override ("" = profile/unset)
-#   _sglang_active_{context_length,mem_fraction_static,max_running_requests,cuda_graph_max_bs}
+#   _sglang_active_{context_length,mem_fraction_static,max_running_requests,
+#                   cuda_graph_max_bs,max_mamba_cache_size}
 #                            = inst overrides ("" = profile value)
 - name: Deploy each SGLang instance
   ansible.builtin.include_tasks: sglang_instance.yml
@@ -33,6 +34,7 @@
     _sglang_active_mem_fraction_static: "{{ inst.mem_fraction_static | default('') }}"
     _sglang_active_max_running_requests: "{{ inst.max_running_requests | default('') }}"
     _sglang_active_cuda_graph_max_bs: "{{ inst.cuda_graph_max_bs | default('') }}"
+    _sglang_active_max_mamba_cache_size: "{{ inst.max_mamba_cache_size | default('') }}"
 
 # ---------------------------------------------------------------------------
 # Teardown of DISABLED gated companion instances. Each enable_*_model flag, when

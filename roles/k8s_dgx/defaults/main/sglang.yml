@@ -70,6 +70,9 @@ _sglang_active_context_length: ""
 _sglang_active_mem_fraction_static: ""
 _sglang_active_max_running_requests: ""
 _sglang_active_cuda_graph_max_bs: ""
+# The auto-fit mamba pool takes ~47 % of rest memory regardless of
+# max_running_requests, so a co-located hybrid model must pin the slot count.
+_sglang_active_max_mamba_cache_size: ""
 
 sglang_speculative_enabled: "{{ sglang_model_profiles[_sglang_active_model].speculative_enabled | default(false) }}"
 sglang_speculative_algo: "{{ sglang_model_profiles[_sglang_active_model].speculative_algo | default('NEXTN') }}"
@@ -185,8 +188,9 @@ sglang_mamba_scheduler_strategy: "{{ sglang_model_profiles[_sglang_active_model]
 #   * max_mamba_cache_size: explicit slot count, overrides the ratio-based auto-fit.
 #     NOT memory-checked — too high steals from KV / OOMs. 0/empty = auto-fit.
 # Empty = SGLang default (auto-fit) — no behavior change for models that omit them.
+# max_mamba_cache_size precedence: inst override > profile > auto-fit.
 sglang_mamba_full_memory_ratio: "{{ sglang_model_profiles[_sglang_active_model].mamba_full_memory_ratio | default('') }}"
-sglang_max_mamba_cache_size: "{{ sglang_model_profiles[_sglang_active_model].max_mamba_cache_size | default('') }}"
+sglang_max_mamba_cache_size: "{{ _sglang_active_max_mamba_cache_size if (_sglang_active_max_mamba_cache_size | string | length > 0) else (sglang_model_profiles[_sglang_active_model].max_mamba_cache_size | default('')) }}"
 
 # SSM-state dtype of the mamba cache -> --mamba-ssm-dtype. Valid: float32,
 # bfloat16, float16. Empty (default) = no flag; SGLang then reads the value from

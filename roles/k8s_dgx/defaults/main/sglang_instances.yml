@@ -34,9 +34,12 @@
 #   mem_fraction_static: override of the profile's value. SGLang reserves
 #                  (1 - fraction) * total memory, so a co-located instance needs
 #                  a HIGH value (0.85+) and pins its footprint via max_total_tokens.
-#   max_running_requests: override of the profile's value. Mamba state pools
-#                  (NemotronH, Qwen3-Next) are sized per request, so a low-QPS
-#                  companion saves real memory here.
+#   max_running_requests: override of the profile's value (scheduler ceiling).
+#   max_mamba_cache_size: override of the profile's value. On hybrid SSM models
+#                  (NemotronH, Qwen3-Next) the auto-fit pool takes ~47 % of rest
+#                  memory whatever max_running_requests says (Omni standalone:
+#                  2211 slots = 25 GB); a co-located instance pins the slot
+#                  count (~5 slots per concurrent request, ~11 MB each on Omni).
 #   cuda_graph_max_bs: override of the profile's value (CUDA-graph capture
 #                  memory and startup time scale with it).
 #   prefix:      K8s resource-name prefix AND the `app` label value. Default:
@@ -174,6 +177,9 @@ _sglang_guard_instance:
   hostname: "sglang-guard"
   external_enabled: false  # in-cluster only (ClusterIP for litellm / app-side moderation)
 
+# Per-instance overrides for the main `default` instance (same keys as above); empty = profile values.
+_sglang_default_instance: {}
+
 # `default` is ALWAYS present (whole cluster, active sglang_model); `vision`,
 # `coder`, `embed` and `guard` join only when their enable_*_model flag is true. To add
 # MORE instances define them like _sglang_vision_instance above and combine()
@@ -183,7 +189,7 @@ _sglang_guard_instance:
 # qsfp_sriov_assignments lookup so it MAY contain underscores. Co-located
 # instances need qsfp_sriov_enabled + their own assignment AND timeslice ≥ 2.
 sglang_instances: >-
-  {{ {'default': {}}
+  {{ {'default': _sglang_default_instance}
      | combine({'vision': _sglang_vision_instance}
                if (enable_vision_model | default(true) | bool) else {})
      | combine({'coder': _sglang_coder_instance}

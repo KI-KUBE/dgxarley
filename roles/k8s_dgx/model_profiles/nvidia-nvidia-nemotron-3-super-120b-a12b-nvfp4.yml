@@ -69,6 +69,18 @@
 # coherent tokens. No dev-image and NO per-profile `sglang_image:` override are needed
 # for serving. (fi_cudnn fp4_gemm is the one gap — that wheel is missing from the base
 # image; see fp4_gemm_backend note below. fp4_gemm stays flashinfer_cutlass anyway.)
+#
+# >>> CO-LOCATION with the Nano Omni vision companion (2026-10-09, UNTESTED) <<<
+# Footprint per rank at 0.75 (head bootlog 2026-10-09, MTPv2 4/1/5): weights 21.3 +
+# draft 1.2 GB, mamba pool 12.9 GB (160 slots), KV fp8 38.7 + draft KV 4.8 GB (20.3M
+# tokens), 24.7 GB free after pools, 15.5 GB after CUDA-graph capture, nodes show
+# 15 to 17 GB available. Omni at TP4 needs ~15 GB/rank even when pinned (10 GB
+# weights + pools + graphs + overhead), so it does NOT fit next to 0.75.
+# To co-locate: mem_fraction_static 0.60 (rest memory drops by ~18 GB, KV pool to
+# ~10M tokens, still ~19 full 524K contexts) or 0.55 (~24 GB freed, ~7M tokens).
+# Everything else stays; the Omni side is pinned in its instance definition (see
+# the CO-LOCATION block in the Omni profile). Deploy order: Super first (the
+# auto-fit of the second instance only sees what the first one left free).
 _model_profile:
   "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4":
     knowledge_cutoff: "2026-02"  # post-training cutoff (HF card); pre-training 2025-06 — use latest for LCB contamination
@@ -159,6 +171,7 @@ _model_profile:
     # ~23.6 GB still free after CUDA-graph capture — i.e. 0.80 is comfortable and could
     # go higher if more KV is wanted. No OOM at 262K/512K/1M.
     mem_fraction_static: "0.75"
+    # mem_fraction_static: "0.60"  # co-location with the Omni vision companion, frees ~18 GB/rank (header CO-LOCATION block)
     # attention_backend: MUST NOT be triton — SGLang's apply_nemotron_h_defaults hook
     # hard-asserts against it ("NemotronHForCausalLM does not support triton attention
     # backend, as the first layer might not be an attention layer"; the hybrid pattern
