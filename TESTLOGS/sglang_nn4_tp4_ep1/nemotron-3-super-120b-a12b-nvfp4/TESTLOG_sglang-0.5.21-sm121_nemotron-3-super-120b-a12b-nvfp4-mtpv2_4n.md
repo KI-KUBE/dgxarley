@@ -225,3 +225,11 @@ Case 01 peak n1 / n2 are 4-question samples, so the n1 column is within about 10
 ## Conclusion
 
 Winner for n <= 8 and for n >= 16 is the same: MTPv2 4/1/5 (steps 4, topk 1, draft 5). It has the best peak at n8 (277.4, +13 % over 3/1/4, +1 % over 5/1/6), n16 (377.2, +3 % over 3/1/4, +15 % over 5/1/6) and n32 (513.2, +14 % over 3/1/4), the best agg at n8 and n16 and the best latency p50 at n16 and n32 (n8 p50 11.3 vs 11.2 for 5/1/6), with 15.5 GB free after capture. 5/1/6 wins only n1 (85.2 vs 82.7, within noise) and 6/1/7 regresses at n8 and n16 versus its predecessor, so the stop rule ended the topk-1 chain after case 04 (case 05 skipped). topk 2 does not pay off on this hybrid model. The profile is set to 4/1/5.
+
+## Run 5: max_total_tokens cap + Omni companion co-located (2026-10-09)
+
+Head `sglang-head-6497fb4f88-p5ccj`, MTPv2 4/1/5, launch now with `--max-total-tokens 16777216`, Omni vision instance booted at the same time. Details in the Omni testlog section "Co-located vision companion next to Super (2026-10-09)".
+
+- Load weight end 31.47 GB (122.8 s), draft 2.15 GB; mamba 160 slots (12.9 GB incl. intermediates); KV fp8 10182073 tokens (K 9.71 + V 9.71 GB, draft 1.21 + 1.21 GB), i.e. the auto-fit bound below the 16.78M cap; Memory pool end avail 23.14 GB; graphs 8.9 + 5.7 + 1.0 s; final available_gpu_mem 14.61 GB. GPU process memory 61.6 GB per rank.
+- GSM8K n=8, 32 questions: alone 32/32, peak 289.4 tok/s (reference 277.4), agg 219.8, p50 11.0 s. In parallel with Omni n=8: 31/32, peak 293.8, agg 130.8, p50 16.0 s (Omni phase overlapped only partly).
+- 0 restarts, no Scheduler/OOM errors.

@@ -72,7 +72,8 @@
 # capture, INCONCLUSIVE — retry to confirm), piecewise (flag never engaged in the
 # probe), AUDIO (librosa missing), and long-context QUALITY (no RULER curve).
 #
-# >>> CO-LOCATION as the vision companion next to Super (2026-10-09, UNTESTED) <<<
+# >>> CO-LOCATION as the vision companion next to Super (2026-10-09, VALIDATED 2026-10-09) <<<
+# Measured with Super co-located: 10.7 GB GPU per rank (nvidia-smi), weights+pools+graphs; weights 9.8 GB, KV 0.76 GB, mamba 0.56 GB.
 # Standalone at 0.60 this profile takes ~73 GB/rank (bootlog: weights 9.8 GB, mamba
 # auto-fit 2211 slots = 25.3 GB, KV fp8 28.1 GB = 19.6M tokens at 1.43 KB/token,
 # 35 GB free after capture). Next to Super (capped to ~83 GB/rank via its instance's

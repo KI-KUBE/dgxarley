@@ -70,18 +70,21 @@
 # for serving. (fi_cudnn fp4_gemm is the one gap — that wheel is missing from the base
 # image; see fp4_gemm_backend note below. fp4_gemm stays flashinfer_cutlass anyway.)
 #
-# >>> CO-LOCATION with the Nano Omni vision companion (2026-10-09, UNTESTED) <<<
+# >>> CO-LOCATION with the Nano Omni vision companion (2026-10-09, VALIDATED 2026-10-09) <<<
+# Measured co-located: 61.6 GB GPU per rank; started concurrently the auto-fit gave 10.18M tokens (below the 16.78M cap).
 # Footprint per rank at 0.75 (head bootlog 2026-10-09, MTPv2 4/1/5): weights 21.3 +
 # draft 1.2 GB, mamba pool 12.9 GB (160 slots), KV fp8 38.7 + draft KV 4.8 GB (20.3M
 # tokens), 24.7 GB free after pools, 15.5 GB after CUDA-graph capture, nodes show
 # 15 to 17 GB available. Omni at TP4 needs ~15 GB/rank even when pinned (10 GB
 # weights + pools + graphs + overhead), so it does NOT fit next to 0.75.
 # To co-locate, the `default` INSTANCE caps the KV pool instead of lowering the
-# fraction: max_total_tokens 16777216 (32 x 524288, ~36 GB incl. draft KV) in
-# _sglang_default_instance (group_vars/all/vault/sglang.yml) brings Super to ~83 GB
-# per rank and leaves ~35 GB. The cap is absolute, so the footprint no longer
-# depends on which instance starts first (the fraction only bounds the auto-fit,
-# and the auto-fit still exceeds the cap when Omni starts first: ~17M tokens).
+# fraction: max_total_tokens 9437184 (18 x 524288, ~20 GB incl. draft KV) in
+# _sglang_default_instance (group_vars/all/vault/sglang.yml). The GPU process is
+# only part of the node footprint: measured 2026-10-09 with Omni co-located, Super
+# held 62 GB GPU per rank, Omni 11 GB, plus ~16 GB shmem (NCCL/CUDA IPC) and ~13 GB
+# anon pages of the scheduler processes, leaving 14 to 17 GB per node. A 16.78M cap
+# (36 GB KV) would have left ~0 GB. 9.44M sits below the concurrent-start auto-fit
+# (10.18M), so the cap binds whatever the start order.
 # The Omni side is pinned in its instance definition (CO-LOCATION block in the
 # Omni profile). Both pods per GPU need nvidia_gpu_timeslice_replicas >= 2 (is 5).
 _model_profile:

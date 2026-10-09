@@ -122,3 +122,62 @@ Aggregate tok/s n=8 / n=16: 03 321.1 / 566.6, 06 380.2 / 617.7 (01: 335.4 / 652.
 ### Conclusion
 
 Neither knob beats the baseline by the 5 % adoption threshold at both n=8 and n=16, so no profile key is set (commented one-liners with the measurements were added next to `ep_size`). Case 05 was skipped (03 did not win; ep_size 4 had already lost on its own in case 02). The new plumbing works end to end (profile key to env to launch flag to `server_args`). The cluster was switched back to Nemotron-3 Super afterwards.
+
+## Co-located vision companion next to Super (2026-10-09)
+
+Rollout `ansible-playbook k8s_dgx.yml --tags sglang` (rc 0, 0 failed, 14 changed, 47 s). Both heads rolled at once (Super because `--max-total-tokens 16777216` was added, Omni new). Image `xomoxcc/dgx-spark-sglang:0.5.21-sm121`. `sglang-patch-scripts` has no `p71_*` key. No plumbing fix needed: all four per-instance overrides landed in the vision launch line, and the default instance did not pick up any vision value.
+
+### Instance caps (vault `_sglang_vision_instance`)
+
+TP4 on spark1-4, sriov_key `sglang_vision`, `context_length 131072`, `max_total_tokens 524288`, `max_running_requests 8`, `max_mamba_cache_size 48`, `cuda_graph_max_bs 8`, `mem_fraction_static 0.90`, ClusterIP only.
+
+### Boot facts (TP0 rank)
+
+|                 | Omni (`sglang-vision-head-76f8f85cbf-9dllv`)                                                                                                                   | Super (`sglang-head-6497fb4f88-p5ccj`)                                                                                                      |
+|-----------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------|
+| launch flags    | `--context-length 131072 --mem-fraction-static 0.90 --max-mamba-cache-size 48 --max-running-requests 8 --max-total-tokens 524288 --cuda-graph-max-bs-decode 8` | `--mem-fraction-static 0.75 --max-mamba-cache-size 160 --max-running-requests 32 --max-total-tokens 16777216 --cuda-graph-max-bs-decode 32` |
+| Load weight end | 51.6 s, mem usage 29.57 GB (inflated, see anomalies), avail 67.42                                                                                              | 122.8 s, mem usage 31.47 GB, avail 60.32; draft 2.15 GB, avail 59.02                                                                        |
+| Mamba cache     | 48 slots, conv 0.01 + ssm 0.55 GB                                                                                                                              | 160 slots, conv 0.09 + ssm 6.29 + intermediate ssm 6.45 + intermediate conv 0.04 GB                                                         |
+| KV cache (fp8)  | 524288 tokens, K 0.38 + V 0.38 GB                                                                                                                              | 10182073 tokens, K 9.71 + V 9.71 GB; draft K 1.21 + V 1.21 GB                                                                               |
+| Memory pool end | avail 65.74 GB                                                                                                                                                 | 25.57 GB, then 23.14 GB (after draft)                                                                                                       |
+| CUDA graphs     | bs [1,2,4,8], 5.08 s, mem usage -0.17 GB                                                                                                                       | verify 8.91 s (1.32 GB), draft decode 5.68 s (1.20 GB), draft extend 1.04 s (0.50 GB); bs 1..32 (20 sizes)                                  |
+| final           | max_total_num_tokens=524288, available_gpu_mem=60.96 GB                                                                                                        | max_total_num_tokens=10182073, available_gpu_mem=14.61 GB                                                                                   |
+
+No `Scheduler hit`, `Traceback`, OOM or `max_running_requests` clamp lines in either head log. 0 restarts, workers Running.
+
+### Memory per rank
+
+|       | expected | measured                                                     |
+|-------|----------|--------------------------------------------------------------|
+| Super | ~83 GB   | 61.6 GB GPU process memory (nvidia-smi, same on all 4 ranks) |
+| Omni  | ~15 GB   | 10.7 GB GPU process memory (same on all 4 ranks)             |
+
+`free -g` (total/used/free/shared/buff-cache/available): spark1 121/107/4/15/26/14, spark2 121/104/3/15/29/17, spark3 121/104/5/15/27/17, spark4 121/104/5/15/27/16. The free-after-capture figures in the table above are not additive, because both processes share the unified memory pool.
+
+### Smoke tests
+
+- Super chat: 17*23 gives 391, `reasoning_content` populated.
+- Omni text: 391, `reasoning_content` populated.
+- Omni image (256x256 PNG, red circle centre, blue rectangle top right): finish stop, "red circle ... blue square positioned in the upper-right". Blue shape right, but the circle was called "lower-left central" instead of centre (minor position error).
+- LiteLLM from inside the litellm pod via `http://localhost:4000/v1`: `vision-default` and `hermes-default` both answer 391. No 404.
+
+### Throughput (gsm8k_chat, n=8, temperature 0, max_tokens 8192)
+
+| run            | questions | correct | peak tok/s | agg tok/s | p50 s | wall s |
+|----------------|-----------|---------|------------|-----------|-------|--------|
+| Omni alone     | 16        | 15      | 516.4      | 399.7     | 6.7   | 19.5   |
+| Super alone    | 32        | 32      | 289.4      | 219.8     | 11.0  | 55.8   |
+| Omni parallel  | 16        | 15      | 189.2      | 134.3     | 21.7  | 59.4   |
+| Super parallel | 32        | 31      | 293.8      | 130.8     | 16.0  | 86.9   |
+
+Standalone references: Omni n8 507.3, Super n8 277.4. Alone, both are at or above the references. In parallel, Omni peak drops to 37 % of standalone (time-sliced GPU, Super gets the bandwidth); Super keeps its peak but its agg falls to 60 % because the two phases only partly overlap (Omni finished at 59 s, Super at 87 s). The one wrong answer (id 12) is the same question in all three runs that contained it.
+
+### Anomalies
+
+- Super's KV pool is 10.18M tokens, not the 16.78M cap: with both started concurrently the 0.75 fraction auto-fit bound before the cap (the profile note expected the cap to bind). Capacity is still 19 x 524288-token requests.
+- Weights "mem usage" (29.57 GB Omni, 31.47 GB Super) is inflated by the other pod loading at the same time on the shared pool; the nvidia-smi totals above are the reliable numbers.
+- Transient Multus events during rollover: none checked beyond pods reaching Ready.
+
+### Conclusion
+
+Co-location works: both models serve on the same four GPUs with 0 restarts, ~72 GB GPU memory per rank in total and 14 to 17 GB available per node. Throughput under simultaneous load is clearly reduced for Omni. Decision on Super's cap (it did not bind) is left to the user.
