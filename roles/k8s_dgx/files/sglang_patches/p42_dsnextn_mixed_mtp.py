@@ -26,6 +26,14 @@ checkpoints, so it falls back to the upstream blanket null. Note:
 [moved 2026-07-16] Was an inline `python3 - <<'PATCH_DSNEXTN_MIXED_MTP_EOF'` heredoc
 inside a bash `if [ "$SGLANG_SPECULATIVE_ENABLED" = "true" ]` gate. That gate is now
 `when=gate_env("SGLANG_SPECULATIVE_ENABLED", "true")`.
+
+[2026-10-08] v0.5.21 Glm5NextForConditionalGenerationNextN ships its own
+get_hf_to_sglang_mapper that rewrites `model.layers.N.*` to `model.decoder.*`, and
+loader.py applies it to quant_config.exclude_modules BEFORE the model is built. The
+alias scan then finds no `.layers.N.` entry, `_aliases` is empty and the block fell
+back to the blanket null (GLM-5.3-Flash W4A4: routed MTP experts NVFP4, would crash
+at draft load). Already-mapped `.decoder.` excludes now count as "checkpoint keeps
+the experts quantized" too; the experts probe also checks the mapped name.
 """
 
 from _patchlib import Patch, gate_env
@@ -67,20 +75,23 @@ INJECT = (
     "                isinstance(_excl, list)\n"
     '                and hasattr(quant_config, "is_layer_excluded")\n'
     "                and not quant_config.is_layer_excluded(_mtp_experts)\n"
+    '                and not quant_config.is_layer_excluded("model.decoder.mlp.experts")\n'
     "            ):\n"
     "                _aliases = [\n"
     '                    e.replace(_tag, ".decoder.")\n'
     "                    for e in _excl\n"
     '                    if _tag in e and e.replace(_tag, ".decoder.") not in _excl\n'
     "                ]\n"
+    '                _mapped = [e for e in _excl if ".decoder." in e]\n'
     "                if _aliases:\n"
     "                    quant_config.exclude_modules = _excl + _aliases\n"
+    "                if _aliases or _mapped:\n"
     "                    _dsnextn_kept_fp4 = True\n"
     "                    logger.warning(\n"
     '                        "NextN modelopt_fp4: checkpoint keeps the MTP experts quantized; "\n'
     '                        "aliasing %d layer-%d excludes to model.decoder.* so attn/gate/shared "\n'
     '                        "stay BF16 while experts stay NVFP4.",\n'
-    "                        len(_aliases),\n"
+    "                        len(_aliases) + len(_mapped),\n"
     "                        config.num_hidden_layers,\n"
     "                    )\n"
     "            if not _dsnextn_kept_fp4:\n"

@@ -1,14 +1,17 @@
 # Model profile: vroomfondel/GLM-5.3-Flash-NVFP4-W4A4
 # Loaded by include_vars in k8s_dgx role, merged into sglang_model_profiles.
 #
-# ── STATUS (2026-10-08): NEVER BOOTED ANYWHERE, ROUTE CHOSEN: TILELANG + BF16 KV ──
+# ── STATUS (2026-10-08): SERVES ON TP4 WITH MTP (EAGLE 5/1/6), p42+p68+p69+p70, TILELANG + BF16 KV ──
 # Our own surgical NVFP4 W4A4 top-up (quantizer/surgical_glm5next_nvfp4.py)
 # of LibertAIDAI/GLM-5.3-Flash-NVFP4, which is a ModelOpt experts-only NVFP4 export
 # of zai-org/GLM-5.3-Flash. The card says it plainly: no token has ever been
 # generated from this checkpoint. The chosen attention route is the upstream
 # cookbook NVFP4 recipe (dsa tilelang prefill+decode, bf16 KV) plus runtime patch
-# p68_dsa_tilelang_sm121_tile.py. Kernel level is GPU-verified, end-to-end boot has
-# NOT been attempted. Open items:
+# p68_dsa_tilelang_sm121_tile.py. First end-to-end boot 2026-10-08 (TP4, image
+# 0.5.21-sm121): loader crash (item 5, fixed by p70), then weights 447 s, KV pool
+# 1673728 tokens bf16 (19.8 GB/rank), KDA on TritonKDAKernel, "fired up" after ~10 min,
+# coherent German chat completion with reasoning, single-request decode 23-32 tok/s
+# (cuda graph on, no spec). Open items:
 #
 #   1. IMAGE (resolved). The default image is xomoxcc/dgx-spark-sglang:0.5.21-sm121
 #      (default_sglang_image in roles/k8s_dgx/defaults/main/sglang.yml); v0.5.21
@@ -42,12 +45,56 @@
 #      arm (paged decode/verify only, p30 semantics, -inf masks + CUDA graph replay
 #      verified at function level); ragged prefill stays on DeepGEMM.
 #
+#   5. WEIGHT LOAD (first boot 2026-10-08, crash, fixed by p70). The export keeps
+#      ONLY the MTP layer's q_b_proj BF16 (ignore entry
+#      model.language_model.layers.45.self_attn.q_b_proj); layers 0-44 ship it NVFP4.
+#      Stock ModelOptQuantConfig.is_layer_excluded compares such q_a/q_b/kv_a/kv_b
+#      entries by tail only and drops the layer index, so q_b_proj was built BF16 in
+#      every layer: `param_data.shape=[4096, 1536] != loaded_weight.shape=[4096, 768]`
+#      at shard 7 (layer 11). p70_modelopt_exclude_fused_layer_scope.py scopes the
+#      fused-tail match to the entry's module path (spark5-verified, stock-equal
+#      elsewhere). Needs a patch-ConfigMap roll to take effect.
+#
 #   4. KDA / mHC (unverified on SM121). KDA layers use the Triton KDA kernel
 #      (NvidiaKDAKernel is major==10 only, no SM12x gate found, untested on GB10).
 #      mHC uses TileLang kernels by default (SGLANG_OPT_USE_TILELANG_MHC_PRE/POST,
 #      torch fallback when 0) plus deep_gemm.tf32_hc_prenorm_gemm while
 #      SGLANG_OPT_DEEPGEMM_HC_PRENORM=1 (default); torch fallbacks exist via those
 #      env vars.
+#
+#   6. MTP / EAGLE (BOOTED 2026-10-08 on the second attempt, image 0.5.21-sm121): draft
+#      load 97 s (1.94 GB/rank), mamba cache 221 slots (ssm 7.59 GB + intermediate_ssm
+#      6.77 GB), KV 1660992 tokens, target_verify graphs 31 s, draft decode/extend graphs
+#      10 s / 2 s, 11.9 GB free after capture, fired up after ~13 min. Single request:
+#      accept len 2.3 to 3.95, decode 28 to 42 tok/s (vs 23 to 32 without spec). GSM8K
+#      15 min conc 8 (TESTLOGS/sglang_nn4_tp4_ep1/glm-5.3-flash-nvfp4-w4a4): spec off
+#      98.7% / 112.8 tok/s peak, spec on 96.8% / 140.3 tok/s peak, accept len median 4.14.
+#      Full test split (1319, spec on): 96.6% scored (3 truncated at 8192), 111.6 tok/s
+#      aggregate, 164 tok/s peak, accept len median 4.18, 0 restarts. Concurrency sweep
+#      (2n questions, peak tok/s): n1 50, n2 71, n4 122, n8 133, n16 172, n32 210; aggregate
+#      saturates around n16 (137 tok/s), accept len ~4.0 at every level.
+#      Draft = Glm5NextForConditionalGenerationNextN (models/glm5_next_nextn.py, picked
+#      by model_config.py:899-906 for is_draft_model), a DeepseekV3ForCausalLMNextN
+#      subclass: pure MLA/DSA layer 45 (linear_attn_config forced None), IndexerKPool,
+#      KDA only on the target. Needs: (a) speculative_draft_model_path set explicitly,
+#      speculative_hook.py:1007-1043 auto-derives it only for DeepseekV3/GlmMoeDsa/...,
+#      not for Glm5Next; (b) patch p42_dsnextn_mixed_mtp.py (gated on spec enabled),
+#      because deepseek_nextn.py:73-77 nulls quant_config for every modelopt_fp4 target
+#      and layer 45 keeps its ROUTED EXPERTS NVFP4, so without it the draft MoE is built
+#      BF16 and the load crashes. p42's July alias scan looked for `.layers.45.` excludes,
+#      but on 0.5.21 the Glm5Next NextN mapper has already rewritten them to
+#      `model.decoder.*` before __init__ (loader.py applies the mapper to quant_config
+#      first), so the first MTP boot 2026-10-08 fell back to the blanket null; p42 now
+#      also accepts the mapped form. (c) p70 for the layer-scoped q_b_proj entry. Draft
+#      exclusion decisions verified with p70+p42 on spark5 (/root/p42_test/run.log):
+#      shared_experts / o_proj / q_b_proj / low-rank / indexer / router BF16, routed
+#      experts NVFP4. Shared-expert fusion is off in the draft (n_routed_experts 288 is
+#      not in the fusion allow-list, deepseek_v2.py:3287). enable_spec_v2 is a no-op on
+#      0.5.21 (spec v2 is the only EAGLE path), speculative_draft_model_quantization
+#      must stay unset (unquant would build BF16 experts), the draft MoE runner follows
+#      the target (overrides.py:1560). First fallbacks: steps 3 / draft tokens 4, then
+#      speculative_enabled false. Watch the KDA intermediate_ssm scratch size in the
+#      mamba pool log against the 13 GB headroom.
 #
 # The backend values below are the cookbook route plus p68; they are a plan, not a
 # measured config.
@@ -133,13 +180,12 @@ _model_profile:
     recommended_sampling:
       temperature: 1.0  # generation_config.json
       top_p: 0.95       # generation_config.json
-    # MTP head (layer 45) is present and BF16. Cookbook low-latency recipe uses
-    # --speculative-algorithm EAGLE 5/1/6 (not NEXTN). OFF for first contact: the
-    # base model has never booted on SM121, and on GLM-5.2 the DSA verify path needed
-    # extra indexer work (dsalogitrework.md Phase 2) before MTP was safe. Enable only
-    # after a clean base boot + GSM8K gate.
-    speculative_enabled: false
+    # MTP head (layer 45): routed experts NVFP4, rest BF16; needs p70 + p42 (header item 6).
+    # Cookbook low-latency recipe: EAGLE steps 5 / topk 1 / draft tokens 6 (= steps + 1).
+    speculative_enabled: true
     speculative_algo: "EAGLE"
-    speculative_num_steps: 3
+    speculative_num_steps: 5
     speculative_eagle_topk: 1
-    speculative_num_draft_tokens: 4  # = num_steps + 1
+    speculative_num_draft_tokens: 6
+    # Not auto-derived for Glm5NextForConditionalGeneration; same checkpoint as the target.
+    speculative_draft_model_path: "vroomfondel/GLM-5.3-Flash-NVFP4-W4A4"
