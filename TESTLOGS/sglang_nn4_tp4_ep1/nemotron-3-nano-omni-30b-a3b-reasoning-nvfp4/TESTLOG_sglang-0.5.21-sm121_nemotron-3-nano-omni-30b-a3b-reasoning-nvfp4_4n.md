@@ -15,7 +15,7 @@
 Profile: `roles/k8s_dgx/model_profiles/nvidia-nemotron-3-nano-omni-30b-a3b-reasoning-nvfp4.yml`
 Predecessor: `TESTLOG_nv580.159_sglang-0.5.13-sm121_nemotron-3-nano-omni-30b-a3b-reasoning-nvfp4_4n.md` (2026-06-25; case 02 profile default: n=1 90.1, n=8 peak 437.9, n=16 660.8).
 
-Method: one Ansible rollout per case (`ansible-playbook k8s_dgx.yml --tags sglang`), bench via `scripts/debughelper/gsm8k_chat_harness.py` (chat API, GSM8K, temperature 0, max_tokens 8192), levels n=1/4/8/16 with 4/8/16/32 questions, 20 s pause between levels. Peak = harness `concurrent_peak_tok_s` (sum of concurrent per-request tok/s). The checkpoint was pre-warmed on JuiceFS (100 % on all four nodes), so boots are not load-bound.
+Method: one Ansible rollout per case (`ansible-playbook k8s_dgx.yml --tags sglang`), bench via `sglang-gsm8k` (chat API, GSM8K, temperature 0, max_tokens 8192), levels n=1/4/8/16 with 4/8/16/32 questions, 20 s pause between levels. Peak = harness `concurrent_peak_tok_s` (sum of concurrent per-request tok/s). The checkpoint was pre-warmed on JuiceFS (100 % on all four nodes), so boots are not load-bound.
 
 ## Matrix (6 cases: 5 run, 1 skipped)
 

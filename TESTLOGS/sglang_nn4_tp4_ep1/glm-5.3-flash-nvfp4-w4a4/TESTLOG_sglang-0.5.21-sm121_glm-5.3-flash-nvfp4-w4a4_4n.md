@@ -21,7 +21,7 @@
 ## Run parameters
 
 - Date: 2026-10-08, 17:48 to 18:02 CEST. Read-only access via kubectl port-forward to svc/sglang.
-- Custom chat-API harness, now `scripts/debughelper/gsm8k_chat_harness.py` (stock sglang GSM8K harness unusable: needs py3.12 `urlopen(cafile=)` and the raw completion endpoint). Dataset: GSM8K test split (openai/grade-school-math test.jsonl, 1319 questions), questions dispatched in file order.
+- Custom chat-API harness, now `sglang-gsm8k` (stock sglang GSM8K harness unusable: needs py3.12 `urlopen(cafile=)` and the raw completion endpoint). Dataset: GSM8K test split (openai/grade-school-math test.jsonl, 1319 questions), questions dispatched in file order.
 - Prompt: question + "Solve step by step. The final line of your answer must be exactly `#### <number>`". Parse `#### N`, fallback last number in content.
 - max_tokens 8192, temperature 0, concurrency 8, per-request HTTP timeout 600 s.
 - Budget: stop dispatch at 13.5 min, hard stop 15 min. Scoring numeric (1e-2 relative or 1e-6 absolute); empty content or finish_reason length counts as truncated.
@@ -192,7 +192,7 @@
 
 ## Run 4: concurrency sweep (metrics only)
 
-Config: same as runs 2 and 3 (model `vroomfondel/GLM-5.3-Flash-NVFP4-W4A4`, TP=4, MTP/EAGLE 5/1/6 on, tilelang DSA, bf16 KV, image 0.5.21-sm121). Harness `scripts/debughelper/gsm8k_chat_harness.py run`, temperature 0, max_tokens 8192, one fixed concurrency per level, started after the full run 3 had finished and the scheduler had been idle for 2 min.
+Config: same as runs 2 and 3 (model `vroomfondel/GLM-5.3-Flash-NVFP4-W4A4`, TP=4, MTP/EAGLE 5/1/6 on, tilelang DSA, bf16 KV, image 0.5.21-sm121). Harness `sglang-gsm8k run`, temperature 0, max_tokens 8192, one fixed concurrency per level, started after the full run 3 had finished and the scheduler had been idle for 2 min.
 
 Design: per level n in 1, 2, 4, 8, 16, 32 the first 2n GSM8K test questions (`--limit 2n`), 30 s pause between levels. Accuracy at these sample sizes is not statistically meaningful; this is a throughput measurement. Head pod restarts before and after: 0 / 0.
 

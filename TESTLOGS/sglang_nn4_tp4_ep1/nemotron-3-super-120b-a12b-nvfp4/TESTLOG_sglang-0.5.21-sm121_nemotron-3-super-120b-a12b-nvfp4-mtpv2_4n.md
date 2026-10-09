@@ -31,7 +31,7 @@
 
 ## Sweep design
 
-- Harness: `scripts/debughelper/gsm8k_chat_harness.py run`, chat API via port-forward `svc/sglang` on local 38081.
+- Harness: `sglang-gsm8k run`, chat API via port-forward `svc/sglang` on local 38081.
 - Levels n = 1, 2, 4, 8, 16, 32, sequential, 30 s pause between levels, 2n questions per level (always the first 2n of the test split).
 - `--max-tokens 8192 --temperature 0 --timeout 900 --dispatch-stop-frac 1.0`.
 - Metrics only. The sample is far too small (2 to 64 questions, easy leading questions) for accuracy to mean anything.
