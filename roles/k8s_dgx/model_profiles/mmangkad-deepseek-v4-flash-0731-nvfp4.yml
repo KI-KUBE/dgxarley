@@ -154,13 +154,15 @@ _model_profile:
     # whatever the base shipped. false = always-safe dequant-to-bf16; try true
     # once the model loads clean (section 6 wall 2).
     opt_fp8_wo_a_gemm: false
-    # DeepGEMM has no sm_121 variant for the two V4 kernels (DeepGEMM #317,
-    # SGLang #23657): hc_prenorm (MHC) -> TileLang, else crash at kernel_warmup.
+    # Up to image 0.5.20 DeepGEMM had no sm_121 variant for the two V4 kernels
+    # (DeepGEMM #317, SGLang #23657): hc_prenorm (MHC) -> TileLang, else crash at
+    # kernel_warmup. 0.5.21 (sgl-deep-gemm 0.2.0) ships them; unvalidated here.
     opt_deepgemm_hc_prenorm: false
     # ═══ DSA INDEXER ═══
-    # fp8_paged_mqa_logits (DSA Lightning-Indexer) runs every decode step and is
-    # hard-blocked on sm121 in DeepGEMM (_C.so arch allowlist + 128 KB SMEM vs
-    # GB10's 100 KB). SGLang's TileLang indexer is the fast path and needs the
+    # fp8_paged_mqa_logits (DSA Lightning-Indexer) runs every decode step and was
+    # blocked on sm121 in DeepGEMM up to 0.5.20 (_C.so arch allowlist + 128 KB SMEM
+    # vs GB10's 100 KB); 0.5.21 runs it (kernel-level verified 2026-10-08, end-to-end
+    # unvalidated). SGLang's TileLang indexer is the proven fast path and needs the
     # tilelang compat patch, which the 0.5.16 image carries in its v0.5.16
     # variant (TILELANG_PATCH_VARIANT="-v0.5.16", only the uint8-view hunk left
     # after upstream adopted the 2D shared-buffer half). indexer.py checks the

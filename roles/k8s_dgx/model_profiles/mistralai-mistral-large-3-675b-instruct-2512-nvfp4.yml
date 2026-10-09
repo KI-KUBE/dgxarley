@@ -135,8 +135,8 @@ _model_profile:
     moe_runner_backend: "flashinfer_cutlass"   # → cutlass_moe_fp4 (avoid trtllm on sm121)
     fp4_gemm_backend: "flashinfer_cutlass"
     attention_backend: "triton"
-    # DeepGemm targets FP8 ue8m0; NVFP4 scale_fmt != ue8m0, and DeepGEMM paths
-    # hard-block sm121 for DeepSeek anyway (reference_dsv4_sm121_dsa_kernels) →
+    # DeepGemm targets FP8 ue8m0; NVFP4 scale_fmt != ue8m0 (the sm121 kernel gap
+    # closed with sgl-deep-gemm 0.2.0 in 0.5.21, the scale_fmt reason stands) →
     # disable to avoid a JIT stall / watchdog kill at startup. Safe sm121 default;
     # UNTESTED for this exact arch.
     disable_deep_gemm: true

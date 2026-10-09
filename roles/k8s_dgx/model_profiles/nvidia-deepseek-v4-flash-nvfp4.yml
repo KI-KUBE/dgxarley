@@ -137,15 +137,18 @@ _model_profile:
     opt_fp8_wo_a_gemm: false
     # DeepGEMM has no sm_121 variant for two V4 kernels (DeepGEMM #317, SGLang
     # #23657) → route both to fallbacks, same as the FP8 profile (§6 walls 4/5).
-    # Still required on v0.5.13 (§8: the gates check sm_version==120, not 121):
-    #  - hc_prenorm (MHC) → TileLang (crashes at kernel_warmup otherwise)
-    #  - paged_mqa_logits (DSA Lightning-Indexer) → torch (crashes at decode)
+    # Required up to image 0.5.20 (sgl-deep-gemm without sm_121 kernels):
+    #  - hc_prenorm (MHC) → TileLang (crashed at kernel_warmup otherwise)
+    #  - paged_mqa_logits (DSA Lightning-Indexer) → torch (crashed at decode)
+    # Since 0.5.21 (sgl-deep-gemm 0.2.0, sm120_* kernels, arch_major==12 dispatch) both
+    # DeepGEMM kernels exist on GB10 (kernel-level verified 2026-10-08); SGLang still
+    # forces these fallbacks on is_sm120 unless the env is set to 0. Kept until measured.
     opt_deepgemm_hc_prenorm: false
     # ═══ DSA INDEXER — the GB10 decode bottleneck; TileLang path lifts it ═══
     # fp8_paged_mqa_logits (DSA Lightning-Indexer hot kernel) runs EVERY decode step
-    # across the 20 DSA layers (index_topk=512, 64 index heads). DeepGEMM has NO sm121
-    # kernel (hard-blocked: _C.so arch allowlist + SM100 tensor-core ops absent on GB10;
-    # DeepGEMM #317/#236 open, no fork). The pure-torch fallback ran per-step OUTSIDE
+    # across the 20 DSA layers (index_topk=512, 64 index heads). Up to image 0.5.20
+    # DeepGEMM had NO sm121 kernel (_C.so arch allowlist + SM100 tensor-core ops absent
+    # on GB10; DeepGEMM #317/#236). The pure-torch fallback ran per-step OUTSIDE
     # the cuda graph → capped aggregate decode at ~18 tok/s (4 or 12 req both ~18; per-
     # req drops with concurrency). MTP-on-torch baseline: n=1 ~13.5 tok/s (accept ~1.8),
     # 12-concurrent ~18 aggregate.
@@ -164,8 +167,9 @@ _model_profile:
     # GB10 2026-06-20 (live GPU test, image 0.5.13-sm121): the current JIT
     # topk_v1.cuh kernel runs cleanly on sm121 and is BIT-IDENTICAL to the torch
     # path → fallback dropped to recover decode perf. (Note: fp8_paged_mqa_logits
-    # above CANNOT be dropped — DeepGEMM hard-blocks sm121: _C.so allowlist is
-    # SM100/SM120 only, and the JIT metadata path needs 128 KB SMEM > GB10's 100 KB.)
+    # above was a hard requirement up to 0.5.20 (_C.so allowlist SM100/SM120 only,
+    # JIT metadata path needing 128 KB SMEM > GB10's 100 KB); on 0.5.21 the sm120
+    # kernel runs on GB10, dropping the flag is a measurement task, not a crash.)
     topk_transform_512_torch: false
     disable_deep_gemm: true
     # CUDA graphs ON — deliberate flip vs the FP8 sibling (which runs eager):
