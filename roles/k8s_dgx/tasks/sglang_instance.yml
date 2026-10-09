@@ -253,6 +253,7 @@
       # Empty = launch.sh unsets it (see the note in defaults/main/sglang.yml:
       # the name collides with SGLang's own env var, and "" is not None there).
       SGLANG_MAMBA_SSM_DTYPE: "{{ sglang_mamba_ssm_dtype }}"
+      SGLANG_MAMBA_BACKEND: "{{ sglang_mamba_backend }}"
       SGLANG_ENABLE_SPEC_V2: "{{ '1' if (sglang_enable_spec_v2 | bool) else '' }}"
       SGLANG_DIST_TIMEOUT: "{{ sglang_dist_timeout | string }}"
       SGLANG_WATCHDOG_TIMEOUT: "{{ sglang_watchdog_timeout | string }}"
@@ -288,6 +289,7 @@
       SGLANG_DISABLE_CUDA_GRAPH: "{{ sglang_disable_cuda_graph | string | lower }}"
       TQDM_POSITION: "-1"
       SGLANG_DISABLE_PIECEWISE_CUDA_GRAPH: "{{ sglang_disable_piecewise_cuda_graph | string | lower }}"
+      SGLANG_CUDA_GRAPH_BACKEND_PREFILL: "{{ sglang_cuda_graph_backend_prefill }}"
       SGLANG_DISABLE_FLASHINFER_CUTLASS_MOE_FP4_ALLGATHER: "{{ sglang_disable_flashinfer_cutlass_moe_fp4_allgather | string | lower }}"
       SGLANG_DISABLE_OVERLAP_SCHEDULE: "{{ sglang_disable_overlap_schedule | string | lower }}"
       SGLANG_SERVED_MODEL_NAME: "{{ sglang_served_model_name }}"
@@ -467,6 +469,9 @@
     # annotation, and the patch set has outgrown the 262144-byte annotation
     # limit ("metadata.annotations: Too long"). SSA tracks ownership in
     # metadata.managedFields instead, which is not subject to that cap.
+    # `server_side_apply` is ignored unless `apply: true` is set (module doc);
+    # without it the module does a plain update, which never prunes a key.
+    apply: true
     server_side_apply:
       field_manager: ansible-sglang-patches
       # The ConfigMap predates the switch, so its fields are still owned by the

@@ -595,6 +595,10 @@ if [ -n "$SGLANG_MAMBA_SSM_DTYPE" ]; then
 else
   unset SGLANG_MAMBA_SSM_DTYPE
 fi
+# Mamba2 SSM kernel backend (triton|flashinfer). Empty = no flag = SGLang default.
+if [ -n "$SGLANG_MAMBA_BACKEND" ]; then
+  args+=(--mamba-backend "$SGLANG_MAMBA_BACKEND")
+fi
 if [ -n "$SGLANG_MAX_RUNNING_REQUESTS" ] && [ "$SGLANG_MAX_RUNNING_REQUESTS" != "0" ]; then
   args+=(--max-running-requests "$SGLANG_MAX_RUNNING_REQUESTS")
 fi
@@ -757,7 +761,11 @@ if [ "$SGLANG_DISABLE_CUDA_GRAPH" = "true" ] || [ "$SGLANG_CUDA_GRAPH_MAX_BS" = 
 elif [ -n "$SGLANG_CUDA_GRAPH_MAX_BS" ] && [ "$SGLANG_CUDA_GRAPH_MAX_BS" != "256" ]; then
   args+=(--cuda-graph-max-bs-decode "$SGLANG_CUDA_GRAPH_MAX_BS")
 fi
-if [ "$SGLANG_DISABLE_PIECEWISE_CUDA_GRAPH" = "true" ] && [ "$_cg_prefill_disabled" != "1" ]; then
+# An explicit prefill backend (full|breakable|tc_piecewise|disabled) wins over
+# disable_piecewise_cuda_graph; disable_cuda_graph above still wins over both.
+if [ -n "$SGLANG_CUDA_GRAPH_BACKEND_PREFILL" ] && [ "$_cg_prefill_disabled" != "1" ]; then
+  args+=(--cuda-graph-backend-prefill "$SGLANG_CUDA_GRAPH_BACKEND_PREFILL")
+elif [ "$SGLANG_DISABLE_PIECEWISE_CUDA_GRAPH" = "true" ] && [ "$_cg_prefill_disabled" != "1" ]; then
   args+=(--cuda-graph-backend-prefill disabled)
 fi
 if [ "$SGLANG_WEIGHT_LOADER_DISABLE_MMAP" = "true" ]; then

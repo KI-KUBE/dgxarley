@@ -31,7 +31,15 @@
 #   context_length: per-request context window (default: profile value). Override
 #                  to run a shorter window than the profile pins (e.g. trim a
 #                  vision companion to cap KV) without forking the profile.
-#   prefix:        K8s resource-name prefix AND the `app` label value. Default:
+#   mem_fraction_static: override of the profile's value. SGLang reserves
+#                  (1 - fraction) * total memory, so a co-located instance needs
+#                  a HIGH value (0.85+) and pins its footprint via max_total_tokens.
+#   max_running_requests: override of the profile's value. Mamba state pools
+#                  (NemotronH, Qwen3-Next) are sized per request, so a low-QPS
+#                  companion saves real memory here.
+#   cuda_graph_max_bs: override of the profile's value (CUDA-graph capture
+#                  memory and startup time scale with it).
+#   prefix:      K8s resource-name prefix AND the `app` label value. Default:
 #                  "sglang" for the "default" instance, "sglang-<key>" otherwise.
 #   hostname:      ingress/cert/DNS short name -> <hostname>.<dns_suffix>.
 #                  Default: same as prefix.
@@ -71,6 +79,7 @@
 # the footprint via max_total_tokens (absolute), NOT mem_fraction_static (a
 # fraction of TOTAL unified memory → start-order dependent on the shared GPU).
 _sglang_vision_instance:
+  # Alternative: "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-NVFP4-QAD" (12B dense NemotronH + RADIO, profile is tp 1; tp 2 across both nodes also valid). Swap litellm_vision_model with it.
   model: "Qwen/Qwen3-VL-8B-Instruct-FP8"
   nodes: [3, 4]          # spark3 (head/rank0) + spark4 (worker/rank1) — NCCL over the sglang_vision VF
   sriov_key: "sglang_vision"
@@ -91,9 +100,9 @@ _sglang_vision_instance:
 # CO-LOCATES with the `default` text instance (and vision on spark3+4) via GPU
 # time-slicing. UNVALIDATED ("first contact" profile) AND memory-tight: the
 # Nemotron default holds ~90 GB/spark, the 80B NVFP4 needs ~40 GB+ — it WON'T fit
-# until you free room (lower the default's mem_fraction_static). mem_fraction_static
-# is NOT a per-instance key (resolves from the model profile = 0.50); once you've
-# freed memory, PIN a co-located footprint via max_total_tokens here. Enabling
+# until you free room (lower the default's mem_fraction_static). Once you've
+# freed memory, PIN a co-located footprint via max_total_tokens (+ a high
+# mem_fraction_static and a small max_running_requests) here. Enabling
 # also needs qsfp_sriov_enabled + the `sglang_coder` qsfp_sriov_assignments entry
 # AND nvidia_gpu_timeslice_replicas high enough for the per-GPU stacking. TUNE
 # before flipping enable_coder_model true.

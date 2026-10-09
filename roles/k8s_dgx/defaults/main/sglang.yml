@@ -62,6 +62,14 @@ _sglang_active_max_total_tokens: ""
 # (e.g. trim a vision companion to 64K to cap KV) without forking the profile.
 # Precedence: inst override > profile.
 _sglang_active_context_length: ""
+# Per-instance overrides for the three remaining memory levers ("" = profile
+# value). A co-located instance needs a HIGH mem_fraction_static (the reserve is
+# (1 - fraction) * total, which must fit in what the other instance left free),
+# a small max_running_requests (Mamba state pools scale per request) and a small
+# cuda_graph_max_bs, while the same profile keeps its standalone values.
+_sglang_active_mem_fraction_static: ""
+_sglang_active_max_running_requests: ""
+_sglang_active_cuda_graph_max_bs: ""
 
 sglang_speculative_enabled: "{{ sglang_model_profiles[_sglang_active_model].speculative_enabled | default(false) }}"
 sglang_speculative_algo: "{{ sglang_model_profiles[_sglang_active_model].speculative_algo | default('NEXTN') }}"
@@ -193,6 +201,10 @@ sglang_max_mamba_cache_size: "{{ sglang_model_profiles[_sglang_active_model].max
 # launch.sh UNSETS the variable when it is empty: an empty string is not None,
 # so mamba_utils would log "Invalid mamba_ssm_dtype ''" on every pod otherwise.
 sglang_mamba_ssm_dtype: "{{ sglang_model_profiles[_sglang_active_model].mamba_ssm_dtype | default('') }}"
+# Mamba2 SSM kernel backend -> --mamba-backend. Valid: triton, flashinfer (needs
+# flashinfer.mamba, FlashInfer >= 0.6.18). Empty (default) = no flag = SGLang's
+# default (triton). Untested on SM121, probe only.
+sglang_mamba_backend: "{{ sglang_model_profiles[_sglang_active_model].mamba_backend | default('') }}"
 
 # Enable MTP spec_v2 — required alongside mamba_scheduler_strategy=extra_buffer
 # for speculative decoding on hybrid-attention models. Sets SGLANG_ENABLE_SPEC_V2=1.
@@ -241,7 +253,7 @@ sglang_model_dtype: "{{ sglang_model_profiles[_sglang_active_model].dtype | defa
 # Wire only — enable at deploy: -e sglang_debug_tensor_dump_output_folder=/root/.cache/huggingface/tensor_dump
 sglang_debug_tensor_dump_output_folder: "{{ sglang_model_profiles[_sglang_active_model].debug_tensor_dump_output_folder | default('') }}"
 sglang_debug_tensor_dump_layers: "{{ sglang_model_profiles[_sglang_active_model].debug_tensor_dump_layers | default('') }}"
-sglang_mem_fraction_static: "{{ sglang_model_profiles[_sglang_active_model].mem_fraction_static }}"
+sglang_mem_fraction_static: "{{ _sglang_active_mem_fraction_static if (_sglang_active_mem_fraction_static | string | length > 0) else (sglang_model_profiles[_sglang_active_model].mem_fraction_static) }}"
 sglang_reasoning_parser: "{{ sglang_model_profiles[_sglang_active_model].reasoning_parser | default('') }}"
 sglang_tool_call_parser: "{{ sglang_model_profiles[_sglang_active_model].tool_call_parser | default('') }}"
 # SERVER-WIDE default reasoning effort for the DeepSeek-V4 chat encoder. NOT a
@@ -304,7 +316,11 @@ sglang_fp8_gemm_runner_backend: "{{ sglang_model_profiles[_sglang_active_model].
 # Qwen3.6-A3B-FP8 etc. keep the optimization. Maps to env "1"/"0".
 sglang_opt_fp8_wo_a_gemm: "{{ sglang_model_profiles[_sglang_active_model].opt_fp8_wo_a_gemm | default(true) }}"
 # DeepGEMM SM120/121 kernel gaps for DeepSeek-V4 (DeepGEMM #317, SGLang #23657):
-# two kernel families have NO sm_121 variant and assert "Unsupported architecture".
+# sgl-deep-gemm < 0.2.0 had NO sm_121 variant for two kernel families (assert
+# "Unsupported architecture"). sgl-deep-gemm 0.2.0 (image 0.5.21) ships sm120_*
+# kernels dispatched on arch_major==12 (covers GB10), kernel-level verified
+# 2026-10-08; end-to-end on DSV4 unvalidated. SGLang still forces both fallbacks
+# on is_sm120 unless the env is set explicitly (arg_groups/model_hook.py).
 #  - opt_deepgemm_hc_prenorm=false → SGLANG_OPT_DEEPGEMM_HC_PRENORM=0: routes the
 #    Manifold-Constrained Hyper-Connection (MHC) prenorm GEMM to the TileLang
 #    fallback (mhc.py) instead of deep_gemm.tf32_hc_prenorm_gemm. Hits at
@@ -344,8 +360,8 @@ sglang_opt_use_tilelang_indexer: "{{ sglang_model_profiles[_sglang_active_model]
 sglang_fp4_gemm_backend: "{{ sglang_model_profiles[_sglang_active_model].fp4_gemm_backend | default('auto') }}"
 # Maximum batch size for CUDA graph capture. Lower values reduce startup time.
 # Set to 0 to also disable (prefer disable_cuda_graph: true in model profile).
-# Default: 128 (SGLang default is 256, reduced for faster startup)
-sglang_cuda_graph_max_bs: "{{ sglang_model_profiles[_sglang_active_model].cuda_graph_max_bs | default(128) }}"
+# Default: 128 (SGLang default is 256, reduced for faster startup). Precedence: inst override > profile > 128.
+sglang_cuda_graph_max_bs: "{{ _sglang_active_cuda_graph_max_bs if (_sglang_active_cuda_graph_max_bs | string | length > 0) else (sglang_model_profiles[_sglang_active_model].cuda_graph_max_bs | default(128)) }}"
 # Disable CUDA graph capture entirely (--disable-cuda-graph).
 # Emergency kill switch — overrides cuda_graph_max_bs when true.
 sglang_disable_cuda_graph: "{{ sglang_model_profiles[_sglang_active_model].disable_cuda_graph | default(false) }}"
@@ -357,6 +373,12 @@ sglang_weight_loader_drop_cache_after_load: "{{ sglang_model_profiles[_sglang_ac
 # Disable piecewise CUDA graph capture (--disable-piecewise-cuda-graph).
 # Needed for NVFP4+EP models where capture OOMs on the all-reduce buffers.
 sglang_disable_piecewise_cuda_graph: "{{ sglang_model_profiles[_sglang_active_model].disable_piecewise_cuda_graph | default(false) }}"
+# Explicit prefill CUDA-graph backend -> --cuda-graph-backend-prefill. Valid:
+# full, breakable, tc_piecewise, disabled. Empty (default) = no flag (SGLang's
+# default, breakable, which it auto-disables for multimodal archs); a non-empty
+# value overrides disable_piecewise_cuda_graph and bypasses that auto-disable.
+# disable_cuda_graph still wins (both phases disabled).
+sglang_cuda_graph_backend_prefill: "{{ sglang_model_profiles[_sglang_active_model].cuda_graph_backend_prefill | default('') }}"
 # Disable the flashinfer_cutlass MoE FP4 allgather path
 # (--disable-flashinfer-cutlass-moe-fp4-allgather). Diagnostic switch for the
 # cudaErrorIllegalInstruction crashes seen on SM121 with moe_runner_backend=
@@ -500,7 +522,8 @@ sglang_watchdog_timeout: 3600
 # Set to 0 for unlimited (only bounded by KV-cache pool size).
 # Per-model override via the profile's max_running_requests key (e.g. the
 # diffusiongemma card pins --max-num-seqs 4); falls back to 32 when unset.
-sglang_max_running_requests: "{{ sglang_model_profiles[_sglang_active_model].max_running_requests | default(32) }}"
+# Precedence: inst override > profile > 32.
+sglang_max_running_requests: "{{ _sglang_active_max_running_requests if (_sglang_active_max_running_requests | string | length > 0) else (sglang_model_profiles[_sglang_active_model].max_running_requests | default(32)) }}"
 
 # Absolute KV-cache pool cap in tokens ("" = unset -> sized purely by
 # mem_fraction_static). SGLang uses min(memory-derived, max_total_tokens). Set a
@@ -552,8 +575,10 @@ sglang_decode_attention_backend: "{{ sglang_model_profiles[_sglang_active_model]
 # bisecting a draft-extend regression. See nvfp4_kv_mtp_plan.md sections 14-21.
 sglang_disable_draft_extend_cuda_graph: "{{ sglang_model_profiles[_sglang_active_model].disable_draft_extend_cuda_graph | default('') }}"
 # DSA paged-MQA-logits backend (DeepSeek Sparse Attention indexer decode). Empty → SGLang
-# default (auto → DeepGEMM). On GB10/SM121 DeepGEMM asserts, so set "torch" (the _sgl_ torch
-# fallback runtime-patched into dsa_indexer.py) to run the sparse indexer. Wired to
+# default (auto → DeepGEMM). Before image 0.5.21 DeepGEMM asserted on GB10/SM121; 0.5.21's
+# sgl-deep-gemm 0.2.0 runs it (kernel-level verified 2026-10-08, end-to-end unvalidated).
+# "torch" (p30, p35 triton on top, runtime-patched into dsa_indexer.py) is the live-proven
+# path for the sparse indexer. Wired to
 # --dsa-paged-mqa-logits-backend. Only meaningful together with attention_backend: "dsa".
 sglang_dsa_paged_mqa_logits_backend: "{{ sglang_model_profiles[_sglang_active_model].dsa_paged_mqa_logits_backend | default('') }}"
 # DSA indexer Triton fast path (p35_dsa_indexer_triton_logits): the fused logits kernel
