@@ -86,6 +86,7 @@ hf_preload_models:
   - "RedHatAI/Qwen3-Coder-Next-NVFP4"
   - "nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"
   - "Qwen/Qwen3-VL-8B-Instruct-FP8"
+#  - "nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-NVFP4-QAD"  # 7.7 GB vision companion alternative; enable when it replaces Qwen3-VL in the vision instance
 #  - "0xSero/glm-5.2-reap-504B-v2"
 #  - "0xSero/GLM-5.2-REAP-NU176-526B"
 #  - "cyankiwi/Hermes-4.3-36B-AWQ-4bit"
