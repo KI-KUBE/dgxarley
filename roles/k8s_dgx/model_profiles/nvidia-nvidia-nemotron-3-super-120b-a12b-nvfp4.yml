@@ -71,7 +71,7 @@
 # image; see fp4_gemm_backend note below. fp4_gemm stays flashinfer_cutlass anyway.)
 #
 # >>> CO-LOCATION with the Nano Omni vision companion (2026-10-09, VALIDATED 2026-10-09) <<<
-# Measured co-located: 61.6 GB GPU per rank; started concurrently the auto-fit gave 10.18M tokens (below the 16.78M cap).
+# Measured co-located: cap 9.44M bound (yes), 60.0 GB GPU per rank, 16 to 19 GB available per node.
 # Footprint per rank at 0.75 (head bootlog 2026-10-09, MTPv2 4/1/5): weights 21.3 +
 # draft 1.2 GB, mamba pool 12.9 GB (160 slots), KV fp8 38.7 + draft KV 4.8 GB (20.3M
 # tokens), 24.7 GB free after pools, 15.5 GB after CUDA-graph capture, nodes show

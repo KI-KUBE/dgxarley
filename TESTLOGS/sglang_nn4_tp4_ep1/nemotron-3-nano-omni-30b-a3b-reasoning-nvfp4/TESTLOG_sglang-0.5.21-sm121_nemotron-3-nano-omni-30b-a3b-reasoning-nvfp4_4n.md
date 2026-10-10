@@ -181,3 +181,6 @@ Standalone references: Omni n8 507.3, Super n8 277.4. Alone, both are at or abov
 ### Conclusion
 
 Co-location works: both models serve on the same four GPUs with 0 restarts, ~72 GB GPU memory per rank in total and 14 to 17 GB available per node. Throughput under simultaneous load is clearly reduced for Omni. Decision on Super's cap (it did not bind) is left to the user.
+
+Super cap is now 9437184 (was 16777216); it bound (KV exactly 9,437,184 tokens, Super GPU 59,959 MiB per rank, node available 16 to 19 GB).
+The vision pods survived the Super-only rollout (same pod names, 0 restarts) and still answered a chat completion afterwards.

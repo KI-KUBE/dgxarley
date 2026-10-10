@@ -233,3 +233,12 @@ Head `sglang-head-6497fb4f88-p5ccj`, MTPv2 4/1/5, launch now with `--max-total-t
 - Load weight end 31.47 GB (122.8 s), draft 2.15 GB; mamba 160 slots (12.9 GB incl. intermediates); KV fp8 10182073 tokens (K 9.71 + V 9.71 GB, draft 1.21 + 1.21 GB), i.e. the auto-fit bound below the 16.78M cap; Memory pool end avail 23.14 GB; graphs 8.9 + 5.7 + 1.0 s; final available_gpu_mem 14.61 GB. GPU process memory 61.6 GB per rank.
 - GSM8K n=8, 32 questions: alone 32/32, peak 289.4 tok/s (reference 277.4), agg 219.8, p50 11.0 s. In parallel with Omni n=8: 31/32, peak 293.8, agg 130.8, p50 16.0 s (Omni phase overlapped only partly).
 - 0 restarts, no Scheduler/OOM errors.
+
+### Run 5b: cap lowered to 9437184 (2026-10-09)
+
+Head `sglang-head-869849cdd7-lfd9t`, launch `--max-total-tokens 9437184`; only the Super head and workers rolled, Omni pods untouched.
+
+- Mamba 160 slots (conv 0.09 + ssm 6.29 + intermediate ssm 6.45 + intermediate conv 0.04 GB); KV fp8 9437184 tokens (K 9.00 + V 9.00 GB, draft 1.13 + 1.13 GB); `available_gpu_mem` 16.00 GB after capture (was 14.61).
+- GPU process per rank: Super 59,959 MiB (was 61,992), Omni 10,907 MiB.
+- Per node (MemAvailable / Shmem / AnonPages, GB): spark1 15.96 / 15.80 / 13.24; spark2 19.43 / 15.80 / 10.16; spark3 18.86 / 15.80 / 10.15; spark4 19.45 / 15.80 / 10.18. `free -g` available 15 / 18 / 17 / 18.
+- The cap bound this time (9.44M is below the 10.18M auto-fit); smoke "17*23" returned 391 with reasoning_content, 0 restarts.
