@@ -101,8 +101,8 @@ _litellm_vision_model_list:
       model: "openai/{{ litellm_vision_model }}"
       api_base: "http://sglang-vision.{{ sglang_namespace }}.svc.cluster.local:{{ sglang_port }}/v1"
       api_key: "none"
-      input_cost_per_token: "{{ litellm_default_input_cost_per_token }}"
-      output_cost_per_token: "{{ litellm_default_output_cost_per_token }}"
+      input_cost_per_token: "{{ (sglang_model_profiles[litellm_vision_model] | default({})).litellm_input_cost_per_token | default(litellm_default_input_cost_per_token) }}"
+      output_cost_per_token: "{{ (sglang_model_profiles[litellm_vision_model] | default({})).litellm_output_cost_per_token | default(litellm_default_output_cost_per_token) }}"
     # Take the vision INSTANCE window (sglang_instances['vision'].context_length =
     # 65536), NOT the profile (262144): this instance is TRIMMED via its
     # max_total_tokens/context_length override, so the profile would over-advertise
@@ -121,8 +121,8 @@ _litellm_coder_model_list:
       model: "openai/{{ litellm_coder_model }}"
       api_base: "http://sglang-coder.{{ sglang_namespace }}.svc.cluster.local:{{ sglang_port }}/v1"
       api_key: "none"
-      input_cost_per_token: "{{ litellm_default_input_cost_per_token }}"
-      output_cost_per_token: "{{ litellm_default_output_cost_per_token }}"
+      input_cost_per_token: "{{ (sglang_model_profiles[litellm_coder_model] | default({})).litellm_input_cost_per_token | default(litellm_default_input_cost_per_token) }}"
+      output_cost_per_token: "{{ (sglang_model_profiles[litellm_coder_model] | default({})).litellm_output_cost_per_token | default(litellm_default_output_cost_per_token) }}"
 
 # Embedding fragment — same shape, points at the in-cluster sglang-embed Service
 # (openai/ provider → /v1/embeddings; NO ollama/ TLS singleton needed). Non-secret;
@@ -134,8 +134,8 @@ _litellm_embed_model_list:
       model: "openai/{{ litellm_embed_model }}"
       api_base: "http://sglang-embed.{{ sglang_namespace }}.svc.cluster.local:{{ sglang_port }}/v1"
       api_key: "none"
-      input_cost_per_token: "{{ litellm_default_input_cost_per_token }}"
-      output_cost_per_token: "{{ litellm_default_output_cost_per_token }}"
+      input_cost_per_token: "{{ (sglang_model_profiles[litellm_embed_model] | default({})).litellm_input_cost_per_token | default(litellm_default_input_cost_per_token) }}"
+      output_cost_per_token: "{{ (sglang_model_profiles[litellm_embed_model] | default({})).litellm_output_cost_per_token | default(litellm_default_output_cost_per_token) }}"
 
 # Dummy: vision + coder + embed (the non-secret subset). Real vault value = cloud +
 # the same three gated fragments.

@@ -99,6 +99,8 @@ _model_profile:
     knowledge_cutoff: "2026-02"  # NOT separately published for Nano-Omni; family post-training value — VERIFY
     release_date: "2026-04-28"  # NVIDIA Nemotron-3 Nano Omni launch
     info_url: "https://huggingface.co/nvidia/Nemotron-3-Nano-Omni-30B-A3B-Reasoning-NVFP4"
+    litellm_input_cost_per_token: 0.00000006   # $0.06 per 1M, Nebius fp8 (Crusoe $0.30, DigitalOcean $0.50; OpenRouter free-only), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000024  # $0.24 per 1M, Nebius fp8 (Crusoe $1.83, DigitalOcean $0.90), checked 2026-10-10
     # load_format auto (NVFP4 sharded_state disabled — same rationale as the Super sibling:
     # double-processes weights in process_weights_after_loading for no I/O win).
     load_format: "auto"

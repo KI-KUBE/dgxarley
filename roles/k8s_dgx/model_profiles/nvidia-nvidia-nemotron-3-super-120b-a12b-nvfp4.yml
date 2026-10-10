@@ -92,6 +92,8 @@ _model_profile:
     knowledge_cutoff: "2026-02"  # post-training cutoff (HF card); pre-training 2025-06 — use latest for LCB contamination
     release_date: "2026-03-11"  # official NVIDIA release (Artificial Analysis / llm-stats corroborate)
     info_url: "https://huggingface.co/nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+    litellm_input_cost_per_token: 0.00000008   # $0.08 per 1M, OpenRouter list price (DekaLLM fp8; DeepInfra $0.085), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000045  # $0.45 per 1M, OpenRouter list price (DeepInfra $0.40), checked 2026-10-10
     # 120B total / 12B active LatentMoE — Mamba2 + MoE + select-attention HYBRID
     # (NemotronHForCausalLM, model_type=nemotron_h). config.json: 88 layers,
     # hidden_size 4096, 32 attention heads, num_key_value_heads=2 (GQA),
