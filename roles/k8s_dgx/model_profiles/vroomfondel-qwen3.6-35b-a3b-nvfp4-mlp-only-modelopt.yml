@@ -69,6 +69,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed; community (Reddit r/Qwen_AI) claims ~mid-2024, unconfirmed
     release_date: "2026-04-16"  # Qwen3.6-35B-A3B base; official QwenLM GitHub changelog (this MLP-Only NVFP4 export 2026-07-11)
     info_url: "https://huggingface.co/vroomfondel/Qwen3.6-35B-A3B-NVFP4-MLP-Only-ModelOpt"
+    litellm_input_cost_per_token: 0.00000015   # $0.15 per 1M, OpenRouter list price, qwen/qwen3.6-35b-a3b (base model), checked 2026-10-10
+    litellm_output_cost_per_token: 0.000001  # $1 per 1M, OpenRouter list price, qwen/qwen3.6-35b-a3b (base model), checked 2026-10-10
     # SM121 sgl-kernel build required for NVFP4 on GB10. Pinned to the current
     # siblings' image so this profile resolves without a -e override.
     # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.17-sm121"

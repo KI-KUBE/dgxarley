@@ -7,6 +7,8 @@ _model_profile:
     knowledge_cutoff: "2026-02"  # inherited from the parent Nemotron-3-Super (card gives none)
     release_date: "2026-07-06"
     info_url: "https://huggingface.co/nvidia/NVIDIA-Nemotron-Labs-3-Puzzle-75B-A9B-NVFP4"
+    litellm_input_cost_per_token: 0.00000008   # $0.08 per 1M, PROXY: nvidia/nemotron-3-super-120b-a12b (OpenRouter list price), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000045  # $0.45 per 1M, PROXY: nvidia/nemotron-3-super-120b-a12b (OpenRouter list price), checked 2026-10-10
     # NemotronHPuzzleForCausalLM (model_type nemotron_h_puzzle), 75.3B total / 9.3B active, ~53.5 GB NVFP4 (modelopt MIXED_PRECISION).
     # 88 layers = 40 mamba2 + 40 moe + 8 attention, 512 routed experts in every MoE layer, moe_latent_size 1024,
     # ssm_state_size 96, 32 heads / 2 KV heads. Per-layer block_configs: expert FFN size 1280..2688, top-k 4..18.

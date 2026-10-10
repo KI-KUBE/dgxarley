@@ -79,6 +79,8 @@ _model_profile:
     knowledge_cutoff: null       # base deepreinforce-ai/Ornith-1.0-35B — not disclosed
     release_date: null           # base Ornith-1.0-35B date unconfirmed; NVFP4 export by rressl (modelopt 0.44.0)
     info_url: "https://huggingface.co/ressl/Ornith-1.0-35B-NVFP4"
+    litellm_input_cost_per_token: 0.00000008   # $0.08 per 1M, PROXY: qwen/qwen3.5-35b-a3b OpenRouter list price (Ornith base arch; qwen3.6-35b-a3b $0.15), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000075  # $0.75 per 1M, PROXY: qwen/qwen3.5-35b-a3b OpenRouter list price (qwen3.6-35b-a3b $1.00), checked 2026-10-10
     # ALTERNATIVES: BF16 source https://huggingface.co/deepreinforce-ai/Ornith-1.0-35B
     #
     # SM121 sgl-kernel build required for NVFP4 on GB10. Pinned to the current

@@ -41,6 +41,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed (Nous-Hermes-2 card silent)
     release_date: "2024-01-15"  # Nous-Hermes-2-Mixtral-8x7B-DPO base; Nous Research announcement
     info_url: "https://huggingface.co/TheBloke/Nous-Hermes-2-Mixtral-8x7B-DPO-AWQ"
+    litellm_input_cost_per_token: 0.0000005   # $0.50 per 1M, cloudprice.net Fireworks/Together list price (model deprecated 2025-08, no live OpenRouter endpoint; Together $0.90 per langdb), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000005  # $0.50 per 1M, cloudprice.net Fireworks/Together list price (deprecated model), checked 2026-10-10
     nccl_transport: "roce"
     # ~24.7 GB / TP=4 → ~6.2 GB/GPU. TP=4 valid: num_key_value_heads=8, 8 % 4 == 0
     # → clean GQA; num_attention_heads 32 % 4 == 0. Experts stay TP-sharded (no EP

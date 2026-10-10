@@ -5,6 +5,8 @@ _model_profile:
     knowledge_cutoff: "2025-12"  # GLM-5 base; not in official card. apxml lists Dec 2025 (community r/ZaiGLM claims early 2025, conflicting). Low confidence.
     release_date: "2026-02-11"  # GLM-5 base; Z.ai release (HF zai-org collection, mlabonne HF blog)
     info_url: "https://huggingface.co/nvidia/GLM-5-NVFP4"
+    litellm_input_cost_per_token: 0.000001   # $1 per 1M, OpenRouter, Z.AI official GLM-5 (base model; StreamLake/GMICloud $0.60 in), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000032  # $3.2 per 1M, OpenRouter, Z.AI official GLM-5, checked 2026-10-10
     # 744B/40B-active MoE (256 experts, top-8, sigmoid routing), NVFP4 quantized.
     # Architecture: GlmMoeDsa — MLA (Multi-head Latent Attention) with DSA
     # (Document-level Sparse Attention). 78 layers (first 3 dense, rest MoE),

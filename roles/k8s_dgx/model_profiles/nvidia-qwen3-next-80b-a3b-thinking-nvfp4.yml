@@ -48,6 +48,8 @@ _model_profile:
     knowledge_cutoff: "2025-09"  # Qwen3-Next base; no separate cutoff published for the NVFP4 quant
     release_date: "2025-09-10"  # Qwen3-Next-80B-A3B base; official Qwen blog. NVIDIA NVFP4 upload later.
     info_url: "https://huggingface.co/nvidia/Qwen3-Next-80B-A3B-Thinking-NVFP4"
+    litellm_input_cost_per_token: 0.00000015   # $0.15 per 1M, OpenRouter list price, qwen/qwen3-next-80b-a3b-thinking (base model), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000012  # $1.2 per 1M, OpenRouter list price, qwen/qwen3-next-80b-a3b-thinking (base model), checked 2026-10-10
     nccl_transport: "roce"
     tp_size: 4
     context_length_max: 262144

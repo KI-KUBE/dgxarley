@@ -6,6 +6,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed (HF card/tech report silent; aggregators unreliable)
     release_date: "2026-02-16"  # Qwen3.5-397B-A17B base; official QwenLM GitHub changelog
     info_url: "https://huggingface.co/nvidia/Qwen3.5-397B-A17B-NVFP4"
+    litellm_input_cost_per_token: 0.00000055   # $0.55 per 1M, OpenRouter list price, qwen/qwen3.5-397b-a17b (base model), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000035  # $3.5 per 1M, OpenRouter list price, qwen/qwen3.5-397b-a17b (base model), checked 2026-10-10
     # 397B/17B-active MoE (512 experts, top-10, softmax routing), NVFP4 quantized (~234 GB).
     # Architecture: Qwen3.5 MoE — hybrid attention: 15 full GQA layers + 45 linear
     # attention layers (every 4th layer is full attention). 60 layers total,

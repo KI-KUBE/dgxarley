@@ -32,6 +32,8 @@ _model_profile:
     knowledge_cutoff: null  # not disclosed (MiniMax-M2.5 base "Undisclosed"; saricles card silent)
     release_date: "2026-02-12"  # MiniMax-M2.5 base; saricles REAP+NVFP4 repackage later
     info_url: "https://huggingface.co/saricles/MiniMax-M2.5-REAP-139B-A10B-NVFP4-GB10"
+    litellm_input_cost_per_token: 0.00000027   # $0.27 per 1M, OpenRouter list price (REAP of MiniMax-M2.5; Novita/GMICloud $0.30 in), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000108  # $1.08 per 1M, OpenRouter list price, checked 2026-10-10
     nccl_transport: "roce"
     # TP=4/PP=1 to match the M2.5/M2.7 siblings (drop-in, 8 KV heads / 4 = 2/rank clean).
     # NOTE: at 139B NVFP4 (~70 GB weights) this REAP build is single-GB10-capable BY DESIGN

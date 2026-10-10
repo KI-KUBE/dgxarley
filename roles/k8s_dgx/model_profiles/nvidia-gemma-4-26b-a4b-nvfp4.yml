@@ -29,6 +29,8 @@ _model_profile:
     knowledge_cutoff: "2025-01"  # official HF/Google model card (Gemma 4 corpus); month precision
     release_date: "2026-04-02"  # Gemma 4 family launch; official Google blog + HF cards
     info_url: "https://huggingface.co/nvidia/Gemma-4-26B-A4B-NVFP4"
+    litellm_input_cost_per_token: 0.0000000675   # $0.0675 per 1M, OpenRouter list price (base model google/gemma-4-26b-a4b-it), checked 2026-10-10
+    litellm_output_cost_per_token: 0.000000225  # $0.225 per 1M, OpenRouter list price (base model), checked 2026-10-10
     # NVFP4-quantized variant of google/gemma-4-26B-A4B-it. Multimodal (text+image,
     # video as frame sequences). 26B total / ~3.8B active MoE.
     # MoE: 128 routed experts, top_k=8, + 1 shared expert. moe_intermediate_size=704.

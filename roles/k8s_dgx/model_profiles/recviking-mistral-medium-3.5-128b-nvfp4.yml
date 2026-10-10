@@ -67,6 +67,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed (Mistral Medium 3.5 card silent)
     release_date: "2026-04-28"  # quant build date (config quant version 0.15.1.a20260428); base Medium-3.5 earlier
     info_url: "https://huggingface.co/RecViking/Mistral-Medium-3.5-128B-NVFP4"
+    litellm_input_cost_per_token: 0.0000015   # $1.50 per 1M, OpenRouter list price (base model mistral-medium-3-5; batch $0.75), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000075  # $7.50 per 1M, OpenRouter list price (base model; batch $3.75), checked 2026-10-10
     nccl_transport: "roce"
     # ~80 GB / TP=4 → ~20 GB/GPU. TP=4 valid: num_key_value_heads=8, 8 % 4 == 0
     # → 2 KV heads/rank (clean GQA, no replication). PP not needed (fits easily).

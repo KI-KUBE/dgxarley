@@ -131,6 +131,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed for the Qwen3.8-27B base
     release_date: "2026-08-05"  # Qwen/Qwen3.8-27B base, HF API createdAt. This NVFP4 export 2026-08-15.
     info_url: "https://huggingface.co/vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt"
+    litellm_input_cost_per_token: 0.000000425   # $0.425 per 1M, OpenRouter list price, qwen/qwen3.8-27b (base model), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000255  # $2.55 per 1M, OpenRouter list price, qwen/qwen3.8-27b (base model), checked 2026-10-10
     # SM121 sgl-kernel build required for NVFP4 on GB10. 0.5.17 is the FLOOR:
     # it is the release that carries the merged PR #31220 (quantized attention
     # + baked KV scales for qwen3_5) this checkpoint depends on, and it is the

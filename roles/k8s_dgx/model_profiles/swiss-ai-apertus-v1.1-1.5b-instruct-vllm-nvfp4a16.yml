@@ -38,6 +38,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed (Apertus card silent)
     release_date: null  # Apertus v1.1 revision; original Apertus launch 2025-09-02, v1.1 point-update date not stated on card
     info_url: "https://huggingface.co/swiss-ai/Apertus-v1.1-1.5B-Instruct-vLLM-NVFP4A16"
+    litellm_input_cost_per_token: 0.00000005   # $0.05 per 1M, PROXY: meta-llama/llama-3.1-8b-instruct OpenRouter (no hosted Apertus 1.5B), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000008  # $0.08 per 1M, PROXY: meta-llama/llama-3.1-8b-instruct OpenRouter, checked 2026-10-10
     nccl_transport: "roce"
     # 1.6 GB — a single GB10 holds it many times over. TP=1: run as its OWN
     # single-node instance (see sglang_instances), NOT spread over the 4-node

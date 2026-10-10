@@ -55,6 +55,8 @@ _model_profile:
     knowledge_cutoff: null
     release_date: "2026-07-06"  # tencent/Hy3 base (W4A16 repack later)
     info_url: "https://huggingface.co/kodelow/Hy3-NVFP4-W4A16"
+    litellm_input_cost_per_token: 0.000000132   # $0.132 per 1M, OpenRouter, Tencent official Hy3 (base model; Novita $0.14 in), checked 2026-10-10
+    litellm_output_cost_per_token: 0.000000528  # $0.528 per 1M, OpenRouter, Tencent official Hy3, checked 2026-10-10
     nccl_transport: "roce"
     tp_size: 4  # num_key_value_heads=8 → 2 KV heads/GPU at TP=4
     ep_size: 1  # 192 routed experts → clean split

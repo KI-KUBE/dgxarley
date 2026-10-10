@@ -21,6 +21,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed for the 2507 refresh
     release_date: "2025-07-25"  # Qwen3-235B-A22B-Thinking-2507; official Qwen release
     info_url: "https://huggingface.co/nvidia/Qwen3-235B-A22B-Thinking-2507-NVFP4"
+    litellm_input_cost_per_token: 0.00000045   # $0.45 per 1M, OpenRouter list price, qwen/qwen3-235b-a22b-thinking-2507 (base model), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000035  # $3.5 per 1M, OpenRouter list price, qwen/qwen3-235b-a22b-thinking-2507 (base model), checked 2026-10-10
     # 235B/22B-active MoE (128 experts, top-8), NVFP4 quantized, text-only.
     # Standard Qwen3 MoE (NOT hybrid-mamba): 94 layers, GQA (num_kv_heads=4,
     # 16:1 ratio), 1 shared + 128 routed experts. No MTP heads → no NEXTN.

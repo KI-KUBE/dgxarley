@@ -6,6 +6,8 @@ _model_profile:
     knowledge_cutoff: "2025-01"  # official HF/Google model card (Gemma 4 corpus); month precision
     release_date: "2026-04-02"  # Gemma 4 family launch; official Google blog + HF cards
     info_url: "https://huggingface.co/nvidia/Gemma-4-31B-IT-NVFP4"
+    litellm_input_cost_per_token: 0.00000009   # $0.09 per 1M, OpenRouter list price (base model google/gemma-4-31b-it), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000034  # $0.34 per 1M, OpenRouter list price (base model), checked 2026-10-10
     # ALTERNATIVE (BF16 source): https://huggingface.co/google/gemma-4-31B-it
     # NVFP4-quantized variant of google/gemma-4-31B-it.
     # 30.7B DENSE (NOT MoE), multimodal-capable (Gemma4ForConditionalGeneration

@@ -144,6 +144,8 @@ _model_profile:
     knowledge_cutoff: "2026-05"  # post-training cutoff per the HF card (pre-training 2025-09)
     release_date: "2026-08-11"
     info_url: "https://huggingface.co/nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4"
+    litellm_input_cost_per_token: 0.00000007   # $0.07 per 1M, OpenRouter list price, checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000002  # $0.20 per 1M, OpenRouter list price, checked 2026-10-10
     # auto, not sharded_state: same rationale as every NVFP4 profile here, the
     # sharded path double-processes weights in process_weights_after_loading for
     # no I/O win.

@@ -67,6 +67,8 @@ _model_profile:
     knowledge_cutoff: null       # base deepreinforce-ai/Ornith-1.0-9B — not disclosed
     release_date: null           # base Ornith-1.0-9B date unconfirmed; NVFP4 export by vroomfondel (modelopt 0.45.0)
     info_url: "https://huggingface.co/vroomfondel/Ornith-1.0-9B-NVFP4-ModelOpt"
+    litellm_input_cost_per_token: 0.0000001   # $0.10 per 1M, PROXY: qwen/qwen3.5-9b OpenRouter list price (Ornith 9B base arch), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000015  # $0.15 per 1M, PROXY: qwen/qwen3.5-9b OpenRouter list price, checked 2026-10-10
     # ALTERNATIVE (BF16 source): https://huggingface.co/deepreinforce-ai/Ornith-1.0-9B
     #
     # SM121 sgl-kernel build required for NVFP4 on GB10. Pinned to the current

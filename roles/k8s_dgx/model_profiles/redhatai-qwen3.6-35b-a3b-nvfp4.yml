@@ -19,6 +19,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed; community (Reddit r/Qwen_AI) claims ~mid-2024, unconfirmed
     release_date: "2026-04-16"  # Qwen3.6-35B-A3B base; official QwenLM GitHub changelog
     info_url: "https://huggingface.co/RedHatAI/Qwen3.6-35B-A3B-NVFP4"
+    litellm_input_cost_per_token: 0.00000015   # $0.15 per 1M, OpenRouter list price, qwen/qwen3.6-35b-a3b (base model), checked 2026-10-10
+    litellm_output_cost_per_token: 0.000001  # $1 per 1M, OpenRouter list price, qwen/qwen3.6-35b-a3b (base model), checked 2026-10-10
     # 35B/3B MoE (Gated DeltaNet hybrid), NVFP4 quantization (~10–12 GB on-device
     # weights, vs. ~35 GB for the FP8 sibling). 256 experts, 8 routed + 1 shared
     # activated per token. Native 262K context (extensible to ~1M via YaRN).

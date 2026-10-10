@@ -90,6 +90,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed
     release_date: "2025-12"  # "2512" tag → Dec 2025 Mistral Large 3 release
     info_url: "https://huggingface.co/mistralai/Mistral-Large-3-675B-Instruct-2512-NVFP4"
+    litellm_input_cost_per_token: 0.0000005   # $0.50 per 1M, OpenRouter list price (mistral-large-2512; batch $0.25), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000015  # $1.50 per 1M, OpenRouter list price (mistral-large-2512; batch $0.75), checked 2026-10-10
     nccl_transport: "roce"
     # ~403 GB / TP=4 → ~101 GB/GPU. Cluster is fixed at 4 nodes → TP=4 (the only
     # way to shard 403 GB under 128 GB/GPU). No weight headroom for a smaller TP.

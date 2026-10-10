@@ -5,6 +5,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed (HF card/tech report silent)
     release_date: "2026-02-24"  # Qwen3.5-35B-A3B base; official QwenLM GitHub changelog
     info_url: "https://huggingface.co/Qwen/Qwen3.5-35B-A3B-FP8"
+    litellm_input_cost_per_token: 0.00000008   # $0.08 per 1M, OpenRouter list price, qwen/qwen3.5-35b-a3b (base model), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000075  # $0.75 per 1M, OpenRouter list price, qwen/qwen3.5-35b-a3b (base model), checked 2026-10-10
     context_length: 262144
     kv_cache_dtype: "fp8_e4m3"
     mem_fraction_static: "0.50"

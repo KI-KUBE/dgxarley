@@ -5,6 +5,8 @@ _model_profile:
     knowledge_cutoff: "2025-12"  # GLM-5.2 base; not in official card. Inherited estimate from GLM-5 family (apxml lists Dec 2025). Low confidence.
     release_date: "2026-06-16"  # GLM-5.2 base; Z.ai flagship release (zai-org/GLM-5.2 HF card ~2026-06-16). NVIDIA NVFP4 quant repo per card: HF 2026-06-25.
     info_url: "https://huggingface.co/nvidia/GLM-5.2-NVFP4"
+    litellm_input_cost_per_token: 0.0000014   # $1.4 per 1M, OpenRouter, Z.AI official GLM-5.2 (base model; DeepInfra $0.5625 in), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000044  # $4.4 per 1M, OpenRouter, Z.AI official GLM-5.2, checked 2026-10-10
     # 753B-total / 40B-active MoE (256 experts, top-8, sigmoid routing), NVFP4 quantized.
     # Same GLM-5-family architecture as nvidia/GLM-5-NVFP4 — base is GLM-5.2
     # (Z.ai's latest long-horizon flagship, truly usable 1M-token context),

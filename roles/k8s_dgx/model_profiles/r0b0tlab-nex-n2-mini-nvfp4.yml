@@ -55,6 +55,8 @@ _model_profile:
     knowledge_cutoff: null  # not published (Nex-N2 family card silent)
     release_date: null  # Nex-N2 family; no dated release found on the card
     info_url: "https://huggingface.co/r0b0tlab/nex-n2-mini-nvfp4"
+    litellm_input_cost_per_token: 0.000000025   # $0.025 per 1M, PROXY: nex-agi/nex-n2.5-mini OpenRouter list price (successor of N2-mini), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000001  # $0.10 per 1M, PROXY: nex-agi/nex-n2.5-mini OpenRouter list price, checked 2026-10-10
     nccl_transport: "roce"
     tp_size: 4
     context_length: 262144  # config.json max_position_embeddings; rope_type default → no YaRN

@@ -5,6 +5,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed; community (Reddit r/Qwen_AI) claims ~mid-2024, unconfirmed
     release_date: "2026-04-22"  # Qwen3.6-27B base; official QwenLM GitHub changelog
     info_url: "https://huggingface.co/Qwen/Qwen3.6-27B-FP8"
+    litellm_input_cost_per_token: 0.00000032   # $0.32 per 1M, OpenRouter list price, qwen/qwen3.6-27b (base model), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000032  # $3.2 per 1M, OpenRouter list price, qwen/qwen3.6-27b (base model), checked 2026-10-10
     # 27B dense (hybrid Gated DeltaNet + Gated Attention), fine-grained FP8 (block 128).
     # Native context 262K, extensible to ~1M via YaRN.
     context_length: 262144

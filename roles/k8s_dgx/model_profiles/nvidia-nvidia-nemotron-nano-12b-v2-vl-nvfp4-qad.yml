@@ -47,6 +47,8 @@ _model_profile:
     knowledge_cutoff: null  # not disclosed on the card
     release_date: "2025-10-22"  # HF repo creation (NVFP4-QAD checkpoint); QAD weights refreshed 2026-09-02
     info_url: "https://huggingface.co/nvidia/NVIDIA-Nemotron-Nano-12B-v2-VL-NVFP4-QAD"
+    litellm_input_cost_per_token: 0.00000022   # $0.22 per 1M, aihubmix list price (not on OpenRouter; pricepertoken shows $0.20), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000066  # $0.66 per 1M, aihubmix list price (not on OpenRouter), checked 2026-10-10
     tp_size: 1   # 11.7 GB weights, single GB10; no NCCL/QSFP at tp=1 (run as a 1-node instance)
     context_length: 131072  # max_position_embeddings; a co-located instance trims this to its max_total_tokens
     quantization: "modelopt_fp4"

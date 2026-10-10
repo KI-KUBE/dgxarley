@@ -6,6 +6,8 @@ _model_profile:
     knowledge_cutoff: "2025-03"  # source: OpenRouter metadata (unofficial, not in model card) — https://openrouter.ai/qwen/qwen3-235b-a22b
     release_date: "2025-04-29"  # Qwen3-235B-A22B base; official Qwen blog (qwenlm.github.io/blog/qwen3)
     info_url: "https://huggingface.co/nvidia/Qwen3-235B-A22B-NVFP4"
+    litellm_input_cost_per_token: 0.00000009   # $0.09 per 1M, OpenRouter list price, PROXY: qwen/qwen3-235b-a22b-2507 (original hybrid qwen3-235b-a22b has no OpenRouter endpoints), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000055  # $0.55 per 1M, OpenRouter list price, PROXY: qwen/qwen3-235b-a22b-2507 (original hybrid qwen3-235b-a22b has no OpenRouter endpoints), checked 2026-10-10
     # 235B/22B-active MoE (128 experts, top-8, softmax routing), NVFP4 quantized.
     # Architecture: standard Qwen3 MoE — 94 layers, GQA (num_kv_heads=4, 16:1 ratio),
     # 1 shared expert + 128 routed experts per MoE layer. Text-only (no vision encoder).

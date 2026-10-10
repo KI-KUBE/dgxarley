@@ -48,6 +48,8 @@ _model_profile:
     knowledge_cutoff: "2025-05"  # DeepSeek-V4 base corpus; same family as Flash, not in official card. Medium confidence.
     release_date: "2026-04-22"  # DeepSeek-V4-Pro base family; HF API era (Pro NVFP4 repackage later)
     info_url: "https://huggingface.co/nvidia/DeepSeek-V4-Pro-NVFP4"
+    litellm_input_cost_per_token: 0.0000013   # $1.3 per 1M, OpenRouter, DeepInfra (base model; Alibaba $1.416 in), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000026  # $2.6 per 1M, OpenRouter, DeepInfra, checked 2026-10-10
     nccl_transport: "roce"
     # tp_size pinned at the cluster max (4 GPUs). This is NOT enough for Pro
     # (see CAPACITY BLOCKER) — kept so the profile is syntactically deployable

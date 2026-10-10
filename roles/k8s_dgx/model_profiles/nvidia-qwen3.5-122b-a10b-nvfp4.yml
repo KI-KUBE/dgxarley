@@ -39,6 +39,8 @@ _model_profile:
     knowledge_cutoff: "2025-10"  # no published cutoff found (HF card/tech report/aggregators checked 2026-06)
     release_date: "2026-02-24"  # Qwen3.5-122B-A10B base; official QwenLM GitHub changelog
     info_url: "https://huggingface.co/nvidia/Qwen3.5-122B-A10B-NVFP4"
+    litellm_input_cost_per_token: 0.00000026   # $0.26 per 1M, OpenRouter list price, qwen/qwen3.5-122b-a10b (base model), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000208  # $2.08 per 1M, OpenRouter list price, qwen/qwen3.5-122b-a10b (base model), checked 2026-10-10
     nccl_transport: "roce"
     tp_size: 4
     context_length: 262144

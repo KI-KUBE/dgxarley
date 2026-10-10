@@ -66,6 +66,8 @@ _model_profile:
     knowledge_cutoff: null  # not disclosed for MiMo-V2.5 base nor the quant
     release_date: null      # XiaomiMiMo/MiMo-V2.5 base date not on the quant card; community NVFP4 quant ~2026-06
     info_url: "https://huggingface.co/lukealonso/MiMo-V2.5-NVFP4"
+    litellm_input_cost_per_token: 0.00000014   # $0.14 per 1M, OpenRouter, Xiaomi official MiMo-V2.5 (base model; GMICloud $0.119 in), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000028  # $0.28 per 1M, OpenRouter, Xiaomi official MiMo-V2.5, checked 2026-10-10
     # Stock 0.5.12 supports the arch + mimo parsers (verified) → no image override needed.
     # The author's fork only adds the b12x kernels; if the stock NVFP4 kernels below fail to
     # handle the hybrid-SWA / omni path on SM121, the author's image is the fallback:

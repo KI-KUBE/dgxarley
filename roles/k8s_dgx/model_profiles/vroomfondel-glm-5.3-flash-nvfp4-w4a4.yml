@@ -134,6 +134,8 @@ _model_profile:
     knowledge_cutoff: null  # not disclosed on the zai-org/GLM-5.3-Flash card
     release_date: "2026-08-25"  # zai-org/GLM-5.3-Flash base (HF createdAt). This W4A4 top-up 2026-09-04.
     info_url: "https://huggingface.co/vroomfondel/GLM-5.3-Flash-NVFP4-W4A4"
+    litellm_input_cost_per_token: 0.00000015   # $0.15 per 1M, OpenRouter, Z.AI official GLM-5.3-Flash (base model; DeepInfra $0.075 in), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000005  # $0.5 per 1M, OpenRouter, Z.AI official GLM-5.3-Flash, checked 2026-10-10
     # ALTERNATIVE (experts-only base, calibrated scales): https://huggingface.co/LibertAIDAI/GLM-5.3-Flash-NVFP4
     # ALTERNATIVE (upstream-cookbook NVFP4 W4A4): https://huggingface.co/RadixArk/GLM-5.3-Flash-NVFP4
     nccl_transport: "roce"

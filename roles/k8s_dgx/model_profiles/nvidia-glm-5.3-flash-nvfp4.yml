@@ -48,6 +48,8 @@ _model_profile:
     knowledge_cutoff: null  # not disclosed on the zai-org/GLM-5.3-Flash card
     release_date: "2026-08-25"  # zai-org/GLM-5.3-Flash base (HF createdAt). NVIDIA NVFP4 repo per card: HF 2026-09-09.
     info_url: "https://huggingface.co/nvidia/GLM-5.3-Flash-NVFP4"
+    litellm_input_cost_per_token: 0.00000015   # $0.15 per 1M, OpenRouter, Z.AI official GLM-5.3-Flash (base model; DeepInfra $0.075 in), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000005  # $0.5 per 1M, OpenRouter, Z.AI official GLM-5.3-Flash, checked 2026-10-10
     # ALTERNATIVE (our surgical W4A4 top-up incl. attention): https://huggingface.co/vroomfondel/GLM-5.3-Flash-NVFP4-W4A4
     nccl_transport: "roce"
     tp_size: 4  # card recipe; 64 attn / 64 KDA / 32 indexer heads all divide by 4

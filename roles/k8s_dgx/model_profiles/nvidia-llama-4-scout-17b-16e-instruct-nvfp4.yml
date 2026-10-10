@@ -70,6 +70,8 @@ _model_profile:
     knowledge_cutoff: "2024-08"  # Meta Llama 4 card (pretraining data cutoff Aug 2024)
     release_date: "2025-04-05"   # Llama 4 family launch (Meta); NVFP4 upload 2025-07-28
     info_url: "https://huggingface.co/nvidia/Llama-4-Scout-17B-16E-Instruct-NVFP4"
+    litellm_input_cost_per_token: 0.0000001   # $0.10 per 1M, OpenRouter list price (base model meta-llama/llama-4-scout), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000003  # $0.30 per 1M, OpenRouter list price (base model), checked 2026-10-10
     # ALTERNATIVES: BF16 source https://huggingface.co/meta-llama/Llama-4-Scout-17B-16E-Instruct
     #   compressed-tensors sibling https://huggingface.co/RedHatAI/Llama-4-Scout-17B-16E-Instruct-NVFP4
     #

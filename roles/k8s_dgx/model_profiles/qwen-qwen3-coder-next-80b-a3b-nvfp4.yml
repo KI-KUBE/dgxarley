@@ -40,6 +40,8 @@ _model_profile:
     knowledge_cutoff: "2025-09"  # Qwen3-Coder-Next tech report (arXiv 2603.00729 §3.1.1): "pretraining corpus updated through Sep 30, 2025"
     release_date: "2026-02-03"  # Qwen3-Coder-Next base; HF upload (NIM 2026-02-18)
     info_url: "https://huggingface.co/RedHatAI/Qwen3-Coder-Next-NVFP4"
+    litellm_input_cost_per_token: 0.00000012   # $0.12 per 1M, OpenRouter list price, qwen/qwen3-coder-next (base model), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000008  # $0.8 per 1M, OpenRouter list price, qwen/qwen3-coder-next (base model), checked 2026-10-10
     nccl_transport: "roce"
     context_length_max: 262144
     # 256K native, NO override — boot-safe first contact. YaRN to 1M possible later via

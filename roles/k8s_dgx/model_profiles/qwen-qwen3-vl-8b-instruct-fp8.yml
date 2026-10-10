@@ -18,6 +18,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed by Qwen
     release_date: "2025-10-14"  # Qwen3-VL 4B/8B dense launch (Instruct & Thinking, w/ FP8 checkpoints) — Qwen blog / MarkTechPost
     info_url: "https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct-FP8"
+    litellm_input_cost_per_token: 0.00000025   # $0.25 per 1M, OpenRouter list price, qwen/qwen3-vl-8b-instruct (base model), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000075  # $0.75 per 1M, OpenRouter list price, qwen/qwen3-vl-8b-instruct (base model), checked 2026-10-10
     # ALTERNATIVE (BF16 source): https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct
     # 8B (9B incl. vision tower) DENSE, multimodal (Qwen3VLForConditionalGeneration:
     # text + vision; DeepStack visual merger). 36 text layers, 32 attn / 8 KV

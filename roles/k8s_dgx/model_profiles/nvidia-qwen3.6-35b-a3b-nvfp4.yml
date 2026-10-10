@@ -75,6 +75,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed; community (Reddit r/Qwen_AI) claims ~mid-2024, unconfirmed
     release_date: "2026-04-16"  # Qwen3.6-35B-A3B base; official QwenLM GitHub changelog (NVFP4 upload 2026-05-31)
     info_url: "https://huggingface.co/nvidia/Qwen3.6-35B-A3B-NVFP4"
+    litellm_input_cost_per_token: 0.00000015   # $0.15 per 1M, OpenRouter list price, qwen/qwen3.6-35b-a3b (base model), checked 2026-10-10
+    litellm_output_cost_per_token: 0.000001  # $1 per 1M, OpenRouter list price, qwen/qwen3.6-35b-a3b (base model), checked 2026-10-10
     # SM121 sgl-kernel build required for NVFP4 on GB10. Pinned (not the scitrera 0.5.12
     # default) so this profile resolves correctly without a -e override. The MIXED_PRECISION
     # dispatch the modelopt_mixed loader needs comes from the sglang_launch.sh runtime patch

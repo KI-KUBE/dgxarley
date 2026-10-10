@@ -99,6 +99,8 @@ _model_profile:
     knowledge_cutoff: "2025-05"  # inherited from the DeepSeek-V4-Flash base line, not restated for the 0731 release. LOW confidence, no official source for this checkpoint.
     release_date: "2026-07-31"  # deepseek-ai/DeepSeek-V4-Flash-0731 base, HF API createdAt. NVFP4 repack published 2026-08-02.
     info_url: "https://huggingface.co/mmangkad/DeepSeek-V4-Flash-0731-NVFP4"
+    litellm_input_cost_per_token: 0.00000014   # $0.14 per 1M, OpenRouter, Cohere/Together/Parasail DeepSeek-V4-Flash-0731 (base model; DeepInfra $0.06 in), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000028  # $0.28 per 1M, OpenRouter, Cohere/Together/Parasail DeepSeek-V4-Flash-0731, checked 2026-10-10
     nccl_transport: "roce"
     tp_size: 4
     ep_size: 4

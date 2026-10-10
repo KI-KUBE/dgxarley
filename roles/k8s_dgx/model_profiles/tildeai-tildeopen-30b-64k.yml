@@ -44,6 +44,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed (base model card silent)
     release_date: null  # TildeOpen-30B base described in arXiv 2603.08182; 64k long-context (YaRN) variant — exact card date not stated
     info_url: "https://huggingface.co/TildeAI/TildeOpen-30b-64k"
+    litellm_input_cost_per_token: 0.00000009   # $0.09 per 1M, PROXY: google/gemma-4-31b-it OpenRouter list price (dense ~30B class; no hosted TildeOpen), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000034  # $0.34 per 1M, PROXY: google/gemma-4-31b-it OpenRouter list price, checked 2026-10-10
     nccl_transport: "roce"
     # ~61.4 GB BF16 / TP=4 → ~15.3 GB/GPU. TP=4 valid: num_key_value_heads=8,
     # 8 % 4 == 0 → 2 KV heads/rank (clean GQA); num_attention_heads 48 % 4 == 0.

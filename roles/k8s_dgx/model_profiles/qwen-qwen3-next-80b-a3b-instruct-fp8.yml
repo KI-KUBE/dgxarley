@@ -5,6 +5,8 @@ _model_profile:
     knowledge_cutoff: "2025-09"  # source: OpenRouter metadata (unofficial, not in model card) — https://openrouter.ai/qwen/qwen3-next-80b-a3b-instruct
     release_date: "2025-09-10"  # Qwen3-Next-80B-A3B base; official Qwen blog
     info_url: "https://huggingface.co/Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
+    litellm_input_cost_per_token: 0.0000001   # $0.1 per 1M, OpenRouter list price, qwen/qwen3-next-80b-a3b-instruct (base model), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000011  # $1.1 per 1M, OpenRouter list price, qwen/qwen3-next-80b-a3b-instruct (base model), checked 2026-10-10
     context_length_max: 262144
     context_length: 262144
     kv_cache_dtype: "fp8_e4m3"

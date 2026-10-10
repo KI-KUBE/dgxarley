@@ -76,6 +76,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed (Mistral Small 4 card silent)
     release_date: "2026-03"  # "2603" tag → March 2026 (Mistral Small 4 v26.03)
     info_url: "https://huggingface.co/mistralai/Mistral-Small-4-119B-2603-NVFP4"
+    litellm_input_cost_per_token: 0.00000015   # $0.15 per 1M, OpenRouter list price (mistral-small-2603; batch $0.075), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000006  # $0.60 per 1M, OpenRouter list price (mistral-small-2603; batch $0.30), checked 2026-10-10
     # SM121 sgl-kernel build required for NVFP4 on GB10 (the default scitrera 0.5.12
     # lacks it). Pinned so the profile resolves without a -e override IF/WHEN the
     # SGLang name-dispatch lands for this model. Inert on the vLLM path.

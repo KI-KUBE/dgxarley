@@ -58,6 +58,8 @@ _model_profile:
     knowledge_cutoff: "2025-12"  # "end of 2025" per the model cards
     release_date: "2026-06-16"  # HF createdAt of Soofi-S-Instruct-Preview; refine from the card
     info_url: "https://huggingface.co/Soofi-Project/Soofi-S-Instruct-Preview"
+    litellm_input_cost_per_token: 0.00000006   # $0.06 per 1M, PROXY: nvidia/nemotron-3-nano-30b-a3b OpenRouter list price (same NemotronH 30B-A3B family), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000024  # $0.24 per 1M, PROXY: nvidia/nemotron-3-nano-30b-a3b OpenRouter list price, checked 2026-10-10
     nccl_transport: "roce"
     # PARALLELISM — cluster default TP=4 across the 4 sparks (PP = nnodes/tp = 1).
     # A ~30B BF16 model (~60 GB) shards to ~15 GB/GPU → ample KV headroom.
