@@ -11,6 +11,7 @@
 # Presets (TP=1, one preset_<name> function per model, PRESET=list shows them):
 #   qwen38_nvidia    nvidia/Qwen3.8-Flash-Next-NVFP4, modelopt_mixed, EAGLE MTP (default)
 #   qwen38_radixark  RadixArk/Qwen3.8-Flash-Next-NVFP4, modelopt_fp4, no MTP
+#   nemotron35_lightning  nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4, DSPARK draft
 #   custom           any MODEL, args only from MODEL_ARGS / the command line
 # Both Qwen3.8 checkpoints exceed the unified pool, so their presets offload the 51 GB
 # PLE table to a file-backed mmap (PLE_DIR, must be local NVMe). Not cluster-validated.
@@ -25,11 +26,12 @@
 #   PRESET=list scripts/run_standalone.sh
 #
 # Environment overrides:
-#   PRESET        qwen38_nvidia | qwen38_radixark | custom | list
+#   PRESET        qwen38_nvidia | qwen38_radixark | nemotron35_lightning | custom | list
 #   MODEL         from the preset (required for custom)
 #   IMAGE         from the preset (xomoxcc/dgx-spark-sglang:0.5.21-sm121)
 #   MODEL_ARGS    sglang args replacing the preset args entirely
-#   SPEC          1 (qwen38_nvidia: 0 = no MTP speculation)
+#   SPEC          1 (qwen38_nvidia: 0 = no MTP; nemotron35_lightning: 0 = no DSPARK draft)
+#   DRAFT_MODELS  from the preset (comma-separated repos pre-downloaded next to MODEL)
 #   MEM_FRACTION  0.88 (qwen38 presets)
 #   MAX_RUNNING   4 (qwen38 presets: max running requests = decode cuda-graph max bs)
 #   REF           main (branch, tag or commit; resolved to a SHA, cached as patches-<sha>,
@@ -47,7 +49,8 @@
 set -euo pipefail
 
 # Each preset_<name> sets the defaults for one model: P_MODEL, P_IMAGE, P_ARGS
-# (sglang args), P_ENV (extra container env) and P_PLE (1 = mount PLE_DIR at /ple).
+# (sglang args), P_ENV (extra container env), P_PLE (1 = mount PLE_DIR at /ple) and
+# P_DRAFTS (extra repos to pre-download, e.g. an external speculative draft).
 
 qwen38_common() {
     P_IMAGE="xomoxcc/dgx-spark-sglang:0.5.21-sm121"
@@ -58,6 +61,7 @@ qwen38_common() {
         SGLANG_MAMBA_SSM_DTYPE=float32  # non-float32 breaks spec decode
     )
     P_PLE=1
+    P_DRAFTS=()
     P_ARGS=(
         --trust-remote-code
         --kv-cache-dtype auto
@@ -106,6 +110,38 @@ preset_qwen38_radixark() {
     P_ARGS+=(--quantization modelopt_fp4)
 }
 
+# roles/k8s_dgx/model_profiles/nvidia-nvidia-nemotron-3.5-lightning-30b-a3b-nvfp4.yml; SPEC=0 disables DSPARK
+preset_nemotron35_lightning() {
+    P_IMAGE="xomoxcc/dgx-spark-sglang:0.5.21-sm121"
+    P_MODEL="nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4"
+    P_ENV=(SGLANG_ENABLE_JIT_DEEPGEMM=false)
+    P_PLE=0
+    P_DRAFTS=()
+    P_ARGS=(
+        --kv-cache-dtype fp8_e4m3
+        --mem-fraction-static "${MEM_FRACTION:-0.78}"
+        --context-length 262144
+        --cuda-graph-max-bs-decode "${MAX_RUNNING:-4}"
+        --mamba-ssm-dtype float16
+        --mamba-radix-cache-strategy extra_buffer
+        --reasoning-parser nemotron_3
+        --tool-call-parser qwen3_coder
+    )
+    if [[ "${SPEC:-1}" == "1" ]]; then
+        P_DRAFTS=("nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4-DSpark")
+        # attention-sink drafts raise unless the draft backend is trtllm_mha; num_draft_tokens must be block_size + 1
+        P_ARGS+=(
+            --speculative-algorithm DSPARK
+            --speculative-draft-model-path "${P_DRAFTS[0]}"
+            --speculative-num-steps 1
+            --speculative-eagle-topk 1
+            --speculative-dspark-block-size 3
+            --speculative-num-draft-tokens 4
+            --speculative-draft-attention-backend trtllm_mha
+        )
+    fi
+}
+
 # Any model: MODEL is required, sglang args come from MODEL_ARGS and the command line.
 preset_custom() {
     P_IMAGE="xomoxcc/dgx-spark-sglang:0.5.21-sm121"
@@ -113,6 +149,7 @@ preset_custom() {
     P_ARGS=()
     P_ENV=()
     P_PLE=0
+    P_DRAFTS=()
 }
 
 list_presets() {
@@ -133,6 +170,7 @@ declare -F "preset_${PRESET}" >/dev/null || {
 
 IMAGE="${IMAGE:-${P_IMAGE}}"
 MODEL="${MODEL:-${P_MODEL}}"
+DRAFT_MODELS="${DRAFT_MODELS-$(IFS=,; echo "${P_DRAFTS[*]}")}"
 [[ -n "${MODEL}" ]] || { echo "ERROR: PRESET=${PRESET} needs MODEL" >&2; exit 2; }
 REF="${REF:-main}"
 REPO="${REPO:-vroomfondel/dgxarley}"
@@ -196,9 +234,8 @@ mkdir -p "${launch_dir}"
 
 cat > "${launch_dir}/download.py" <<'EOF'
 import os, subprocess, sys
-model = os.environ["SGLANG_MODEL"]
-if os.path.isdir(model):
-    sys.exit(0)
+models = [os.environ["SGLANG_MODEL"]]
+models += [m for m in os.environ.get("SGLANG_DRAFT_MODELS", "").split(",") if m]
 code = (
     "import sys; from huggingface_hub import snapshot_download; "
     "print(snapshot_download(repo_id=sys.argv[1], cache_dir='/root/.cache/huggingface/hub', "
@@ -206,14 +243,18 @@ code = (
 )
 # no-xet retry: hf_xet "Unable to parse string as hex hash value" (FIXED_UPSTREAM_HF_XET_BUG.md)
 attempts = [("xet", {}, "0"), ("no-xet", {"HF_HUB_DISABLE_XET": "1"}, "0"), ("local cache", {}, "1")]
-for label, extra_env, offline in attempts:
-    r = subprocess.run([sys.executable, "-c", code, model, offline],
-                       env={**os.environ, **extra_env}, stdout=subprocess.PIPE, text=True)
-    if r.returncode == 0:
-        print(f"=== model ready ({label}): {r.stdout.strip().splitlines()[-1]}", flush=True)
-        sys.exit(0)
-    print(f"WARNING: model download via {label} failed", file=sys.stderr, flush=True)
-sys.exit(f"ERROR: {model} is neither downloadable nor complete in the local cache")
+for model in models:
+    if os.path.isdir(model):
+        continue
+    for label, extra_env, offline in attempts:
+        r = subprocess.run([sys.executable, "-c", code, model, offline],
+                           env={**os.environ, **extra_env}, stdout=subprocess.PIPE, text=True)
+        if r.returncode == 0:
+            print(f"=== model ready ({label}): {r.stdout.strip().splitlines()[-1]}", flush=True)
+            break
+        print(f"WARNING: {model} download via {label} failed", file=sys.stderr, flush=True)
+    else:
+        sys.exit(f"ERROR: {model} is neither downloadable nor complete in the local cache")
 EOF
 
 cat > "${launch_dir}/launch.sh" <<'EOF'
@@ -235,6 +276,7 @@ fi
 
 env_args=(
     -e "SGLANG_MODEL=${MODEL}"
+    -e "SGLANG_DRAFT_MODELS=${DRAFT_MODELS}"
     -e "TP=${TP}"
     -e HF_HOME=/root/.cache/huggingface
     -e "SKIP_DOWNLOAD=${SKIP_DOWNLOAD:-0}"
