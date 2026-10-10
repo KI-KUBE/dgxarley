@@ -40,6 +40,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed (Apertus card silent)
     release_date: "2025-09-02"  # base Apertus-70B-Instruct-2509 launch (Swiss AI); NVFP4 community quant (bg-digitalservices) later
     info_url: "https://huggingface.co/bg-digitalservices/Apertus-70B-Instruct-2509-NVFP4"
+    litellm_input_cost_per_token: 0.00000082   # $0.82 per 1M, Artificial Analysis list price for Swiss AI Initiative API (Public AI; apertus.ai EUR 0.70), checked 2026-10-10
+    litellm_output_cost_per_token: 0.00000292  # $2.92 per 1M, Artificial Analysis list price for Swiss AI Initiative API (apertus.ai EUR 2.80), checked 2026-10-10
     nccl_transport: "roce"
     # ~42.8 GB / TP=4 → ~10.7 GB/GPU. TP=4 valid: num_key_value_heads=8,
     # 8 % 4 == 0 → 2 KV heads/rank (clean GQA); num_attention_heads 64 % 4 == 0.

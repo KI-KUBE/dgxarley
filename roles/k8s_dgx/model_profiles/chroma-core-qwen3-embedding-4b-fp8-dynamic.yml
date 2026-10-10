@@ -33,6 +33,8 @@ _model_profile:
     knowledge_cutoff: null
     release_date: "2025-06-05"  # Qwen3-Embedding series launch
     info_url: "https://huggingface.co/chroma-core/Qwen3-Embedding-4B-FP8-Dynamic"
+    litellm_input_cost_per_token: 0.00000002   # $0.02 per 1M, OpenRouter list price (DeepInfra; base model Qwen3-Embedding-4B), embedding model: output is 0, checked 2026-10-10
+    litellm_output_cost_per_token: 0.0  # embedding model, no output tokens, checked 2026-10-10
     # 4B DENSE Qwen3 decoder repurposed for embeddings (last-token pooling),
     # quantized to FP8 E4M3 dynamic (compressed-tensors). Native output dim 2560
     # (MRL-capable, but we serve the native dim). ~4 GiB FP8 weights → trivially

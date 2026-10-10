@@ -39,6 +39,8 @@ _model_profile:
     knowledge_cutoff: null  # not officially disclosed (Hermes 4.3 card silent)
     release_date: "2025-11-14"  # quant build date (config quant version 0.12.3.a20251114); base Hermes 4.3 (Seed-OSS-36B finetune) earlier
     info_url: "https://huggingface.co/cyankiwi/Hermes-4.3-36B-AWQ-4bit"
+    litellm_input_cost_per_token: 0.00000013   # $0.13 per 1M, PROXY: Hermes 4 70B via Nous (Artificial Analysis third-party hosts; no hosted 4.3 36B; OpenRouter hermes-4-405b $1.00), checked 2026-10-10
+    litellm_output_cost_per_token: 0.0000004  # $0.40 per 1M, PROXY: Hermes 4 70B via Nous (OpenRouter hermes-4-405b $3.00), checked 2026-10-10
     nccl_transport: "roce"
     # ~18 GB / TP=4 → ~4.5 GB/GPU. TP=4 valid: num_key_value_heads=8, 8 % 4 == 0
     # → 2 KV heads/rank (clean GQA); num_attention_heads 80 % 4 == 0. The model
