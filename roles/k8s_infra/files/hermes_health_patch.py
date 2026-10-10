@@ -6,7 +6,7 @@ Silences the per-poll log line
 AND lets the dashboard's "Gateway" badge actually read the richer /health/detailed
 payload (PID, uptime, connected platforms) instead of only the thin /health body.
 
-WHY THIS IS NEEDED (upstream regression, unfixed as of 2026-07-08):
+WHY THIS IS NEEDED (upstream regression; partially addressed in v0.21.6, see RE-SYNC):
   The dashboard's cross-container liveness probe
   (hermes_cli/web_server.py::_probe_gateway_health, driven by the DEPRECATED
   GATEWAY_HEALTH_URL env var) always hits /health/detailed FIRST with a plain
@@ -40,10 +40,18 @@ RE-SYNC on a hermes.image_tag bump: confirm
   * /health/detailed still reaches self._check_auth (since v2026.9.14 via the @_require_auth
     decorator, which calls it at request time, so the class-level wrap still intercepts it);
   * _probe_gateway_health (hermes_cli/web_server_gateway.py since v2026.9.14) still sends no
-    Authorization header.
-If upstream finally fixes the probe (sends the key) or makes /health/detailed public, DELETE
-this patch. Live check: the banner below appears in the gateway log and there are 0
-"rejected invalid API key" warnings.
+    Authorization header UNLESS API_SERVER_KEY is in the dashboard process env: since v0.21.6
+    (issue #76051) it adds `Bearer $API_SERVER_KEY` to the /health/detailed request. Our
+    dashboard container does not carry API_SERVER_KEY (only the gateway sidecar does; it is
+    not merged into /opt/data/.env either), so the probe is still unauthenticated and this
+    patch still fires. Giving the dashboard container the same API_SERVER_KEY env would make
+    the patch redundant (keep it as belt-and-suspenders or delete it then).
+  * the interpreter is still the sealed /opt/hermes/.venv (python3.14 since v0.21.6, pm-managed):
+    hermes_bootstrap.activate_dependencies() rewrites sys.path in-process but never re-execs,
+    so site.py has already run this .pth; prune_site_pth() only strips _virtualenv/__editable__
+    .pth at image build time, not ours (subPath-mounted at pod start).
+If upstream makes /health/detailed public, DELETE this patch. Live check: the banner below
+appears in the gateway log and there are 0 "rejected invalid API key" warnings.
 """
 
 import sys

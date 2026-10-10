@@ -196,7 +196,7 @@
 # === venv site-packages discovery (ONCE, image-derived — NOT per-user) =======
 # The health-patch .py + .pth must be subPath-mounted into the agent image's
 # venv site-packages, whose path carries a pythonX.Y segment that bumps with the
-# base image. Rather than hardcode "python3.13", probe the image ONCE with its
+# base image. Rather than hardcode "python3.14", probe the image ONCE with its
 # own venv interpreter and derive the real dir. Runs before the per-user loop so
 # a fact set here is reused by every user's Deployment render (the venv is a
 # property of the IMAGE, identical across users). Falls back to a literal path
@@ -266,7 +266,7 @@
     # silently no-ops (patch inert, no crash).
     - name: Fall back to a literal venv site-packages path if the probe set nothing
       ansible.builtin.set_fact:
-        hermes_venv_site_packages: "/opt/hermes/.venv/lib/python3.13/site-packages"
+        hermes_venv_site_packages: "/opt/hermes/.venv/lib/python3.14/site-packages"
       when: hermes_venv_site_packages is not defined
   always:
     - name: Remove venv-probe pod
@@ -291,7 +291,7 @@
 # === Cluster-wide patch ConfigMap (subPath-overlaid onto the agent image) ===
 # Local fix for upstream plugins/platforms/email/adapter.py — adds Working/Done
 # folder lifecycle, IMAP APPEND to Sent, and EMAIL_PROCESS_EXISTING. File is
-# pinned to the upstream source tree of hermes.image_tag (currently v2026.7.1);
+# pinned to the upstream source tree of hermes.image_tag (currently v0.21.6);
 # bump both together (re-fetch upstream adapter.py, re-apply [PATCH-N] sections).
 # NOTE: at v2026.7.1 upstream #41112 MOVED this file — it was
 # gateway/platforms/email.py through v2026.6.19. The ConfigMap data key and the

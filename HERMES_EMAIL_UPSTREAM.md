@@ -131,18 +131,16 @@ contracts listed above `hermes.image_tag`.
 
 ### Open watch item
 
-- Upstream `c13ea774e6` (on `main`, not yet in a tag) replaces `from hermes_cli import
-  __version__` in `_send_imap_id()` with `hermes_cli.version_info.get_version_info()`. It is
-  non-fatal (`except Exception` falls back to `"0"`), but take it along at the next re-sync.
-- 2026-10-03: still no tag after v2026.9.24 (adapter.py blob 7d68f2dfbe, 50705 B). On `main`
-  (blob 419a12ebd2, 55859 B) adapter.py has since gained, beyond `c13ea774e6`: six
-  `fix(email)` commits from 2026-09-27 (From parsing via the stdlib, SPF/DKIM/DMARC clause
-  scoping; `d0c588972e` to `3f4533b9de`), `9bcbe7b5df` (i18n pass, 2026-09-28, +3/-2) and
-  `33c7018054` (2026-10-02, `splits_long_messages = True` so oversized cron output goes out as
-  one email). None of these are in v2026.9.24. Expect merge conflicts around [PATCH-6] and
-  [PATCH-11] (sender and auth handling) at the next re-sync. PRs #28697, #28699, #28702 and
-  #113192 are all still open and `CONFLICTING` (fresh `gh pr view` on 2026-10-03), with no
-  maintainer review or comment activity.
+- 2026-10-10: re-synced to v0.21.6 (adapter.py blob 5fb7141781, 60267 B). Upstream now
+  authorizes BEFORE the RFC822 fetch (`81706c8b30`, bounded header preflight +
+  `_mark_uid_consumed`), so a sender rejected there never reaches `_dispatch_message` and the
+  [PATCH-6] finalize. [PATCH-5] gained an INBOX→Done MOVE inside `_mark_uid_consumed` to keep
+  rejected mail out of INBOX. Sender authentication (`4f39bd4f35`) now fails CLOSED for every
+  sender when `authserv_id` is unset and `require_authenticated_sender` is true (new env
+  `EMAIL_AUTHSERV_ID`, warned once per account at connect); our default
+  `require_authenticated_sender_default: false` is unaffected, a per-user `true` now also needs
+  `authserv_id`. `c13ea774e6` (version_info) taken along. PRs #28697, #28699, #28702 and
+  #113192 still open, no maintainer activity (`gh pr view` 2026-10-10).
 
 
 ## Operational notes
