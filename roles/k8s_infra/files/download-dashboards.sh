@@ -585,6 +585,18 @@ raw litellm-24965.json "https://grafana.com/api/dashboards/24965/revisions/lates
         else . end
       )
     | .panels |= map(if .type == "bargauge" then .fieldConfig.defaults.displayName = "${__field.name}" else . end)
+    # Failed-requests panels: per-step deltas, "unless offset" catches the first (already non-zero) sample that increase() misses.
+    | ("litellm_proxy_failed_requests_metric_total{job=~\"$job\"}") as $f
+    | .panels |= map(
+        if .id == 9 then
+          .interval = "1m"
+          | .targets |= map(.expr = "(\($f) - \($f) offset $__interval) > 0 or (\($f) unless \($f) offset $__interval)")
+          | .transformations |= map(select(.id != "seriesToRows"))
+        elif .id == 17 then
+          .title = "Failed Requests (top 10, range)"
+          | .targets |= map(.expr = "sum by (route, exception_class, exception_status, api_key_alias, user_agent, client_ip) (sum_over_time(((\($f) - \($f) offset 1m) > 0 or (\($f) unless \($f) offset 1m))[$__range:1m]))")
+        else . end
+      )
     | (.. | objects | select((.title? // "") | startswith("Total Spend per")) | .targets[]?.expr) |=
         gsub("(?<m>litellm_spend_metric_total\\{[^}]*\\})"; "increase(" + .m + "[$__range])")
     | ([.panels[] | select(.title == "Total Spend per Team" or .title == "Total Spend per Key" or .title == "Total Spend per Model")]) as $spend
