@@ -2,10 +2,13 @@
 # Model profile: nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4
 # Loaded by include_vars in the k8s_dgx role, merged into sglang_model_profiles.
 #
-# STATUS 2026-08-28: FIRST CONTACT, NOTHING VALIDATED ON THIS CLUSTER.
+# STATUS 2026-10-10: NOT YET BOOTED ON THIS CLUSTER, NOTHING VALIDATED.
 # Every value below is transcribed from the checkpoint's own config.json /
 # hf_quant_config.json and from the OFFICIAL SGLang cookbook cell for
 # "DGX Spark (GB10 / SM121) + NVFP4", not measured here. No TESTLOG yet.
+# The image blocker from first contact (2026-08-28) is gone: the default image
+# xomoxcc/dgx-spark-sglang:0.5.21-sm121 carries everything this profile needs,
+# see IMAGE STATUS below. Target + DSpark draft are in hf_preload_models.
 #
 # WHAT
 # NVIDIA's 30B-total / 3B-active hybrid reasoning MoE, the "Lightning" line of
@@ -44,15 +47,17 @@
 # That statement is scoped to their vLLM recipe; SGLang picks its own kernels.
 # This is the SAME checkpoint shape as nvidia/Qwen3.6-35B-A3B-NVFP4 (mixed
 # W4A16_NVFP4 + quantized lm_head), which needed upstream PR #27906. That PR is
-# MERGED and shipped in v0.5.18, so the recipe flag APPLY_QWEN36_MIXED_NVFP4_PR27906
-# is already 0 in scripts/patches/sglang-0.5.18-sm121.recipe. Nothing to backport
+# MERGED and shipped since v0.5.18, so the recipe flag APPLY_QWEN36_MIXED_NVFP4_PR27906
+# is 0 in every recipe from sglang-0.5.18-sm121.recipe on. Nothing to backport
 # for the TARGET weights.
 #
-# >>> IMAGE BLOCKER: SPECULATIVE DECODING NEEDS PR #36186, WHICH IS NOT IN v0.5.18 <<<
+# IMAGE STATUS: SPECULATIVE DECODING NEEDS PR #36186, SHIPPED SINCE v0.5.19
 # sgl-project/sglang#36186 "[Model] Support Nemotron 3.5 Lightning speculative
-# decoding" was MERGED 2026-08-25. v0.5.18 was tagged 2026-08-22, so it is
-# main-only right now (no v0.5.19 exists yet as of 2026-08-28). It touches 18
-# files; the four that matter here:
+# decoding" was MERGED 2026-08-25 as 41e7612, after the v0.5.18 tag
+# (2026-08-22). v0.5.19 contains it, so sglang-0.5.19/0.5.20/0.5.21-sm121.recipe
+# all set APPLY_NEMOTRON35_SPEC_PR36186=0, and the default image
+# xomoxcc/dgx-spark-sglang:0.5.21-sm121 has it natively. Only an image <= 0.5.18
+# lacks it. It touches 18 files; the four that matter here:
 #   models/nemotron_h.py                 +42  the set_dspark_layers_to_capture /
 #                                             residual-layer capture hook
 #   layers/quantization/modelopt_quant.py +13 ModelOpt W4A16 NVFP4 for the
@@ -63,22 +68,16 @@
 #                                             bonus anchor)
 #   arg_groups/overrides.py               +26 the Nemotron-H target/draft
 #                                             attention-backend resolver
-# Without #36186 the DSPARK path below dies at boot in
+# On an image without #36186 the DSPARK path below dies at boot in
 # model_runner_components/attention_backend_setup.py with
 #   "Model NemotronHForCausalLM implements neither set_dspark_layers_to_capture
 #    nor set_dflash_layers_to_capture, one of which is required for DFLASH/DSPARK."
-# (verified against the local sglang checkout: nemotron_h.py has no aux-hidden-
-# state capture, and dflash_use_aux_hidden_state is set unconditionally for the
+# (verified against the v0.5.18 sources: nemotron_h.py had no aux-hidden-state
+# capture, and dflash_use_aux_hidden_state is set unconditionally for the
 # dflash family in spec_aux_hidden_state.py::_resolve_dflash_aux_hidden_state).
-# TO DEPLOY WITH SPECULATION, one of:
-#   a) cut a recipe whose SGLANG_REF is >= 41e7612 (the #36186 merge commit), or
-#   b) add an APPLY_NEMOTRON35_SPEC_PR36186 cherry-pick flag to a 0.5.18-based
-#      recipe, same pattern as APPLY_QWEN4EXP_PR36497 in sglang-0.5.18-sm121.recipe.
-# The upstream cookbook itself ships a dedicated dev image for exactly this
-# reason: lmsysorg/sglang:dev-nemotron3-5-lightning (multi-arch, covers GB10).
-# ROLLBACK THAT WORKS TODAY: set speculative_enabled to false. The TARGET alone
-# (NemotronH + mixed W4A16_NVFP4 + quantized lm_head) is fully covered by v0.5.18,
-# so the pinned xomoxcc/dgx-spark-sglang:0.5.18-sm121 should serve it unspeculated.
+# Rollback if speculation misbehaves: set speculative_enabled to false. The TARGET
+# alone (NemotronH + mixed W4A16_NVFP4 + quantized lm_head) is covered by every
+# image since v0.5.18.
 #
 # SPECULATIVE OPTIONS THIS MODEL SHIPS (three, all published by NVIDIA)
 #   MTP    built into the target checkpoint (num_nextn_predict_layers 1). SGLang
@@ -276,8 +275,9 @@ _model_profile:
     # max_mamba_cache_size: 160
     #
     # ---- Speculative decoding: DSPARK with the published external draft ----
-    # WIRED PER EXPLICIT REQUEST. Requires an image carrying PR #36186; see the
-    # IMAGE BLOCKER section in the header. UNVALIDATED on this cluster.
+    # WIRED PER EXPLICIT REQUEST. Requires an image carrying PR #36186 (any
+    # image >= 0.5.19, incl. the 0.5.21 default); see IMAGE STATUS in the header.
+    # UNVALIDATED on this cluster.
     #
     # Parameter shape is fully constrained, there is nothing to tune here:
     #   num_steps 1  and  eagle_topk 1  are the ONLY values DSpark accepts;
@@ -319,11 +319,14 @@ _model_profile:
     # So the resolver's own SM121 default would trip the assert from step 2. The
     # resolver fills this in only while it is None, so setting it explicitly is
     # both the fix and, by construction, an override of the resolver.
-    # OPEN RISK, first thing to check on boot: whether trtllm_mha is actually
-    # usable for the draft on SM121. It is an sm100-oriented kernel family and
-    # this repo already carries an SM121 trtllm veto elsewhere (the QSA decode
-    # runtime patch p65). If it turns out unusable, DSpark is off the table on
-    # GB10 until upstream fixes the resolver/assert pair, and the fallbacks are
+    # Source check against v0.5.21 (2026-10-10), not yet confirmed on hardware:
+    # trtllm_mha_backend.py runs its XQA impl (with attention-sink support)
+    # whenever get_platform().is_sm120, and that maps to is_sm120_supported(),
+    # i.e. device_capability_major == 12, which INCLUDES GB10 (sm_121). So the
+    # draft backend should construct on this cluster. The XQA impl rejects
+    # compact ragged verify (_assert_ragged_verify_supported), which the default
+    # SGLANG_RAGGED_VERIFY_MODE=static does not use; leave that env unset.
+    # If it still turns out unusable on boot, the fallbacks are
     # ALTERNATIVE 1 (MTP) or ALTERNATIVE 2 (DFlash) - neither carries attention
     # sinks, so both are happy with the resolver's flashinfer draft and neither
     # needs this key. Report it upstream if confirmed: the published DGX Spark
@@ -351,8 +354,7 @@ _model_profile:
     #   mamba_scheduler_strategy: extra_buffer
     #
     # This path needs LESS of PR #36186 than DSpark does (no draft-model layout,
-    # no aux-hidden-state capture hook), so it is the more likely of the two to
-    # come up on a stock v0.5.18 image, and it is the natural fallback if the
+    # no aux-hidden-state capture hook), so it is the natural fallback if the
     # DSpark draft turns out to be blocked. One caveat carried over from the
     # family: the MTP head is EXCLUDED from quantization here (the "mtp*" wildcard
     # in hf_quant_config exclude_modules), i.e. it is BF16 on a mixed-quant
@@ -376,19 +378,16 @@ _model_profile:
     # Mind the coupling difference: DSpark wants gamma + 1 draft tokens, DFlash
     # wants exactly block_size. Both are asserted at render time. Like DSpark,
     # DFlash needs num_steps 1 / eagle_topk 1 (anything else is overridden with a
-    # warning), pp_size == 1, and an image carrying PR #36186. The DFlash draft is
+    # warning), pp_size == 1, and an image carrying PR #36186 (>= 0.5.19). The DFlash draft is
     # a 6-layer full-attention model with YaRN rope, also W4A16_NVFP4, also
     # has_lm_head false.
     #
     # ---- ROLLBACK to bare serving ----
     # speculative_enabled: false. Every other key above stays valid, the
     # speculative_* keys and mamba_scheduler_strategy become inert, and the target
-    # alone should serve on the pinned v0.5.18 image (its mixed W4A16_NVFP4 +
-    # quantized lm_head support is PR #27906, merged and shipped in v0.5.18).
-    # This is the recommended FIRST boot: prove the target serves before adding
-    # a drafter that needs an image nobody has built yet.
+    # alone serves on any image since v0.5.18 (its mixed W4A16_NVFP4 + quantized
+    # lm_head support is PR #27906). Booting it bare first isolates target
+    # problems from drafter problems.
     #
-    # Pinned to the newest SM121 build. Sufficient for the target, NOT sufficient
-    # for the DSPARK block above (needs PR #36186, merged 2026-08-25, after the
-    # v0.5.18 tag of 2026-08-22). Repoint this once a #36186-carrying image exists.
-    # sglang_image: "xomoxcc/dgx-spark-sglang:0.5.18-sm121"
+    # No sglang_image override: the default (>= 0.5.19) already carries PR #36186.
+    # Never pin this profile to <= 0.5.18, that image cannot boot the DSPARK block.

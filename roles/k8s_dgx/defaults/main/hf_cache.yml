@@ -73,6 +73,8 @@ hf_preload_models:
   - "nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
   - "nvidia/Nemotron-3-Super-120B-A12B-BF16-MTPv2"
   - "nvidia/NVIDIA-Nemotron-Labs-3-Puzzle-75B-A9B-NVFP4"
+  - "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4"
+  - "nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4-DSpark"
   - "nvidia/Qwen3-Next-80B-A3B-Thinking-NVFP4"
   - "nvidia/DeepSeek-V4-Flash-NVFP4"
   - "mmangkad/DeepSeek-V4-Flash-0731-NVFP4"
