@@ -257,3 +257,20 @@ Current profile (MTPv2 4/1/5, TP4/EP4, `--max-total-tokens` cap as in Run 5b), h
 - The single wrong answer at n4 and n8 is id 12 (pred 12, gt 13, `finish=stop`), which also flips between cases in the 10-08 sweep. No char runs, no failures other than that, no truncation, no restarts.
 - Drift anchors sit slightly above the 10-08 values (n1 +3.9 %, n8 +7.9 %), within the sample-size noise noted above, so the n4 figure is comparable to the sweep. n4 peak of 202.6 fits between n1 (85.9) and n8 (299.4); scaling n1 to n4 is 2.4x, n4 to n8 is 1.5x.
 - Smoke "17*23" returned 391 with reasoning_content before the runs.
+
+## Run 7: bfloat16 SSM state (2026-10-11)
+
+Profile now sets `mamba_ssm_dtype: "bfloat16"` (cache 160 slots, MTPv2 4/1/5, TP4/EP4), head `sglang-head-7569c95448-5z92v`, ready 3.5 min after the rollout (12:30 to 12:35 UTC). Levels and question counts as in the Run 4 sweep plus n4 (4/16/32/64/128), 20 s pause, max-tokens 8192, temperature 0. Cluster idle before the deploy; the head log has exactly 260 POSTs (16 probe + 244 bench), so no foreign traffic.
+
+| level | questions | peak tok/s | agg tok/s | correct/scored | float32 peak (Run 4 case 02 / Run 6) |
+|-------|-----------|------------|-----------|----------------|------------------------------|
+| n1    | 4         | 82.1       | 77.8      | 4/4            | 82.7 |
+| n4    | 16        | 207.8      | 158.4     | 16/16          | 202.6 |
+| n8    | 32        | 266.3      | 229.2     | 31/32          | 277.4 |
+| n16   | 64        | 419.3      | 219.4     | 63/64          | 377.2 |
+| n32   | 128       | 541.8      | 340.0     | 124/128        | 513.2 |
+
+- Boot: `mamba_ssm_dtype` bfloat16, `max_running_requests` 32, `max_total_num_tokens` 23.27M, 15.45 GB free after capture (float32 15.5 GB). FP8 KV "no scaling factors" warning twice (target + draft), as before.
+- 32 running at n32, `#queue-req` max 2, 0 decode batches with `cuda graph: False` (the 187 such lines are all prefill batches), accept len mean 4.04 over 101 logged decode batches (sweep 4.02). Collapse probe 0/16, tool calls 4/4, no truncation, no errors.
+- Engine gen throughput by `#running-req`: 1: 80 mean, 8: 224, 14-18: 284, 28-32: 396 mean / 505 max (float32 sweep head log at 28-32: 352 / 429).
+- Verdict: bfloat16 is neutral to slightly positive on TP4 (n1..n8 within -4 to +3 %, n16 +11 %, n32 +6 %, engine at full load +12 %); keep it. Comparison table: `SINGLE_CLUSTER_COMPARE.md`.

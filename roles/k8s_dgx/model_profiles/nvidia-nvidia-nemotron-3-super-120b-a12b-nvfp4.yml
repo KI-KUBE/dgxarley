@@ -231,7 +231,7 @@ _model_profile:
     # 524288. Was 96 (assumed ratio 3 → 32, but extra_buffer makes it ratio≈5 → 19).
     # mamba_full_memory_ratio: 3.0
     max_mamba_cache_size: 160
-    # bf16 halves the ssm cache; MTPv2 4/1/5 accept len unchanged (validated TP1 only, SINGLE_CLUSTER_COMPARE.md)
+    # bf16 halves the ssm cache; MTPv2 4/1/5 accept len unchanged (validated TP1 and TP4, SINGLE_CLUSTER_COMPARE.md)
     mamba_ssm_dtype: "bfloat16"
     pp_async_batch_depth: 0
     # DeepGemm targets FP8/ue8m0 scale format; for NVFP4 (scale_fmt != ue8m0) its JIT
