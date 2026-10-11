@@ -41,7 +41,7 @@
 #   MEM_FRACTION  0.88 (qwen38 presets; nemotron3_super: 0.90)
 #   MAX_RUNNING   4 (qwen38 presets: max running requests = decode cuda-graph max bs)
 #   MAMBA_CACHE   128 (nemotron3_super: --max-mamba-cache-size, 5 slots per request with MTP 4/1/5)
-#   MAMBA_SSM_DTYPE bfloat16 (nemotron3_super: float32 doubles the cache memory, pair it with MAMBA_CACHE=64)
+#   MAMBA_SSM_DTYPE bfloat16 (nemotron3_super: float32 doubles the cache memory, pair it with MAMBA_CACHE=64; qwen38 presets: float32)
 #   REF           main (branch, tag or commit; resolved to a SHA, cached as patches-<sha>,
 #                 offline fallback: last SHA seen for REF, else the newest cache)
 #   REPO          vroomfondel/dgxarley
@@ -66,7 +66,7 @@ qwen38_common() {
         SGLANG_ENABLE_JIT_DEEPGEMM=false
         SGLANG_QWEN4_PLE_FILE_PREFETCH=1
         SGLANG_QWEN4_PLE_REUSE=1  # not read by 0.5.21, which reuses the /ple file by name+size
-        SGLANG_MAMBA_SSM_DTYPE=float32  # non-float32 breaks spec decode
+        SGLANG_MAMBA_SSM_DTYPE="${MAMBA_SSM_DTYPE:-float32}"  # non-float32 breaks spec decode (unverified)
     )
     P_PLE=1
     P_DRAFTS=()
@@ -188,7 +188,7 @@ preset_qwen38_27b() {
         --context-length 262144
         --max-running-requests 48
         --cuda-graph-max-bs-decode "${MAX_RUNNING:-16}"
-        --mamba-ssm-dtype float32
+        --mamba-ssm-dtype "${MAMBA_SSM_DTYPE:-float32}"
         --mamba-radix-cache-strategy extra_buffer
         --reasoning-parser qwen3
         --tool-call-parser qwen3_coder
