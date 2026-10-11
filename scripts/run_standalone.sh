@@ -13,6 +13,7 @@
 #   qwen38_radixark  RadixArk/Qwen3.8-Flash-Next-NVFP4, modelopt_fp4, no MTP
 #   nemotron35_lightning  nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4, DSPARK draft
 #   qwen38_27b       vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt, DSPARK draft (SPEC=eagle: MTP head)
+#   nemotron3_super  nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4, EAGLE MTPv2 draft (SPEC=builtin: MTP head)
 #   custom           any MODEL, args only from MODEL_ARGS / the command line
 # Both Qwen3.8 checkpoints exceed the unified pool, so their presets offload the 51 GB
 # PLE table to a file-backed mmap (PLE_DIR, must be local NVMe). Not cluster-validated.
@@ -27,13 +28,13 @@
 #   PRESET=list scripts/run_standalone.sh
 #
 # Environment overrides:
-#   PRESET        qwen38_nvidia | qwen38_radixark | nemotron35_lightning | qwen38_27b | custom | list
+#   PRESET        qwen38_nvidia | qwen38_radixark | nemotron35_lightning | qwen38_27b | nemotron3_super | custom | list
 #   MODEL         from the preset (required for custom)
 #   IMAGE         from the preset (xomoxcc/dgx-spark-sglang:0.5.21-sm121)
 #   MODEL_ARGS    sglang args replacing the preset args entirely
 #   SPEC          1 (qwen38_nvidia: 0 = no MTP; nemotron35_lightning: 0 = no draft, eagle = built-in MTP head)
 #   GAMMA         7 (nemotron35_lightning, qwen38_27b: DSPARK block size; num_draft_tokens = GAMMA + 1)
-#   MTP_STEPS     3 (qwen38_nvidia, qwen38_27b SPEC=eagle: speculative steps; num_draft_tokens = MTP_STEPS + 1)
+#   MTP_STEPS     3 (qwen38_nvidia, qwen38_27b SPEC=eagle; nemotron3_super: 4; num_draft_tokens = MTP_STEPS + 1)
 #   ADAPTIVE      0 (qwen38_nvidia: 1 = --speculative-adaptive, tiers 1/8 -> [1,2,3], 32 -> [1,2], start 2)
 #   DRAFT_MODEL   RadixArk/Qwen3.8-27B-DSpark (qwen38_27b: DSPARK draft repo or container-local dir)
 #   DRAFT_MODELS  from the preset (comma-separated repos pre-downloaded next to MODEL)
@@ -208,6 +209,46 @@ preset_qwen38_27b() {
         P_ARGS+=(
             --speculative-algorithm EAGLE
             --speculative-draft-model-path "${P_MODEL}"
+            --speculative-num-steps "${steps}"
+            --speculative-eagle-topk 1
+            --speculative-num-draft-tokens "$((steps + 1))"
+        )
+    fi
+}
+
+# roles/k8s_dgx/model_profiles/nvidia-nvidia-nemotron-3-super-120b-a12b-nvfp4.yml at TP=1; SPEC=0 disables, SPEC=builtin uses the in-checkpoint MTP head
+preset_nemotron3_super() {
+    P_IMAGE="xomoxcc/dgx-spark-sglang:0.5.21-sm121"
+    P_MODEL="nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4"
+    P_ENV=(SGLANG_ENABLE_JIT_DEEPGEMM=false)
+    P_PLE=0
+    P_DRAFTS=()
+    P_ARGS=(
+        --trust-remote-code
+        --quantization modelopt_fp4
+        --kv-cache-dtype fp8_e4m3
+        --attention-backend flashinfer
+        --moe-runner-backend flashinfer_cutlass
+        --fp4-gemm-backend flashinfer_cutlass
+        --cuda-graph-backend-prefill disabled
+        --mem-fraction-static "${MEM_FRACTION:-0.85}"
+        --context-length 262144
+        --max-running-requests "${MAX_RUNNING:-32}"
+        --cuda-graph-max-bs-decode "${MAX_RUNNING:-32}"
+        --reasoning-parser nemotron_3
+        --tool-call-parser qwen3_coder
+    )
+    if [[ "${SPEC:-1}" == "1" || "${SPEC}" == "builtin" ]]; then
+        local steps="${MTP_STEPS:-4}"
+        local draft="${P_MODEL}"
+        if [[ "${SPEC:-1}" == "1" ]]; then
+            P_DRAFTS=("nvidia/Nemotron-3-Super-120B-A12B-BF16-MTPv2")
+            draft="${P_DRAFTS[0]}"
+        fi
+        P_ARGS+=(
+            --speculative-algorithm EAGLE
+            --speculative-draft-model-path "${draft}"
+            --speculative-draft-model-quantization unquant
             --speculative-num-steps "${steps}"
             --speculative-eagle-topk 1
             --speculative-num-draft-tokens "$((steps + 1))"
