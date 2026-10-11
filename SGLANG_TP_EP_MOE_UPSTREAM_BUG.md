@@ -316,7 +316,30 @@ no substantive conclusion changes.
 > ("2-bit experts, expert streaming, N-contiguous GEMV", open) touches a
 > different `moe_wna16.py` code path (generic GPTQ zeros unpack), not the
 > qzeros EP-remap closure. All three monkey-patches (p20, p23, p28) remain
-> required and unchanged.
+
+> **Re-verified 2026-10-11:** No new SGLang tag since v0.5.21 (2026-10-02);
+> `git tag --contains e289989933` still returns nothing, so the moe_wna16
+> qzeros fix (PR #41807) is in no release. No commits to `moe_wna16.py` on
+> `main` (`ad8b1e1f85`, 2026-10-10) since 2026-10-03. Offline replay of the
+> patch set (real patch modules against git-archive trees): `p20` applies on
+> v0.5.21 but reports ANCHOR-DRIFT (no write, no crash) on `main`, as
+> predicted, so it becomes a warning-only no-op on the first image that
+> contains `e289989933`; `p23` applies on v0.5.21 and `main`. Correction to
+> the 2026-10-03 entry: `p28` is NOT required: its gate (`CutlassMoEParams` in
+> `modelopt_quant.py`) has not matched since v0.5.16 (PR #30448) and it logs
+> "gate not matched, skipping" on v0.5.21 and `main`; the live patches for
+> this doc are `p20` (until `e289989933` ships) and `p23`. The modelopt `else`
+> branch (`w13_input_scale = layer.w13_input_scale.max(dim=-1).values...`, no
+> EP slice) is still unfixed on `main` (line 2738);
+> `_input_scale_to_local_experts()` remains used only in the MegaMoE
+> `w2_input_scale` paths. New `modelopt_quant.py` commits since 2026-10-03
+> (`d20bdc1443` per-token NVFP4 ReLU2 #39199, `8ad24fb560` cached exclusion-
+> pattern compile #42927, `10edb05e72` placement refactor) do not touch it.
+> Local `p70` (fused-tail `is_layer_excluded` scope) is unrelated to this bug.
+> SGLang #23531 remains OPEN (idle since 2026-04-30), #20963 CLOSED, adjacent
+> #37796 OPEN (idle since 2026-09-14). vLLM v0.31.0 (2026-10-05) still has the
+> unguarded `tp_rank` / `param.data[expert_id, ...]` qzeros loader in
+> `moe_wna16.py`; vLLM #35598 stays CLOSED (2026-09-24).
 
 > **Re-verified 2026-10-03:** SGLang v0.5.21 was released 2026-10-02
 > (v0.5.20 previous); at that tag `moe_wna16.py` still has the bug
