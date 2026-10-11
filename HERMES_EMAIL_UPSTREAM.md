@@ -117,8 +117,8 @@ before the defaults move, and a `--tags hermes` run with the old pin rolls the p
    `[PATCH-N]` sections. The patch must add no non-stdlib import beyond upstream's own.
 5. Rollout happens with the next `--tags hermes` run (`checksum/email-patch` rolls the pod).
 
-The same bump also re-checks `hermes_health_patch.py` (checklist in its header) and the
-contracts listed above `hermes.image_tag`.
+The same bump also re-checks the contracts listed above `hermes.image_tag` (the former
+`hermes_health_patch.py` was retired 2026-10-11, see below).
 
 ### When an upstream PR merges
 
@@ -152,8 +152,11 @@ contracts listed above `hermes.image_tag`.
   main `02c9603730` on 2026-10-10, now mergeable (state blocked, awaiting review); last
   maintainer comment remains teknium1 2026-06-15 on the first three, none on #113192. The
   dashboard container now also carries `API_SERVER_KEY` (365d026) so the upstream Bearer probe
-  (#76051, `c061068b26`) can authenticate; `hermes_health_patch.py` becomes redundant once that
-  is verified live.
+  (#76051, `c061068b26`) can authenticate. Verified live 2026-10-11 on v0.21.6 (Bearer with that
+  key: `/v1/models` and `/health/detailed` 200, 0 "rejected invalid API key"), after `hermes_env.j2`
+  also started writing `API_SERVER_KEY` into `/opt/data/.env` (a stale per-user value there had
+  overridden the container env). `hermes_health_patch.py` and the venv-probe pod that fed its
+  mounts are retired.
 
 
 ## Operational notes

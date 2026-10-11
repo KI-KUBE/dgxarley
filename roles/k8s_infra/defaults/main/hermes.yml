@@ -29,18 +29,13 @@ hermes:
   # Image contract: ENTRYPOINT /init (s6-overlay) + docker/main-wrapper.sh; never set command:, only args:.
   # Re-check on every bump (details in the patch file headers + HERMES_EMAIL_UPSTREAM.md):
   #  * plugins/platforms/email/adapter.py vs the hermes_email_gateway_patched.py base -> re-sync [PATCH-N].
-  #  * hermes_health_patch.py anchor APIServerAdapter._check_auth(self, request); /health stays unauthenticated.
+  #  * dashboard probe still sends Bearer $API_SERVER_KEY to /health/detailed (#76051; replaced hermes_health_patch.py).
   #  * GATEWAY_HEALTH_URL (upstream-deprecated, the only cross-container gateway probe).
   #  * HERMES_DASHBOARD_BASIC_AUTH_*, TERMINAL_CWD, API_SERVER_KEY (>=16 chars), dashboard CLI flags.
   #  * host-wide gateway lock ($HERMES_GATEWAY_LOCK_DIR unset -> container fs, not the shared /opt/data).
   image_tag: "v0.21.6"            # agent image (nousresearch/hermes-agent)
   # busybox helper image (fix-perms / init-dashboard-themes initContainers, log-tail sidecar)
   busybox_image: "busybox:1.38"
-  # NOTE: the venv site-packages dir (mount point for the hermes_health_patch
-  # .py/.pth) is NOT configured here — it carries a pythonX.Y segment that bumps
-  # with the base image. hermes.yml probes the actual image ONCE at deploy time
-  # and sets the `hermes_venv_site_packages` fact; its fallback literal lives in
-  # that task (single source), not in these defaults.
   # NFS-backed hostPath base on k3smaster — per-user subdirs <base>/<username>
   # are mounted as /opt/data inside the pod (subdir-only, no parent visibility).
   data_base: "/mnt/nfs/hermes"
