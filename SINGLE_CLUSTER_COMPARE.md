@@ -8,15 +8,21 @@ Best measured configuration per setup, SGLang 0.5.21-sm121, GSM8K via chat API (
 | **Qwen3.8-27B** (NVFP4) | 1 node, TP1 | none | 12.6 | 49.4 | 94.2 | 166.3 | - |
 | | 1 node, TP1 | DSpark gamma 7 RadixArk (= profile) | 48.3 | 138.8 | 231.7 | 336.9 ¹ | - |
 | | 1 node, TP1 | DSpark gamma 7 RedHat (R0, hand-converted config) | 49.3 | 147.3 | 228.6 | 346.1 ¹ | - |
-| | 1 node, TP1 | DSpark gamma 7 RadixArk, bfloat16 SSM | 45.1 | **160.6** | **272.7** | **437.2** ⁷ | **569.1** ⁷ |
-| | 4 nodes | - | *not measured* | | | | |
+| | 1 node, TP1 | DSpark gamma 7 RadixArk, bfloat16 SSM | 45.1 | **160.6** | **272.7** | **437.2** ⁷ | 569.1 ⁷ |
+| | 1 node, TP1 | DSpark gamma 7, bfloat16 SSM, cache 160, CG bs 32 (= preset defaults) | 44.5 | 157.6 | 262.7 | 437.0 | **598.6** ⁹ |
+| | 4 nodes, TP4 | none | 36.0 | 126.8 | 230.3 | 360.8 | 552.5 |
+| | 4 nodes, TP4 | MTP 3/1/4 | 69.7 | 214.5 | **358.5** | 389.8 | 479.6 |
+| | 4 nodes, TP4 | DSpark gamma 5 | 93.3 | 279.7 | 345.1 | 394.6 | 555.4 |
+| | 4 nodes, TP4 | **DSpark gamma 7** (= profile, case 1 / repeat case 5) | **93.2-103.8** | **293.3-294.7** | 341.3-355.5 | **423.5-428.7** | **563.0-587.6** |
+| | 4 nodes, TP4 | DSpark gamma 7, bfloat16 SSM, max_running 32 ¹⁰ | 96.0 | 265.2 | **388.4** | 363.5 | 562.7 |
 | **Qwen3.8-Flash-Next** (nvidia NVFP4) | 1 node, TP1 | none | 16.3 | 51.6 | 85.4 | 119.3 | 133.9 |
 | | 1 node, TP1 | MTP 3/1/4 | 31.7 | 83.6 | 130.8 | 188.1 ² | 239.7 ² |
 | | 1 node, TP1 | MTP adaptive | 31.3 | 82.1 | 128.3 | 165.4 ² | 246.8 ² |
 | | 1 node, TP1 | MTP 3/1/4, bfloat16 SSM | **34.2** | **89.6** | **141.7** | **186.2** ⁸ | **208.4** ⁸ |
 | | 4 nodes, TP4 EP4 | none | 34.6 | 116.0 | 187.9 | 284.5 | - |
 | | 4 nodes, TP4 EP4 | MTP 2/1/3 (shipped, rep 3) | 62.8-68.6 ³ | 152.6-178.8 ³ | 276.9 | 419.5 | - |
-| | 4 nodes, TP4 EP4 | MTP adaptive (B rep 2) | **74.6** | **212.9** | **317.2** | **469.7** | - |
+| | 4 nodes, TP4 EP4 | MTP adaptive (B rep 2) | 74.6 | **212.9** | **317.2** | **469.7** | - |
+| | 4 nodes, TP4 EP4 | MTP adaptive, bfloat16 SSM, max_running 32 ¹¹ | **75.8** | 201.6 | 300.9 | 367.0 | **412.3** |
 | **Nemotron-3-Super-120B** (NVFP4) | 1 node, TP1 (spark5) | MTPv2 4/1/5, float32 SSM | 32.1 | 73.6 | 107.0 | 145.8 ⁴ | 178.9 ⁴ |
 | | 1 node, TP1 (spark5) | MTPv2 4/1/5, bfloat16 SSM | 32.2 | 77.8 | 114.3 | 173.8 | 219.3 ⁶ |
 | | 4 nodes, TP4 EP4 | MTPv2 3/1/4 (first sweep) | 70.3 | 201.2 | 267.3 | 306.0 | 328.1 |
@@ -28,6 +34,9 @@ Best measured configuration per setup, SGLang 0.5.21-sm121, GSM8K via chat API (
 ³ Range of reps 1/2; rep 3 did not run n=1/n=4.
 ⁴ `max_running_requests` capped at 12 by the mamba state cache (`--max-mamba-cache-size 64`, 5 slots per request, float32 SSM state, `mem_fraction_static 0.90`); n=16/32 queue. With the auto-sized cache (24 slots) the cap was 4.
 ⁷ bfloat16 SSM, `--max-mamba-cache-size 152` -> `max_running_requests` 30. The preset's `--cuda-graph-max-bs-decode 16` (MAX_RUNNING default) makes batches above 16 run eager (3 of 129 logged decode batches, at 17/28/30 running), so n=16/32 are a lower bound.
+⁹ Preset defaults since 2026-10-11 (`--max-mamba-cache-size 160 --mamba-ssm-dtype bfloat16 --cuda-graph-max-bs-decode 32`): `max_running_requests` 32, 0 eager decode batches, accept len mean 4.22, probe 0/16 collapsed, tool calls 4/4, GSM8K 4/4, 8/8, 15/16, 31/32, 62/64 (misses id 12 and 45, as in the run above). Only n=32 moves (+5 %, within noise); the eager batches above 16 cost little.
+¹⁰ 2026-10-11 rerun after the profile got `mamba_ssm_dtype: bfloat16` + `max_running_requests: 32` (same levels/questions as the float32 sweep). 32 running, `#queue-req` max 3, 0 eager decode batches, accept len mean 4.28, probe 0/16 collapsed, tool calls 4/4, GSM8K 4/4, 15/16, 30/32, 62/64, 122/128. Mixed vs float32 (n=8 higher, n=4/n=16 lower): noise, as expected, since the mamba cache was never the limit at TP4 (34.6 GB still free after boot). Engine gen throughput at 28-32 running: mean 421, max 539 tok/s.
+¹¹ 2026-10-11, profile with `mamba_ssm_dtype: bfloat16` + `max_running_requests: 32` (was 16), adaptive MTP as shipped; levels 8/32/64/128/256 questions at n=1/4/8/16/32 (same as the 10-10 A/B, n=32 new). 32 running, `#queue-req` max 2, 0 eager decode batches, accept len mean 2.96 (B: 3.1), probe 0/16 collapsed, tool calls 4/4, GSM8K 8/8, 31/32, 63/64, 124/128, 249/256 (+3 truncations). No foreign requests during the bench. n=1..16 within the 10-10 run-to-run spread (A varied up to x1.59 at n=16); n=32 412 tok/s. Engine gen throughput at 28-32 running: mean 299, max 406 tok/s (14-27 running: mean 283), so the extra slots above 16 add little on TP4. Only 8.4 GB free after boot.
 ⁸ bfloat16 SSM, `--max-mamba-cache-size 76` -> `max_running_requests` 19 (float32 auto-fit: 9); n=32 still queues.
 ⁵ Measured separately 2026-10-11 (testlog Run 6, 16 questions); drift anchors in that run: n=1 85.9 (+3.9 %), n=8 299.4 (+7.9 %) against the sweep.
 ⁶ bfloat16 SSM state with `--max-mamba-cache-size 128` caps `max_running_requests` at 25 (same cache memory as float32 x 64); only n=32 queues.
@@ -43,9 +52,11 @@ Qwen3.8 bfloat16 SSM reruns (2026-10-11, spark5, same image/presets as the 2026-
 ## Observations
 
 - Flash-Next 1 node vs 4 nodes (MTP): about x2.2 at n=1 (32 -> 69-75), about x2.2-2.5 at n=16 (188 -> 420-470; the single node only runs 9-11 concurrent).
+- 27B 1 node vs 4 nodes (DSpark gamma 7): x2.1 at n=1 and n=4, x1.5 at n=8, x1.27 at n=16 (float32 single node); against the bfloat16 single node (preset defaults) the cluster is only x1.1 at n=8 (263 vs 341-356), x1.0 at n=16 (437 vs 424-429) and x0.96-1.0 at n=32 (599 vs 563-588). For concurrent load one Spark with bfloat16 SSM matches four.
 - 27B single node vs Flash-Next single node: the dense 27B with DSpark is faster at every concurrency (n=1 48 vs 32, n=16 337 vs 188; with bfloat16 SSM n=16 437 vs 186, n=32 569 vs 208). Without speculation it is unusable (12.6 tok/s per stream).
 - Nemotron Super 1 node vs 4 nodes (MTPv2 4/1/5): x2.6 at n=1 (32.1 -> 82.7), x2.8 at n=4 (73.6 -> 202.6), x2.6 at n=8 (107 -> 277). At n=1 the single node equals Flash-Next single node (32 vs 32) and is well below the dense 27B with DSpark (48).
 - Nemotron Super 4 nodes leads at n=1 (82.7); at n=16 it is within noise of Flash-Next (377 vs 420-470). Only Nemotron has n=32 data (513).
+- n=32 caveat: `concurrent_peak_tok_s` sums each request's lifetime-average rate over the overlapping set. At n=32 concurrency collapses after the first wave (27B single node: 32 running for ~30 s, then 15, then 2-6 for minutes), and the long-tail requests that run nearly alone carry high average rates into that sum, so n=32 peaks overstate the instantaneous throughput at full concurrency. Cross-check with the engine's own `gen throughput` at 28-32 running requests: 27B single node (bf16, preset defaults) ~350 tok/s mean (max 530, 3 samples), 4-node TP4 ~340-410 mean (max 470-495, 5-6 samples). The single node did run 32 concurrent there (no cap queueing, `#queue-req` only 1-3 transiently). Question counts also differ at n=32 (single node 64, cluster 128).
 - Run-to-run spread at n>=8 is large (Flash-Next same config up to x1.59 at n=16; Nemotron sweep vs A/B up to 20 %). Differences below about 20 % are not a ranking.
 
 ## Sources
@@ -53,4 +64,5 @@ Qwen3.8 bfloat16 SSM reruns (2026-10-11, spark5, same image/presets as the 2026-
 - `TESTLOGS/standalone_nn1_tp1/qwen-3.8-27b-nvfp4-modelopt/TESTLOG_nv580.178.04_sglang-0.5.21-sm121_qwen-3.8-27b-nvfp4-modelopt_1n.md`
 - `TESTLOGS/standalone_nn1_tp1/qwen-3.8-flash-next-nvfp4/TESTLOG_nv580.178.04_sglang-0.5.21-sm121_qwen-3.8-flash-next-nvfp4_1n.md`
 - `TESTLOGS/sglang_nn4_tp4_ep4/qwen-3.8-flash-next-nvfp4/TESTLOG_nv580.178.04_sglang-0.5.21-sm121_qwen-3.8-flash-next-nvfp4_4n.md`
+- `TESTLOGS/sglang_nn4_tp4_ep1/qwen-3.8-27b-nvfp4-modelopt/TESTLOG_nv580.178.04_sglang-0.5.21-sm121_qwen-3.8-27b-nvfp4-modelopt_4n.md`
 - `TESTLOGS/sglang_nn4_tp4_ep1/nemotron-3-super-120b-a12b-nvfp4/TESTLOG_sglang-0.5.21-sm121_nemotron-3-super-120b-a12b-nvfp4-mtpv2_4n.md`

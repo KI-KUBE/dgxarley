@@ -141,13 +141,22 @@
 #      while throughput and startup look healthy. 3.77 of 8 is the good case.
 #
 # STILL OPEN, ordered by how likely they are to bite:
-#   C. THIS ROLE'S DEPLOY HOP IS UNVALIDATED, and it is not a like-for-like
-#      repeat of the measured run: the measurement was single-Spark, while this
-#      profile ships tp_size 4, so every verify step gains an inter-node hop
-#      and the drafter runs distributed. Acceptance is a model property and
-#      should carry over; throughput is NOT and has to be re-measured.
-#   D. RESOLVED 2026-10-10 (single Spark): DSpark gamma 7 vs no speculation is
-#      x3.8 at n=1, x2.0 at n=16. Re-measure on the TP=4 deploy (see C).
+#   C. RESOLVED 2026-10-11 (TP=4 cluster sweep, float32 SSM): the profile
+#      boots and serves as shipped, no restarts, no eager decode batches,
+#      max_running_requests 32 without a mamba-cache cap. DSpark gamma 7 is
+#      best or tied at every level, peak n=1/4/8/16/32 93-104 / 293-295 /
+#      341-356 / 424-429 / 563-588 (two runs); gamma 5 is 3-10 % behind, MTP
+#      falls below no-speculation at n=32. Full matrix in
+#      TESTLOGS/sglang_nn4_tp4_ep1/qwen-3.8-27b-nvfp4-modelopt/.
+#      4 nodes vs 1 node is x2.1 at n=1/4, but at n>=16 a single Spark with
+#      bf16 SSM state (run_standalone.sh defaults) is on par (n=16 437 vs
+#      424-429). The n=32 harness peaks overstate both sides (lifetime-averaged
+#      rates of the long tail); the engine's own gen throughput at 28-32
+#      running requests is ~350 tok/s single node vs ~340-410 on TP=4.
+#   D. RE-MEASURED 2026-10-11 on TP=4: DSpark gamma 7 vs no speculation is
+#      x2.7 at n=1, x2.3 at n=4, x1.5 at n=8, x1.2 at n=16, ~x1.0 at n=32
+#      (single Spark: x3.8 at n=1, x2.0 at n=16). The draft pays for latency,
+#      not for throughput at high concurrency on TP=4.
 #   E. The image path is calibrated on text only (see above), so the vision
 #      surface remains the least validated part of the build.
 #   F. RESOLVED on 0.5.21: the in-checkpoint MTP head works as EAGLE (it was a
@@ -196,6 +205,9 @@ _model_profile:
     disable_piecewise_cuda_graph: true
     pp_async_batch_depth: 0
     cuda_graph_max_bs: 32
+    max_running_requests: 32
+    # bf16 halves the ssm cache; DSPARK accept len unchanged (validated TP1 only, SINGLE_CLUSTER_COMPARE.md)
+    mamba_ssm_dtype: "bfloat16"
     jit_max_jobs: 4
     # Dense model: no MoE knobs (no num_experts, no moe_runner_backend, no EPLB).
     enable_eplb: false
