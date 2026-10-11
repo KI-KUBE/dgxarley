@@ -252,6 +252,21 @@
 > v0.5.21.
 
 
+> **Re-verified 2026-10-11:** No new SGLang release since v0.5.21 (2026-10-02,
+> still latest). `python/sglang/srt/configs/qwen3_5.py` has no commits since
+> 2026-10-03; on `main` HEAD (`ad8b1e1f85`, 2026-10-10) it still has six plain
+> `__init__` methods and no `from_dict`/`__post_init__`.
+> `srt/utils/hf_transformers/` saw one commit, `d1ba943016` (EmbeddingGemma 2,
+> #42782, +1 line in `config.py`), which does not touch the `get_config()`
+> tail. SGLang `main` now pins transformers 5.19.0 (`11972e5207`, #42784,
+> 2026-10-07; was 5.17.0); transformers v5.19.0 was released 2026-10-06. This
+> doc's behaviour was not re-tested on 5.18/5.19. Offline replay of
+> `p57_hf_config_get_config.py` against the v0.5.21 tag and `main` HEAD
+> patches cleanly (repo commit `5a42af7` also recorded 0 anchor drift for the
+> deployed `0.5.21-sm121` image). PR #22839 and PR #22618 remain CLOSED
+> unmerged. Root cause and monkey-patch requirement unchanged.
+
+
 ## Summary
 
 `Qwen3VLMoeVisionModel.__init__` crashes with `AttributeError: 'dict' object has no attribute 'hidden_size'` when loading Qwen3.5-397B-A17B-NVFP4 (and likely any Qwen3.5/Qwen3-VL model) on SGLang 0.5.10 with transformers 5.5.0.
