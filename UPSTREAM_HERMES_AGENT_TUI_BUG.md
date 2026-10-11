@@ -570,6 +570,20 @@ small (~50 MB) and the node has fast local storage.
   code skew) do not touch npm-install, lockfile or EACCES. The Action Item (EACCES
   re-verification with a non-10000 UID) remains outstanding and deferred by the user, not
   performed here.
+- **Re-verified 2026-10-11:** new release **v0.21.6** (published 2026-10-08; upstream switched
+  from date tags like v2026.9.24 to a plain semver tag, no date alias), and `hermes.image_tag`
+  is now `v0.21.6` (bumped from `v2026.9.24` in 4fc3a46 on 2026-10-10). Release notes grepped
+  for `tui|npm install|lockfile|reinstall|EACCES|package-lock|node_modules`: no
+  npm-install/lockfile content (only generic "CLI, TUI and Desktop" mentions in feature
+  blurbs). #66978, #45657 and #81620 remain CLOSED (unchanged since 2026-08-25, 2026-09-20,
+  2026-09-28), PR #94729 remains MERGED (2026-08-25), PR #67011 remains CLOSED/unmerged, PR
+  #61753 remains OPEN (unchanged since 2026-08-03). Since 10-03: no commits to
+  `tui_gateway/server.py`, `subcommands/dashboard.py` or `main_tui_launch.py`;
+  `scripts/build/node-deps.mjs` gained `1d6b2786e2` (2026-10-06, refuse a completed-install
+  receipt whose packages lost their manifests; tightens the PR #94729 receipt, no EACCES
+  change); `web_server.py` commits touch none of npm-install, lockfile or EACCES. The Action
+  Item (EACCES re-verification with a non-10000 UID) remains outstanding and deferred by the
+  user, not performed here.
 
 
 ## Action Items
