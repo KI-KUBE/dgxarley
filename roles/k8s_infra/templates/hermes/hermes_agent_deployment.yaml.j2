@@ -310,12 +310,11 @@ spec:
         - name: hermes
           image: "nousresearch/hermes-agent:{{ item.image_tag | default(hermes.image_tag) }}"
           imagePullPolicy: Always
-          # Overrides the image WORKDIR (/opt/hermes). main-wrapper.sh sets the
-          # process cwd to `${HERMES_ORIG_CWD:-$PWD}` before exec'ing `hermes
-          # dashboard`; its with-contenv shebang is bypassed in the CMD path so
-          # HERMES_ORIG_CWD isn't loaded and it falls back to $PWD. workingDir
-          # makes $PWD = /workspace, so the dashboard process cwd (and thus the
-          # `!`-shell's os.getcwd() + the TUI footer) lands in /workspace.
+          # Overrides the image WORKDIR (/opt/hermes). main-wrapper.sh cd's to
+          # `${HERMES_ORIG_CWD:-$PWD}` before exec'ing `hermes dashboard`, so
+          # with HERMES_ORIG_CWD (below) + workingDir both set, the dashboard
+          # process cwd (the `!`-shell's os.getcwd() + the TUI footer) lands in
+          # /workspace regardless of which of the two the wrapper sees.
           workingDir: "{{ item.terminal_cwd | default(hermes.terminal_cwd) }}"
           # We let the image's default ENTRYPOINT run instead of overriding
           # `command:`. Since v2026.5.28 that ENTRYPOINT is s6-overlay's /init
@@ -397,13 +396,16 @@ spec:
             # warning fires because config.yaml still declares terminal.cwd.
             - name: TERMINAL_CWD
               value: "{{ item.terminal_cwd | default(hermes.terminal_cwd) }}"
+            # Image bakes HERMES_WRITE_SAFE_ROOT=/opt/data; agent/file_safety.py denies writes outside it (os.pathsep list).
+            - name: HERMES_WRITE_SAFE_ROOT
+              value: "/opt/data:{{ item.terminal_cwd | default(hermes.terminal_cwd) }}"
             # Process cwd of the dashboard. The `!`-shell RPC (tui_gateway
             # shell.exec) runs commands with `cwd=os.getcwd()`, and the TUI
             # footer shows the process cwd — NEITHER honours terminal.cwd, so
-            # both land in the image WORKDIR /opt/hermes. The image's
-            # main-wrapper.sh cd's to `${HERMES_ORIG_CWD:-$PWD}` before exec'ing
-            # `hermes dashboard` (the "-w" mechanism), so this makes the whole
-            # process start in /workspace → `!pwd`, footer AND file-tools align.
+            # both land in the image WORKDIR /opt/hermes. main-wrapper.sh cd's
+            # to `${HERMES_ORIG_CWD:-$PWD}` before exec'ing `hermes dashboard`
+            # (docker/main-wrapper.sh), so this makes the whole process start in
+            # /workspace → `!pwd`, footer AND file-tools align.
             - name: HERMES_ORIG_CWD
               value: "{{ item.terminal_cwd | default(hermes.terminal_cwd) }}"
             # --- dashboard built-in auth (BasicAuthProvider) ---
@@ -445,8 +447,15 @@ spec:
             # gateway sidecar forbids. Re-check on image bumps.
             - name: GATEWAY_HEALTH_URL
               value: "http://127.0.0.1:{{ hermes.agent.gateway_api_port }}"
+            # Upstream caps this at 1.0 s (hermes_cli/web_server.py _GATEWAY_HEALTH_TIMEOUT_MAX); larger values warn.
             - name: GATEWAY_HEALTH_TIMEOUT
-              value: "3"
+              value: "1"
+            # The probe sends `Bearer $API_SERVER_KEY` to /health/detailed when set (upstream #76051).
+            - name: API_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: "hermes-env-{{ item.username }}"
+                  key: GATEWAY_API_SERVER_KEY
 {% endif %}
           ports:
             - containerPort: {{ hermes.agent.dashboard_port }}
@@ -593,13 +602,16 @@ spec:
             # agent file-tools to /workspace, not the process cwd.
             - name: TERMINAL_CWD
               value: "{{ item.terminal_cwd | default(hermes.terminal_cwd) }}"
+            # Image bakes HERMES_WRITE_SAFE_ROOT=/opt/data; agent/file_safety.py denies writes outside it (os.pathsep list).
+            - name: HERMES_WRITE_SAFE_ROOT
+              value: "/opt/data:{{ item.terminal_cwd | default(hermes.terminal_cwd) }}"
             # main-wrapper cd's here before `hermes gateway run` → gateway
             # process cwd = /workspace (matches the dashboard container).
             - name: HERMES_ORIG_CWD
               value: "{{ item.terminal_cwd | default(hermes.terminal_cwd) }}"
             # api_server needs a >=16-char key to start (connect() refuses
-            # otherwise). localhost-only in-pod; the /health probe is
-            # unauthenticated so the dashboard never sends it.
+            # otherwise). localhost-only in-pod; the same key is set on the
+            # dashboard container so its /health/detailed probe authenticates.
             - name: API_SERVER_KEY
               valueFrom:
                 secretKeyRef:

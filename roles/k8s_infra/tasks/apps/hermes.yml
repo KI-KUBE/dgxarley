@@ -323,6 +323,7 @@
 # but never updated the probe; no upstream fix as of the pinned image. The .py is
 # imported at interpreter start via the zz_*.pth (both subPath-mounted into the
 # venv site dir of the gateway container). Shared across users (identical patch).
+# Retirable once the Bearer-authenticated probe (API_SERVER_KEY on the dashboard container) is verified live on v0.21.6.
 - name: Render hermes gateway health-patch ConfigMap
   kubernetes.core.k8s:
     state: present
@@ -550,9 +551,10 @@
         # rotates when the password changes. No separate vault entry needed.
         DASHBOARD_BASIC_AUTH_SECRET: "{{ (item.username ~ '|hermes-dashboard-basic-auth|' ~ (item.basicauth_password | default(item.litellm_token))) | hash('sha512') }}"
         # API key for the gateway's api_server (b): connect() refuses to start
-        # it without a >=16-char key. localhost-only in-pod; the dashboard's
-        # /health probe is unauthenticated so it never needs this. Guards the
-        # /v1 OpenAI endpoints the same server exposes on 127.0.0.1:<port>.
+        # it without a >=16-char key. localhost-only in-pod; also set on the
+        # dashboard container, whose probe sends it as Bearer to
+        # /health/detailed (upstream #76051). Guards the /v1 OpenAI endpoints
+        # the same server exposes on 127.0.0.1:<port>.
         GATEWAY_API_SERVER_KEY: "{{ (item.username ~ '|hermes-gateway-api|' ~ (item.basicauth_password | default(item.litellm_token))) | hash('sha256') }}"
   loop: "{{ _hermes_active_users }}"
   loop_control:

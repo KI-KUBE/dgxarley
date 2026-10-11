@@ -446,6 +446,9 @@ spec:
             # never appear in the WebUI session list (see #1879).
             - name: HERMES_HOME
               value: "/opt/data"
+            # Image bakes HERMES_WRITE_SAFE_ROOT=/opt/data; agent/file_safety.py denies writes outside it (os.pathsep list).
+            - name: HERMES_WRITE_SAFE_ROOT
+              value: "/opt/data:{{ item.terminal_cwd | default(hermes.terminal_cwd) }}"
             # config.yaml enables the api_server platform whenever a gateway
             # runs; connect() refuses to start it without a >=16-char key. Set
             # it here too so this sidecar (used only when the dashboard is off)
