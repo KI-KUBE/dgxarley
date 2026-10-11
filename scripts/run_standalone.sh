@@ -12,6 +12,7 @@
 #   qwen38_nvidia    nvidia/Qwen3.8-Flash-Next-NVFP4, modelopt_mixed, EAGLE MTP (default)
 #   qwen38_radixark  RadixArk/Qwen3.8-Flash-Next-NVFP4, modelopt_fp4, no MTP
 #   nemotron35_lightning  nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4, DSPARK draft
+#   qwen38_27b       vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt, DSPARK draft (SPEC=eagle: MTP head)
 #   custom           any MODEL, args only from MODEL_ARGS / the command line
 # Both Qwen3.8 checkpoints exceed the unified pool, so their presets offload the 51 GB
 # PLE table to a file-backed mmap (PLE_DIR, must be local NVMe). Not cluster-validated.
@@ -26,11 +27,15 @@
 #   PRESET=list scripts/run_standalone.sh
 #
 # Environment overrides:
-#   PRESET        qwen38_nvidia | qwen38_radixark | nemotron35_lightning | custom | list
+#   PRESET        qwen38_nvidia | qwen38_radixark | nemotron35_lightning | qwen38_27b | custom | list
 #   MODEL         from the preset (required for custom)
 #   IMAGE         from the preset (xomoxcc/dgx-spark-sglang:0.5.21-sm121)
 #   MODEL_ARGS    sglang args replacing the preset args entirely
-#   SPEC          1 (qwen38_nvidia: 0 = no MTP; nemotron35_lightning: 0 = no DSPARK draft)
+#   SPEC          1 (qwen38_nvidia: 0 = no MTP; nemotron35_lightning: 0 = no draft, eagle = built-in MTP head)
+#   GAMMA         7 (nemotron35_lightning, qwen38_27b: DSPARK block size; num_draft_tokens = GAMMA + 1)
+#   MTP_STEPS     3 (qwen38_nvidia, qwen38_27b SPEC=eagle: speculative steps; num_draft_tokens = MTP_STEPS + 1)
+#   ADAPTIVE      0 (qwen38_nvidia: 1 = --speculative-adaptive, tiers 1/8 -> [1,2,3], 32 -> [1,2], start 2)
+#   DRAFT_MODEL   RadixArk/Qwen3.8-27B-DSpark (qwen38_27b: DSPARK draft repo or container-local dir)
 #   DRAFT_MODELS  from the preset (comma-separated repos pre-downloaded next to MODEL)
 #   MEM_FRACTION  0.88 (qwen38 presets)
 #   MAX_RUNNING   4 (qwen38 presets: max running requests = decode cuda-graph max bs)
@@ -93,13 +98,20 @@ preset_qwen38_nvidia() {
     )
     if [[ "${SPEC:-1}" == "1" ]]; then
         # num_draft_tokens > 4 raises in QwenSparseAttnBackend (indexer_compress_ratio)
+        # adaptive starts at 2: the start step must be in every tier's candidate_steps
+        local steps="${MTP_STEPS:-$([[ "${ADAPTIVE:-0}" == "1" ]] && echo 2 || echo 3)}"
         P_ARGS+=(
             --speculative-algo EAGLE
-            --speculative-num-steps 3
+            --speculative-num-steps "${steps}"
             --speculative-eagle-topk 1
-            --speculative-num-draft-tokens 4
+            --speculative-num-draft-tokens "$((steps + 1))"
             --speculative-moe-runner-backend triton
         )
+        if [[ "${ADAPTIVE:-0}" == "1" ]]; then
+            # batch sizes route to the closest tier key; steps capped at 3 by indexer_compress_ratio
+            P_ADAPTIVE_JSON='{"1": {"candidate_steps": [1, 2, 3]}, "8": {"candidate_steps": [1, 2, 3]}, "32": {"candidate_steps": [1, 2]}}'
+            P_ARGS+=(--speculative-adaptive --speculative-adaptive-config /launch/adaptive_config.json)
+        fi
     fi
 }
 
@@ -110,7 +122,7 @@ preset_qwen38_radixark() {
     P_ARGS+=(--quantization modelopt_fp4)
 }
 
-# roles/k8s_dgx/model_profiles/nvidia-nvidia-nemotron-3.5-lightning-30b-a3b-nvfp4.yml; SPEC=0 disables DSPARK
+# roles/k8s_dgx/model_profiles/nvidia-nvidia-nemotron-3.5-lightning-30b-a3b-nvfp4.yml; SPEC=0 disables, SPEC=eagle uses the MTP head
 preset_nemotron35_lightning() {
     P_IMAGE="xomoxcc/dgx-spark-sglang:0.5.21-sm121"
     P_MODEL="nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4"
@@ -128,6 +140,7 @@ preset_nemotron35_lightning() {
         --tool-call-parser qwen3_coder
     )
     if [[ "${SPEC:-1}" == "1" ]]; then
+        local gamma="${GAMMA:-7}"
         P_DRAFTS=("nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4-DSpark")
         # attention-sink drafts raise unless the draft backend is trtllm_mha; num_draft_tokens must be block_size + 1
         P_ARGS+=(
@@ -135,9 +148,69 @@ preset_nemotron35_lightning() {
             --speculative-draft-model-path "${P_DRAFTS[0]}"
             --speculative-num-steps 1
             --speculative-eagle-topk 1
-            --speculative-dspark-block-size 3
-            --speculative-num-draft-tokens 4
+            --speculative-dspark-block-size "${gamma}"
+            --speculative-num-draft-tokens "$((gamma + 1))"
             --speculative-draft-attention-backend trtllm_mha
+        )
+    elif [[ "${SPEC}" == "eagle" ]]; then
+        P_ARGS+=(
+            --speculative-algorithm EAGLE
+            --speculative-draft-model-path "${P_MODEL}"
+            --speculative-num-steps 5
+            --speculative-eagle-topk 1
+            --speculative-num-draft-tokens 6
+        )
+    fi
+}
+
+# roles/k8s_dgx/model_profiles/vroomfondel-qwen3.8-27b-nvfp4-modelopt.yml at TP=1; SPEC=0 disables, SPEC=eagle uses the MTP head
+preset_qwen38_27b() {
+    P_IMAGE="xomoxcc/dgx-spark-sglang:0.5.21-sm121"
+    P_MODEL="vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt"
+    P_ENV=(
+        SGLANG_ENABLE_JIT_DEEPGEMM=false
+        SGLANG_RAGGED_VERIFY_MODE=static
+        PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+    )
+    P_PLE=0
+    P_DRAFTS=()
+    P_ARGS=(
+        --trust-remote-code
+        --quantization modelopt_fp4
+        --kv-cache-dtype fp8_e4m3
+        --attention-backend flashinfer
+        --fp4-gemm-backend flashinfer_cutlass
+        --cuda-graph-backend-prefill disabled
+        --mem-fraction-static "${MEM_FRACTION:-0.80}"
+        --context-length 262144
+        --max-running-requests 48
+        --cuda-graph-max-bs-decode "${MAX_RUNNING:-16}"
+        --mamba-ssm-dtype float32
+        --mamba-radix-cache-strategy extra_buffer
+        --reasoning-parser qwen3
+        --tool-call-parser qwen3_coder
+    )
+    if [[ "${SPEC:-1}" == "1" ]]; then
+        local gamma="${GAMMA:-7}"
+        P_DRAFTS=("${DRAFT_MODEL:-RadixArk/Qwen3.8-27B-DSpark}")
+        P_ARGS+=(
+            --speculative-algorithm DSPARK
+            --speculative-draft-model-path "${P_DRAFTS[0]}"
+            --speculative-draft-model-quantization unquant
+            --speculative-draft-attention-backend flashinfer
+            --speculative-num-steps 1
+            --speculative-eagle-topk 1
+            --speculative-dspark-block-size "${gamma}"
+            --speculative-num-draft-tokens "$((gamma + 1))"
+        )
+    elif [[ "${SPEC}" == "eagle" ]]; then
+        local steps="${MTP_STEPS:-3}"
+        P_ARGS+=(
+            --speculative-algorithm EAGLE
+            --speculative-draft-model-path "${P_MODEL}"
+            --speculative-num-steps "${steps}"
+            --speculative-eagle-topk 1
+            --speculative-num-draft-tokens "$((steps + 1))"
         )
     fi
 }
@@ -231,6 +304,7 @@ mkdir -p "${HF_CACHE}"
 
 launch_dir="${CACHE_DIR}/launch-${NAME}"
 mkdir -p "${launch_dir}"
+[[ -n "${P_ADAPTIVE_JSON:-}" ]] && printf '%s\n' "${P_ADAPTIVE_JSON}" > "${launch_dir}/adaptive_config.json"
 
 cat > "${launch_dir}/download.py" <<'EOF'
 import os, subprocess, sys

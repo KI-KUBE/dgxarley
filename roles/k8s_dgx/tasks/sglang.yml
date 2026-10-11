@@ -50,12 +50,14 @@
     loop_var: _td
     label: "{{ _td.prefix }}"
   vars:
+    # Same nodes fallback as _sglang_instance_defaults: instance > its model profile > all sparks.
+    _sglang_td_all_nodes: "{{ range(1, (sglang_nnodes | int) + 1) | list }}"
     _sglang_disabled_instances: >-
-      {{ ([{'prefix': 'sglang-vision', 'workers': (_sglang_vision_instance.nodes | length) - 1}]
+      {{ ([{'prefix': 'sglang-vision', 'workers': (_sglang_vision_instance.nodes | default((sglang_model_profiles[_sglang_vision_instance.model | default(sglang_model)] | default({})).nodes | default(_sglang_td_all_nodes)) | length) - 1}]
             if not (enable_vision_model | default(true) | bool) else [])
-         + ([{'prefix': 'sglang-coder', 'workers': (_sglang_coder_instance.nodes | length) - 1}]
+         + ([{'prefix': 'sglang-coder', 'workers': (_sglang_coder_instance.nodes | default((sglang_model_profiles[_sglang_coder_instance.model | default(sglang_model)] | default({})).nodes | default(_sglang_td_all_nodes)) | length) - 1}]
             if not (enable_coder_model | default(false) | bool) else [])
-         + ([{'prefix': 'sglang-embed', 'workers': (_sglang_embed_instance.nodes | length) - 1}]
+         + ([{'prefix': 'sglang-embed', 'workers': (_sglang_embed_instance.nodes | default((sglang_model_profiles[_sglang_embed_instance.model | default(sglang_model)] | default({})).nodes | default(_sglang_td_all_nodes)) | length) - 1}]
             if not (enable_embedding_model | default(false) | bool) else [])
-         + ([{'prefix': 'sglang-guard', 'workers': (_sglang_guard_instance.nodes | length) - 1}]
+         + ([{'prefix': 'sglang-guard', 'workers': (_sglang_guard_instance.nodes | default((sglang_model_profiles[_sglang_guard_instance.model | default(sglang_model)] | default({})).nodes | default(_sglang_td_all_nodes)) | length) - 1}]
             if not (enable_guard_model | default(false) | bool) else []) }}

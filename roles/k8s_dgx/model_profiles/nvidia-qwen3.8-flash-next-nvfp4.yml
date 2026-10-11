@@ -117,28 +117,33 @@ _model_profile:
     # is in the _handle_eagle_family arch list that resolves
     # speculative_draft_model_path to model_path.
     speculative_algo: EAGLE
-    # Starting value only, and it MUST appear in candidate_steps below
-    # (_init_adaptive_speculative_params raises otherwise).
-    speculative_num_steps: 3
+    # Starting value only while adaptive is on; a slot whose candidate_steps lack it
+    # starts at its middle candidate instead (v0.5.21).
+    speculative_num_steps: 2
     # MUST stay 1: adaptive is disabled for topk > 1.
     speculative_eagle_topk: 1
     # Overridden at init to speculative_num_steps + 1 while adaptive is on. Kept
     # so the value is right if adaptive is ever turned off.
-    speculative_num_draft_tokens: 4
+    speculative_num_draft_tokens: 3
     # Retunes num_steps per batch-size tier from an EMA of the observed accept
     # length. It tunes steps only; draft tokens follow as steps + 1.
-    # MUST stay false while speculative_moe_runner_backend differs from
-    # moe_runner_backend: ModelOptNvFp4FusedMoEMethod guards on the live global
-    # but reports the cached one, so capture dies with "Unsupported
-    # moe_runner_backend ... Use flashinfer_cutlass instead" -- upstream #38795,
-    # fix PR #38932 unmerged. Fixed-step EAGLE is the documented workaround.
-    speculative_adaptive: false
+    # Images <= 0.5.20 crash at capture with "Unsupported moe_runner_backend ...
+    # Use flashinfer_cutlass instead" when speculative_moe_runner_backend differs
+    # from moe_runner_backend (upstream #38795). The fix #38932 is in v0.5.21:
+    # adaptive with the tiers below booted clean on the cluster 2026-10-10 and ran
+    # at accept len 3.1 vs 2.5 for fixed 2/1/3, with tighter rep-to-rep spread;
+    # throughput gain vs fixed 2/1/3 not proven beyond drift (see TESTLOGS/
+    # sglang_nn4_tp4_ep4/qwen-3.8-flash-next-nvfp4/, "Definitive A/B" section).
+    # Tree drafting (eagle_topk > 1) is impossible here: "Qwen4-Exp QSA MTP
+    # currently supports speculative_eagle_topk=1" (0.5.21).
+    speculative_adaptive: true
     # candidate_steps capped at 3 ON PURPOSE: draft tokens are steps + 1 and
     # QwenSparseAttnBackend raises above indexer_compress_ratio (4). SGLang's
     # own defaults go up to 7 on the BS1 tier, which would trip that. 0 = drop
     # speculation entirely for that tier.
+    # A batch uses the LARGEST key <= its (cuda-graph-padded) size, so with
+    # max_running_requests 16: bs 1-7 -> "1", bs 8-16 -> "8"; "32" is a guard.
     speculative_adaptive_config:
       "1": {candidate_steps: [1, 2, 3]}
-      "8": {candidate_steps: [0, 1, 3]}
-      "32": {candidate_steps: [0, 1]}
-      "64": {candidate_steps: [0]}
+      "8": {candidate_steps: [1, 2, 3]}
+      "32": {candidate_steps: [1, 2]}

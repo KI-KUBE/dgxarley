@@ -2,10 +2,14 @@
 # Model profile: nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4
 # Loaded by include_vars in the k8s_dgx role, merged into sglang_model_profiles.
 #
-# STATUS 2026-10-10: NOT YET BOOTED ON THIS CLUSTER, NOTHING VALIDATED.
-# Every value below is transcribed from the checkpoint's own config.json /
+# STATUS 2026-10-10: NOT YET BOOTED ON THE 4-NODE CLUSTER (tp_size 4 below).
+# VALIDATED STANDALONE on spark5 (single GB10, TP=1, scripts/run_standalone.sh
+# PRESET=nemotron35_lightning): boots, DSpark draft runs on trtllm_mha, GSM8K
+# clean. A DSpark gamma sweep there moved the block size from the cookbook's 3
+# to 7. See TESTLOGS/standalone_nn1_tp1/nemotron-3.5-lightning-30b-a3b-nvfp4/TESTLOG_nv580.178.04_sglang-0.5.21-sm121_nemotron-3.5-lightning-30b-a3b-nvfp4_1n.md.
+# The other values are transcribed from the checkpoint's own config.json /
 # hf_quant_config.json and from the OFFICIAL SGLang cookbook cell for
-# "DGX Spark (GB10 / SM121) + NVFP4", not measured here. No TESTLOG yet.
+# "DGX Spark (GB10 / SM121) + NVFP4".
 # The image blocker from first contact (2026-08-28) is gone: the default image
 # xomoxcc/dgx-spark-sglang:0.5.21-sm121 carries everything this profile needs,
 # see IMAGE STATUS below. Target + DSpark draft are in hf_preload_models.
@@ -255,7 +259,7 @@ _model_profile:
     # --mamba-scheduler-strategy spelling is a deprecated alias since 0.5.17).
     # SGLang's "auto" resolves to extra_buffer for this arch anyway; stating it
     # keeps the intent visible. Two asserts ride along and both hold at defaults:
-    # mamba_track_interval (256) >= speculative_num_draft_tokens (4), and
+    # mamba_track_interval (256) >= speculative_num_draft_tokens (8), and
     # mamba_track_interval % page_size == 0.
     mamba_scheduler_strategy: extra_buffer
     # float16 straight from the cookbook cell (--mamba-ssm-dtype float16). The
@@ -279,16 +283,23 @@ _model_profile:
     # image >= 0.5.19, incl. the 0.5.21 default); see IMAGE STATUS in the header.
     # UNVALIDATED on this cluster.
     #
-    # Parameter shape is fully constrained, there is nothing to tune here:
+    # Parameter shape: gamma is the only free knob.
     #   num_steps 1  and  eagle_topk 1  are the ONLY values DSpark accepts;
     #     _handle_dspark warns and overrides anything else back to 1.
-    #   block_size (gamma) 3 comes from the cookbook cell. The DRAFT CHECKPOINT
-    #     declares block_size 8, so this is a deliberate override: the drafter was
-    #     trained to emit blocks of 8 but the published operating point runs it at
-    #     3. NVIDIA's own vLLM recipe agrees (num_speculative_tokens 3). Drop this
-    #     key to let SGLang auto-infer 8 from the checkpoint, but then
-    #     num_draft_tokens MUST become 9.
-    #   num_draft_tokens 4 == gamma + 1. HARD requirement: _handle_dspark raises
+    #   block_size (gamma) 7, MEASURED (spark5 standalone sweep 2026-10-10, GSM8K,
+    #     TP=1). The cookbook cell and NVIDIA's vLLM recipe both use 3; the draft
+    #     checkpoint declares block_size 8 and NVIDIA's own SPEED-Bench numbers
+    #     use draft length 7. Measured peak tok/s n=1 / n=4 / n=8 / n=16:
+    #       no draft  71 / 195 / 273 / 359
+    #       gamma 3  137 / 322 / 446 / 688   accept len 3.27
+    #       gamma 5  155 / 346 / 494 / 711   accept len 4.32
+    #       gamma 7  180 / 355 / 495 / 756   accept len 4.73
+    #     gamma 7 wins at every concurrency (+31 % over gamma 3 at n=1, ~+10 %
+    #     at n=4..16); GSM8K accuracy identical across all cases. The boot log
+    #     warns "DSpark gamma mismatch ... draft config block_size=8"; expected.
+    #     Dropping this key lets SGLang auto-infer 8 from the checkpoint, but
+    #     then num_draft_tokens MUST become 9 (untested).
+    #   num_draft_tokens 8 == gamma + 1. HARD requirement: _handle_dspark raises
     #     if they disagree, and because sglang_launch.sh always passes
     #     num_draft_tokens explicitly, a mismatch would only surface as a
     #     crash-looping head. tasks/sglang_instance.yml asserts the pair at
@@ -332,8 +343,8 @@ _model_profile:
     # needs this key. Report it upstream if confirmed: the published DGX Spark
     # DSpark cookbook cell cannot boot as printed.
     speculative_draft_attention_backend: "trtllm_mha"
-    speculative_dspark_block_size: 3
-    speculative_num_draft_tokens: 4  # = gamma (3) + 1. HARD requirement, see above.
+    speculative_dspark_block_size: 7
+    speculative_num_draft_tokens: 8  # = gamma (7) + 1. HARD requirement, see above.
     # speculative_dspark_sps_table_path: left empty. It points at a pre-profiled
     # DSpark SPS cost table (built offline with
     # `python -m sglang.benchmark.dspark_sps_profiler`) that feeds the
