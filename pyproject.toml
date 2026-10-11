@@ -76,7 +76,7 @@ web = [
 ]
 ansible = [
     "jinja2",
-    "kubernetes",
+    "kubernetes>=37",
     "dnspython",
     "pygithub",
     "huggingface-hub",
@@ -91,7 +91,7 @@ build = [
 # and pin_drift (kubernetes only for its running column).
 # update_local_k3s_keys needs nothing beyond the standard library.
 k3s = [
-    "kubernetes",
+    "kubernetes>=37",
     "typer",
 ]
 
@@ -178,7 +178,6 @@ module = [
     "cv2", "numpy", "pytesseract",
     "aiohttp", "ascii_magic", "uvicorn", "fastapi", "fastapi.*",
     "sglang.*", "safetensors", "safetensors.*",
-    "kubernetes", "kubernetes.*",
 ]
 ignore_missing_imports = true
 

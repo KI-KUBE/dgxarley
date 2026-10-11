@@ -41,7 +41,7 @@ from typing import TypedDict, cast
 import requests
 import typer
 from kubernetes import client, config
-from kubernetes.client.rest import ApiException
+from kubernetes.client.exceptions import ApiException
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -633,11 +633,12 @@ def running_digests(core: client.CoreV1Api, namespace: str, selector: str) -> di
     digests: dict[str, str] = {}
     pods = core.list_namespaced_pod(namespace=namespace, label_selector=selector)
     for pod in pods.items:
-        if pod.status.phase != "Running":
+        pod_status = pod.status
+        if pod_status is None or pod_status.phase != "Running":
             continue
         # By the time we ask, initContainers have long finished, but their
         # status still carries the digest they ran with.
-        statuses = list(pod.status.container_statuses or []) + list(pod.status.init_container_statuses or [])
+        statuses = list(pod_status.container_statuses or []) + list(pod_status.init_container_statuses or [])
         for status in statuses:
             image_id = status.image_id or ""
             if "@" in image_id:
@@ -672,7 +673,7 @@ def collect_workloads(apps: client.AppsV1Api, namespace: str | None) -> list[tup
     found: list[tuple[str, Workload]] = []
     for kind, items in sources:
         for item in items:
-            if keel_policy(item.metadata) is not None:
+            if item.metadata is not None and keel_policy(item.metadata) is not None:
                 found.append((kind, item))
     return found
 
@@ -776,6 +777,7 @@ def analyse(namespace: str | None, verbose: bool, use_local_credentials: bool = 
         for kind, workload in workloads:
             meta = workload.metadata
             spec = workload.spec.template.spec
+            assert meta is not None and meta.namespace is not None and meta.name is not None and spec is not None
 
             if meta.namespace not in seen_namespaces:
                 seen_namespaces.add(meta.namespace)
@@ -790,7 +792,7 @@ def analyse(namespace: str | None, verbose: bool, use_local_credentials: bool = 
             selector = ",".join(f"{key}={value}" for key, value in selector_pairs)
             actual = running_digests(core, meta.namespace, selector)
 
-            secret_names = [ref.name for ref in (spec.image_pull_secrets or [])]
+            secret_names = [ref.name for ref in (spec.image_pull_secrets or []) if ref.name]
             auth = load_pull_credentials(core, meta.namespace, secret_names)
             auth.fallback = local_auth
             if verbose and secret_names:
@@ -848,11 +850,14 @@ def _examine_containers(
         task: ID of the progress task whose description is updated.
         verbose: If set, log every single step.
     """
+    assert meta.namespace is not None and meta.name is not None
     tracks_init = keel_tracks_init_containers(meta)
     todo: list[tuple[client.V1Container, bool]] = [(container, False) for container in spec.containers]
     todo += [(container, True) for container in (spec.init_containers or [])]
 
     for container, is_init in todo:
+        if not container.image:
+            continue
         image = parse_image(container.image)
         running = actual.get(container.name)
         name = f"init:{container.name}" if is_init else container.name
@@ -1054,14 +1059,14 @@ def load_cluster_config(context: str | None) -> str:
             unknown context name the available ones are listed first.
     """
     try:
-        config.load_kube_config(context=context)
+        config.load_kube_config(context=context)  # type: ignore[no-untyped-call]
     except config.ConfigException as exc:
         if context is not None:
             err_console.print(f"[red]Context {context!r} not usable: {exc}[/]")
             err_console.print(f"[yellow]Available: {', '.join(available_contexts()) or 'none'}[/]")
             raise typer.Exit(code=2) from exc
         try:
-            config.load_incluster_config()
+            config.load_incluster_config()  # type: ignore[no-untyped-call]
         except config.ConfigException as incluster_exc:
             err_console.print(f"[red]Neither a kubeconfig nor an in-cluster context: {incluster_exc}[/]")
             raise typer.Exit(code=2) from incluster_exc
@@ -1069,7 +1074,7 @@ def load_cluster_config(context: str | None) -> str:
 
     if context is not None:
         return f"context {context}"
-    _, active = config.list_kube_config_contexts()
+    _, active = config.list_kube_config_contexts()  # type: ignore[no-untyped-call]
     return f"current context {(active or {}).get('name', '?')}"
 
 
@@ -1082,7 +1087,7 @@ def available_contexts() -> list[str]:
         file must not raise on top of the failure being reported.
     """
     try:
-        contexts, _ = config.list_kube_config_contexts()
+        contexts, _ = config.list_kube_config_contexts()  # type: ignore[no-untyped-call]
     except config.ConfigException:
         return []
     return [str(entry["name"]) for entry in contexts or []]

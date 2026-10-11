@@ -72,7 +72,7 @@ import typer
 import urllib3
 import yaml
 from kubernetes import client, config
-from kubernetes.client.rest import ApiException
+from kubernetes.client.exceptions import ApiException
 from pydantic import BaseModel, ConfigDict, TypeAdapter, ValidationError, field_validator, model_validator
 from rich.console import Console
 from rich.table import Table
@@ -724,18 +724,18 @@ def load_cluster(context: str | None) -> ClusterSnapshot | None:
         typer.Exit: With code 2 if an explicitly named context is unusable.
     """
     try:
-        config.load_kube_config(context=context)
+        config.load_kube_config(context=context)  # type: ignore[no-untyped-call]
         if context is not None:
             where = f"context {context}"
         else:
-            _, active = config.list_kube_config_contexts()
+            _, active = config.list_kube_config_contexts()  # type: ignore[no-untyped-call]
             where = f"current context {(active or {}).get('name', '?')}"
     except (config.ConfigException, OSError) as exc:
         if context is not None:
             err_console.print(f"[red]Context {context!r} not usable: {exc}[/]")
             raise typer.Exit(code=2) from exc
         try:
-            config.load_incluster_config()
+            config.load_incluster_config()  # type: ignore[no-untyped-call]
         except config.ConfigException:
             err_console.print("[yellow]No kubeconfig and no in-cluster context, skipping the running column.[/]")
             return None
@@ -755,6 +755,8 @@ def load_cluster(context: str | None) -> ClusterSnapshot | None:
     images: dict[ImageRepo, set[str]] = {}
     for pod in pods:
         if pod.status and pod.status.phase in FINISHED_POD_PHASES:
+            continue
+        if pod.spec is None:
             continue
         for container in (*(pod.spec.containers or ()), *(pod.spec.init_containers or ())):
             if container.image:
