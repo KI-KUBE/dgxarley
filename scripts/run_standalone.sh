@@ -38,8 +38,10 @@
 #   ADAPTIVE      0 (qwen38_nvidia: 1 = --speculative-adaptive, tiers 1/8 -> [1,2,3], 32 -> [1,2], start 2)
 #   DRAFT_MODEL   RadixArk/Qwen3.8-27B-DSpark (qwen38_27b: DSPARK draft repo or container-local dir)
 #   DRAFT_MODELS  from the preset (comma-separated repos pre-downloaded next to MODEL)
-#   MEM_FRACTION  0.88 (qwen38 presets)
+#   MEM_FRACTION  0.88 (qwen38 presets; nemotron3_super: 0.90)
 #   MAX_RUNNING   4 (qwen38 presets: max running requests = decode cuda-graph max bs)
+#   MAMBA_CACHE   128 (nemotron3_super: --max-mamba-cache-size, 5 slots per request with MTP 4/1/5)
+#   MAMBA_SSM_DTYPE bfloat16 (nemotron3_super: float32 doubles the cache memory, pair it with MAMBA_CACHE=64)
 #   REF           main (branch, tag or commit; resolved to a SHA, cached as patches-<sha>,
 #                 offline fallback: last SHA seen for REF, else the newest cache)
 #   REPO          vroomfondel/dgxarley
@@ -231,10 +233,13 @@ preset_nemotron3_super() {
         --moe-runner-backend flashinfer_cutlass
         --fp4-gemm-backend flashinfer_cutlass
         --cuda-graph-backend-prefill disabled
-        --mem-fraction-static "${MEM_FRACTION:-0.85}"
+        --mem-fraction-static "${MEM_FRACTION:-0.90}"
         --context-length 262144
         --max-running-requests "${MAX_RUNNING:-32}"
         --cuda-graph-max-bs-decode "${MAX_RUNNING:-32}"
+        # the auto-sized mamba cache caps max_running_requests at 4 with MTP (5 slots per request)
+        --max-mamba-cache-size "${MAMBA_CACHE:-128}"
+        --mamba-ssm-dtype "${MAMBA_SSM_DTYPE:-bfloat16}"
         --reasoning-parser nemotron_3
         --tool-call-parser qwen3_coder
     )
