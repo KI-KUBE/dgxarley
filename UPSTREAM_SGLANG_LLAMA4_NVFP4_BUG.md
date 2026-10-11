@@ -415,3 +415,23 @@ anchors, and update the two heredoc blocks in `sglang_launch.sh`. Verify with th
   the pin is a pending user decision. PR #35032 (loader fixes 1-3)
   unchanged, still OPEN, no activity since 2026-08-16. Issue #34192 stays
   closed via PR #35504's merge (2026-09-22).
+- **2026-10-11** - No new SGLang release since v0.5.21 (2026-10-02, tag commit `e00930c548`);
+  `56fee88` remains in v0.5.21 and no later tag exists. Anchor check on `main`
+  HEAD (`ad8b1e1f85`, 2026-10-10) plus an offline replay of the real patch
+  modules against the v0.5.21 tag, `7be5e3473c` and `main`:
+  `p52_mllama4_loader` (all four edits) and `p53_mllama4_kvscale` (both parts)
+  apply cleanly on all three. `mllama4.py` has no commits since 2026-10-03
+  (`permute_qk_weight_for_rotary` at `:621` still `attn_out =
+  self.language_model.config.hidden_size` with `modules[-1] == "weight"` only
+  for q and k, `_handle_scale_remapping` at `:731` still without
+  `loaded_weight`, `_handle_expert_scale_params` fused-3D gap unchanged).
+  `Llama4Attention.__init__` `RadixAttention(...)` (`llama4.py:296`) still has
+  no `quant_config`; the only `llama4.py` commits since 2026-10-03 are
+  `4c5130ac5a` (#42426, parallel-group selection) and `1f299e9f2f` (#42481,
+  append_stages), neither touching it. The local patches stay required on
+  v0.5.21 and `main`. Local note: the profile's `moe_runner_backend: triton`
+  pin is unchanged (repo commit `ce515ec`, 2026-10-10, only added LiteLLM cost
+  fields); revisiting the pin for the `56fee88` flashinfer_cutlass path
+  remains an open, unvalidated user decision on SM121. PR #35032 (loader fixes
+  1-3) still OPEN, no activity since 2026-08-16; issue #34192 stays closed via
+  PR #35504.
