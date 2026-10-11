@@ -141,6 +141,19 @@ contracts listed above `hermes.image_tag`.
   `require_authenticated_sender_default: false` is unaffected, a per-user `true` now also needs
   `authserv_id`. `c13ea774e6` (version_info) taken along. PRs #28697, #28699, #28702 and
   #113192 still open, no maintainer activity (`gh pr view` 2026-10-10).
+- 2026-10-11: no change to the email baseline. Deployed tag v0.21.6 is a plain semver tag
+  (annotated tag on `818c13be1d`, published 2026-10-08, no v2026.x date alias; upstream moved
+  to a stable release pipeline, v0.21.7 only exists as rc tags so far). adapter.py at v0.21.6
+  is blob 5fb7141781 (60267 B), identical to the blob named in the patch header. `c13ea774e6`,
+  the six 2026-09-27 fix(email) commits, `9bcbe7b5df`, `33c7018054`, `81706c8b30` and
+  `4f39bd4f35` are all ancestors of v0.21.6. `main` adapter.py is blob d983fd81c7 (60105 B),
+  differing from the tag only by three ruff lint commits (`d76cce4f11`, `aff64c3eeb`,
+  `2ff58849f4`, 2026-10-08/09). PRs #28697, #28699, #28702 and #113192 are open, rebased onto
+  main `02c9603730` on 2026-10-10, now mergeable (state blocked, awaiting review); last
+  maintainer comment remains teknium1 2026-06-15 on the first three, none on #113192. The
+  dashboard container now also carries `API_SERVER_KEY` (365d026) so the upstream Bearer probe
+  (#76051, `c061068b26`) can authenticate; `hermes_health_patch.py` becomes redundant once that
+  is verified live.
 
 
 ## Operational notes
