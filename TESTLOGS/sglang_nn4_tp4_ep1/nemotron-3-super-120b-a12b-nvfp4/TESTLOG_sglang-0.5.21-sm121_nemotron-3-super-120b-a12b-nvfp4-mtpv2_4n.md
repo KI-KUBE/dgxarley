@@ -242,3 +242,18 @@ Head `sglang-head-869849cdd7-lfd9t`, launch `--max-total-tokens 9437184`; only t
 - GPU process per rank: Super 59,959 MiB (was 61,992), Omni 10,907 MiB.
 - Per node (MemAvailable / Shmem / AnonPages, GB): spark1 15.96 / 15.80 / 13.24; spark2 19.43 / 15.80 / 10.16; spark3 18.86 / 15.80 / 10.15; spark4 19.45 / 15.80 / 10.18. `free -g` available 15 / 18 / 17 / 18.
 - The cap bound this time (9.44M is below the 10.18M auto-fit); smoke "17*23" returned 391 with reasoning_content, 0 restarts.
+
+## Run 6: n=4 fill-in (2026-10-11)
+
+Current profile (MTPv2 4/1/5, TP4/EP4, `--max-total-tokens` cap as in Run 5b), head `sglang-head-57cb9d8bb-d6t97`, redeployed with `ansible-playbook k8s_dgx.yml --tags sglang -e sglang_model=nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4`; ready 4.0 min after the rollout. Same GSM8K harness (temperature 0, max-tokens 8192), levels run back to back with a 20 s pause. n1 and n8 are drift anchors against the 2026-10-08 sweep (case 02).
+
+| level | questions | peak tok/s | agg tok/s | accept (median) | correct/scored | p50 / max s | 10-08 peak | drift |
+|-------|-----------|------------|-----------|-----------------|----------------|-------------|------------|-------|
+| n1    | 4         | 85.9       | 81.6      | 4.10            | 4/4            | 4.7 / 5.6   | 82.7       | +3.9 % |
+| n4    | 16        | 202.6      | 166.1     | 4.10            | 15/16          | 8.9 / 21.7  | not measured | - |
+| n8    | 32        | 299.4      | 241.7     | 4.13            | 31/32          | 10.6 / 30.5 | 277.4      | +7.9 % |
+
+- Accept len is the median over decode batches with `#running-req` equal to the level (8 to 10 samples per level, so indicative). 0 decode batches with `cuda graph: False` in any level window.
+- The single wrong answer at n4 and n8 is id 12 (pred 12, gt 13, `finish=stop`), which also flips between cases in the 10-08 sweep. No char runs, no failures other than that, no truncation, no restarts.
+- Drift anchors sit slightly above the 10-08 values (n1 +3.9 %, n8 +7.9 %), within the sample-size noise noted above, so the n4 figure is comparable to the sweep. n4 peak of 202.6 fits between n1 (85.9) and n8 (299.4); scaling n1 to n4 is 2.4x, n4 to n8 is 1.5x.
+- Smoke "17*23" returned 391 with reasoning_content before the runs.
