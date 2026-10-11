@@ -324,6 +324,22 @@ json=data)` without `ssl_verify` at line 98. Issue #30778 remains closed (`not_p
 unchanged (247b21a5fa / e60e09c0d3), `updatedAt` unchanged at 2026-09-23. The HAProxy TLS
 sidecar workaround remains required.
 
+**2026-10-11 re-verify, still broken; no fix in v1.103.3..v1.104.2:** LiteLLM advanced to
+**v1.104.2** (stable, "Latest", published 2026-10-08T08:39Z), with v1.104.1 and v1.103.3/v1.103.4
+(10-03/10-07), point releases v1.102.3/v1.102.4, v1.101.5/v1.101.6, v1.100.5 (10-07/10-08) and
+prereleases v1.105.0-rc.2/rc.3 and v1.106.0-dev.1 to dev.3 (to 10-09). Scanned the v1.103.3,
+v1.103.4, v1.104.1, v1.104.2, v1.102.4, v1.101.6, v1.105.0-rc.3 and v1.106.0-dev.3 changelogs:
+zero hits for ollama, ssl_verify, module_level_aclient or BaseLLMAIOHTTPHandler.
+`litellm/llms/ollama/completion/handler.py` on `main` has a new blob
+(ad2f15cdd7c4d5c8602326cfdbce2e5809dfb6ab, 4154 bytes, previously
+449952217b5e420c92ca20ff9cdff62aa95468e4) only because of the 2026-10-06 typing refactor
+`d4a791d650` (#44798, `logging_obj: Any` -> `object`); the bug is unchanged: `[TODO]: migrate
+embeddings to a base handler as well.` at line 4, `response: Final = await
+litellm.module_level_aclient.post(url=api_base, json=data)` without `ssl_verify` at line 98.
+Issue #30778 remains closed (`not_planned`, closed 2026-09-24T00:03:03Z, 1 comment). PRs #30810
+and #30848 remain open and unmerged, head commits unchanged (247b21a5fa / e60e09c0d3),
+`updatedAt` unchanged at 2026-09-23. The HAProxy TLS sidecar workaround remains required.
+
 ## Upstream Fix
 
 The embedding path in `litellm/llms/ollama/completion/handler.py` should stop using
