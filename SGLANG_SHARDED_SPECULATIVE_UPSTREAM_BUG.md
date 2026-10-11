@@ -370,6 +370,20 @@ therefore still required on v0.5.11 / v0.5.12 / v0.5.12.post1 / v0.5.13 / dev1 i
 > `--speculative-draft-model-path` workaround remains required and
 > unchanged.
 
+> **Re-verified 2026-10-11:** No new SGLang release since v0.5.21
+> (2026-10-02). On `main` HEAD (`ad8b1e1f85`, 2026-10-10)
+> `_resolve_draft_load_format()` is at `model_runner.py:1483` and
+> `maybe_init_draft_worker()` at `scheduler.py:1003`; the function body is
+> byte-identical to 2026-10-03 (draft runner only, returns
+> `get_spec().speculative_draft_load_format`, so `None` unless explicitly
+> set). Eleven commits touched `model_runner.py` and fifteen `scheduler.py`
+> since 2026-10-03; the only one near the load path, `6e8f3e09dd`
+> (InstantTensor loader, #40453), adds a `load_group` argument but leaves the
+> draft load-format resolution and its call sites unchanged. Issue #32202
+> stays closed (2026-09-22). PR #34622 remains OPEN, no activity since
+> 2026-08-18. The `--speculative-draft-load-format auto` plus `--speculative-
+> draft-model-path` workaround remains required and unchanged.
+
 - File: `sglang/srt/managers/scheduler.py`, method `maybe_init_draft_worker()`
 - Root cause in: `sglang/srt/managers/tp_worker.py`, method `_init_model_config()`
 
