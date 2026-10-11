@@ -11,6 +11,22 @@ by the GPU-pod-verified conclusions in the UPDATE 2026-07-16 section directly be
 the sparse indexer cannot run on SM121 via any hardware kernel; the torch fallback in
 `dsalogitrework.md` is the one viable path). Read the UPDATE first.
 
+> **UPDATE 2026-10-11: the DeepGEMM SM121 block described below is GONE on image
+> `xomoxcc/dgx-spark-sglang:0.5.21-sm121`.** `sgl-deep-gemm==0.2.0` in that image carries the
+> DeepGEMM PR #324 port (sgl-project/DeepGEMM#55): `sm120_{fp8,fp4}_{paged_,}mqa_logits`,
+> `sm120_tf32_hc_prenorm_gemm`, fp8/fp4 and bf16 GEMM, dispatched on `arch_major == 12`, so
+> SM121 is covered. Kernel-level verification on spark5 (2026-10-08, synthetic shapes, one
+> GPU): `get_paged_mqa_logits_metadata` + `fp8_paged_mqa_logits` + `fp8_mqa_logits` run on
+> SM121 and match a float32 reference at ~1e-7 relative error. On the SGLang side the probe
+> and UE8M0 packed-scale selection are SM121-aware natively since v0.5.21 (the p67 backport is
+> retired, see `roles/k8s_dgx/files/sglang_patches/RETIRED_PATCHES.md`). Consequences for this
+> memo: every "`Unsupported architecture` / hard NO-GO on SM121" statement about DeepGEMM below
+> is historical (true for the 0.5.15 to 0.5.20 images); approach **B** (DeepGEMM SM121
+> admission in the recipe) needs no build work any more; the torch/Triton/TileLang indexer
+> paths (p30/p35/p69, `dsa_paged_mqa_logits_backend: torch`) are now choices, not crash fixes.
+> Switching a model back to DeepGEMM is a per-model validation task (boot, GSM8K, decode A/B vs
+> p35), not yet done end-to-end. The `cutedsl` (tcgen05) and trtllm-gen findings are unaffected.
+
 > **FINAL 2026-07-16 (NATIVE PATH FOUND, supersedes both the survey verdict AND the
 > gather workaround below):** flashinfer 0.6.14 in this very image ships a native
 > SM120/121 sparse-MLA (`flashinfer/mla/_sparse_mla_sm120.py`: GLM_NSA model type,
@@ -32,7 +48,7 @@ the sparse indexer cannot run on SM121 via any hardware kernel; the torch fallba
 > LONG contexts (logits scales with table width; 1.476 ms/layer at width 131k).
 > Full detail: dsalogitrework.md p35 LIVE RESULT.
 
-## UPDATE 2026-07-16 (GPU-debug-pod verified) - the sparse path is a HARD SM121 block
+## UPDATE 2026-07-16 (GPU-debug-pod verified) - the sparse path is a HARD SM121 block (DeepGEMM part historical, see 2026-10-11 banner)
 
 A GPU-debug-pod test on GB10 (device capability (12,1)) settled the two candidate levers:
 
@@ -301,6 +317,8 @@ own SM121 gaps or DSA incompatibility -> boot/accuracy check is mandatory, forwa
 
 ### B. Enable DeepGEMM on SM121 for the indexer (build-level, the "JIT aktivieren" lever)
 
+> Obsolete since 0.5.21-sm121: sgl-deep-gemm 0.2.0 already admits SM121 (see 2026-10-11 banner). What remains is a per-model runtime A/B, no recipe change.
+
 Flipping `SGLANG_ENABLE_JIT_DEEPGEMM=true` alone is NOT expected to work: DeepGEMM must
 first ADMIT SM121 in its codegen (same class of problem the CUTLASS `sm_121a` patch
 already solved for FP4). Concretely, to get the tuned FP8 indexer/MoE GEMMs:
@@ -366,4 +384,4 @@ Every change is forward-fix on SGLang (no rollback, no vLLM); validate with the 
 - Arch-admission patch precedent: image `cute/mma.py` sm_120a/sm_121a patch; recipe
   patches under `scripts/patches/`.
 - Prior findings: the DSV4 DSA kernel notes (topk_transform native works;
-  `fp8_paged_mqa_logits` DeepGEMM SM121 block) and the GB10 util/stuck-rank notes.
+  `fp8_paged_mqa_logits` DeepGEMM SM121 block, lifted in 0.5.21-sm121) and the GB10 util/stuck-rank notes.

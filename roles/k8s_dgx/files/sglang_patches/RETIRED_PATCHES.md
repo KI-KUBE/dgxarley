@@ -36,3 +36,28 @@ edit: `_fi_fp4_allow_in_graph_`, `_fi_fp4_cache_and_prewarm_`,
 `_fi_fp4_prewarm_const_`, `_fi_fp4_compiler_disable_`. Since the patches only
 ever ran against a fresh image layer, a pod restart on the pinned image is
 enough to get an unpatched `fp4_quantization.py` back.
+
+## p67_deepgemm_sm121_gate.py
+
+Retired 2026-10-11. Backport of sgl-project/sglang#39482 ("[Bugfix] Include
+SM121 in DeepGEMM packed-scale selection"): widened the two `sm_version == 120`
+special cases in `sglang/srt/layers/deep_gemm_wrapper/configurer.py` to
+`in (120, 121)`, so GB10 got the SM120 DeepGEMM capability probe in
+`_compute_enable_deep_gemm()` and the UE8M0 packed-scale selection
+(`DEEPGEMM_SCALE_UE8M0`). Opt-in via env `SGLANG_OPT_DEEPGEMM_SM121_PACKED_SCALE=1`
+(profile key `opt_deepgemm_sm121_packed_scale`); no profile ever enabled it.
+
+Absorbed in v0.5.21: the probe was reworked into the SM121-aware
+`_sm120_deep_gemm_apis_available()` helper (#38792) and the UE8M0 line reads
+`get_device_sm() in (120, 121)`. On the 0.5.21-sm121 image the patch already
+self-disabled (`when=` keyed on that helper), so removal is a no-op there. The
+env var, the `sglang_opt_deepgemm_sm121_packed_scale` default and its wiring in
+`sglang_instance.yml` / `sglang_shard.yml` were removed with it.
+
+An instance pinned to an image older than v0.5.21 (0.5.20-sm121) loses the
+backport; restore the file from git history (`git log --diff-filter=D --
+roles/k8s_dgx/files/sglang_patches/p67_deepgemm_sm121_gate.py`) if that is ever
+needed. Kernel side: `sgl-deep-gemm==0.2.0` in the 0.5.21 image ships the SM120
+kernel family with `arch_major == 12` dispatch (verified 2026-10-08). History:
+`UPSTREAM_DSV4_BUGS.md` (09-22 to 10-11 entries),
+`scripts/patches/sglang-0.5.21-sm121.recipe`.

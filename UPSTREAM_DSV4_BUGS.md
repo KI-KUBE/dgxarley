@@ -1248,6 +1248,8 @@ Local: the cluster now runs `xomoxcc/dgx-spark-sglang:0.5.21-sm121` (commit 5a42
 
 Next check: decide on retiring p67 into RETIRED_PATCHES.md and on a DeepGEMM-enabled DSV4 trial on the 0.5.21-sm121 image; watch for the next SGLang tag after v0.5.21.
 
+Later 2026-10-11: p67 retired (file deleted, env/default wiring removed, entry in `roles/k8s_dgx/files/sglang_patches/RETIRED_PATCHES.md`). The DeepGEMM-enabled DSV4 trial is still open.
+
 ---
 
 ## Upstream references

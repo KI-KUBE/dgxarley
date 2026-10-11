@@ -5,6 +5,19 @@ via SGLang's **TileLang DSA indexer** (a 3-line compat patch + `opt_use_tilelang
 no DeepGEMM port needed. End-to-end: n=1 ~18.7 tok/s, 12-concurrent ~42 tok/s (~2.3x). See
 `scripts/patches/sglang-tilelang-018-indexer-compat.patch` and the DSV4-Flash profile. This
 runbook is kept only as the fallback plan if even-higher throughput is later required.
+**Status update 2026-10-11: OBSOLETE, the runbook collapsed to a wheel bump (Open Question 4 answered "yes").**
+Image `xomoxcc/dgx-spark-sglang:0.5.21-sm121` ships `sgl-deep-gemm==0.2.0`, which already contains the
+PR #324 port (sgl-project/DeepGEMM#55): `sm120_{fp8,fp4}_{paged_,}mqa_logits.cuh`,
+`sm120_tf32_hc_prenorm_gemm.cuh`, `sm120_fp8_fp4_gemm_1d1d.cuh`, `sm120_bf16_gemm.cuh`, with
+`arch_major == 12` dispatch covering SM121. The `attention.hpp` `Unsupported architecture` wall
+(§3.1 wall 1) and the SM100-only kernel ISA (wall 2) no longer apply; US-001 to US-005 are moot.
+Verified on spark5 2026-10-08 at kernel level (synthetic shapes, one GPU): metadata +
+`fp8_paged_mqa_logits` + `fp8_mqa_logits` run and match a float32 reference (~1e-7 rel). SGLang's
+probe/UE8M0 selection is SM121-aware natively since v0.5.21 (local backport p67 retired).
+Still open, and the only live part of this document: §3.2 / US-006 (SGLang 0.5.21 still forces the
+DSV4 torch/TileLang indexer on SM12x unless the env is explicitly `0`) and the E2E validation of
+US-007/US-008 on the DSV4 profiles, which still keep `disable_deep_gemm: true` and
+`fp8_paged_mqa_logits_torch: true`. Current DSV4 status: `UPSTREAM_DSV4_BUGS.md` (2026-10-11 entry).
 **Author:** (investigation 2026-06-20)
 **Audience:** single expert engineer (exhaustive runbook, not a product doc)
 **Related memory:** `reference_dsv4_sm121_dsa_kernels`, `reference_dsv4_spec_v2_eagle`
