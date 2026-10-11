@@ -319,8 +319,8 @@
 # Gateway api_server health-endpoint patch — makes /health(/detailed) public so
 # the dashboard's unauthenticated liveness probe stops logging a per-poll 401
 # WARNING (and the "Gateway" badge gets the richer /health/detailed payload).
-# Upstream regression NousResearch/hermes-agent#56260 authenticated the endpoint
-# but never updated the probe; no upstream fix as of the pinned image. The .py is
+# Upstream #56260 authenticated the endpoint; v0.21.6 (#76051) lets the probe send
+# Bearer $API_SERVER_KEY, which the dashboard container now carries. The .py is
 # imported at interpreter start via the zz_*.pth (both subPath-mounted into the
 # venv site dir of the gateway container). Shared across users (identical patch).
 # Retirable once the Bearer-authenticated probe (API_SERVER_KEY on the dashboard container) is verified live on v0.21.6.

@@ -41,11 +41,11 @@ RE-SYNC on a hermes.image_tag bump: confirm
     decorator, which calls it at request time, so the class-level wrap still intercepts it);
   * _probe_gateway_health (hermes_cli/web_server_gateway.py since v2026.9.14) still sends no
     Authorization header UNLESS API_SERVER_KEY is in the dashboard process env: since v0.21.6
-    (issue #76051) it adds `Bearer $API_SERVER_KEY` to the /health/detailed request. Our
-    dashboard container does not carry API_SERVER_KEY (only the gateway sidecar does; it is
-    not merged into /opt/data/.env either), so the probe is still unauthenticated and this
-    patch still fires. Giving the dashboard container the same API_SERVER_KEY env would make
-    the patch redundant (keep it as belt-and-suspenders or delete it then).
+    (issue #76051) it adds `Bearer $API_SERVER_KEY` to the /health/detailed request. The
+    dashboard container now carries the same API_SERVER_KEY as the gateway sidecar (both from
+    GATEWAY_API_SERVER_KEY in hermes-env-<user>), so on v0.21.6+ the probe authenticates and
+    this patch is belt-and-suspenders only. RETIRE it once a live pod on v0.21.6 shows 0
+    "rejected invalid API key" warnings with the patch removed.
   * the interpreter is still the sealed /opt/hermes/.venv (python3.14 since v0.21.6, pm-managed):
     hermes_bootstrap.activate_dependencies() rewrites sys.path in-process but never re-execs,
     so site.py has already run this .pth; prune_site_pth() only strips _virtualenv/__editable__
