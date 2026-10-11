@@ -39,9 +39,9 @@
 #   DRAFT_MODEL   RadixArk/Qwen3.8-27B-DSpark (qwen38_27b: DSPARK draft repo or container-local dir)
 #   DRAFT_MODELS  from the preset (comma-separated repos pre-downloaded next to MODEL)
 #   MEM_FRACTION  0.88 (qwen38 presets; nemotron3_super: 0.90)
-#   MAX_RUNNING   4 (qwen38 presets: max running requests = decode cuda-graph max bs)
-#   MAMBA_CACHE   128 (nemotron3_super: --max-mamba-cache-size, 5 slots per request with MTP 4/1/5)
-#   MAMBA_SSM_DTYPE bfloat16 (nemotron3_super: float32 doubles the cache memory, pair it with MAMBA_CACHE=64; qwen38 presets: float32)
+#   MAX_RUNNING   4 (qwen38 presets: max running requests = decode cuda-graph max bs; qwen38_27b: 32, decode cuda-graph max bs only)
+#   MAMBA_CACHE   128 (nemotron3_super: --max-mamba-cache-size, 5 slots per request with MTP 4/1/5; qwen38_27b: 160)
+#   MAMBA_SSM_DTYPE bfloat16 (nemotron3_super: float32 doubles the cache memory, pair it with MAMBA_CACHE=64; qwen38_27b: bfloat16; qwen38_nvidia/radixark: float32)
 #   REF           main (branch, tag or commit; resolved to a SHA, cached as patches-<sha>,
 #                 offline fallback: last SHA seen for REF, else the newest cache)
 #   REPO          vroomfondel/dgxarley
@@ -187,8 +187,10 @@ preset_qwen38_27b() {
         --mem-fraction-static "${MEM_FRACTION:-0.80}"
         --context-length 262144
         --max-running-requests 48
-        --cuda-graph-max-bs-decode "${MAX_RUNNING:-16}"
-        --mamba-ssm-dtype "${MAMBA_SSM_DTYPE:-float32}"
+        --cuda-graph-max-bs-decode "${MAX_RUNNING:-32}"
+        # DSPARK gamma 7 needs 5 cache slots per request
+        --max-mamba-cache-size "${MAMBA_CACHE:-160}"
+        --mamba-ssm-dtype "${MAMBA_SSM_DTYPE:-bfloat16}"
         --mamba-radix-cache-strategy extra_buffer
         --reasoning-parser qwen3
         --tool-call-parser qwen3_coder
