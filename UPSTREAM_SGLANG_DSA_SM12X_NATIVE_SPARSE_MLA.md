@@ -834,6 +834,29 @@ watch only.
 > question. No factual errors found in the 09-28 entry other than that
 > "green NV CI" is now stale.
 
+> Re-checked 2026-10-11: PR #31481 unchanged (head `7aa9049335de83ed1c2227c176041301a6309a29`,
+> `updatedAt` 2026-09-22T09:03:28Z, no new comments or reviews, `REVIEW_REQUIRED`,
+> `MERGEABLE`/`BLOCKED` on two reads 5s apart; fork branch head matches). No new SGLang tag
+> (v0.5.21 still latest); `upstream/main` tip `ad8b1e1f85`. Dry-run `git merge-tree
+> --write-tree upstream/main dsa-sm12x-native-sparse-mla`: clean, no rebase needed.
+> `dsa_backend.py` still has the hardcoded `backend="trtllm-gen"` this PR changes; upstream
+> main already contains the `flashinfer_sparse_mla` dispatch.
+
+> PR #32779 MERGED 2026-10-06 as `e446698cdd` (final head `3e35818947`): ch-wan approved
+> 2026-10-04 after the 10-02 rework, nvpohanh queued the merge, kpham-sgl waved through the
+> remaining failures as flaky on main (rollup 120 SUCCESS / 22 FAILURE, labels `run-ci`,
+> `bypass-fail-fast`). It adds opt-in `--dsa-prefill-backend triton_sparse_mla` and
+> `--dsa-triton-union {0,2,4}` (default 0) and widens the GLM SM12x fp8-KV validator in
+> `flash_mla_sm120.py` to {`flashinfer_sparse_mla`, `triton_sparse_mla`}; flashinfer stays
+> the default. Orthogonal to #31481 (clean merge-tree), does not change the p34 question.
+> Not in a release tag yet. The 10-03 "did not merge / 20 FAILURE" paragraph is superseded.
+
+> Local: image 0.5.21-sm121 is deployed and GLM-5.3-Flash now runs TileLang DSA prefill and
+> decode via new runtime patch p68 (v1 kernel, `tail_dim == 0`, tile block_I=32 /
+> num_stages=1 / threads=128 on SM12x; GPU-verified spark5 2026-10-08, rel err ~2.2e-3 at
+> H=16 and H=32); v2 (`tail_dim > 0`) stays dead on GB10. That is a separate route from the
+> flashinfer-native path in this PR. p34 retirement decision still pending.
+
 ## Proposed PR title
 
 > [DSA] Enable sparse MLA decode+prefill on SM120/SM121 (consumer Blackwell) via
