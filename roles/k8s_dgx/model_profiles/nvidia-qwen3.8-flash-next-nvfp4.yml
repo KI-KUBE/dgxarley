@@ -73,8 +73,10 @@ _model_profile:
     # [chunk x history] workspace per sparse layer per chunk. Drop to 1024 before
     # blaming a decode kernel for degraded long-context output.
     chunked_prefill_size: 4096
-    max_running_requests: 16
+    max_running_requests: 32
     cuda_graph_max_bs: 32
+    # bf16 halves the ssm cache; MTP accept len unchanged (validated TP1 only, SINGLE_CLUSTER_COMPARE.md)
+    mamba_ssm_dtype: "bfloat16"
     # chat_template.jinja is byte-identical to the RadixArk export. Thinking is on
     # by default at xhigh; --reasoning-parser auto resolves to qwen3.
     reasoning_parser: "qwen3"
@@ -142,7 +144,7 @@ _model_profile:
     # own defaults go up to 7 on the BS1 tier, which would trip that. 0 = drop
     # speculation entirely for that tier.
     # A batch uses the LARGEST key <= its (cuda-graph-padded) size, so with
-    # max_running_requests 16: bs 1-7 -> "1", bs 8-16 -> "8"; "32" is a guard.
+    # max_running_requests 32: bs 1-7 -> "1", bs 8-30 -> "8", bs 31-32 -> "32".
     speculative_adaptive_config:
       "1": {candidate_steps: [1, 2, 3]}
       "8": {candidate_steps: [1, 2, 3]}
