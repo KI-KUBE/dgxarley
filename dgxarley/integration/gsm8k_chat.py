@@ -3,7 +3,8 @@
 The stock sglang GSM8K harness needs Python 3.12 (`urlopen(cafile=)`) and drives the raw completion
 endpoint, which a reasoning model answers with its trace and ~1 token; this one uses /v1/chat/completions,
 asks for a `#### <number>` last line, scores numerically and counts budget exhaustion (empty content or
-finish_reason length) as truncation, never as a wrong answer.
+finish_reason length) as truncation, never as a wrong answer. Requests stream by default so `analyze` can
+report windowed throughput (`sustained_10s_tok_s`, `full_load_tok_s`) next to the start/end based peak.
 
 Usage:
   kubectl --context=ht@dgxarley -n sglang port-forward svc/sglang 38080:8000 &
@@ -16,6 +17,7 @@ Usage:
 import argparse
 import asyncio
 import json
+import math
 import re
 import sys
 import time
@@ -30,6 +32,9 @@ PROMPT_SUFFIX = (
 NUMBER_RE = re.compile(r"-?\d[\d,]*\.?\d*")
 FINAL_RE = re.compile(r"####\s*\$?\s*(-?[\d,]*\.?\d+)")
 CHAR_RUN_RE = re.compile(r"(.)\1{19,}")
+TIMELINE_BIN_S = 0.5
+SUSTAINED_WINDOW_S = 10.0
+FULL_LOAD_FRAC = 0.9
 NON_MATH_NONASCII_RE = re.compile(r"[^\x00-\x7f‘-”–— °×÷€£≈→≤≥−½²]")
 
 
@@ -63,17 +68,60 @@ def fetch(args: argparse.Namespace) -> None:
     print(f"wrote {target} ({sum(1 for _ in target.open())} questions)")
 
 
-def chat_call(url: str, model: str, question: str, max_tokens: int, temperature: float, timeout: int) -> dict[str, Any]:
-    body = {
+def chat_call(
+    url: str,
+    model: str,
+    question: str,
+    max_tokens: int,
+    temperature: float,
+    timeout: int,
+    t0: float = 0.0,
+    stream: bool = True,
+) -> tuple[dict[str, Any], list[list[float]]]:
+    body: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": question + PROMPT_SUFFIX}],
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
+    if stream:
+        body.update(stream=True, stream_options={"include_usage": True})
     req = urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        data: dict[str, Any] = json.loads(resp.read())
-        return data
+        if not stream:
+            data: dict[str, Any] = json.loads(resp.read())
+            return data, []
+        content: list[str] = []
+        reasoning: list[str] = []
+        finish: str | None = None
+        usage: dict[str, Any] = {}
+        bins: dict[float, int] = {}
+        for raw in resp:
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if payload == "[DONE]":
+                break
+            chunk = json.loads(payload)
+            if "error" in chunk:
+                raise RuntimeError(f"stream error: {chunk['error']}")
+            if chunk.get("usage"):
+                usage = chunk["usage"]
+            for choice in chunk.get("choices") or []:
+                delta = choice.get("delta") or {}
+                text = delta.get("content") or ""
+                think = delta.get("reasoning_content") or delta.get("reasoning") or ""
+                content.append(text)
+                reasoning.append(think)
+                if choice.get("finish_reason"):
+                    finish = choice["finish_reason"]
+                if text or think:
+                    key = math.floor((time.time() - t0) / TIMELINE_BIN_S) * TIMELINE_BIN_S
+                    bins[key] = bins.get(key, 0) + len(text) + len(think)
+    message = {"content": "".join(content), "reasoning_content": "".join(reasoning)}
+    data = {"choices": [{"message": message, "finish_reason": finish}], "usage": usage}
+    return data, [[t, float(c)] for t, c in sorted(bins.items())]
 
 
 async def run(args: argparse.Namespace) -> None:
@@ -98,9 +146,19 @@ async def run(args: argparse.Namespace) -> None:
             gt = to_number(row["answer"].split("####")[-1])
             rec: dict[str, Any] = {"id": i, "gt": gt, "start": time.time() - t0}
             try:
-                data = await asyncio.to_thread(
-                    chat_call, args.url, args.model, row["question"], args.max_tokens, args.temperature, args.timeout
+                data, timeline = await asyncio.to_thread(
+                    chat_call,
+                    args.url,
+                    args.model,
+                    row["question"],
+                    args.max_tokens,
+                    args.temperature,
+                    args.timeout,
+                    t0,
+                    not args.no_stream,
                 )
+                if timeline:
+                    rec["tl"] = timeline
                 choice = data["choices"][0]
                 msg = choice["message"]
                 content = msg.get("content") or ""
@@ -137,6 +195,42 @@ async def run(args: argparse.Namespace) -> None:
         task.cancel()
     out.close()
     print(json.dumps({"wall": round(time.time() - t0, 1), "unfinished_workers": len(pending), "out": args.out}))
+
+
+def windowed_throughput(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    tokens: dict[float, float] = {}
+    for r in rows:
+        tl: list[list[float]] = r.get("tl") or []
+        chars = sum(c for _, c in tl)
+        if not chars or not r.get("completion_tokens"):
+            continue
+        per_char = r["completion_tokens"] / chars
+        for t, c in tl:
+            tokens[t] = tokens.get(t, 0.0) + c * per_char
+    if not tokens:
+        return {
+            "sustained_10s_tok_s": None,
+            "full_load_tok_s": None,
+            "full_load_seconds": 0.0,
+            "full_load_min_active": 0,
+        }
+    n_bins = int(max(tokens) / TIMELINE_BIN_S) + 1
+    series = [tokens.get(i * TIMELINE_BIN_S, 0.0) for i in range(n_bins)]
+    window = max(1, min(n_bins, int(SUSTAINED_WINDOW_S / TIMELINE_BIN_S)))
+    best = running = sum(series[:window])
+    for i in range(window, n_bins):
+        running += series[i] - series[i - window]
+        best = max(best, running)
+    active = [sum(1 for r in rows if r["start"] <= (i + 0.5) * TIMELINE_BIN_S < r["end"]) for i in range(n_bins)]
+    threshold = math.ceil(FULL_LOAD_FRAC * max(active))
+    full = [i for i in range(n_bins) if active[i] >= threshold]
+    full_seconds = len(full) * TIMELINE_BIN_S
+    return {
+        "sustained_10s_tok_s": round(best / (window * TIMELINE_BIN_S), 1),
+        "full_load_tok_s": round(sum(series[i] for i in full) / full_seconds, 1) if full_seconds else None,
+        "full_load_seconds": full_seconds,
+        "full_load_min_active": threshold,
+    }
 
 
 def summarize(path: str) -> dict[str, Any]:
@@ -177,6 +271,7 @@ def summarize(path: str) -> dict[str, Any]:
         "wall": round(wall, 1),
         "aggregate_tok_s": round(completion_tokens / wall, 1) if wall else 0.0,
         "concurrent_peak_tok_s": round(peak, 1),
+        **windowed_throughput(rows),
         "avg_completion_tokens": round(completion_tokens / len(rows), 1) if rows else 0.0,
         "char_runs": char_runs,
         "odd_nonascii": odd_nonascii,
@@ -230,6 +325,7 @@ def cli(argv: list[str]) -> int:
     p_run.add_argument("--temperature", type=float, default=0.0)
     p_run.add_argument("--timeout", type=int, default=600, help="per-request HTTP timeout in seconds")
     p_run.add_argument("--limit", type=int, default=0, help="only the first N questions (0 = all)")
+    p_run.add_argument("--no-stream", action="store_true", help="plain responses, no windowed throughput")
     p_run.set_defaults(func=lambda a: asyncio.run(run(a)))
 
     p_an = sub.add_parser("analyze", help="summarize one results JSONL, or compare two")
