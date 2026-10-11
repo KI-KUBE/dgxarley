@@ -613,6 +613,29 @@ REST/GraphQL now report `mergeable: MERGEABLE` / `mergeStateStatus: BLOCKED`
 > Conclusion unchanged: p30/p35 remain necessary on current main; no upstream
 > fix has landed or is imminent. No factual errors found in the 09-28 entry.
 
+> Re-checked 2026-10-11: PR #31480 unchanged (head `8d3944adb22eba57e258c7129f54333c7896fcf8`,
+> `updatedAt` 2026-09-10T13:10:42Z, no new comments or reviews, `REVIEW_REQUIRED`,
+> `MERGEABLE`/`BLOCKED` on two reads 5s apart; fork branch head matches). No new SGLang tag
+> (v0.5.21 still latest); `upstream/main` tip `ad8b1e1f85` pins `sgl-deep-gemm==0.2.2`.
+> `paged_mqa_logits_backend.py` has no commits since 2026-08-30; `exec_.py` choices still
+> `["auto", "deepgemm", "cutedsl", "aiter"]`; `dsa_indexer_kpool.py` upstream still calls
+> `deep_gemm.fp8_paged_mqa_logits` unconditionally. New k-pool/DSA commits (#42178, #42671,
+> #42750, #42285, #42793, #43100, #42957) do not touch the generic dispatch. Dry-run
+> `git merge-tree --write-tree upstream/main dsa-indexer-torch-triton-backend`: clean, no
+> rebase needed.
+
+> Local correction to the "DeepGEMM asserts on SM120/121" premise: image 0.5.21-sm121 ships
+> sgl-deep-gemm 0.2.0 whose paged and ragged FP8 MQA logits kernels run on SM121 (kernel-level
+> GPU verification on spark5 2026-10-08, ~1e-7 relative error, end-to-end unvalidated; see
+> p69 header and `roles/k8s_dgx/defaults/main/sglang.yml`). So on 0.5.21+ the `torch`/Triton
+> backend is no longer a crash fix but an opt-in fallback and a decode-speed option; the
+> PR body's Problem section below describes pre-0.2.x DeepGEMM and would need the same
+> qualifier before any further push. p30/p35 stay for older images and as the A/B lever. New
+> local patch p69 routes `IndexerKPool._get_topk_paged` (GLM-5.3-Flash, `index_kpool=4`) to
+> the same torch/Triton path; this call site is outside #31480's scope (the PR only wires
+> `dsa_indexer.py`), so the `torch` value silently stays on DeepGEMM for k-pool models
+> without p69. Candidate follow-up if the PR is pursued.
+
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
 > Triton fast path (unblocks DSA models on SM120/SM121)
 
