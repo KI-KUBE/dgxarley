@@ -18,18 +18,41 @@
 #       ceiling is the GOOD case; an accept len pinned AT 8 would have meant the
 #       verify stage stopped rejecting, i.e. silent corruption.
 #     * no same-settings run WITHOUT speculation was measured, so no speedup
-#       factor is claimed.
-#   >>> THE NEXTN ALTERNATIVE BELOW IS NOT A WORKING FALLBACK ON THIS BUILD <<<
-#   NEXTN on the in-checkpoint MTP head killed the scheduler on the first real
-#   request with a FlashInfer exception (fast_prefill_plan -> call_begin_forward
-#   -> update_single_wrapper -> init_forward_metadata_out_graph). The same
-#   checkpoint serves fine with speculation OFF, so the fault is specific to the
-#   NEXTN path rather than to speculation in general. Caveat: the two compared
-#   runs also differed in context length (32768 vs 65536) and the crashed
-#   container's log was lost before the final exception line could be captured,
-#   so this is narrowed, not proven. Do not switch to NEXTN expecting it to work.
+#       factor is claimed. (Superseded by the 2026-10-10 sweep below.)
+#
+# STATUS 2026-10-10: SPECULATIVE SWEEP on a single Spark (spark5, GB10, TP=1,
+#   SGLang 0.5.21-sm121, scripts/run_standalone.sh PRESET=qwen38_27b), GSM8K
+#   chat API, temperature 0, levels n=1/4/8/16. Full matrix in
+#   TESTLOGS/standalone_nn1_tp1/qwen-3.8-27b-nvfp4-modelopt/TESTLOG_nv580.178.04_sglang-0.5.21-sm121_qwen-3.8-27b-nvfp4-modelopt_1n.md.
+#   Peak tok/s n=1 / n=4 / n=8 / n=16, accept len:
+#     no speculation            12.6 /  49.4 /  94.2 / 166.3
+#     MTP (EAGLE) 3/1/4         24.9 /  94.1 / 159.6 / 255.2   3.10 of 4
+#     MTP (EAGLE) 5/1/6         24.7 /  93.5 / 143.3 / 255.7   3.62 of 6
+#     DSPARK RadixArk gamma 3   31.5 / 107.2 / 184.1 / 282.7   3.20 of 4
+#     DSPARK RadixArk gamma 5   41.3 / 126.4 / 209.0 / 320.6   3.81 of 6
+#     DSPARK RadixArk gamma 7   48.3 / 138.8 / 231.7 / 336.9   4.31 of 8  <- THIS PROFILE
+#   * Speculation is mandatory here: DSPARK gamma 7 is x3.8 at n=1 and x2.0 at
+#     n=16 over no speculation. It beats the best MTP setting by x1.9 / x1.3.
+#   * The in-checkpoint MTP head WORKS on 0.5.21 when driven as EAGLE: no crash,
+#     healthy accept len, GSM8K identical to no-draft. The 0.5.17 NEXTN
+#     fast_prefill_plan crash below did not reproduce. MTP is now a valid but
+#     slower fallback (see the ALTERNATIVE block), not a known failure.
+#   * GSM8K quality identical in every case (all misses are the same question,
+#     also missed without speculation).
+#   * RedHatAI/Qwen3.8-27B-speculator.dspark (block 8) is in the same class as
+#     the RadixArk draft (n=16 317-346 vs 337) but ships in the vLLM speculators
+#     config format SGLang cannot parse; it only ran with a hand-converted
+#     config. Not worth switching to.
+#   * gamma 7 caps max_running_requests at 15 (mamba state cache with float32
+#     SSM state, 5 slots per request); see SM121 review 7 for the KV-scale
+#     finding from the same runs.
+# 2026-08-15 (0.5.17) NEXTN result, kept for history: NEXTN on the
+#   in-checkpoint MTP head killed the scheduler on the first real request with a
+#   FlashInfer exception (fast_prefill_plan -> call_begin_forward ->
+#   update_single_wrapper -> init_forward_metadata_out_graph); narrowed, not
+#   proven (runs differed in context length, crash log lost).
 #   Still ungated: the IMAGE path (text-only calibration) and this role's own
-#   deploy hop.
+#   deploy hop (TP=4).
 #
 # WHAT THIS CHECKPOINT IS (verified against HF 2026-08-15, repo created the
 # same day):
@@ -91,6 +114,10 @@
 #      GB10 NVFP4 mma fix, applied for every NVFP4 model).
 #   7. Sanity check for the baked KV scales: the boot log must contain "Using
 #      FP8 KV cache but no scaling factors provided" ZERO times.
+#      OPEN 2026-10-10: on 0.5.21 the TARGET logs it once ("Defaulting to
+#      scaling factors of 1.0"), with and without a draft, so the baked scales
+#      are not picked up there. GSM8K was unaffected in the sweep; re-check the
+#      p51 gate / PR #31220 path on 0.5.21 before trusting long-context output.
 #
 # ── RISKS, reconciled against the measured run at the top of this file ───────
 # RETIRED by the 2026-08-15 measurement:
@@ -119,13 +146,12 @@
 #      profile ships tp_size 4, so every verify step gains an inter-node hop
 #      and the drafter runs distributed. Acceptance is a model property and
 #      should carry over; throughput is NOT and has to be re-measured.
-#   D. No same-settings run WITHOUT speculation exists, so the profile makes no
-#      speedup claim. Until that A/B is on record, "DSpark is worth it here" is
-#      an assumption, not a result.
+#   D. RESOLVED 2026-10-10 (single Spark): DSpark gamma 7 vs no speculation is
+#      x3.8 at n=1, x2.0 at n=16. Re-measure on the TP=4 deploy (see C).
 #   E. The image path is calibrated on text only (see above), so the vision
 #      surface remains the least validated part of the build.
-#   F. NEXTN on the in-checkpoint MTP head is a measured FAILURE on this build,
-#      not a fallback. See the ALTERNATIVE block below before reaching for it.
+#   F. RESOLVED on 0.5.21: the in-checkpoint MTP head works as EAGLE (it was a
+#      measured NEXTN failure on 0.5.17). Slower than DSpark; see ALTERNATIVE.
 _model_profile:
   "vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt":
     knowledge_cutoff: null  # not officially disclosed for the Qwen3.8-27B base
@@ -252,8 +278,25 @@ _model_profile:
     # for the NEXTN/EAGLE v2 path, while DSPARK always runs through its own
     # dspark_worker_v2. Set it only if you switch to the NEXTN variant below.
     #
-    # ═══ ALTERNATIVE: NEXTN on the in-checkpoint MTP head ═══
-    # >>> MEASURED 2026-08-15: THIS DOES NOT WORK ON THIS BUILD. <<<
+    # ═══ ALTERNATIVE: the in-checkpoint MTP head ═══
+    # >>> MEASURED 2026-10-10 on 0.5.21 (single Spark): WORKS as EAGLE. <<<
+    # Values that ran clean (GSM8K identical to no-draft, accept len 3.10 of 4,
+    # peak tok/s 24.9 at n=1 / 255.2 at n=16, i.e. x2.0 / x1.5 over no
+    # speculation but behind DSPARK gamma 7 by x1.9 / x1.3):
+    #
+    #   speculative_enabled: true
+    #   speculative_algo: EAGLE
+    #   speculative_draft_model_path: "vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt"   # the target itself
+    #   speculative_num_steps: 3
+    #   speculative_eagle_topk: 1
+    #   speculative_num_draft_tokens: 4
+    #   mamba_scheduler_strategy: extra_buffer
+    #
+    # 5 steps / 6 draft tokens raised accept len to 3.62 but not throughput.
+    # No speculative_draft_model_quantization was set for this run; the
+    # BF16-MTP-on-FP4-target failure predicted further down did NOT occur.
+    #
+    # History, 2026-08-15 on 0.5.17 (NEXTN, did NOT work):
     # Tried with exactly the values below (steps 2, topk 1, draft tokens 3,
     # extra_buffer, spec_v2 on) against this target on GB10/sm121 + SGLang
     # 0.5.17: the scheduler died on the FIRST real request with a FlashInfer
@@ -298,11 +341,11 @@ _model_profile:
     # Expect either a dim-mismatch at draft-weight load or a silent quality
     # collapse; if it does boot, check `accept len` against the ceiling (3)
     # before believing the throughput number.
-    # The honest ranking for a first run: DSPARK (external, self-consistent
-    # BF16 draft) first, this second, both behind a bare non-speculative boot.
+    # Measured ranking (2026-10-10): DSPARK gamma 7 > DSPARK gamma 5 > gamma 3
+    # > MTP/EAGLE 3 steps > no speculation.
     #
-    # ROLLBACK to bare serving: set speculative_enabled to false (the current
-    # state). Every other key here stays valid and the speculative_* keys become
+    # ROLLBACK to bare serving: set speculative_enabled to false. Every other
+    # key here stays valid and the speculative_* keys become
     # inert. mamba_scheduler_strategy does NOT: sglang_launch.sh emits
     # --mamba-radix-cache-strategy regardless of speculative_enabled. That is
     # harmless for this arch, because SGLang resolves "auto" to extra_buffer
