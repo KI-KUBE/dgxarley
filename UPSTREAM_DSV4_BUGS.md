@@ -1240,6 +1240,14 @@ Issue tracking, 2026-10-03: #26324 closed (2026-08-21), #33636 open (updated 202
 
 Next check: a 0.5.21-sm121 image and recipe do not exist yet; the image bump and the p67 retirement are pending user decisions. Once an image exists, verify DeepGEMM enables on GB10 without p67. No FIXED_ rename yet (needs hardware confirmation).
 
+**Update 2026-10-11 (audit): no upstream release since v0.5.21; the 0.5.21-sm121 image is now deployed, p67 is absorbed (no-op), sgl-deep-gemm 0.2.0 ships SM120 kernels; V4.1 still has no GB10 support.**
+
+SGLang v0.5.21 (2026-10-02) is still the latest release (`gh release list`, no new tag); upstream/main is at ad8b1e1f85 (785 commits past v0.5.21). `deep_gemm_wrapper/configurer.py` on main is unchanged vs v0.5.21 (`sm_version in (120, 121)` and `get_device_sm() in (120, 121)`), `moe_runner/deep_gemm_sm120.py` has no commits since v0.5.21, and the V4.1 commits on main (#43228, #42808, #41603, #42273, #41659) are SM100/SM90/AMD paths with no SM12x content. The DeepSeek-V4.1 cookbook page lists only GB300, H200, B200, B300 and MI355X (preview image `lmsysorg/sglang:dev-dsv41`) and contains no SM120/SM121/GB10 mention, so V4.1 on GB10 remains unsupported upstream. Issues: #26324 closed, #33636 open (updated 2026-10-04), #23602 open (idle since 2026-08-13), #32750 now closed (2026-10-06).
+
+Local: the cluster now runs `xomoxcc/dgx-spark-sglang:0.5.21-sm121` (commit 5a42af7, recipe `scripts/patches/sglang-0.5.21-sm121.recipe`). This supersedes the 10-03 statements that no 0.5.21 image exists and that p67 matters for 0.5.20-sm121. p67 now carries an "ABSORBED in v0.5.21" header and self-gates off via `not target_contains(TARGET, "_sm120_deep_gemm_apis_available")`, so it is a no-op on the current image (still active only for older pinned instances with the env gate on; it is not listed in RETIRED_PATCHES.md). `sgl-deep-gemm==0.2.0` in the 0.5.21 image ships the SM120 kernel family (paged/ragged fp8 and fp4 MQA logits, tf32 hc_prenorm, fp8/fp4 and bf16 GEMM) with `arch_major == 12` dispatch, and the July `Unsupported architecture` hard-block is gone (kernel-level verification on 0.5.21-sm121, 2026-10-08; on GLM-5.3-Flash the DeepGEMM paged and ragged MQA logits match a float32 reference at ~1e-7 relative error). This has not been exercised on the DSV4 path, since both DSV4 profiles keep `disable_deep_gemm: true` and `fp8_paged_mqa_logits_torch: true`, so the walls in section 6 are unchanged and no FIXED_ rename is warranted. Related DSA patches (GlmMoeDsa, not DSV4 walls): p68 (TileLang DSA v1 tile 32/1/128 for GB10's 101376 B shared-memory limit) and p69 (IndexerKPool paged logits via the torch/triton fallback). On main but not in v0.5.21: #32779 (CUDA fused Triton sparse-MLA prefill for DSA on SM120/SM90, merged 2026-10-06) and #42957 (TileLang FP8 KV on CUDA, 2026-10-11).
+
+Next check: decide on retiring p67 into RETIRED_PATCHES.md and on a DeepGEMM-enabled DSV4 trial on the 0.5.21-sm121 image; watch for the next SGLang tag after v0.5.21.
+
 ---
 
 ## Upstream references
@@ -1332,5 +1340,5 @@ einem v0.5.13-Image ändert.
   size `dgx_swap_size`); kubelet policy `roles/k3sserver/templates/etc_rancher_k3s_kubelet-config.yaml.j2`
   (`failSwapOn: false`, `swapBehavior: LimitedSwap`)
 - Active model: `group_vars/all/main/sglang.yml` (`sglang_model`)
-- Image: `xomoxcc/dgx-spark-sglang:0.5.20-sm121`, recipe `scripts/patches/sglang-0.5.20-sm121.recipe` (updated 2026-09-22, commit `3214ed2`; was stale at 0.5.19)
+- Image: `xomoxcc/dgx-spark-sglang:0.5.21-sm121`, recipe `scripts/patches/sglang-0.5.21-sm121.recipe` (updated 2026-10-11, commit `5a42af7`; was stale at 0.5.20)
 - Release notes: see the 2026-06-29 block at the top of this file; v0.5.16 (2026-07-25) release notes summarized in the 2026-07-28 block
