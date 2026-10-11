@@ -27,9 +27,31 @@ import copy
 import json
 import os
 import re
-from typing import Any
+from typing import IO, Any
 
-import yaml
+try:
+    from ruamel.yaml import YAML, YAMLError
+
+    _yaml = YAML(typ="safe", pure=True)
+    _yaml.default_flow_style = False
+    _yaml.sort_base_mapping_type_on_output = False
+
+    def yaml_load(stream: IO[str]) -> Any:
+        return _yaml.load(stream)
+
+    def yaml_dump(data: Any, stream: IO[str]) -> None:
+        _yaml.dump(data, stream)
+
+except ModuleNotFoundError:  # hermes-agent images before v0.21.6 ship PyYAML, v0.21.6 only ruamel.yaml
+    import yaml
+    from yaml import YAMLError
+
+    def yaml_load(stream: IO[str]) -> Any:
+        return yaml.safe_load(stream)
+
+    def yaml_dump(data: Any, stream: IO[str]) -> None:
+        yaml.safe_dump(data, stream, sort_keys=False)
+
 
 UID, GID = int(os.environ["MERGE_UID"]), int(os.environ["MERGE_GID"])
 
@@ -57,9 +79,9 @@ def parse_env(p: str) -> dict[str, str]:
 
 
 # config.yaml — strategic merge
-ops = yaml.safe_load(open("/seed-config/config.yaml")) or {}
+ops = yaml_load(open("/seed-config/config.yaml")) or {}
 try:
-    user = yaml.safe_load(open("/opt/data/config.yaml")) or {}
+    user = yaml_load(open("/opt/data/config.yaml")) or {}
 except FileNotFoundError:
     user = {}
 # custom_providers is a LIST, so deep_override would blunt-replace it (losing any
@@ -105,7 +127,7 @@ for _cp in user.get("custom_providers") or []:
     if _cp_key:
         _cp["api_key"] = _cp_key
 with open("/opt/data/config.yaml", "w") as f:
-    yaml.safe_dump(user, f, sort_keys=False)
+    yaml_dump(user, f)
 os.chown("/opt/data/config.yaml", UID, GID)
 os.chmod("/opt/data/config.yaml", 0o600)
 user_env = parse_env("/opt/data/.env")
@@ -160,8 +182,8 @@ for _p in _profiles_spec:
     if _p.get("terminal_cwd"):
         _pops.setdefault("terminal", {})["cwd"] = _p["terminal_cwd"]
     try:
-        _puser = yaml.safe_load(open(os.path.join(_pdir, "config.yaml"))) or {}
-    except (FileNotFoundError, yaml.YAMLError):
+        _puser = yaml_load(open(os.path.join(_pdir, "config.yaml"))) or {}
+    except (FileNotFoundError, YAMLError):
         _puser = {}
     deep_override(_puser, _pops)
     # Re-inject this profile's model.api_key (overrides the inherited default's key)
@@ -169,7 +191,7 @@ for _p in _profiles_spec:
     if _mkey:
         _puser.setdefault("model", {})["api_key"] = _mkey
     with open(os.path.join(_pdir, "config.yaml"), "w") as f:
-        yaml.safe_dump(_puser, f, sort_keys=False)
+        yaml_dump(_puser, f)
     with open(os.path.join(_pdir, ".env"), "w") as f:
         for _k, _v in _penv.items():
             f.write(f"{_k}={_v}\n")

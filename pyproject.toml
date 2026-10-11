@@ -178,6 +178,7 @@ module = [
     "cv2", "numpy", "pytesseract",
     "aiohttp", "ascii_magic", "uvicorn", "fastapi", "fastapi.*",
     "sglang.*", "safetensors", "safetensors.*",
+    "ruamel", "ruamel.*",
 ]
 ignore_missing_imports = true
 

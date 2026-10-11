@@ -1,4 +1,6 @@
 OPENAI_API_KEY={{ item.litellm_token }}
+{# Must equal GATEWAY_API_SERVER_KEY in hermes.yml: .env is loaded with override=True and beats the container env. #}
+API_SERVER_KEY={{ (item.username ~ '|hermes-gateway-api|' ~ (item.basicauth_password | default(item.litellm_token))) | hash('sha256') }}
 {# Per-user custom providers (extra selectable OpenAI-compatible backends). Each
    entry's key rides the Secret-backed .env only as TRANSPORT under a name-derived
    var CUSTOM_PROVIDER_<NAME>_API_KEY — Hermes never reads it as env-based provider
