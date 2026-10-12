@@ -1250,6 +1250,12 @@ Next check: decide on retiring p67 into RETIRED_PATCHES.md and on a DeepGEMM-ena
 
 Later 2026-10-11: p67 retired (file deleted, env/default wiring removed, entry in `roles/k8s_dgx/files/sglang_patches/RETIRED_PATCHES.md`). The DeepGEMM-enabled DSV4 trial is still open.
 
+**Update 2026-10-12 (audit): no new SGLang tag; main now pins flashinfer 0.7.1; no DSV4/SM12x movement.**
+
+SGLang v0.5.21 (2026-10-02) is still the latest release; upstream/main is at f006fb49ec (851 commits past v0.5.21, 66 since the 10-11 check). `python/pyproject.toml` on main now pins `flashinfer_python[cu13]==0.7.1` (#43494, merged 2026-10-12), `sgl-deep-gemm==0.2.2` and `transformers==5.19.0`; the v0.5.21 tag still pins 0.6.18 / 0.2.0 / 5.12.1. Zero commits since 10-11 touch `deep_gemm_wrapper/`, `moe_runner/deep_gemm_sm120.py` or `attention/dsv4/`; the DSV4 commits on main (#43228, #42808, #43077, #40323) are DSV4.1 MegaMoE/PD/AMD work with no SM12x content, and #43688 (transformers 5.18/5.19 adaptation) does not touch the V4 config path. Issues: #33636 open (updated 2026-10-04, no new comments since 2026-08-25), #23602 open (idle since 2026-08-13), #32750, #26324, #39482 and #38792 closed. #32779 and #42957 are still on main only, not in a tag.
+
+Local: p67 is retired (d2ae7b2, RETIRED_PATCHES.md), superseding the 10-11 remark that it is not listed there. No wall status change, no FIXED_ rename. Next check: next SGLang tag after v0.5.21 (it will carry the flashinfer 0.7.1 pin).
+
 ---
 
 ## Upstream references
