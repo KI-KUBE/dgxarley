@@ -25,6 +25,7 @@
         HINDSIGHT_POSTGRES_PASSWORD: "{{ postgresql_hindsight_password }}"
         FORGEJO_POSTGRES_PASSWORD: "{{ postgresql_forgejo_password }}"
         SYNAPSE_POSTGRES_PASSWORD: "{{ postgresql_synapse_password }}"
+        OUTLINE_POSTGRES_PASSWORD: "{{ postgresql_outline_password }}"
 
 
 - name: Create postgresql service
@@ -254,6 +255,20 @@
           	CREATE USER synapse WITH PASSWORD '$SYNAPSE_POSTGRES_PASSWORD';
           	CREATE DATABASE synapse OWNER synapse ENCODING 'UTF8' LC_COLLATE 'C' LC_CTYPE 'C' TEMPLATE template0;
           	GRANT ALL PRIVILEGES ON DATABASE synapse TO synapse;
+          EOSQL
+
+          echo $0 done
+
+        9_createdb_outline.sh: |
+          #!/bin/bash
+          export TZ='Europe/Berlin'
+          export OUTLINE_POSTGRES_PASSWORD=${OUTLINE_POSTGRES_PASSWORD:-${POSTGRES_PASSWORD}}
+
+          # Mirrored for existing clusters by roles/k8s_infra/tasks/apps/outline.yml (k8s_exec block).
+          psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+          	CREATE USER outline WITH PASSWORD '$OUTLINE_POSTGRES_PASSWORD';
+          	CREATE DATABASE outline OWNER outline;
+          	GRANT ALL PRIVILEGES ON DATABASE outline TO outline;
           EOSQL
 
           echo $0 done
