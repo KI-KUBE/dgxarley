@@ -15,7 +15,8 @@
           - outline_utils_secret | length >= 32
           - postgresql_outline_password | length >= 16
           - outline_admin.email != 'admin@example.com'
-        fail_msg: "outline_secret_key / outline_utils_secret / postgresql_outline_password / outline_admin still hold dummies; set them in group_vars/all/vault/"
+          - outline_admin.api_key is match('^ol_api_\\w{38}$')
+        fail_msg: "outline_secret_key / outline_utils_secret / postgresql_outline_password / outline_admin (incl. api_key) still hold dummies; set them in group_vars/all/vault/"
         quiet: true
 
     - name: Create outline namespace
@@ -329,9 +330,7 @@
       changed_when: false
 
     - name: Get Outline pod
-      when:
-        - not ansible_check_mode
-        - outline_team_count.stdout | trim | int == 0
+      when: not ansible_check_mode
       kubernetes.core.k8s_info:
         api_version: v1
         kind: Pod
@@ -361,6 +360,91 @@
           .then(r => { console.log('HTTP ' + r.status); process.exit(r.status < 400 ? 0 : 1); })
           .catch(e => { console.error(e.message); process.exit(1); })
       register: outline_install
+
+    # Outline can only mint keys for the calling user, so vault-held keys are stored the way Outline does (sha256 hash).
+    - name: Seed Outline API key list with the admin key
+      ansible.builtin.set_fact:
+        _outline_api_keys:
+          - {label: admin, email: "{{ outline_admin.email }}", key_name: ansible, value: "{{ outline_admin.api_key }}"}
+        _outline_invites: []
+        # Args: email, key name, sha256 hex, last4. Rotation deletes the user's other keys of that name.
+        _outline_key_sql: |
+          set -e
+          psql -U postgres -d outline -v ON_ERROR_STOP=1 -tA -v email="$1" -v keyname="$2" -v keyhash="$3" -v last4="$4" <<'SQL'
+          SELECT 'USERS ' || count(*) FROM users WHERE lower(email) = lower(:'email') AND "deletedAt" IS NULL;
+          DELETE FROM "apiKeys" WHERE name = :'keyname'
+            AND "userId" IN (SELECT id FROM users WHERE lower(email) = lower(:'email') AND "deletedAt" IS NULL)
+            AND (hash IS DISTINCT FROM :'keyhash' OR "deletedAt" IS NOT NULL);
+          INSERT INTO "apiKeys" (id, name, hash, last4, "userId", "createdAt", "updatedAt")
+            SELECT gen_random_uuid(), :'keyname', :'keyhash', :'last4', id, now(), now()
+            FROM users WHERE lower(email) = lower(:'email') AND "deletedAt" IS NULL
+            ON CONFLICT (hash) DO NOTHING;
+          SQL
+      no_log: true
+
+    - name: Add hermes agents to the Outline API key list
+      ansible.builtin.set_fact:
+        _outline_api_keys: >-
+          {{ _outline_api_keys + [{'label': item.username, 'email': item.email.address, 'key_name': 'hermes', 'value': item.outline.api_key}] }}
+        _outline_invites: "{{ _outline_invites + [{'email': item.email.address, 'name': item.username, 'role': 'member'}] }}"
+      loop: "{{ hermes_users | default([]) | selectattr('enabled') | selectattr('outline', 'defined') | list }}"
+      loop_control:
+        label: "{{ item.username }}"
+      no_log: true
+
+    - name: Ensure admin API key exists in Outline
+      when: not ansible_check_mode
+      kubernetes.core.k8s_exec:
+        namespace: postgresql
+        pod: "{{ outline_postgresql_pods.resources[0].metadata.name }}"
+        command: >-
+          bash -c {{ _outline_key_sql | quote }} _
+          {{ _outline_api_keys[0].email | quote }} {{ _outline_api_keys[0].key_name | quote }}
+          {{ _outline_api_keys[0].value | hash('sha256') }} {{ _outline_api_keys[0].value[-4:] | quote }}
+      register: outline_admin_key
+      changed_when: outline_admin_key.stdout is search('^(DELETE [1-9]|INSERT 0 [1-9])', multiline=True)
+      failed_when: outline_admin_key.rc != 0 or outline_admin_key.stdout is not search('^USERS 1$', multiline=True)
+      no_log: true
+
+    - name: Invite hermes agents as Outline members (users.invite, existing users are skipped)
+      when:
+        - not ansible_check_mode
+        - _outline_invites | length > 0
+      kubernetes.core.k8s_exec:
+        namespace: "{{ outline_namespace }}"
+        pod: "{{ outline_pods.resources[0].metadata.name }}"
+        container: outline
+        command: >-
+          node -e {{ _outline_invite_js | quote }} {{ outline_admin.api_key | quote }}
+          {{ {'suppressEmail': true, 'invites': _outline_invites} | to_json | quote }}
+      vars:
+        _outline_invite_js: >-
+          fetch('http://127.0.0.1:{{ outline_port }}/api/users.invite', {method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-Forwarded-Proto': 'https', 'Authorization': 'Bearer ' + process.argv[1]},
+          body: process.argv[2]})
+          .then(async r => { const b = await r.json(); if (!r.ok) { console.error('HTTP ' + r.status + ' ' + (b.message || '')); process.exit(1); }
+          console.log('INVITED ' + b.data.users.length); })
+          .catch(e => { console.error(e.message); process.exit(1); })
+      register: outline_invite
+      changed_when: outline_invite.stdout is not search('INVITED 0')
+      no_log: true
+
+    - name: Ensure per-agent Outline API keys exist (hermes_users[*].outline.api_key)
+      when: not ansible_check_mode
+      kubernetes.core.k8s_exec:
+        namespace: postgresql
+        pod: "{{ outline_postgresql_pods.resources[0].metadata.name }}"
+        command: >-
+          bash -c {{ _outline_key_sql | quote }} _
+          {{ item.email | quote }} {{ item.key_name | quote }}
+          {{ item.value | hash('sha256') }} {{ item.value[-4:] | quote }}
+      loop: "{{ _outline_api_keys[1:] }}"
+      loop_control:
+        label: "{{ item.label }}"
+      register: outline_agent_keys
+      changed_when: outline_agent_keys.stdout is search('^(DELETE [1-9]|INSERT 0 [1-9])', multiline=True)
+      failed_when: outline_agent_keys.rc != 0 or outline_agent_keys.stdout is not search('^USERS 1$', multiline=True)
+      no_log: true
 
     - name: Create outline ip-allowlist middleware
       kubernetes.core.k8s:

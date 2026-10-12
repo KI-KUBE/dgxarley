@@ -36,3 +36,5 @@ outline_utils_secret: "changeme"
 outline_admin:
   name: "Admin"
   email: "admin@example.com"
+  # Ansible-managed admin key (users.invite); vault-held, stored hashed in Outline.
+  api_key: "ol_api_changeme"
