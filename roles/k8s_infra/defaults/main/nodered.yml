@@ -11,8 +11,7 @@ nodered_busybox_image: "busybox:1.38"
 nodered_port: 1880
 nodered_hostname: "nodered.{{ dns_external_domain_suffix }}"
 nodered_tls_issuer: "letsencrypt-production"
-# Local disk on k3smaster, NOT backed up.
-nodered_data_base: "{{ k8s_infra_data_base }}/nodered"
+nodered_data_base: "/mnt/nfs/nodered"
 nodered_timezone: "Europe/Berlin"
 nodered_network_policies_enabled: true
 # Extra namespaces the flows may reach besides kube-dns + litellm (in-cluster pod CIDR is blocked otherwise).

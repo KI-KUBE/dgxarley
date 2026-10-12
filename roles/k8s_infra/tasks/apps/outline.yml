@@ -1,0 +1,494 @@
+---
+# Outline wiki: single pinned Deployment on k3smaster, DB on the shared PostgreSQL, shared Redis,
+# attachments on hostPath, magic-link login via the node postfix, first admin bootstrapped here.
+# Knobs: defaults/main/outline.yml.
+
+- name: Outline — install
+  when:
+    - outline_enabled | default(false) | bool
+    - not (outline_teardown | default(false) | bool)
+  block:
+    - name: Assert Outline secrets are real
+      ansible.builtin.assert:
+        that:
+          - outline_secret_key is match('^[0-9a-f]{64}$')
+          - outline_utils_secret | length >= 32
+          - postgresql_outline_password | length >= 16
+          - outline_admin.email != 'admin@example.com'
+        fail_msg: "outline_secret_key / outline_utils_secret / postgresql_outline_password / outline_admin still hold dummies; set them in group_vars/all/vault/"
+        quiet: true
+
+    - name: Create outline namespace
+      kubernetes.core.k8s:
+        name: "{{ outline_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+
+    - name: Get PostgreSQL pod
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: postgresql
+        label_selectors:
+          - app=postgresql
+      register: outline_postgresql_pods
+
+    # k8s_exec runs for real under --check.
+    - name: Ensure outline user and database exist in PostgreSQL
+      when: not ansible_check_mode
+      kubernetes.core.k8s_exec:
+        namespace: postgresql
+        pod: "{{ outline_postgresql_pods.resources[0].metadata.name }}"
+        command: |
+          bash -c '
+            set -e
+            OUTLINE_PASSWORD="{{ postgresql_outline_password }}"
+
+            if psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='\''outline'\''" | grep -q 1; then
+              psql -U postgres -c "ALTER USER outline WITH PASSWORD '\''${OUTLINE_PASSWORD}'\'';"
+              echo "User outline: exists (password ensured)"
+            else
+              psql -U postgres -c "CREATE USER outline WITH PASSWORD '\''${OUTLINE_PASSWORD}'\'';"
+              echo "User outline: created"
+            fi
+
+            if psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='\''outline'\''" | grep -q 1; then
+              echo "Database outline: exists"
+            else
+              psql -U postgres -c "CREATE DATABASE outline OWNER outline;"
+              psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE outline TO outline;"
+              echo "Database outline: created"
+            fi
+          '
+      register: outline_db_ensure
+      changed_when: "'created' in outline_db_ensure.stdout"
+      no_log: true
+
+    - name: Create outline egress NetworkPolicy
+      when: outline_network_policies_enabled | bool
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: outline-egress
+            namespace: "{{ outline_namespace }}"
+          spec:
+            podSelector:
+              matchLabels:
+                app: outline
+            policyTypes:
+              - Egress
+            egress:
+              - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: kube-system
+                    podSelector:
+                      matchLabels:
+                        k8s-app: kube-dns
+                ports:
+                  - protocol: UDP
+                    port: 53
+                  - protocol: TCP
+                    port: 53
+              - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: postgresql
+                ports:
+                  - protocol: TCP
+                    port: "{{ outline_db_port }}"
+              - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: redis
+                ports:
+                  - protocol: TCP
+                    port: 6379
+              # Internet (link unfurls) + node postfix, but no other in-cluster pods.
+              - to:
+                  - ipBlock:
+                      cidr: 0.0.0.0/0
+                      except:
+                        - "{{ cluster_cidr }}"
+                        - "{{ service_cidr }}"
+
+    - name: Create outline ingress NetworkPolicy (Traefik only)
+      when: outline_network_policies_enabled | bool
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: outline-ingress
+            namespace: "{{ outline_namespace }}"
+          spec:
+            podSelector:
+              matchLabels:
+                app: outline
+            policyTypes:
+              - Ingress
+            ingress:
+              - from:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: kube-system
+                    podSelector:
+                      matchLabels:
+                        app.kubernetes.io/name: traefik
+
+    - name: Create outline env secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: outline-env
+            namespace: "{{ outline_namespace }}"
+          type: Opaque
+          stringData:
+            SECRET_KEY: "{{ outline_secret_key }}"
+            UTILS_SECRET: "{{ outline_utils_secret }}"
+            DATABASE_URL: "postgres://outline:{{ postgresql_outline_password | urlencode }}@{{ outline_db_host }}:{{ outline_db_port }}/outline"
+      no_log: true
+
+    - name: Create outline service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          kind: Service
+          apiVersion: v1
+          metadata:
+            name: outline
+            namespace: "{{ outline_namespace }}"
+            labels:
+              app: outline
+          spec:
+            selector:
+              app: outline
+            ports:
+              - port: "{{ outline_port }}"
+                name: http
+                targetPort: "{{ outline_port }}"
+                protocol: TCP
+
+    - name: Create outline deployment
+      kubernetes.core.k8s:
+        state: present
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 600
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: outline
+            namespace: "{{ outline_namespace }}"
+            labels:
+              app: outline
+            annotations:
+              keel.sh/policy: force
+              keel.sh/match-tag: "true"
+              keel.sh/pollSchedule: "@every 24h"
+              keel.sh/trigger: poll
+          spec:
+            replicas: 1
+            strategy:
+              type: Recreate
+            selector:
+              matchLabels:
+                app: outline
+            template:
+              metadata:
+                labels:
+                  app: outline
+                annotations:
+                  checksum/secrets: "{{ (outline_secret_key ~ outline_utils_secret ~ postgresql_outline_password) | hash('sha256') }}"
+              spec:
+                nodeSelector:
+                  node-role: k3smaster
+                dnsConfig:
+                  options:
+                    - name: ndots
+                      value: "1"
+                securityContext:
+                  runAsUser: 1001
+                  runAsGroup: 1001
+                  runAsNonRoot: true
+                initContainers:
+                  # fsGroup does not apply to hostPath.
+                  - name: fix-perms
+                    image: "{{ outline_busybox_image }}"
+                    imagePullPolicy: IfNotPresent
+                    securityContext:
+                      runAsUser: 0
+                      runAsNonRoot: false
+                    command: ["sh", "-c", "chown 1001:1001 /data && chmod 0750 /data"]
+                    volumeMounts:
+                      - name: data
+                        mountPath: /data
+                containers:
+                  - name: outline
+                    image: "{{ outline_image }}"
+                    imagePullPolicy: IfNotPresent
+                    ports:
+                      - containerPort: "{{ outline_port }}"
+                        name: http
+                        protocol: TCP
+                    env:
+                      # Must stay before SMTP_HOST: $(NODE_IP) only expands previously defined vars.
+                      - name: NODE_IP
+                        valueFrom:
+                          fieldRef:
+                            fieldPath: status.hostIP
+                      - name: NODE_ENV
+                        value: production
+                      - name: URL
+                        value: "https://{{ outline_hostname }}"
+                      - name: PORT
+                        value: "{{ outline_port | string }}"
+                      - name: WEB_CONCURRENCY
+                        value: "1"
+                      - name: DEFAULT_LANGUAGE
+                        value: "{{ outline_default_language }}"
+                      - name: PGSSLMODE
+                        value: disable
+                      - name: REDIS_URL
+                        value: "{{ outline_redis_url }}"
+                      - name: FILE_STORAGE
+                        value: local
+                      - name: FILE_STORAGE_LOCAL_ROOT_DIR
+                        value: /var/lib/outline/data
+                      - name: FORCE_HTTPS
+                        value: "true"
+                      - name: ENABLE_UPDATES
+                        value: "false"
+                      - name: SMTP_HOST
+                        value: "{{ outline_smtp_host }}"
+                      - name: SMTP_PORT
+                        value: "{{ outline_smtp_port | string }}"
+                      # false = STARTTLS (rejectUnauthorized off), true would mean implicit TLS on 465.
+                      - name: SMTP_SECURE
+                        value: "false"
+                      - name: SMTP_FROM_EMAIL
+                        value: "{{ outline_smtp_from }}"
+                      - name: LOG_LEVEL
+                        value: info
+                    envFrom:
+                      - secretRef:
+                          name: outline-env
+                    resources:
+                      requests:
+                        cpu: 100m
+                        memory: 512Mi
+                      limits:
+                        cpu: "2"
+                        memory: 2Gi
+                    # First boot runs all migrations before the port opens.
+                    startupProbe:
+                      httpGet:
+                        path: /_health
+                        port: http
+                      periodSeconds: 10
+                      failureThreshold: 60
+                    readinessProbe:
+                      httpGet:
+                        path: /_health
+                        port: http
+                      periodSeconds: 15
+                    livenessProbe:
+                      httpGet:
+                        path: /_health
+                        port: http
+                      periodSeconds: 30
+                      failureThreshold: 5
+                    volumeMounts:
+                      - name: data
+                        mountPath: /var/lib/outline/data
+                restartPolicy: Always
+                volumes:
+                  - name: data
+                    hostPath:
+                      path: "{{ outline_data_base }}"
+                      type: DirectoryOrCreate
+
+    - name: Count Outline teams
+      when: not ansible_check_mode
+      kubernetes.core.k8s_exec:
+        namespace: postgresql
+        pod: "{{ outline_postgresql_pods.resources[0].metadata.name }}"
+        command: psql -U postgres -d outline -tAc "SELECT count(*) FROM teams"
+      register: outline_team_count
+      changed_when: false
+
+    - name: Get Outline pod
+      when:
+        - not ansible_check_mode
+        - outline_team_count.stdout | trim | int == 0
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ outline_namespace }}"
+        label_selectors:
+          - app=outline
+        field_selectors:
+          - status.phase=Running
+      register: outline_pods
+
+    # The response redirects to a one-time sign-in URL, so it is not followed or printed.
+    - name: Create Outline workspace and first admin (installation.create)
+      when:
+        - not ansible_check_mode
+        - outline_team_count.stdout | trim | int == 0
+      kubernetes.core.k8s_exec:
+        namespace: "{{ outline_namespace }}"
+        pod: "{{ outline_pods.resources[0].metadata.name }}"
+        container: outline
+        command: >-
+          node -e {{ _outline_install_js | quote }}
+          {{ {'teamName': outline_team_name, 'userName': outline_admin.name, 'userEmail': outline_admin.email} | to_json | quote }}
+      vars:
+        _outline_install_js: >-
+          fetch('http://127.0.0.1:{{ outline_port }}/api/installation.create', {method: 'POST', redirect: 'manual',
+          headers: {'Content-Type': 'application/json', 'X-Forwarded-Proto': 'https'}, body: process.argv[1]})
+          .then(r => { console.log('HTTP ' + r.status); process.exit(r.status < 400 ? 0 : 1); })
+          .catch(e => { console.error(e.message); process.exit(1); })
+      register: outline_install
+
+    - name: Create outline ip-allowlist middleware
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: outline-ip-allowlist
+            namespace: "{{ outline_namespace }}"
+          spec:
+            ipAllowList:
+              sourceRange: "{{ traefik_internal_allowlist }}"
+
+    - name: Create outline http to https redirect middleware
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: redirect-myhttps
+            namespace: "{{ outline_namespace }}"
+          spec:
+            redirectScheme:
+              scheme: https
+
+    - name: Create outline TLS certificate
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: cert-manager.io/v1
+          kind: Certificate
+          metadata:
+            name: "{{ outline_hostname }}"
+            namespace: "{{ outline_namespace }}"
+          spec:
+            dnsNames:
+              - "{{ outline_hostname }}"
+            secretName: "{{ outline_hostname }}"
+            issuerRef:
+              name: "{{ outline_tls_issuer }}"
+              kind: ClusterIssuer
+
+    - name: Create outline http ingressroute with redirect
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
+          metadata:
+            name: outline-ingress
+            namespace: "{{ outline_namespace }}"
+          spec:
+            entryPoints:
+              - web
+            routes:
+              - kind: Rule
+                match: "Host(`{{ outline_hostname }}`)"
+                priority: 10
+                services:
+                  - kind: Service
+                    name: outline
+                    namespace: "{{ outline_namespace }}"
+                    passHostHeader: true
+                    port: "{{ outline_port }}"
+                middlewares:
+                  - name: redirect-myhttps
+                  - name: outline-ip-allowlist
+
+    - name: Create outline https ingressroute
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
+          metadata:
+            name: outline-https-ingress
+            namespace: "{{ outline_namespace }}"
+          spec:
+            entryPoints:
+              - websecure
+            routes:
+              - kind: Rule
+                match: "Host(`{{ outline_hostname }}`)"
+                priority: 10
+                middlewares:
+                  - name: outline-ip-allowlist
+                services:
+                  - kind: Service
+                    name: outline
+                    namespace: "{{ outline_namespace }}"
+                    passHostHeader: true
+                    port: "{{ outline_port }}"
+            tls:
+              secretName: "{{ outline_hostname }}"
+
+    - name: Register DNS A record for outline
+      community.general.nsupdate:
+        server: "{{ nsupdate_server }}"
+        zone: "{{ nsupdate_zone }}"
+        key_name: "{{ nsupdate_tsig_key_name }}"
+        key_secret: "{{ nsupdate_tsig_key_secret }}"
+        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
+        record: "{{ outline_hostname }}."
+        type: A
+        ttl: "{{ nsupdate_ttl }}"
+        value: "{{ nsupdate_ingress_ip }}"
+        state: present
+
+- name: Outline — teardown (opt-in `-e outline_teardown=true`)
+  when: outline_teardown | default(false) | bool
+  block:
+    # The outline DB and outline_data_base are kept; drop them by hand to abandon.
+    - name: Delete outline namespace (cascades all outline resources)
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Namespace
+        name: "{{ outline_namespace }}"
+
+    - name: Remove DNS A record for outline
+      community.general.nsupdate:
+        server: "{{ nsupdate_server }}"
+        zone: "{{ nsupdate_zone }}"
+        key_name: "{{ nsupdate_tsig_key_name }}"
+        key_secret: "{{ nsupdate_tsig_key_secret }}"
+        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
+        record: "{{ outline_hostname }}."
+        type: A
+        state: absent

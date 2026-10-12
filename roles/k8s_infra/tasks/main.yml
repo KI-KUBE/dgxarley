@@ -311,6 +311,13 @@
     - isk3smaster is defined
     - isk3smaster
 
+- name: Deploy/teardown Outline wiki (gated install/teardown)
+  import_tasks: apps/outline.yml
+  tags: outline
+  when:
+    - isk3smaster is defined
+    - isk3smaster
+
 # === DNS ===
 
 - name: Register DNS A records for k8s_infra ingress services

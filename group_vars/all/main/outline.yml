@@ -1,0 +1,7 @@
+---
+# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+outline_secret_key: "changeme"
+outline_utils_secret: "changeme"
+outline_admin:
+  name: "Admin"
+  email: "admin@example.com"
