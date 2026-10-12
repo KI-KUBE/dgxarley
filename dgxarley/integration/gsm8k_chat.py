@@ -4,7 +4,8 @@ The stock sglang GSM8K harness needs Python 3.12 (`urlopen(cafile=)`) and drives
 endpoint, which a reasoning model answers with its trace and ~1 token; this one uses /v1/chat/completions,
 asks for a `#### <number>` last line, scores numerically and counts budget exhaustion (empty content or
 finish_reason length) as truncation, never as a wrong answer. Requests stream by default so `analyze` can
-report windowed throughput (`sustained_10s_tok_s`, `full_load_tok_s`) next to the start/end based peak.
+report windowed throughput (`sustained_10s_tok_s`, `full_load_tok_s`) next to the start/end based peak; with
+`continuous_usage_stats` (SGLang >= 0.5.21) the timeline counts tokens, otherwise it falls back to characters.
 
 Usage:
   kubectl --context=ht@dgxarley -n sglang port-forward svc/sglang 38080:8000 &
@@ -85,7 +86,7 @@ def chat_call(
         "temperature": temperature,
     }
     if stream:
-        body.update(stream=True, stream_options={"include_usage": True})
+        body.update(stream=True, stream_options={"include_usage": True, "continuous_usage_stats": True})
     req = urllib.request.Request(url, json.dumps(body).encode(), {"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         if not stream:
@@ -95,7 +96,9 @@ def chat_call(
         reasoning: list[str] = []
         finish: str | None = None
         usage: dict[str, Any] = {}
-        bins: dict[float, int] = {}
+        char_bins: dict[float, int] = {}
+        token_bins: dict[float, int] = {}
+        last_tokens = 0
         for raw in resp:
             line = raw.decode("utf-8", errors="replace").strip()
             if not line.startswith("data:"):
@@ -106,8 +109,13 @@ def chat_call(
             chunk = json.loads(payload)
             if "error" in chunk:
                 raise RuntimeError(f"stream error: {chunk['error']}")
+            key = math.floor((time.time() - t0) / TIMELINE_BIN_S) * TIMELINE_BIN_S
             if chunk.get("usage"):
                 usage = chunk["usage"]
+                tokens = usage.get("completion_tokens")
+                if isinstance(tokens, int) and tokens > last_tokens:
+                    token_bins[key] = token_bins.get(key, 0) + tokens - last_tokens
+                    last_tokens = tokens
             for choice in chunk.get("choices") or []:
                 delta = choice.get("delta") or {}
                 text = delta.get("content") or ""
@@ -117,10 +125,16 @@ def chat_call(
                 if choice.get("finish_reason"):
                     finish = choice["finish_reason"]
                 if text or think:
-                    key = math.floor((time.time() - t0) / TIMELINE_BIN_S) * TIMELINE_BIN_S
-                    bins[key] = bins.get(key, 0) + len(text) + len(think)
+                    char_bins[key] = char_bins.get(key, 0) + len(text) + len(think)
+    # One usage chunk at the end only means the server ignored continuous_usage_stats.
+    exact = len(token_bins) > 1 or (bool(token_bins) and not char_bins)
+    bins = token_bins if exact else char_bins
     message = {"content": "".join(content), "reasoning_content": "".join(reasoning)}
-    data = {"choices": [{"message": message, "finish_reason": finish}], "usage": usage}
+    data = {
+        "choices": [{"message": message, "finish_reason": finish}],
+        "usage": usage,
+        "timeline_unit": "tokens" if exact else "chars",
+    }
     return data, [[t, float(c)] for t, c in sorted(bins.items())]
 
 
@@ -159,6 +173,7 @@ async def run(args: argparse.Namespace) -> None:
                 )
                 if timeline:
                     rec["tl"] = timeline
+                    rec["tl_unit"] = data.get("timeline_unit", "chars")
                 choice = data["choices"][0]
                 msg = choice["message"]
                 content = msg.get("content") or ""
@@ -199,20 +214,24 @@ async def run(args: argparse.Namespace) -> None:
 
 def windowed_throughput(rows: list[dict[str, Any]]) -> dict[str, Any]:
     tokens: dict[float, float] = {}
+    units: set[str] = set()
     for r in rows:
         tl: list[list[float]] = r.get("tl") or []
-        chars = sum(c for _, c in tl)
-        if not chars or not r.get("completion_tokens"):
+        total = sum(c for _, c in tl)
+        if not total or not r.get("completion_tokens"):
             continue
-        per_char = r["completion_tokens"] / chars
+        unit = r.get("tl_unit", "chars")
+        units.add(unit)
+        scale = 1.0 if unit == "tokens" else r["completion_tokens"] / total
         for t, c in tl:
-            tokens[t] = tokens.get(t, 0.0) + c * per_char
+            tokens[t] = tokens.get(t, 0.0) + c * scale
     if not tokens:
         return {
             "sustained_10s_tok_s": None,
             "full_load_tok_s": None,
             "full_load_seconds": 0.0,
             "full_load_min_active": 0,
+            "timeline_unit": None,
         }
     n_bins = int(max(tokens) / TIMELINE_BIN_S) + 1
     series = [tokens.get(i * TIMELINE_BIN_S, 0.0) for i in range(n_bins)]
@@ -230,6 +249,7 @@ def windowed_throughput(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "full_load_tok_s": round(sum(series[i] for i in full) / full_seconds, 1) if full_seconds else None,
         "full_load_seconds": full_seconds,
         "full_load_min_active": threshold,
+        "timeline_unit": units.pop() if len(units) == 1 else "mixed",
     }
 
 

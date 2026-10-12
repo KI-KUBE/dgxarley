@@ -4,10 +4,12 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
+from dgxarley.integration import gsm8k_chat
 from dgxarley.integration.gsm8k_chat import chat_call, is_correct, parse_prediction, summarize, to_number
 
 
@@ -144,15 +146,8 @@ def test_summarize_without_timeline(tmp_path: Path) -> None:
     assert rep["sustained_10s_tok_s"] is None
 
 
-def test_chat_call_stream() -> None:
-    chunks = [
-        {"choices": [{"delta": {"reasoning_content": "think"}, "finish_reason": None}]},
-        {"choices": [{"delta": {"content": "#### 7"}, "finish_reason": None}]},
-        {"choices": [{"delta": {}, "finish_reason": "stop"}]},
-        {"choices": [], "usage": {"prompt_tokens": 3, "completion_tokens": 4}},
-    ]
+def _serve_sse(chunks: list[dict[str, Any]], seen: dict[str, Any]) -> tuple[dict[str, Any], list[list[float]]]:
     sse = "".join(f"data: {json.dumps(c)}\n\n" for c in chunks) + "data: [DONE]\n\n"
-    seen: dict[str, Any] = {}
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
@@ -169,15 +164,68 @@ def test_chat_call_stream() -> None:
     thread = threading.Thread(target=server.handle_request)
     thread.start()
     try:
-        data, timeline = chat_call(f"http://127.0.0.1:{server.server_port}/v1/chat/completions", "m", "q", 16, 0.0, 10)
+        return chat_call(f"http://127.0.0.1:{server.server_port}/v1/chat/completions", "m", "q", 16, 0.0, 10)
     finally:
         thread.join()
         server.server_close()
 
+
+def test_chat_call_stream() -> None:
+    chunks: list[dict[str, Any]] = [
+        {"choices": [{"delta": {"reasoning_content": "think"}, "finish_reason": None}]},
+        {"choices": [{"delta": {"content": "#### 7"}, "finish_reason": None}]},
+        {"choices": [{"delta": {}, "finish_reason": "stop"}]},
+        {"choices": [], "usage": {"prompt_tokens": 3, "completion_tokens": 4}},
+    ]
+    seen: dict[str, Any] = {}
+
+    data, timeline = _serve_sse(chunks, seen)
+
     assert seen["body"]["stream"] is True
-    assert seen["body"]["stream_options"] == {"include_usage": True}
+    assert seen["body"]["stream_options"] == {"include_usage": True, "continuous_usage_stats": True}
     choice = data["choices"][0]
     assert choice["message"] == {"content": "#### 7", "reasoning_content": "think"}
     assert choice["finish_reason"] == "stop"
     assert data["usage"]["completion_tokens"] == 4
     assert sum(c for _, c in timeline) == 11.0
+    assert data["timeline_unit"] == "chars"
+
+
+def test_chat_call_stream_continuous_usage(monkeypatch: pytest.MonkeyPatch) -> None:
+    chunks: list[dict[str, Any]] = [
+        {"choices": [{"delta": {"reasoning_content": "think"}}], "usage": {"completion_tokens": 3}},
+        {"choices": [{"delta": {"content": "#### 7"}}], "usage": {"completion_tokens": 5}},
+        {"choices": [{"delta": {}, "finish_reason": "stop"}], "usage": {"completion_tokens": 6}},
+        {"choices": [], "usage": {"prompt_tokens": 3, "completion_tokens": 6}},
+    ]
+    clock = [0.1, 0.6, 1.1, 1.2]
+    monkeypatch.setattr(gsm8k_chat, "time", SimpleNamespace(time=lambda: clock.pop(0) if len(clock) > 1 else clock[0]))
+
+    data, timeline = _serve_sse(chunks, {})
+
+    assert data["timeline_unit"] == "tokens"
+    assert timeline == [[0.0, 3.0], [0.5, 2.0], [1.0, 1.0]]
+
+
+def test_windowed_throughput_token_timeline(tmp_path: Path) -> None:
+    rows: list[dict[str, Any]] = [
+        {
+            "id": 0,
+            "gt": 1.0,
+            "status": "correct",
+            "start": 0.0,
+            "end": 10.0,
+            "latency": 10.0,
+            "completion_tokens": 100,
+            "content": "",
+            "tl": [[i * 0.5, 5.0] for i in range(20)],
+            "tl_unit": "tokens",
+        }
+    ]
+    path = tmp_path / "run.jsonl"
+    _write_rows(path, rows)
+
+    rep = summarize(str(path))
+
+    assert rep["full_load_tok_s"] == 10.0
+    assert rep["timeline_unit"] == "tokens"
