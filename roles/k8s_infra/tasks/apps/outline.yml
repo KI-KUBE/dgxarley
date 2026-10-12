@@ -19,12 +19,17 @@
           - outline_users | map(attribute='role') | difference(['admin', 'member', 'viewer']) | length == 0
           - outline_users | map(attribute='email') | map('lower') | unique | length == outline_users | length
           - outline_admin.email | lower not in (outline_users | map(attribute='email') | map('lower'))
+          - ([outline_admin] + outline_users) | selectattr('hermes_user', 'defined') | map(attribute='hermes_user') | unique | length
+            == ([outline_admin] + outline_users) | selectattr('hermes_user', 'defined') | length
+          - >-
+            ([outline_admin] + outline_users) | selectattr('hermes_user', 'defined') | map(attribute='hermes_user')
+            | difference(hermes_users | default([]) | map(attribute='username')) | length == 0
           - >-
             outline_users | map(attribute='email') | map('lower')
             | intersect(hermes_users | default([]) | selectattr('enabled') | selectattr('outline', 'defined')
                         | map(attribute='email') | map(attribute='address') | map('lower'))
             | length == 0
-        fail_msg: "outline_secret_key / outline_utils_secret / postgresql_outline_password / outline_admin (incl. api_key) still hold dummies; set them in group_vars/all/vault/"
+        fail_msg: "Outline vars invalid: dummies in outline_secret_key / outline_utils_secret / postgresql_outline_password / outline_admin, or bad outline_users (role, duplicate email, hermes_user duplicate or unknown); set them in group_vars/all/vault/"
         quiet: true
 
     - name: Create outline namespace
@@ -521,20 +526,20 @@
           {{ _outline_groups + [{'name': item.username, 'description': item.username ~ ': human + Hermes agent',
                                  'emails': [_outline_human_email, item.email.address]}] }}
       vars:
-        # The human is the outline_admin/outline_users entry with hermes_user == username, else the agent's home_address.
+        # The human is the single outline_admin/outline_users entry with hermes_user == username; '' fails the assert below.
         _outline_human_email: >-
           {{ ([outline_admin] + outline_users) | selectattr('hermes_user', 'defined') | selectattr('hermes_user', 'eq', item.username)
-             | map(attribute='email') | first | default(item.email.home_address) }}
+             | map(attribute='email') | first | default('') }}
       loop: "{{ hermes_users | default([]) | selectattr('enabled') | selectattr('outline', 'defined') | list }}"
       loop_control:
         label: "{{ item.username }}"
       no_log: true
 
-    - name: Assert every hermes agent's human has an Outline account (admin or outline_users)
+    - name: Assert every hermes agent is linked to a human (hermes_user)
       ansible.builtin.assert:
         that:
-          - item.emails[0] | lower in ([outline_admin.email] + outline_users | map(attribute='email') | list) | map('lower') | list
-        fail_msg: "Outline group {{ item.name }}: human {{ item.emails[0] }} is neither outline_admin nor in outline_users (add the human with hermes_user: {{ item.name }})"
+          - item.emails[0] | length > 0
+        fail_msg: "hermes user {{ item.name }} has an Outline agent but no human: set hermes_user: {{ item.name }} on outline_admin or one outline_users entry"
         quiet: true
       loop: "{{ _outline_groups }}"
       loop_control:

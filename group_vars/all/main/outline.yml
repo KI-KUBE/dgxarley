@@ -6,7 +6,8 @@ outline_admin:
   name: "Admin"
   email: "admin@example.com"
   api_key: "ol_api_changeme"
-# All humans; hermes_user links one to that hermes user's "<user> (Hermes)" agent (shared group), fallback = the agent's home_address.
+  hermes_user: example_outline_admin
+# All humans; hermes_user (required for every hermes user with an Outline agent, also on outline_admin) links a human to "<user> (Hermes)".
 outline_users:
   - name: "Example User"
     email: "example@example.com"

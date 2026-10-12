@@ -22,7 +22,7 @@ hermes_users:
     dashboard_enabled: false
     webui_enabled: true
     hermes_debug: false                # true → logging.level=DEBUG in config.yaml
-    # Required for every active user once hermes.outline.enabled is true; create in Outline → Settings → API.
+    # Required for every active user once hermes.outline.enabled is true; generated into the vault, provisioned by --tags outline.
     outline:
       api_key: "ol_api_changeme"
     # ADDITIONAL, user-selectable backends (maps 1:1 onto Hermes' native top-level
@@ -122,4 +122,18 @@ hermes_users:
       sync_to_insights: false          # "Sync to insights"             (upstream: false)
       check_for_updates: true          # "Check for updates"            (upstream: true)
       whats_new_summary_enabled: false # "Summarize What's New with AI" (upstream: false)
+    enabled: false
+  # Minimal second user: the agent of the Outline admin (outline_admin.hermes_user in main/outline.yml).
+  - username: example_outline_admin
+    uid: 1501
+    gid: 1501
+    litellm_token: "sk-REPLACE-WITH-PER-USER-LITELLM-VIRTUAL-KEY"
+    dashboard_enabled: true
+    webui_enabled: false
+    outline:
+      api_key: "ol_api_changeme"
+    # email.address is also the agent's Outline login identity, even with the email gateway off.
+    email:
+      enabled: false
+      address: "hermes-admin@example.com"
     enabled: false
