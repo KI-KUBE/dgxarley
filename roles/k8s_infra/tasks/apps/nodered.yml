@@ -1,0 +1,437 @@
+---
+# Node-RED: single pinned Deployment on k3smaster, flows on local hostPath, palette
+# installed declaratively from nodered_palette_modules, editor users from nodered_users.
+# Knobs: defaults/main/nodered.yml.
+
+- name: Node-RED — install
+  when:
+    - nodered_enabled | default(false) | bool
+    - not (nodered_teardown | default(false) | bool)
+  block:
+    - name: Assert Node-RED auth config is real
+      ansible.builtin.assert:
+        that:
+          - nodered_users | length > 0
+          - nodered_users | map(attribute='password') | map('length') | min >= 12
+          - nodered_credential_secret | length >= 32
+          - nodered_credential_secret != 'changeme-nodered-credential-secret'
+          - nodered_litellm_api_key is match('^sk-')
+          - nodered_litellm_api_key != 'sk-changeme'
+          - nodered_litellm_api_key != litellm_master_key
+        fail_msg: "nodered_users / nodered_credential_secret / nodered_litellm_api_key still hold dummies; set them in group_vars/all/vault/nodered.yml"
+        quiet: true
+
+    - name: Render Node-RED settings.js, package.json and auth.json
+      ansible.builtin.set_fact:
+        _nodered_settings_js: "{{ lookup('template', 'nodered/settings.js.j2') }}"
+        _nodered_package_json: >-
+          {{ {'name': 'node-red-project', 'version': '0.0.1', 'private': true,
+              'dependencies': nodered_palette_modules} | to_nice_json }}
+        _nodered_auth_json: "{{ {'credentialSecret': nodered_credential_secret, 'users': nodered_users} | to_json }}"
+
+    - name: Create nodered namespace
+      kubernetes.core.k8s:
+        name: "{{ nodered_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+
+    - name: Create nodered egress NetworkPolicy
+      when: nodered_network_policies_enabled | bool
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: nodered-egress
+            namespace: "{{ nodered_namespace }}"
+          spec:
+            podSelector:
+              matchLabels:
+                app: nodered
+            policyTypes:
+              - Egress
+            egress:
+              - to:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: kube-system
+                    podSelector:
+                      matchLabels:
+                        k8s-app: kube-dns
+                ports:
+                  - protocol: UDP
+                    port: 53
+                  - protocol: TCP
+                    port: 53
+              - to: >-
+                  {{ (['litellm'] + nodered_networkpolicy_extra_namespaces)
+                     | map('community.general.dict_kv', 'kubernetes.io/metadata.name')
+                     | map('community.general.dict_kv', 'matchLabels')
+                     | map('community.general.dict_kv', 'namespaceSelector') | list }}
+              # Internet + LAN (incl. the node postfix on :25), but no other in-cluster pods.
+              - to:
+                  - ipBlock:
+                      cidr: 0.0.0.0/0
+                      except:
+                        - "{{ cluster_cidr }}"
+                        - "{{ service_cidr }}"
+
+    - name: Create nodered ingress NetworkPolicy (Traefik only)
+      when: nodered_network_policies_enabled | bool
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: nodered-ingress
+            namespace: "{{ nodered_namespace }}"
+          spec:
+            podSelector:
+              matchLabels:
+                app: nodered
+            policyTypes:
+              - Ingress
+            ingress:
+              - from:
+                  - namespaceSelector:
+                      matchLabels:
+                        kubernetes.io/metadata.name: kube-system
+                    podSelector:
+                      matchLabels:
+                        app.kubernetes.io/name: traefik
+
+    - name: Create nodered config (settings.js, package.json)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: nodered-config
+            namespace: "{{ nodered_namespace }}"
+          data:
+            settings.js: "{{ _nodered_settings_js }}"
+            package.json: "{{ _nodered_package_json }}"
+
+    - name: Create nodered auth secret (users + credentialSecret)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: nodered-auth
+            namespace: "{{ nodered_namespace }}"
+          type: Opaque
+          stringData:
+            auth.json: "{{ _nodered_auth_json }}"
+
+    - name: Create nodered env secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: nodered-env
+            namespace: "{{ nodered_namespace }}"
+          type: Opaque
+          stringData:
+            OPENAI_API_KEY: "{{ nodered_litellm_api_key }}"
+
+    - name: Create nodered service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          kind: Service
+          apiVersion: v1
+          metadata:
+            name: nodered
+            namespace: "{{ nodered_namespace }}"
+            labels:
+              app: nodered
+          spec:
+            selector:
+              app: nodered
+            ports:
+              - port: "{{ nodered_port }}"
+                name: http
+                targetPort: "{{ nodered_port }}"
+                protocol: TCP
+
+    - name: Create nodered deployment
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: nodered
+            namespace: "{{ nodered_namespace }}"
+            labels:
+              app: nodered
+            annotations:
+              keel.sh/policy: force
+              keel.sh/match-tag: "true"
+              keel.sh/pollSchedule: "@every 24h"
+              keel.sh/trigger: poll
+          spec:
+            replicas: 1
+            strategy:
+              type: Recreate
+            selector:
+              matchLabels:
+                app: nodered
+            template:
+              metadata:
+                labels:
+                  app: nodered
+                annotations:
+                  checksum/config: "{{ (_nodered_settings_js ~ _nodered_package_json ~ _nodered_auth_json ~ nodered_litellm_api_key) | hash('sha256') }}"
+              spec:
+                nodeSelector:
+                  node-role: k3smaster
+                dnsConfig:
+                  options:
+                    - name: ndots
+                      value: "1"
+                securityContext:
+                  runAsUser: 1000
+                  runAsGroup: 1000
+                  runAsNonRoot: true
+                initContainers:
+                  # fsGroup does not apply to hostPath.
+                  - name: fix-perms
+                    image: "{{ nodered_busybox_image }}"
+                    imagePullPolicy: IfNotPresent
+                    securityContext:
+                      runAsUser: 0
+                      runAsNonRoot: false
+                    command: ["sh", "-c", "chown 1000:1000 /data && chmod 0700 /data"]
+                    volumeMounts:
+                      - name: data
+                        mountPath: /data
+                  - name: install-palette
+                    image: "{{ nodered_image }}"
+                    imagePullPolicy: Always
+                    workingDir: /data
+                    command:
+                      - sh
+                      - -c
+                      - >-
+                        cp /config/package.json /data/package.json &&
+                        npm install --omit=dev --no-audit --no-fund --prefer-offline --cache /data/.npm
+                    env:
+                      - name: npm_config_update_notifier
+                        value: "false"
+                    volumeMounts:
+                      - name: data
+                        mountPath: /data
+                      - name: config
+                        mountPath: /config/package.json
+                        subPath: package.json
+                        readOnly: true
+                containers:
+                  - name: nodered
+                    image: "{{ nodered_image }}"
+                    imagePullPolicy: Always
+                    ports:
+                      - containerPort: "{{ nodered_port }}"
+                        name: http
+                        protocol: TCP
+                    env:
+                      # Must stay before SMTP_HOST: $(NODE_IP) only expands previously defined vars.
+                      - name: NODE_IP
+                        valueFrom:
+                          fieldRef:
+                            fieldPath: status.hostIP
+                      - name: SMTP_HOST
+                        value: "{{ nodered_smtp_host }}"
+                      - name: SMTP_PORT
+                        value: "{{ nodered_smtp_port | string }}"
+                      - name: SMTP_FROM
+                        value: "{{ nodered_smtp_from }}"
+                      - name: OPENAI_BASE_URL
+                        value: "{{ nodered_openai_base_url }}"
+                      - name: OPENAI_MODEL
+                        value: "{{ nodered_openai_model }}"
+                      - name: TZ
+                        value: "{{ nodered_timezone }}"
+                    envFrom:
+                      - secretRef:
+                          name: nodered-env
+                    resources:
+                      requests:
+                        cpu: 100m
+                        memory: 256Mi
+                      limits:
+                        cpu: "1"
+                        memory: 1Gi
+                    readinessProbe:
+                      httpGet:
+                        path: /
+                        port: http
+                      initialDelaySeconds: 10
+                      periodSeconds: 15
+                    livenessProbe:
+                      httpGet:
+                        path: /
+                        port: http
+                      initialDelaySeconds: 60
+                      periodSeconds: 30
+                    volumeMounts:
+                      - name: data
+                        mountPath: /data
+                      - name: config
+                        mountPath: /data/settings.js
+                        subPath: settings.js
+                        readOnly: true
+                      - name: auth
+                        mountPath: /etc/nodered
+                        readOnly: true
+                restartPolicy: Always
+                volumes:
+                  - name: data
+                    hostPath:
+                      path: "{{ nodered_data_base }}"
+                      type: DirectoryOrCreate
+                  - name: config
+                    configMap:
+                      name: nodered-config
+                  - name: auth
+                    secret:
+                      secretName: nodered-auth
+
+    - name: Create nodered ip-allowlist middleware
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: nodered-ip-allowlist
+            namespace: "{{ nodered_namespace }}"
+          spec:
+            ipAllowList:
+              sourceRange: "{{ traefik_internal_allowlist }}"
+
+    - name: Create nodered http to https redirect middleware
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: redirect-myhttps
+            namespace: "{{ nodered_namespace }}"
+          spec:
+            redirectScheme:
+              scheme: https
+
+    - name: Create nodered TLS certificate
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: cert-manager.io/v1
+          kind: Certificate
+          metadata:
+            name: "{{ nodered_hostname }}"
+            namespace: "{{ nodered_namespace }}"
+          spec:
+            dnsNames:
+              - "{{ nodered_hostname }}"
+            secretName: "{{ nodered_hostname }}"
+            issuerRef:
+              name: "{{ nodered_tls_issuer }}"
+              kind: ClusterIssuer
+
+    - name: Create nodered http ingressroute with redirect
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
+          metadata:
+            name: nodered-ingress
+            namespace: "{{ nodered_namespace }}"
+          spec:
+            entryPoints:
+              - web
+            routes:
+              - kind: Rule
+                match: "Host(`{{ nodered_hostname }}`)"
+                priority: 10
+                services:
+                  - kind: Service
+                    name: nodered
+                    namespace: "{{ nodered_namespace }}"
+                    passHostHeader: true
+                    port: "{{ nodered_port }}"
+                middlewares:
+                  - name: redirect-myhttps
+                  - name: nodered-ip-allowlist
+
+    - name: Create nodered https ingressroute
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: IngressRoute
+          metadata:
+            name: nodered-https-ingress
+            namespace: "{{ nodered_namespace }}"
+          spec:
+            entryPoints:
+              - websecure
+            routes:
+              - kind: Rule
+                match: "Host(`{{ nodered_hostname }}`)"
+                priority: 10
+                middlewares:
+                  - name: nodered-ip-allowlist
+                services:
+                  - kind: Service
+                    name: nodered
+                    namespace: "{{ nodered_namespace }}"
+                    passHostHeader: true
+                    port: "{{ nodered_port }}"
+            tls:
+              secretName: "{{ nodered_hostname }}"
+
+    - name: Register DNS A record for nodered
+      community.general.nsupdate:
+        server: "{{ nsupdate_server }}"
+        zone: "{{ nsupdate_zone }}"
+        key_name: "{{ nsupdate_tsig_key_name }}"
+        key_secret: "{{ nsupdate_tsig_key_secret }}"
+        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
+        record: "{{ nodered_hostname }}."
+        type: A
+        ttl: "{{ nsupdate_ttl }}"
+        value: "{{ nsupdate_ingress_ip }}"
+        state: present
+
+- name: Node-RED — teardown (opt-in `-e nodered_teardown=true`)
+  when: nodered_teardown | default(false) | bool
+  block:
+    # Flows + credentials under nodered_data_base are kept on disk.
+    - name: Delete nodered namespace (cascades all nodered resources)
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Namespace
+        name: "{{ nodered_namespace }}"
+
+    - name: Remove DNS A record for nodered
+      community.general.nsupdate:
+        server: "{{ nsupdate_server }}"
+        zone: "{{ nsupdate_zone }}"
+        key_name: "{{ nsupdate_tsig_key_name }}"
+        key_secret: "{{ nsupdate_tsig_key_secret }}"
+        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
+        record: "{{ nodered_hostname }}."
+        type: A
+        state: absent

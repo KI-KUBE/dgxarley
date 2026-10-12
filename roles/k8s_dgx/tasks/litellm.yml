@@ -443,6 +443,46 @@
     value: "{{ nsupdate_ingress_ip }}"
     state: present
 
+# Node-RED virtual key: value comes from vault (nodered_litellm_api_key), so create/update is idempotent.
+- name: Provision Node-RED LiteLLM virtual key
+  when:
+    - litellm_enabled | bool
+    - nodered_enabled | default(false) | bool
+  block:
+    - name: Wait for litellm readiness before provisioning the Node-RED key
+      ansible.builtin.uri:
+        url: "https://litellm.{{ dns_external_domain_suffix }}/health/readiness"
+        status_code: 200
+      register: _litellm_ready
+      until: _litellm_ready.status == 200
+      retries: 60
+      delay: 10
+
+    - name: Look up Node-RED LiteLLM key
+      ansible.builtin.uri:
+        url: "https://litellm.{{ dns_external_domain_suffix }}/key/info?key={{ nodered_litellm_api_key | urlencode }}"
+        headers:
+          Authorization: "Bearer {{ litellm_master_key }}"
+        status_code: [200, 400, 404]
+      register: _nodered_key_info
+      no_log: true
+
+    - name: Create or update Node-RED LiteLLM key
+      ansible.builtin.uri:
+        url: "https://litellm.{{ dns_external_domain_suffix }}/key/{{ 'update' if _nodered_key_info.status == 200 else 'generate' }}"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ litellm_master_key }}"
+        body_format: json
+        body:
+          key: "{{ nodered_litellm_api_key }}"
+          key_alias: "nodered"
+          models: "{{ nodered_litellm_key_models }}"
+          max_parallel_requests: "{{ nodered_litellm_key_max_parallel_requests }}"
+        status_code: 200
+      changed_when: _nodered_key_info.status != 200
+      no_log: true
+
 
 # ============================================================================
 # Virtual Key Provisioning (DISABLED — kept for reference)

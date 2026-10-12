@@ -1,0 +1,12 @@
+---
+# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+# LiteLLM virtual key for Node-RED; created/updated with exactly this value by the litellm deploy (k8s_dgx tag litellm).
+nodered_litellm_api_key: "sk-changeme"
+# [] = all models.
+nodered_litellm_key_models: []
+nodered_litellm_key_max_parallel_requests: 4
+nodered_credential_secret: "changeme-nodered-credential-secret"
+nodered_users:
+  - username: admin
+    password: "changeme"
+    permissions: "*"

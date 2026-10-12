@@ -1,0 +1,69 @@
+// Managed by Ansible (roles/k8s_infra/tasks/apps/nodered.yml); edits in the pod are overwritten.
+const fs = require("fs");
+const crypto = require("crypto");
+
+const auth = JSON.parse(fs.readFileSync("/etc/nodered/auth.json", "utf8"));
+const digest = (s) => crypto.createHash("sha256").update(String(s)).digest();
+
+function findUser(username, password) {
+  const u = auth.users.find((x) => x.username === username);
+  if (!u || typeof password !== "string") return null;
+  return crypto.timingSafeEqual(digest(u.password), digest(password)) ? u : null;
+}
+
+function publicUser(u) {
+  return { username: u.username, permissions: u.permissions || "*" };
+}
+
+module.exports = {
+  uiPort: {{ nodered_port }},
+  flowFile: "flows.json",
+  flowFilePretty: true,
+  credentialSecret: auth.credentialSecret,
+
+  adminAuth: {
+    type: "credentials",
+    sessionExpiryTime: 86400,
+    users: async (username) => {
+      const u = auth.users.find((x) => x.username === username);
+      return u ? publicUser(u) : null;
+    },
+    authenticate: async (username, password) => {
+      const u = findUser(username, password);
+      return u ? publicUser(u) : null;
+    },
+  },
+
+{% if nodered_http_node_auth | bool %}
+  httpNodeMiddleware: function (req, res, next) {
+    const m = /^Basic (.+)$/i.exec(req.headers.authorization || "");
+    if (m) {
+      const s = Buffer.from(m[1], "base64").toString("utf8");
+      const i = s.indexOf(":");
+      if (i > 0 && findUser(s.slice(0, i), s.slice(i + 1))) return next();
+    }
+    res.set("WWW-Authenticate", 'Basic realm="node-red"');
+    res.sendStatus(401);
+  },
+{% endif %}
+
+  functionExternalModules: false,
+  exportGlobalContextKeys: false,
+
+  contextStorage: {
+    default: { module: "localfilesystem" },
+    memory: { module: "memory" },
+  },
+
+  telemetry: { enabled: false, updateNotification: false },
+
+  logging: {
+    console: { level: "info", metrics: false, audit: true },
+  },
+
+  editorTheme: {
+    tours: false,
+    projects: { enabled: false },
+    palette: { editable: {{ nodered_palette_editable | bool | lower }} },
+  },
+};

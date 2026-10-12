@@ -1,0 +1,48 @@
+---
+# === Node-RED (visual flow editor / scheduler) ===
+# Deployed by roles/k8s_infra/tasks/apps/nodered.yml (tag: nodered).
+# false only skips the install; removal is the opt-in `-e nodered_teardown=true` (flows dir on disk is kept).
+nodered_enabled: false
+nodered_teardown: false
+nodered_namespace: "nodered"
+# Rolling major tag (Node 24); keel polls the digest and restarts the pod.
+nodered_image: "nodered/node-red:5"
+nodered_busybox_image: "busybox:1.38"
+nodered_port: 1880
+nodered_hostname: "nodered.{{ dns_external_domain_suffix }}"
+nodered_tls_issuer: "letsencrypt-production"
+# Local disk on k3smaster, NOT backed up.
+nodered_data_base: "{{ k8s_infra_data_base }}/nodered"
+nodered_timezone: "Europe/Berlin"
+nodered_network_policies_enabled: true
+# Extra namespaces the flows may reach besides kube-dns + litellm (in-cluster pod CIDR is blocked otherwise).
+nodered_networkpolicy_extra_namespaces: []
+
+# Palette modules, installed declaratively by an initContainer (npm prunes anything not listed).
+nodered_palette_modules:
+  node-red-contrib-cron-plus: "3.2.0"
+  "@inductiv/node-red-openai-api": "6.40.0"
+  node-red-node-email: "5.2.5"
+nodered_palette_editable: false
+
+# http-in endpoints require Basic auth with a nodered_users login.
+nodered_http_node_auth: true
+
+# Exposed to flows as env vars; use `${SMTP_HOST}` / `${SMTP_PORT}` in the email node.
+# $(NODE_IP) = the pod's own node postfix; cross-node relay is rejected (see matrix.yml defaults).
+nodered_smtp_host: "$(NODE_IP)"
+nodered_smtp_port: 25
+nodered_smtp_from: "Node-RED <nodered@{{ dns_external_domain_suffix }}>"
+
+nodered_openai_base_url: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
+nodered_openai_model: "{{ litellm_hermes_alias_model }}"
+
+# Sensitive, real values in group_vars/all/vault/nodered.yml; the key itself is provisioned by the litellm deploy.
+nodered_litellm_api_key: "sk-changeme"
+# Encrypts flows_cred.json; changing it makes all stored node credentials unreadable.
+nodered_credential_secret: "changeme-nodered-credential-secret"
+# permissions: "*" (full) or "read".
+nodered_users:
+  - username: admin
+    password: "changeme"
+    permissions: "*"
