@@ -265,6 +265,18 @@
 > patches cleanly (repo commit `5a42af7` also recorded 0 anchor drift for the
 > deployed `0.5.21-sm121` image). PR #22839 and PR #22618 remain CLOSED
 > unmerged. Root cause and monkey-patch requirement unchanged.
+>
+> **Re-verified 2026-10-12:** No new SGLang release since v0.5.21 (2026-10-02).
+> `python/sglang/srt/configs/qwen3_5.py` has no commits since 2026-10-03 and on
+> `main` HEAD (`f006fb49ec`) still has no `from_dict`/`__post_init__`;
+> `srt/utils/hf_transformers/` has no commits since `d1ba943016`. New on main:
+> `166b4ae7fc` (#43688, "Adapt to transformers 5.18 / 5.19 changes",
+> 2026-10-12) touches `configs/granitemoehybrid.py`, `hy_v4.py`,
+> `qwen4_exp.py`, `hf_transformers_patches.py` and others, but not
+> `qwen3_5.py` or the `get_config()` tail. Offline replay of
+> `p57_hf_config_get_config.py` against the v0.5.21 tag and `main` HEAD
+> patches cleanly and is idempotent. PR #22839 and PR #22618 remain CLOSED
+> unmerged. Root cause and monkey-patch requirement unchanged.
 
 
 ## Summary
