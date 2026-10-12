@@ -19,6 +19,18 @@
   ansible.builtin.set_fact:
     _hermes_active_users: "{{ hermes_users | selectattr('enabled', 'true') | list }}"
 
+- name: Assert every active hermes user has an Outline API key
+  when: hermes.outline.enabled | bool
+  ansible.builtin.assert:
+    that:
+      - item.outline.api_key | default('') is match('^ol_api_')
+      - item.outline.api_key != 'ol_api_changeme'
+    fail_msg: "hermes.outline.enabled is true but hermes user '{{ item.username }}' has no real outline.api_key (group_vars/all/vault/hermes.yml)"
+    quiet: true
+  loop: "{{ _hermes_active_users }}"
+  loop_control:
+    label: "{{ item.username }}"
+
 # --- Per-namespace NetworkPolicies for the Hermes pods (gated by
 # hermes_network_policies_enabled, default OFF). One egress + one ingress policy,
 # selecting ALL hermes pods via `app: hermes` (both agent and webui carry it), so

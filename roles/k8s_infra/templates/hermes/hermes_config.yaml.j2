@@ -102,6 +102,17 @@ model_catalog:
 web:
   backend: "searxng"
 
+{% if hermes.outline.enabled %}
+# Outline wiki MCP. ${OUTLINE_API_KEY} is resolved by Hermes from the Secret-backed .env,
+# so the key never lands in this ConfigMap. Deep-merged: a user's other mcp_servers survive.
+mcp_servers:
+  outline:
+    url: "{{ hermes.outline.mcp_url }}"
+    headers:
+      Authorization: "Bearer ${OUTLINE_API_KEY}"
+    trust: "{{ hermes.outline.trust }}"
+
+{% endif %}
 # Server-side log level for /opt/data/logs/agent.log. The merge-config
 # initContainer always rewrites this on pod start, so toggling
 # `hermes_debug` on a user entry and rolling the pod is enough — ops wins.

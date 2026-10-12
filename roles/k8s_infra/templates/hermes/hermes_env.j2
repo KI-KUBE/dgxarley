@@ -13,6 +13,9 @@ API_SERVER_KEY={{ (item.username ~ '|hermes-gateway-api|' ~ (item.basicauth_pass
 CUSTOM_PROVIDER_{{ cp.name | upper | regex_replace('[^A-Z0-9]', '_') }}_API_KEY={{ cp.api_key }}
 {% endif %}
 {% endfor %}
+{% if hermes.outline.enabled %}
+OUTLINE_API_KEY={{ item.outline.api_key }}
+{% endif %}
 SEARXNG_URL={{ hermes_searxng_url | default('http://searxng.searxng.svc.cluster.local:' ~ searxng_port) }}
 {% set email = item.email | default({}) %}
 {% if email.get('enabled', hermes.email.enabled_default) %}

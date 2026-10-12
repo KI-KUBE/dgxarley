@@ -183,6 +183,12 @@ hermes:
   # /opt/data (NFS) keyed by a stable MATRIX_DEVICE_ID. Off by default.
   matrix:
     enabled_default: false
+  # Outline wiki via its built-in MCP endpoint; when enabled, EVERY active user must carry outline.api_key (asserted in hermes.yml).
+  outline:
+    enabled: false
+    mcp_url: "https://{{ outline_hostname }}/mcp"
+    # "untrusted" = every write-capable tool call needs approval in the UI.
+    trust: "full"
   # Seafile-backed /workspace. When workspace_enabled: (1) the hermes role
   # provisions a Seafile user (using <hermes_users[*].email> + seafile.web_password)
   # and a `hermes-workspace` library via the Seafile REST API, (2) a seadrive

@@ -22,6 +22,9 @@ hermes_users:
     dashboard_enabled: false
     webui_enabled: true
     hermes_debug: false                # true → logging.level=DEBUG in config.yaml
+    # Required for every active user once hermes.outline.enabled is true; create in Outline → Settings → API.
+    outline:
+      api_key: "ol_api_changeme"
     # ADDITIONAL, user-selectable backends (maps 1:1 onto Hermes' native top-level
     # `custom_providers:` list). Each entry is an extra OpenAI-compatible endpoint
     # that shows up in the `hermes model` picker; switch to it per-session. Does
