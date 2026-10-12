@@ -40,5 +40,8 @@ outline_admin:
   api_key: "ol_api_changeme"
 
 # ALL humans incl. those with a hermes agent (agents get separate '<user> (Hermes)' accounts); invited with mail, removal deletes nothing.
-# Entries: {name, email, role: admin|member|viewer}; real list in group_vars/all/vault/outline.yml.
+# Entries: {name, email, role: admin|member|viewer, hermes_user?}; real list in group_vars/all/vault/outline.yml.
 outline_users: []
+
+# Holds every hermes agent account; each hermes user also gets a group <username> with human + agent (additive sync).
+outline_hermes_agents_group: "Hermes Agents"

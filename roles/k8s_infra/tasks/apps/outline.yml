@@ -19,6 +19,11 @@
           - outline_users | map(attribute='role') | difference(['admin', 'member', 'viewer']) | length == 0
           - outline_users | map(attribute='email') | map('lower') | unique | length == outline_users | length
           - outline_admin.email | lower not in (outline_users | map(attribute='email') | map('lower'))
+          - >-
+            outline_users | map(attribute='email') | map('lower')
+            | intersect(hermes_users | default([]) | selectattr('enabled') | selectattr('outline', 'defined')
+                        | map(attribute='email') | map(attribute='address') | map('lower'))
+            | length == 0
         fail_msg: "outline_secret_key / outline_utils_secret / postgresql_outline_password / outline_admin (incl. api_key) still hold dummies; set them in group_vars/all/vault/"
         quiet: true
 
@@ -365,98 +370,6 @@
       register: outline_install
 
     # Outline can only mint keys for the calling user, so vault-held keys are stored the way Outline does (sha256 hash).
-    - name: Seed Outline API key list with the admin key
-      ansible.builtin.set_fact:
-        _outline_api_keys:
-          - {label: admin, email: "{{ outline_admin.email }}", key_name: ansible, value: "{{ outline_admin.api_key }}"}
-        _outline_invites: []
-        # Args: email, key name, sha256 hex, last4. Rotation deletes the user's other keys of that name.
-        _outline_key_sql: |
-          set -e
-          psql -U postgres -d outline -v ON_ERROR_STOP=1 -tA -v email="$1" -v keyname="$2" -v keyhash="$3" -v last4="$4" <<'SQL'
-          SELECT 'USERS ' || count(*) FROM users WHERE lower(email) = lower(:'email') AND "deletedAt" IS NULL;
-          DELETE FROM "apiKeys" WHERE name = :'keyname'
-            AND "userId" IN (SELECT id FROM users WHERE lower(email) = lower(:'email') AND "deletedAt" IS NULL)
-            AND (hash IS DISTINCT FROM :'keyhash' OR "deletedAt" IS NOT NULL);
-          INSERT INTO "apiKeys" (id, name, hash, last4, "userId", "createdAt", "updatedAt")
-            SELECT gen_random_uuid(), :'keyname', :'keyhash', :'last4', id, now(), now()
-            FROM users WHERE lower(email) = lower(:'email') AND "deletedAt" IS NULL
-            ON CONFLICT (hash) DO NOTHING;
-          SQL
-      no_log: true
-
-    - name: Add hermes agents to the Outline API key list
-      ansible.builtin.set_fact:
-        _outline_api_keys: >-
-          {{ _outline_api_keys + [{'label': item.username, 'email': item.email.address, 'key_name': 'hermes', 'value': item.outline.api_key}] }}
-        _outline_invites: "{{ _outline_invites + [{'email': item.email.address, 'name': item.username ~ ' (Hermes)', 'role': 'member'}] }}"
-      loop: "{{ hermes_users | default([]) | selectattr('enabled') | selectattr('outline', 'defined') | list }}"
-      loop_control:
-        label: "{{ item.username }}"
-      no_log: true
-
-    - name: Ensure admin API key exists in Outline
-      when: not ansible_check_mode
-      kubernetes.core.k8s_exec:
-        namespace: postgresql
-        pod: "{{ outline_postgresql_pods.resources[0].metadata.name }}"
-        command: >-
-          bash -c {{ _outline_key_sql | quote }} _
-          {{ _outline_api_keys[0].email | quote }} {{ _outline_api_keys[0].key_name | quote }}
-          {{ _outline_api_keys[0].value | hash('sha256') }} {{ _outline_api_keys[0].value[-4:] | quote }}
-      register: outline_admin_key
-      changed_when: outline_admin_key.stdout is search('^(DELETE [1-9]|INSERT 0 [1-9])', multiline=True)
-      failed_when: outline_admin_key.rc != 0 or outline_admin_key.stdout is not search('^USERS 1$', multiline=True)
-      no_log: true
-
-    # Existing users are skipped; removal from the lists never deletes or suspends anyone.
-    - name: Invite Outline users (users.invite; hermes agents silently, humans with invite mail)
-      when:
-        - not ansible_check_mode
-        - item.invites | length > 0
-      kubernetes.core.k8s_exec:
-        namespace: "{{ outline_namespace }}"
-        pod: "{{ outline_pods.resources[0].metadata.name }}"
-        container: outline
-        command: >-
-          node -e {{ _outline_invite_js | quote }} {{ outline_admin.api_key | quote }}
-          {{ {'suppressEmail': item.suppress_email, 'invites': item.invites} | to_json | quote }}
-      vars:
-        _outline_invite_js: >-
-          fetch('http://127.0.0.1:{{ outline_port }}/api/users.invite', {method: 'POST',
-          headers: {'Content-Type': 'application/json', 'X-Forwarded-Proto': 'https', 'Authorization': 'Bearer ' + process.argv[1]},
-          body: process.argv[2]})
-          .then(async r => { const b = await r.json(); if (!r.ok) { console.error('HTTP ' + r.status + ' ' + (b.message || '')); process.exit(1); }
-          console.log('INVITED ' + b.data.users.length); })
-          .catch(e => { console.error(e.message); process.exit(1); })
-      loop:
-        - {label: hermes agents, suppress_email: true, invites: "{{ _outline_invites }}"}
-        - label: outline_users
-          suppress_email: false
-          invites: "{{ outline_users | map('dict2items') | map('selectattr', 'key', 'in', ['email', 'name', 'role']) | map('items2dict') | list }}"
-      loop_control:
-        label: "{{ item.label }}"
-      register: outline_invite
-      changed_when: outline_invite.stdout is not search('INVITED 0')
-      no_log: true
-
-    - name: Ensure per-agent Outline API keys exist (hermes_users[*].outline.api_key)
-      when: not ansible_check_mode
-      kubernetes.core.k8s_exec:
-        namespace: postgresql
-        pod: "{{ outline_postgresql_pods.resources[0].metadata.name }}"
-        command: >-
-          bash -c {{ _outline_key_sql | quote }} _
-          {{ item.email | quote }} {{ item.key_name | quote }}
-          {{ item.value | hash('sha256') }} {{ item.value[-4:] | quote }}
-      loop: "{{ _outline_api_keys[1:] }}"
-      loop_control:
-        label: "{{ item.label }}"
-      register: outline_agent_keys
-      changed_when: outline_agent_keys.stdout is search('^(DELETE [1-9]|INSERT 0 [1-9])', multiline=True)
-      failed_when: outline_agent_keys.rc != 0 or outline_agent_keys.stdout is not search('^USERS 1$', multiline=True)
-      no_log: true
-
     - name: Create outline ip-allowlist middleware
       kubernetes.core.k8s:
         state: present
@@ -565,6 +478,221 @@
         ttl: "{{ nsupdate_ttl }}"
         value: "{{ nsupdate_ingress_ip }}"
         state: present
+
+    - name: Wait for Outline to answer on its public URL (cert + DNS) before using the API
+      when: not ansible_check_mode
+      ansible.builtin.uri:
+        url: "https://{{ outline_hostname }}/_health"
+        status_code: 200
+      register: _outline_ready
+      until: _outline_ready.status == 200
+      retries: 60
+      delay: 10
+
+    - name: Seed Outline API key list with the admin key
+      ansible.builtin.set_fact:
+        _outline_api_keys:
+          - {label: admin, email: "{{ outline_admin.email }}", key_name: ansible, value: "{{ outline_admin.api_key }}"}
+        _outline_invites: []
+        _outline_groups: []
+        _outline_agent_emails: []
+        # Args: email, key name, sha256 hex, last4. Rotation deletes the user's other keys of that name.
+        _outline_key_sql: |
+          set -e
+          psql -U postgres -d outline -v ON_ERROR_STOP=1 -tA -v email="$1" -v keyname="$2" -v keyhash="$3" -v last4="$4" <<'SQL'
+          SELECT 'USERS ' || count(*) FROM users WHERE lower(email) = lower(:'email') AND "deletedAt" IS NULL;
+          DELETE FROM "apiKeys" WHERE name = :'keyname'
+            AND "userId" IN (SELECT id FROM users WHERE lower(email) = lower(:'email') AND "deletedAt" IS NULL)
+            AND (hash IS DISTINCT FROM :'keyhash' OR "deletedAt" IS NOT NULL);
+          INSERT INTO "apiKeys" (id, name, hash, last4, "userId", "createdAt", "updatedAt")
+            SELECT gen_random_uuid(), :'keyname', :'keyhash', :'last4', id, now(), now()
+            FROM users WHERE lower(email) = lower(:'email') AND "deletedAt" IS NULL
+            ON CONFLICT (hash) DO NOTHING;
+          SQL
+      no_log: true
+
+    - name: Add hermes agents to the Outline API key list
+      ansible.builtin.set_fact:
+        _outline_api_keys: >-
+          {{ _outline_api_keys + [{'label': item.username, 'email': item.email.address, 'key_name': 'hermes', 'value': item.outline.api_key}] }}
+        _outline_invites: "{{ _outline_invites + [{'email': item.email.address, 'name': item.username ~ ' (Hermes)', 'role': 'member'}] }}"
+        _outline_agent_emails: "{{ _outline_agent_emails + [item.email.address] }}"
+        _outline_groups: >-
+          {{ _outline_groups + [{'name': item.username, 'description': item.username ~ ': human + Hermes agent',
+                                 'emails': [_outline_human_email, item.email.address]}] }}
+      vars:
+        # The human is the outline_admin/outline_users entry with hermes_user == username, else the agent's home_address.
+        _outline_human_email: >-
+          {{ ([outline_admin] + outline_users) | selectattr('hermes_user', 'defined') | selectattr('hermes_user', 'eq', item.username)
+             | map(attribute='email') | first | default(item.email.home_address) }}
+      loop: "{{ hermes_users | default([]) | selectattr('enabled') | selectattr('outline', 'defined') | list }}"
+      loop_control:
+        label: "{{ item.username }}"
+      no_log: true
+
+    - name: Assert every hermes agent's human has an Outline account (admin or outline_users)
+      ansible.builtin.assert:
+        that:
+          - item.emails[0] | lower in ([outline_admin.email] + outline_users | map(attribute='email') | list) | map('lower') | list
+        fail_msg: "Outline group {{ item.name }}: human {{ item.emails[0] }} is neither outline_admin nor in outline_users (add the human with hermes_user: {{ item.name }})"
+        quiet: true
+      loop: "{{ _outline_groups }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Ensure admin API key exists in Outline
+      when: not ansible_check_mode
+      kubernetes.core.k8s_exec:
+        namespace: postgresql
+        pod: "{{ outline_postgresql_pods.resources[0].metadata.name }}"
+        command: >-
+          bash -c {{ _outline_key_sql | quote }} _
+          {{ _outline_api_keys[0].email | quote }} {{ _outline_api_keys[0].key_name | quote }}
+          {{ _outline_api_keys[0].value | hash('sha256') }} {{ _outline_api_keys[0].value[-4:] | quote }}
+      register: outline_admin_key
+      changed_when: outline_admin_key.stdout is search('^(DELETE [1-9]|INSERT 0 [1-9])', multiline=True)
+      failed_when: outline_admin_key.rc != 0 or outline_admin_key.stdout is not search('^USERS 1$', multiline=True)
+      no_log: true
+
+    # Existing users are skipped; removal from the lists never deletes or suspends anyone.
+    - name: Invite Outline users (users.invite; hermes agents silently, humans with invite mail)
+      when:
+        - not ansible_check_mode
+        - item.invites | length > 0
+      ansible.builtin.uri:
+        url: "https://{{ outline_hostname }}/api/users.invite"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ outline_admin.api_key }}"
+        body_format: json
+        body:
+          suppressEmail: "{{ item.suppress_email }}"
+          invites: "{{ item.invites }}"
+      loop:
+        - {label: hermes agents, suppress_email: true, invites: "{{ _outline_invites }}"}
+        - label: outline_users
+          suppress_email: false
+          invites: "{{ outline_users | map('dict2items') | map('selectattr', 'key', 'in', ['email', 'name', 'role']) | map('items2dict') | list }}"
+      loop_control:
+        label: "{{ item.label }}"
+      register: outline_invite
+      changed_when: outline_invite.json.data.users | length > 0
+      no_log: true
+
+    - name: Ensure per-agent Outline API keys exist (hermes_users[*].outline.api_key)
+      when: not ansible_check_mode
+      kubernetes.core.k8s_exec:
+        namespace: postgresql
+        pod: "{{ outline_postgresql_pods.resources[0].metadata.name }}"
+        command: >-
+          bash -c {{ _outline_key_sql | quote }} _
+          {{ item.email | quote }} {{ item.key_name | quote }}
+          {{ item.value | hash('sha256') }} {{ item.value[-4:] | quote }}
+      loop: "{{ _outline_api_keys[1:] }}"
+      loop_control:
+        label: "{{ item.label }}"
+      register: outline_agent_keys
+      changed_when: outline_agent_keys.stdout is search('^(DELETE [1-9]|INSERT 0 [1-9])', multiline=True)
+      failed_when: outline_agent_keys.rc != 0 or outline_agent_keys.stdout is not search('^USERS 1$', multiline=True)
+      no_log: true
+
+    # Additive group sync: missing groups are created and missing members added, nothing is ever removed.
+    - name: Set Outline group list (shared agent group + one human/agent pair group per hermes user)
+      ansible.builtin.set_fact:
+        _outline_all_groups: >-
+          {{ ([{'name': outline_hermes_agents_group, 'description': 'All Hermes agent accounts', 'emails': _outline_agent_emails}]
+              + _outline_groups) | selectattr('emails') | list }}
+
+    - name: Look up Outline user ids for group members
+      when: not ansible_check_mode
+      ansible.builtin.uri:
+        url: "https://{{ outline_hostname }}/api/users.list"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ outline_admin.api_key }}"
+        body_format: json
+        body: {emails: ["{{ item }}"], limit: 1}
+      loop: "{{ _outline_all_groups | map(attribute='emails') | flatten | map('lower') | unique }}"
+      register: outline_user_lookup
+      failed_when: outline_user_lookup.status != 200 or outline_user_lookup.json.data | length != 1
+      no_log: true
+
+    - name: Look up existing Outline groups
+      when: not ansible_check_mode
+      ansible.builtin.uri:
+        url: "https://{{ outline_hostname }}/api/groups.list"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ outline_admin.api_key }}"
+        body_format: json
+        body: {name: "{{ item.name }}", limit: 1}
+      loop: "{{ _outline_all_groups }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: outline_group_lookup
+      no_log: true
+
+    - name: Create missing Outline groups
+      when:
+        - not ansible_check_mode
+        - item.json.data.groups | length == 0
+      ansible.builtin.uri:
+        url: "https://{{ outline_hostname }}/api/groups.create"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ outline_admin.api_key }}"
+        body_format: json
+        body: {name: "{{ item.item.name }}", description: "{{ item.item.description }}"}
+      loop: "{{ outline_group_lookup.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      register: outline_group_create
+      changed_when: true
+      no_log: true
+
+    - name: Map Outline group names to ids
+      when: not ansible_check_mode
+      ansible.builtin.set_fact:
+        _outline_group_ids: >-
+          {{ _outline_group_ids | default({}) | combine({item.item.name: (item.json.data.groups[0].id if item.json.data.groups
+             else (outline_group_create.results | selectattr('item.item.name', 'eq', item.item.name) | first).json.data.id)}) }}
+      loop: "{{ outline_group_lookup.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Read Outline group memberships
+      when: not ansible_check_mode
+      ansible.builtin.uri:
+        url: "https://{{ outline_hostname }}/api/groups.memberships"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ outline_admin.api_key }}"
+        body_format: json
+        body: {id: "{{ _outline_group_ids[item.name] }}", limit: 100}
+      loop: "{{ _outline_all_groups }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: outline_group_members
+      no_log: true
+
+    - name: Add missing members to Outline groups
+      when:
+        - not ansible_check_mode
+        - _user_id not in (outline_group_members.results | selectattr('item.name', 'eq', item.0.name) | first).json.data.users | map(attribute='id')
+      ansible.builtin.uri:
+        url: "https://{{ outline_hostname }}/api/groups.add_user"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ outline_admin.api_key }}"
+        body_format: json
+        body: {id: "{{ _outline_group_ids[item.0.name] }}", userId: "{{ _user_id }}"}
+      vars:
+        _user_id: "{{ (outline_user_lookup.results | selectattr('item', 'eq', item.1 | lower) | first).json.data[0].id }}"
+      loop: "{{ _outline_all_groups | subelements('emails') }}"
+      loop_control:
+        label: "{{ item.0.name }} <- {{ item.1 }}"
+      changed_when: true
+      no_log: true
 
 - name: Outline — teardown (opt-in `-e outline_teardown=true`)
   when: outline_teardown | default(false) | bool
