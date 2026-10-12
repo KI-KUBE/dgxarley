@@ -2,7 +2,7 @@
 
 > **STATUS: COMPLETE, executed 2026-10-08 (19:38 to 19:45 UTC).** GSM8K-chat concurrency sweep n=1..32,
 > metrics only. Zero errors, zero truncations, zero restarts, `#queue-req` 0 throughout.
-> Peak throughput 328 tok/s at n=32, 70 tok/s at n=1, accept len 3.1 to 3.6.
+> 70 tok/s at n=1, accept len 3.1 to 3.6. Full-load throughput at n>1: Run 8.
 
 ## Environment
 
@@ -40,23 +40,23 @@
 
 ## Results
 
-| n  | questions | wall s | agg tok/s | peak tok/s | mean per-req tok/s | sched median tok/s @n (samples) | accept len median | lat p50 s | lat max s | trunc | correct/scored |
+| n  | questions | wall s | agg tok/s | n1 tok/s   | mean per-req tok/s | sched median tok/s @n (samples) | accept len median | lat p50 s | lat max s | trunc | correct/scored |
 |----|-----------|--------|-----------|------------|--------------------|---------------------------------|-------------------|-----------|-----------|-------|----------------|
 | 1  | 2         | 6.6    | 68.9      | 70.3       | 66.5               | 71.5 (2)                        | 3.20              | 5.4       | 5.4       | 0     | 2/2            |
-| 2  | 4         | 13.6   | 108.2     | 123.1      | 55.2               | 118.4 (5)                       | 3.35              | 7.6       | 10.5      | 0     | 4/4            |
-| 4  | 8         | 26.2   | 134.8     | 201.2      | 45.8               | 173.6 (5)                       | 3.49              | 9.7       | 16.3      | 0     | 8/8            |
-| 8  | 16        | 32.4   | 197.5     | 267.3      | 28.8               | 188.4 (3)                       | 3.47              | 13.2      | 26.4      | 0     | 16/16          |
-| 16 | 32        | 56.0   | 221.5     | 306.0      | 16.3               | 212.2 (4)                       | 3.39              | 22.5      | 55.0      | 0     | 32/32          |
-| 32 | 64        | 101.9  | 245.5     | 328.1      | 9.2                | 150.0 (2)                       | 3.55              | 41.1      | 92.7      | 0     | 64/64          |
+| 2  | 4         | 13.6   | 108.2     | -          | 55.2               | 118.4 (5)                       | 3.35              | 7.6       | 10.5      | 0     | 4/4            |
+| 4  | 8         | 26.2   | 134.8     | -          | 45.8               | 173.6 (5)                       | 3.49              | 9.7       | 16.3      | 0     | 8/8            |
+| 8  | 16        | 32.4   | 197.5     | -          | 28.8               | 188.4 (3)                       | 3.47              | 13.2      | 26.4      | 0     | 16/16          |
+| 16 | 32        | 56.0   | 221.5     | -          | 16.3               | 212.2 (4)                       | 3.39              | 22.5      | 55.0      | 0     | 32/32          |
+| 32 | 64        | 101.9  | 245.5     | -          | 9.2                | 150.0 (2)                       | 3.55              | 41.1      | 92.7      | 0     | 64/64          |
 
-Notes on the columns: peak = concurrent peak tok/s from the harness (sum of per-request rates while overlapping); mean per-req = completion tokens / latency averaged over requests; scheduler samples are "Decode batch" lines with `#running-req` equal to n (gen throughput 0.1 first-line warmup values excluded).
+Notes on the columns: n1 tok/s = single-stream tok/s (n>1 peak values removed, see Run 8); mean per-req = completion tokens / latency averaged over requests; scheduler samples are "Decode batch" lines with `#running-req` equal to n (gen throughput 0.1 first-line warmup values excluded).
 Max scheduler gen throughput seen at running == n: 73.2 (n=1), 122.0 (2), 186.6 (4), 226.5 (8), 258.7 (16), 207.0 (32).
 
 ## Scheduler and accept length
 
 - `#queue-req` stayed 0 in every Decode batch line.
 - Accept len median 3.2 to 3.55 across levels (max possible with 4 draft tokens is 4), accept rate 0.71 to 0.86 at n=1.
-- The n=32 scheduler median (150, 2 samples) is low-sample and sits below the n=16 value; the harness peak (328) is the better figure at that level, since n=32 spends much of its window in ramp-up and tail with fewer than 32 running.
+- The n=32 scheduler median (150, 2 samples) is low-sample and sits below the n=16 value; full-load figures at n>1: Run 8.
 
 ## Anomalies
 
@@ -66,8 +66,8 @@ Max scheduler gen throughput seen at running == n: 73.2 (n=1), 122.0 (2), 186.6 
 
 ## Comparison
 
-- Against the GLM-5.3-Flash sweep from earlier today (peak n1 50, n2 71, n4 122, n8 133, n16 172, n32 210; accept len ~4.0): Nemotron peaks are higher at every level (70, 123, 201, 267, 306, 328, i.e. 1.4x at n=1 up to 2.0x at n=8) with a lower accept len (3.2 to 3.55 vs ~4.0).
-- Against the profile's built-in-MTP-head reference (n=1 54 tok/s, n=8 peak 199.7, accept ~2.7, measured 2026-06-16 on an older image): MTPv2 head on 0.5.21 gives n=1 about 70 tok/s (+30%), n=8 peak 267 (+34%), accept len about 3.4 vs 2.7. Different image, EP and question set, so treat as indicative.
+- Against the GLM-5.3-Flash sweep from earlier today (n1 50 tok/s, accept len ~4.0): Nemotron n1 70 tok/s (1.4x) with a lower accept len (3.2 to 3.55 vs ~4.0).
+- Against the profile's built-in-MTP-head reference (n=1 54 tok/s, accept ~2.7, measured 2026-06-16 on an older image): MTPv2 head on 0.5.21 gives n=1 about 70 tok/s (+30%), accept len about 3.4 vs 2.7. Different image, EP and question set, so treat as indicative.
 
 ---
 
@@ -88,21 +88,21 @@ Executed 2026-10-08, sweep 20:08 to 20:15 UTC (CEST 22:08 to 22:15), head pod `s
 
 ## Results
 
-| n  | questions | wall s | agg tok/s | peak tok/s | mean per-req tok/s | sched median tok/s @n (samples) | accept len median | lat p50 s | lat max s | trunc | correct/scored |
+| n  | questions | wall s | agg tok/s | n1 tok/s   | mean per-req tok/s | sched median tok/s @n (samples) | accept len median | lat p50 s | lat max s | trunc | correct/scored |
 |----|-----------|--------|-----------|------------|--------------------|---------------------------------|-------------------|-----------|-----------|-------|----------------|
 | 1  | 2         | 9.3    | 64.4      | 67.0       | 65.1               | 64.8 (4)                        | 3.22              | 6.1       | 6.1       | 0     | 2/2            |
-| 2  | 4         | 18.3   | 95.6      | 123.6      | 53.9               | 101.5 (5)                       | 3.24              | 8.1       | 13.2      | 0     | 4/4            |
-| 4  | 8         | 25.4   | 126.4     | 174.3      | 40.7               | 154.2 (3)                       | 3.41              | 9.8       | 20.1      | 0     | 8/8            |
-| 8  | 16        | 34.7   | 189.2     | 236.8      | 25.9               | 192.1 (5)                       | 3.31              | 15.4      | 29.8      | 0     | 15/16          |
-| 16 | 32        | 49.9   | 227.7     | 287.4      | 16.7               | 312.6 (3)                       | 3.36              | 18.5      | 49.4      | 0     | 31/32          |
-| 32 | 64        | 101.6  | 235.3     | 301.3      | 8.9                | 80.7 (1)                        | 3.40              | 38.5      | 90.7      | 0     | 63/64          |
+| 2  | 4         | 18.3   | 95.6      | -          | 53.9               | 101.5 (5)                       | 3.24              | 8.1       | 13.2      | 0     | 4/4            |
+| 4  | 8         | 25.4   | 126.4     | -          | 40.7               | 154.2 (3)                       | 3.41              | 9.8       | 20.1      | 0     | 8/8            |
+| 8  | 16        | 34.7   | 189.2     | -          | 25.9               | 192.1 (5)                       | 3.31              | 15.4      | 29.8      | 0     | 15/16          |
+| 16 | 32        | 49.9   | 227.7     | -          | 16.7               | 312.6 (3)                       | 3.36              | 18.5      | 49.4      | 0     | 31/32          |
+| 32 | 64        | 101.6  | 235.3     | -          | 8.9                | 80.7 (1)                        | 3.40              | 38.5      | 90.7      | 0     | 63/64          |
 
 Sweep window start/end (UTC) per level is in the scratchpad `gsm8k_sweep_nemotron_A/times.txt`.
 
 ## Scheduler stats
 
 - `#queue-req` 0 in every Decode batch line; accept len median 3.2 to 3.4 (min seen 2.83 at n=1 warmup), versus 3.2 to 3.55 for MTPv2 3/4.
-- Scheduler sample counts are small (1 to 5 per level), the n=32 scheduler median (1 sample, maxrun 31) is not usable; use the harness peak.
+- Scheduler sample counts are small (1 to 5 per level), the n=32 scheduler median (1 sample, maxrun 31) is not usable.
 
 ## Anomalies
 
@@ -128,41 +128,42 @@ Executed 2026-10-08, sweep 20:21 to 20:27 UTC (CEST 22:21 to 22:27), head pod `s
 
 ## Results
 
-| n  | questions | wall s | agg tok/s | peak tok/s | mean per-req tok/s | sched median tok/s @n (samples) | accept len median | lat p50 s | lat max s | trunc | correct/scored |
+| n  | questions | wall s | agg tok/s | n1 tok/s   | mean per-req tok/s | sched median tok/s @n (samples) | accept len median | lat p50 s | lat max s | trunc | correct/scored |
 |----|-----------|--------|-----------|------------|--------------------|---------------------------------|-------------------|-----------|-----------|-------|----------------|
 | 1  | 2         | 7.4    | 73.4      | 74.1       | 72.6               | 77.4 (3)                        | 4.40              | 5.6       | 5.6       | 0     | 2/2            |
-| 2  | 4         | 16.3   | 104.3     | 133.3      | 59.0               | 122.6 (3)                       | 4.48              | 6.2       | 11.9      | 0     | 4/4            |
-| 4  | 8         | 24.0   | 138.4     | 200.2      | 46.2               | 173.3 (3)                       | 4.43              | 9.0       | 15.8      | 0     | 8/8            |
-| 8  | 16        | 33.9   | 194.4     | 257.3      | 28.0               | 162.1 (3)                       | 4.45              | 15.5      | 29.8      | 0     | 16/16          |
-| 16 | 32        | 50.6   | 243.4     | 342.6      | 18.0               | 177.2 (2)                       | 4.56              | 20.6      | 48.4      | 0     | 32/32          |
-| 32 | 64        | 75.4   | 325.8     | 431.8      | 12.1               | 59.4 (1)                        | 4.93              | 30.3      | 64.7      | 0     | 63/64          |
+| 2  | 4         | 16.3   | 104.3     | -          | 59.0               | 122.6 (3)                       | 4.48              | 6.2       | 11.9      | 0     | 4/4            |
+| 4  | 8         | 24.0   | 138.4     | -          | 46.2               | 173.3 (3)                       | 4.43              | 9.0       | 15.8      | 0     | 8/8            |
+| 8  | 16        | 33.9   | 194.4     | -          | 28.0               | 162.1 (3)                       | 4.45              | 15.5      | 29.8      | 0     | 16/16          |
+| 16 | 32        | 50.6   | 243.4     | -          | 18.0               | 177.2 (2)                       | 4.56              | 20.6      | 48.4      | 0     | 32/32          |
+| 32 | 64        | 75.4   | 325.8     | -          | 12.1               | 59.4 (1)                        | 4.93              | 30.3      | 64.7      | 0     | 63/64          |
 
 ## Scheduler stats
 
 - `#queue-req` 0 throughout; accept len median 4.4 to 4.9 (max possible 7), rising with batch size.
-- Scheduler gen-throughput samples are sparse and often catch ramp lines (e.g. 56.7 at n=16, 59.4 at n=32); the harness peak is the reliable figure.
+- Scheduler gen-throughput samples are sparse and often catch ramp lines (e.g. 56.7 at n=16, 59.4 at n=32).
 
 ## Anomalies
 
 - One wrong answer (id 12 at n=32, plain slip, `finish=stop`); no truncations, no tracebacks, no restarts.
-- n=8 peak (257.3) is below the 3/4 reference (267.3) despite +1.0 accept len: at that batch size the extra verify width costs more than the accepted tokens return.
 
 ---
 
 # Three-way comparison (same image 0.5.21-sm121, TP4/EP4)
 
-| n  | peak tok/s ref (MTPv2 3/4) | peak A (built-in 3/4) | peak B (MTPv2 5/7) | agg ref | agg A | agg B | accept ref | accept A | accept B |
-|----|----------------------------|-----------------------|--------------------|---------|-------|-------|------------|----------|----------|
-| 1  | 70.3                       | 67.0                  | 74.1               | 68.9    | 64.4  | 73.4  | 3.20       | 3.22     | 4.40     |
-| 2  | 123.1                      | 123.6                 | 133.3              | 108.2   | 95.6  | 104.3 | 3.35       | 3.24     | 4.48     |
-| 4  | 201.2                      | 174.3                 | 200.2              | 134.8   | 126.4 | 138.4 | 3.49       | 3.41     | 4.43     |
-| 8  | 267.3                      | 236.8                 | 257.3              | 197.5   | 189.2 | 194.4 | 3.47       | 3.31     | 4.45     |
-| 16 | 306.0                      | 287.4                 | 342.6              | 221.5   | 227.7 | 243.4 | 3.39       | 3.36     | 4.56     |
-| 32 | 328.1                      | 301.3                 | 431.8              | 245.5   | 235.3 | 325.8 | 3.55       | 3.40     | 4.93     |
+| n  | agg ref | agg A | agg B | accept ref | accept A | accept B |
+|----|---------|-------|-------|------------|----------|----------|
+| 1  | 68.9    | 64.4  | 73.4  | 3.20       | 3.22     | 4.40     |
+| 2  | 108.2   | 95.6  | 104.3 | 3.35       | 3.24     | 4.48     |
+| 4  | 134.8   | 126.4 | 138.4 | 3.49       | 3.41     | 4.43     |
+| 8  | 197.5   | 189.2 | 194.4 | 3.47       | 3.31     | 4.45     |
+| 16 | 221.5   | 227.7 | 243.4 | 3.39       | 3.36     | 4.56     |
+| 32 | 245.5   | 235.3 | 325.8 | 3.55       | 3.40     | 4.93     |
+
+n=1 single-stream tok/s: ref 70.3, A 67.0, B 74.1.
 
 ## Conclusion
 
-Image effect: A (built-in head, 3/4, image 0.5.21) against the June built-in-head reference on 0.5.13 (n1 54, n8 peak 199.7, accept 2.7) gives n1 67 (+24%), n8 236.8 (+19%) and accept 3.2 to 3.4 (vs 2.7), so most of the gain over June comes from the image (and EP4/question set), not from the MTPv2 head. Draft-head effect: MTPv2 3/4 against A at identical steps is +5% at n=1, +15% at n=4, +13% at n=8, +6% at n=16, +9% at n=32 on peak tok/s, with accept len up only about 0.1 to 0.15 (3.2 to 3.55 vs 3.2 to 3.4), a modest but consistent gain, partly within run-to-run noise at n<=2 (peaks tie at n=2). Draft-depth effect: MTPv2 5/7 against MTPv2 3/4 raises accept len by about 1.0 (4.4 to 4.9) and wins at n=1 (+5%), n=2 (+8%), n=16 (+12%) and n=32 (+32%, agg +33%), ties at n=4 (200 vs 201) and loses at n=8 (257 vs 267, -4%), so deeper drafting pays off where the batch is large or tiny and costs at mid batch; sample counts are small (one sweep per config, 2n questions), so the n=8 deficit is within plausible noise but the n=16/n=32 wins are large. Memory cost of 5/7 is about 1.1 GB/rank less free memory after graph capture (15.1 vs 16.3 GB). The profile therefore stays on MTPv2 3/4 under the n=8 AND n=16 criterion; 5/7 is worth a repeat with more questions if the target load is mostly n>=16.
+Image effect: A (built-in head, 3/4, image 0.5.21) against the June built-in-head reference on 0.5.13 (n1 54, accept 2.7) gives n1 67 (+24%) and accept 3.2 to 3.4 (vs 2.7), so most of the gain over June comes from the image (and EP4/question set), not from the MTPv2 head. Draft-head effect: MTPv2 3/4 against A at identical steps is +5% at n=1 with accept len up only about 0.1 to 0.15 (3.2 to 3.55 vs 3.2 to 3.4). Draft-depth effect: MTPv2 5/7 (ran as 5/1/6) against MTPv2 3/4 raises accept len by about 1.0 (4.4 to 4.9) and n=1 by 5%. Memory cost of 5/7 is about 1.1 GB/rank less free memory after graph capture (15.1 vs 16.3 GB). The n>1 comparison of these configs is in Run 4 (scheduler) and Run 8 (full load).
 
 ---
 
@@ -182,18 +183,18 @@ Executed 2026-10-08 21:16 to 22:38 UTC (CEST 23:16 to 00:38), image `xomoxcc/dgx
 
 ## Cases
 
-Peak = concurrent peak tok/s from `analyze`, agg = aggregate tok/s. Accept = median accept len at `#running-req == n`. Free mem = avail mem after the last CUDA graph capture (draft extend), ssm cache = `intermediate_ssm_state_cache` from the "Mamba Cache is allocated" line.
+peak n1 = single-stream tok/s, agg = aggregate tok/s (total tokens / wall time). Accept = median accept len at `#running-req == n`. Free mem = avail mem after the last CUDA graph capture (draft extend), ssm cache = `intermediate_ssm_state_cache` from the "Mamba Cache is allocated" line.
 
-| case | steps/topk/draft | peak n1 | peak n8 | peak n16 | peak n32 | agg n8 | agg n16 | agg n32 | accept n8 | accept n32 | free mem GB | ssm cache GB | correct/scored | status                                          |
-|------|------------------|---------|---------|----------|----------|--------|---------|---------|-----------|------------|-------------|--------------|----------------|-------------------------------------------------|
-| 01   | 3/1/4            | 77.9    | 246.3   | 364.8    | 450.0    | 193.5  | 204.3   | 291.2   | 3.48      | 3.50       | 16.15       | 5.16         | 225/228        | ok                                              |
-| 02   | 4/1/5            | 82.7    | 277.4   | 377.2    | 513.2    | 212.8  | 266.1   | 291.7   | 4.02      | 4.11       | 15.50       | 6.45         | 224/228        | ok                                              |
-| 03   | 5/1/6            | 85.2    | 274.5   | 328.5    | 402.2    | 206.3  | 252.8   | 212.5   | 4.54      | 4.57       | 14.96       | 7.73         | 224/228        | ok                                              |
-| 04   | 6/1/7            | 79.6    | 235.4   | 319.4    | 454.5    | 199.0  | 234.5   | 243.8   | 4.79      | 4.94       | 14.50       | 9.02         | 224/228        | ok                                              |
-| 05   | 7/1/8            | -       | -       | -        | -        | -      | -       | -       | -         | -          | -           | -            | -              | skipped (stop rule)                             |
-| 06   | 5/1/7            | -       | -       | -        | -        | -      | -       | -       | -         | -          | -           | -            | -              | skipped (identical to 03, rewritten to draft 6) |
-| 07   | 3/2/6            | 70.7    | 199.3   | 276.6    | 424.7    | 171.9  | 210.9   | 205.5   | 3.71      | 3.72       | 14.79       | 7.73         | 222/228        | ok                                              |
-| 08   | 5/2/8            | 82.8    | 264.3   | 325.5    | 414.2    | 194.8  | 229.4   | 260.8   | 4.88      | 4.88       | 13.19       | 10.31        | 222/228        | ok                                              |
+| case | steps/topk/draft | peak n1 | agg n8 | agg n16 | agg n32 | accept n8 | accept n32 | free mem GB | ssm cache GB | correct/scored | status                                          |
+|------|------------------|---------|--------|---------|---------|-----------|------------|-------------|--------------|----------------|-------------------------------------------------|
+| 01   | 3/1/4            | 77.9    | 193.5  | 204.3   | 291.2   | 3.48      | 3.50       | 16.15       | 5.16         | 225/228        | ok                                              |
+| 02   | 4/1/5            | 82.7    | 212.8  | 266.1   | 291.7   | 4.02      | 4.11       | 15.50       | 6.45         | 224/228        | ok                                              |
+| 03   | 5/1/6            | 85.2    | 206.3  | 252.8   | 212.5   | 4.54      | 4.57       | 14.96       | 7.73         | 224/228        | ok                                              |
+| 04   | 6/1/7            | 79.6    | 199.0  | 234.5   | 243.8   | 4.79      | 4.94       | 14.50       | 9.02         | 224/228        | ok                                              |
+| 05   | 7/1/8            | -       | -      | -       | -       | -         | -          | -           | -            | -              | skipped (stop rule)                             |
+| 06   | 5/1/7            | -       | -      | -       | -       | -         | -          | -           | -            | -              | skipped (identical to 03, rewritten to draft 6) |
+| 07   | 3/2/6            | 70.7    | 171.9  | 210.9   | 205.5   | 3.71      | 3.72       | 14.79       | 7.73         | 222/228        | ok                                              |
+| 08   | 5/2/8            | 82.8    | 194.8  | 229.4   | 260.8   | 4.88      | 4.88       | 13.19       | 10.31        | 222/228        | ok                                              |
 
 Latency (p50 / max seconds) and mean per-request tok/s at n = 8 / 16 / 32:
 
@@ -206,32 +207,31 @@ Latency (p50 / max seconds) and mean per-request tok/s at n = 8 / 16 / 32:
 | 07   | 13.8 / 44.1 | 25.3 / 59.3 | 36.4 / 141.9 | 23.0 / 14.8 / 10.2                |
 | 08   | 13.2 / 36.5 | 23.2 / 57.9 | 37.3 / 96.4  | 26.7 / 16.5 / 10.2                |
 
-Case 01 peak n1 / n2 are 4-question samples, so the n1 column is within about 10 % noise.
+Case 01 peak n1 is a 4-question sample, so the n1 column is within about 10 % noise.
 
 ## Scheduler stats
 
 - `#queue-req` was 0 at every level of every case. All cases reached "fired up" 4.0 to 5.2 min after the rollout (inits fast, caches warm).
-- Scheduler gen-throughput medians at `#running-req == n` (max in parentheses), n8 / n16 / n32: 01 210.4 (257.4) / 309.5 (330.7) / 325.6 (394.3); 02 211.4 (253.4) / 268.3 (291.7) / 374.5 (428.9); 03 210.0 (268.9) / 288.9 (319.0) / 345.7 (355.4); 04 216.5 (247.0) / 246.8 (306.5) / 321.5 (354.0); 07 183.1 (227.8) / 214.9 (268.8) / 298.2 (361.2); 08 199.2 (231.6) / 251.6 (303.6) / 271.5 (372.6). Sample counts per level are only 4 to 10 (log interval 40 decode batches), so these are indicative; the harness peak is the primary figure.
+- Scheduler gen-throughput medians at `#running-req == n` (max in parentheses), n8 / n16 / n32: 01 210.4 / 309.5 / 325.6; 02 211.4 / 268.3 / 374.5; 03 210.0 / 288.9 / 345.7; 04 216.5 / 246.8 / 321.5; 07 183.1 / 214.9 / 298.2; 08 199.2 / 251.6 / 271.5. Sample counts per level are only 4 to 10 (log interval 40 decode batches), so these are indicative.
 - Accept len rises about 0.5 per extra step (3.5, 4.0, 4.5, 4.8 to 4.9 for 3, 4, 5, 6 steps at topk 1), but the verify width grows with it, so throughput peaks at 4/1/5.
-- topk 2 buys accept len (3/2/6: 3.7 vs 3.5 for 3/1/4; 5/2/8: 4.9 vs 4.5 for 5/1/6) but the wider tree costs more than it returns: 3/2/6 is 19 % slower than 3/1/4 at n8 and 24 % slower at n16; 5/2/8 is 4 % slower than 5/1/6 at n8, about equal at n16.
+- topk 2 buys accept len (3/2/6: 3.7 vs 3.5 for 3/1/4; 5/2/8: 4.9 vs 4.5 for 5/1/6) but the wider tree costs more than it returns: scheduler median 3/2/6 vs 3/1/4 is 13 % lower at n8 and 31 % lower at n16; 5/2/8 vs 5/1/6 5 % lower at n8, 13 % lower at n16.
 
 ## Anomalies
 
-- Case 03 n=32: one request (id 119) ran away to the 8192-token limit (`finish=length`, empty content, 28.7k chars of reasoning, 159 s) and stretched the level to 179 s max latency; this is why 03's n32 agg (212.5) and peak (402.2) are low. Id 119 is also wrong in every other case (stop, wrong answer), so it is a hard question, not a speculation fault. It is the only truncation in 1368 requests.
+- Case 03 n=32: one request (id 119) ran away to the 8192-token limit (`finish=length`, empty content, 28.7k chars of reasoning, 159 s) and stretched the level to 179 s max latency; this is why 03's n32 agg (212.5) is low. Id 119 is also wrong in every other case (stop, wrong answer), so it is a hard question, not a speculation fault. It is the only truncation in 1368 requests.
 - Wrong answers are plain misreads, all `finish=stop`: ids 100 and 119 (n32) are wrong in all cases, id 12 and 93 flip between cases (greedy decoding with speculation is not batch-invariant). Correct counts are 222 to 225 of 228 everywhere, so the quality gate is met: no char runs >= 20, `reasoning_content` populated for all 1368 requests, no 5xx.
-- Peak n16 at 3/1/4 is 364.8 here versus 306.0 in the 2n-question reference; peak figures depend strongly on sample size and which requests overlap, so compare only within this run.
 - No crashes, no tracebacks, no pod restarts beyond the rollout-driven ones.
 
 ## Conclusion
 
-Winner for n <= 8 and for n >= 16 is the same: MTPv2 4/1/5 (steps 4, topk 1, draft 5). It has the best peak at n8 (277.4, +13 % over 3/1/4, +1 % over 5/1/6), n16 (377.2, +3 % over 3/1/4, +15 % over 5/1/6) and n32 (513.2, +14 % over 3/1/4), the best agg at n8 and n16 and the best latency p50 at n16 and n32 (n8 p50 11.3 vs 11.2 for 5/1/6), with 15.5 GB free after capture. 5/1/6 wins only n1 (85.2 vs 82.7, within noise) and 6/1/7 regresses at n8 and n16 versus its predecessor, so the stop rule ended the topk-1 chain after case 04 (case 05 skipped). topk 2 does not pay off on this hybrid model. The profile is set to 4/1/5.
+MTPv2 4/1/5 (steps 4, topk 1, draft 5) is the pick: highest scheduler median at n32 (374.5 vs 325.6 for 3/1/4 and 345.7 for 5/1/6), at n8 all topk-1 cases are within 3 % (210-217), at n16 3/1/4 leads (309.5 vs 268.3), with 4 to 10 samples per level. Run 8 confirms the n32 order with full-load numbers (4/1/5 378-401, 5/1/6 352, 3/1/4 307) and puts the three within the spread at n<=16. 4/1/5 also has the best agg at n8 and n16 and the best latency p50 at n16 and n32, with 15.5 GB free after capture. 5/1/6 wins only n1 (85.2 vs 82.7, within noise) and 6/1/7 has the lowest topk-1 scheduler median at n16 and n32, so the stop rule ended the topk-1 chain after case 04 (case 05 skipped). topk 2 does not pay off on this hybrid model. The profile is set to 4/1/5.
 
 ## Run 5: max_total_tokens cap + Omni companion co-located (2026-10-09)
 
 Head `sglang-head-6497fb4f88-p5ccj`, MTPv2 4/1/5, launch now with `--max-total-tokens 16777216`, Omni vision instance booted at the same time. Details in the Omni testlog section "Co-located vision companion next to Super (2026-10-09)".
 
 - Load weight end 31.47 GB (122.8 s), draft 2.15 GB; mamba 160 slots (12.9 GB incl. intermediates); KV fp8 10182073 tokens (K 9.71 + V 9.71 GB, draft 1.21 + 1.21 GB), i.e. the auto-fit bound below the 16.78M cap; Memory pool end avail 23.14 GB; graphs 8.9 + 5.7 + 1.0 s; final available_gpu_mem 14.61 GB. GPU process memory 61.6 GB per rank.
-- GSM8K n=8, 32 questions: alone 32/32, peak 289.4 tok/s (reference 277.4), agg 219.8, p50 11.0 s. In parallel with Omni n=8: 31/32, peak 293.8, agg 130.8, p50 16.0 s (Omni phase overlapped only partly).
+- GSM8K n=8, 32 questions: alone 32/32, agg 219.8 tok/s, p50 11.0 s. In parallel with Omni n=8: 31/32, agg 130.8, p50 16.0 s (Omni phase overlapped only partly).
 - 0 restarts, no Scheduler/OOM errors.
 
 ### Run 5b: cap lowered to 9437184 (2026-10-09)
@@ -245,32 +245,61 @@ Head `sglang-head-869849cdd7-lfd9t`, launch `--max-total-tokens 9437184`; only t
 
 ## Run 6: n=4 fill-in (2026-10-11)
 
-Current profile (MTPv2 4/1/5, TP4/EP4, `--max-total-tokens` cap as in Run 5b), head `sglang-head-57cb9d8bb-d6t97`, redeployed with `ansible-playbook k8s_dgx.yml --tags sglang -e sglang_model=nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4`; ready 4.0 min after the rollout. Same GSM8K harness (temperature 0, max-tokens 8192), levels run back to back with a 20 s pause. n1 and n8 are drift anchors against the 2026-10-08 sweep (case 02).
+Current profile (MTPv2 4/1/5, TP4/EP4, `--max-total-tokens` cap as in Run 5b), head `sglang-head-57cb9d8bb-d6t97`, redeployed with `ansible-playbook k8s_dgx.yml --tags sglang -e sglang_model=nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4`; ready 4.0 min after the rollout. Same GSM8K harness (temperature 0, max-tokens 8192), levels run back to back with a 20 s pause. n1 is the drift anchor against the 2026-10-08 sweep (case 02). n4/n8 full-load throughput: Run 8.
 
-| level | questions | peak tok/s | agg tok/s | accept (median) | correct/scored | p50 / max s | 10-08 peak | drift |
-|-------|-----------|------------|-----------|-----------------|----------------|-------------|------------|-------|
-| n1    | 4         | 85.9       | 81.6      | 4.10            | 4/4            | 4.7 / 5.6   | 82.7       | +3.9 % |
-| n4    | 16        | 202.6      | 166.1     | 4.10            | 15/16          | 8.9 / 21.7  | not measured | - |
-| n8    | 32        | 299.4      | 241.7     | 4.13            | 31/32          | 10.6 / 30.5 | 277.4      | +7.9 % |
+| level | questions | n1 tok/s | agg tok/s | accept (median) | correct/scored | p50 / max s |
+|-------|-----------|----------|-----------|-----------------|----------------|-------------|
+| n1    | 4         | 85.9 (10-08: 82.7, +3.9 %) | 81.6 | 4.10      | 4/4            | 4.7 / 5.6   |
+| n4    | 16        | -        | 166.1     | 4.10            | 15/16          | 8.9 / 21.7  |
+| n8    | 32        | -        | 241.7     | 4.13            | 31/32          | 10.6 / 30.5 |
 
 - Accept len is the median over decode batches with `#running-req` equal to the level (8 to 10 samples per level, so indicative). 0 decode batches with `cuda graph: False` in any level window.
 - The single wrong answer at n4 and n8 is id 12 (pred 12, gt 13, `finish=stop`), which also flips between cases in the 10-08 sweep. No char runs, no failures other than that, no truncation, no restarts.
-- Drift anchors sit slightly above the 10-08 values (n1 +3.9 %, n8 +7.9 %), within the sample-size noise noted above, so the n4 figure is comparable to the sweep. n4 peak of 202.6 fits between n1 (85.9) and n8 (299.4); scaling n1 to n4 is 2.4x, n4 to n8 is 1.5x.
+- The n1 drift anchor sits 3.9 % above the 10-08 value, within the sample-size noise.
 - Smoke "17*23" returned 391 with reasoning_content before the runs.
 
 ## Run 7: bfloat16 SSM state (2026-10-11)
 
 Profile now sets `mamba_ssm_dtype: "bfloat16"` (cache 160 slots, MTPv2 4/1/5, TP4/EP4), head `sglang-head-7569c95448-5z92v`, ready 3.5 min after the rollout (12:30 to 12:35 UTC). Levels and question counts as in the Run 4 sweep plus n4 (4/16/32/64/128), 20 s pause, max-tokens 8192, temperature 0. Cluster idle before the deploy; the head log has exactly 260 POSTs (16 probe + 244 bench), so no foreign traffic.
 
-| level | questions | peak tok/s | agg tok/s | correct/scored | float32 peak (Run 4 case 02 / Run 6) |
-|-------|-----------|------------|-----------|----------------|------------------------------|
-| n1    | 4         | 82.1       | 77.8      | 4/4            | 82.7 |
-| n4    | 16        | 207.8      | 158.4     | 16/16          | 202.6 |
-| n8    | 32        | 266.3      | 229.2     | 31/32          | 277.4 |
-| n16   | 64        | 419.3      | 219.4     | 63/64          | 377.2 |
-| n32   | 128       | 541.8      | 340.0     | 124/128        | 513.2 |
+| level | questions | n1 tok/s | agg tok/s | correct/scored |
+|-------|-----------|----------|-----------|----------------|
+| n1    | 4         | 82.1 (float32 82.7) | 77.8 | 4/4      |
+| n4    | 16        | -        | 158.4     | 16/16          |
+| n8    | 32        | -        | 229.2     | 31/32          |
+| n16   | 64        | -        | 219.4     | 63/64          |
+| n32   | 128       | -        | 340.0     | 124/128        |
 
 - Boot: `mamba_ssm_dtype` bfloat16, `max_running_requests` 32, `max_total_num_tokens` 23.27M, 15.45 GB free after capture (float32 15.5 GB). FP8 KV "no scaling factors" warning twice (target + draft), as before.
 - 32 running at n32, `#queue-req` max 2, 0 decode batches with `cuda graph: False` (the 187 such lines are all prefill batches), accept len mean 4.04 over 101 logged decode batches (sweep 4.02). Collapse probe 0/16, tool calls 4/4, no truncation, no errors.
 - Engine gen throughput by `#running-req`: 1: 80 mean, 8: 224, 14-18: 284, 28-32: 396 mean / 505 max (float32 sweep head log at 28-32: 352 / 429).
-- Verdict: bfloat16 is neutral to slightly positive on TP4 (n1..n8 within -4 to +3 %, n16 +11 %, n32 +6 %, engine at full load +12 %); keep it. Comparison table: `SINGLE_CLUSTER_COMPARE.md`.
+- Verdict: bfloat16 is neutral to slightly positive on TP4 (n1 -1 %, engine at full load +12 %; full load in Run 8: +1 % n4, +3 % n8, +22 % n16, +6 % n32); keep it. Comparison table: `SINGLE_CLUSTER_COMPARE.md`.
+
+## Run 8: full-load rerun with the streaming harness (2026-10-11)
+
+All n>1 levels of the four MTPv2 configs re-measured with `sglang-gsm8k run` (streams by default) and `analyze` -> `full_load_tok_s` (token rate while >= 90 % of the client slots are busy). The old `concurrent_peak_tok_s` was 1.12-1.41x full_load in these runs, so all n>1 peak values were removed from Runs 1-7. Same profile per config with only the listed keys changed, deployed one after another, cluster idle-checked (3 min without POSTs/running requests) before each deploy. Levels n4/n8/n16/n32 with 16/32/64/128 questions, 20 s pause, max-tokens 8192, temperature 0; n1 not rerun (exact at n=1). Head log POSTs = 240 of 240 expected in every case, 0 decode batches with `cuda graph: False`, `max_running_requests` 32 in all four.
+
+full_load tok/s:
+
+| config                          | bench (UTC) | n4    | n8    | n16   | n32   | accept len | queue max |
+|---------------------------------|-------------|-------|-------|-------|-------|------------|-----------|
+| 4/1/5, bfloat16 SSM (= profile) | 15:06-15:14 | 158.2 | 219.9 | 299.5 | 400.5 | 4.03       | 2         |
+| 4/1/5, float32 SSM              | 18:14-18:22 | 157.0 | 213.6 | 245.3 | 378.0 | 4.11       | 3         |
+| 3/1/4, float32 SSM              | 18:31-18:39 | 154.9 | 203.5 | 283.2 | 307.1 | 3.44       | 1         |
+| 5/1/6, float32 SSM ("5/1/7")    | 18:49-18:57 | 145.6 | 192.0 | 273.5 | 351.5 | 4.53       | 2         |
+
+Best 10 s window / engine max, tok/s. Best 10 s window = highest 10 s streamed token rate of the level (character-weighted timeline; the token-exact timeline via `continuous_usage_stats` came after these runs). Engine max = highest head-log `gen throughput` in the level's time window, logged decode batches in parentheses.
+
+| config                          | n4             | n8             | n16            | n32            |
+|---------------------------------|----------------|----------------|----------------|----------------|
+| 4/1/5, bfloat16 SSM (= profile) | 179 / 198 (12) | 283 / 281 (11) | 377 / 371 (13) | 524 / 493 (33) |
+| 4/1/5, float32 SSM              | 182 / 193 (11) | 258 / 264 (10) | 331 / 318 (13) | 513 / 460 (33) |
+| 3/1/4, float32 SSM              | 180 / 181 (16) | 262 / 251 (13) | 349 / 340 (15) | 463 / 412 (54) |
+| 5/1/6, float32 SSM              | 176 / 178 (11) | 255 / 255 (9)  | 343 / 316 (12) | 476 / 446 (52) |
+
+- GSM8K: 4/1/5 bf16 16/16, 31/32, 64/64, 125/128; 4/1/5 float32 16/16, 31/32, 64/64, 125/128; 3/1/4 15/16, 32/32, 63/64, 126/128; 5/1/6 16/16, 32/32, 63/64, 124/128 (+1 truncation). No accuracy difference between configs at these counts.
+- full_load window at n32: 105-139 s with >= 29 active; n4 36-45 s.
+- Engine cross-check (head-log `gen throughput` at >= 29 running during n32): bf16 387, float32 354, 3/1/4 295, 5/1/6 326 tok/s; full_load is 1-11 % above engine at every level.
+- Ranking at n32 holds: 4/1/5 > 5/1/6 > 3/1/4 (378-401 > 352 > 307); at n<=16 the three are within the spread (4/1/5 float32 n16 245 is the low outlier). bfloat16 vs float32 at 4/1/5: +1 % n4, +3 % n8, +22 % n16, +6 % n32, keep bfloat16.
+- "5/1/7" in Runs 3/4 ran as 5/1/6: with topk 1 SGLang rewrites draft tokens to steps+1.
+- Comparison with the single node and the other models: `SINGLE_CLUSTER_COMPARE.md`.

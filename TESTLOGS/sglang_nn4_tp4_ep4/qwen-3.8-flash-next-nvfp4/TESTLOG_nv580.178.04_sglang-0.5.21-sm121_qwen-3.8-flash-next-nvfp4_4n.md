@@ -17,7 +17,7 @@ Cluster context: the Nemotron-3-Super default and the Nano-Omni vision instance 
 
 ## Method
 
-One Ansible rollout per case (`ansible-playbook k8s_dgx.yml --tags sglang`; case 01 with `--tags sglang,litellm`), profile restored from a saved copy before each edit. Bench via `sglang-gsm8k run` (chat API, GSM8K, temperature 0, max_tokens 8192), levels n=1/4/8/16 with 4/8/16/32 questions, 20 s pause between levels. Peak = harness `concurrent_peak_tok_s` (sum of concurrent per-request tok/s); for n=1 it is single-stream tok/s. Runs are short (one to two waves per level), so differences between cases are within noise unless large (the same configuration, case 03 vs 03t, differs by 45 % at n=16 peak, see below).
+One Ansible rollout per case (`ansible-playbook k8s_dgx.yml --tags sglang`; case 01 with `--tags sglang,litellm`), profile restored from a saved copy before each edit. Bench via `sglang-gsm8k run` (chat API, GSM8K, temperature 0, max_tokens 8192), levels n=1/4/8/16 with 4/8/16/32 questions, 20 s pause between levels. n=1 tok/s = single-stream rate. n>1 throughput of this sweep is not listed (`concurrent_peak_tok_s` overstates full load); full-load numbers are in "Full-load rerun" below.
 
 "!"-collapse probe (cases with MTP on, plus case 02 as control): 16 requests, max_tokens 400, 16 short diverse prompts, enable_thinking alternating true/false, 4 requests with a `get_weather` tool definition, concurrency 4, temperature 1.0, top_p 0.95. A generation counts as collapsed if content+reasoning matches `!{4,}` or any char repeated 10+ times.
 
@@ -27,15 +27,15 @@ The deploy of case 01 first failed in `Tear down disabled gated SGLang companion
 
 ## Matrix
 
-| # | Delta | Status | n=1 tok/s | n=4 peak | n=8 peak | n=16 peak | GSM8K correct (n=1/4/8/16 levels) | mean accept len | probe collapses |
-|---|-------|--------|----------:|---------:|---------:|----------:|-----------------------------------|----------------:|----------------:|
-| 01 | profile as is, MTP EAGLE steps 3 / topk 1 / draft 4 | ok | 67.9 | 209.6 | 225.5 | 272.2 | 4/4, 8/8, 15/16, 31/32 | 3.01 | 0/16 |
-| 02 | `speculative_enabled: false` (control) | ok | 34.6 | 116.0 | 187.9 | 284.5 | 4/4, 8/8, 15/16, 31/32 | n/a | 0/16 |
-| 03 | MTP steps 2 / draft 3 | ok | 61.9 | 177.4 | 287.4 | 370.3 | 4/4, 8/8, 15/16, 31/32 | 2.53 | 0/16 |
-| 04 | MTP steps 1 / draft 2 | ok | 57.4 | 163.4 | 268.7 | 364.1 | 4/4, 8/8, 15/16, 31/32 | 1.85 | not run |
-| 05 | `speculative_adaptive: true` (3/1/4 start, existing candidate config) | ok | 71.9 | 162.0 | 265.0 | 327.5 | 4/4, 8/8, 15/16, 31/32 | 3.07 | 0/16 |
-| 06 | tree drafting: steps 2 / topk 2 / draft 4 | BOOT FAIL | - | - | - | - | - | - | - |
-| 03t | case 03 config (shipped), bench at `--temperature 1.0` | ok | 63.5 | 182.0 | 274.6 | 205.1 | 4/4, 8/8, 15/16, 31/32 | 2.34 | not run |
+| # | Delta | Status | n=1 tok/s | GSM8K correct (n=1/4/8/16 levels) | mean accept len | probe collapses |
+|---|-------|--------|----------:|-----------------------------------|----------------:|----------------:|
+| 01 | profile as is, MTP EAGLE steps 3 / topk 1 / draft 4 | ok | 67.9 | 4/4, 8/8, 15/16, 31/32 | 3.01 | 0/16 |
+| 02 | `speculative_enabled: false` (control) | ok | 34.6 | 4/4, 8/8, 15/16, 31/32 | n/a | 0/16 |
+| 03 | MTP steps 2 / draft 3 | ok | 61.9 | 4/4, 8/8, 15/16, 31/32 | 2.53 | 0/16 |
+| 04 | MTP steps 1 / draft 2 | ok | 57.4 | 4/4, 8/8, 15/16, 31/32 | 1.85 | not run |
+| 05 | `speculative_adaptive: true` (3/1/4 start, existing candidate config) | ok | 71.9 | 4/4, 8/8, 15/16, 31/32 | 3.07 | 0/16 |
+| 06 | tree drafting: steps 2 / topk 2 / draft 4 | BOOT FAIL | - | - | - | - |
+| 03t | case 03 config (shipped), bench at `--temperature 1.0` | ok | 63.5 | 4/4, 8/8, 15/16, 31/32 | 2.34 | not run |
 
 Quality in every ok case: one wrong answer at the n=8 level and one at the n=16 level (the same in all cases, including MTP off and temperature 1.0), `char_runs` empty and `odd_nonascii` empty in all analyze outputs, no failed requests other than those wrong answers. No `cuda graph: False` decode batches in any case. No WARNING/ERROR/Traceback lines in the head logs of cases 01 to 05 (grep over the post-boot log for `WARNING|ERROR|Traceback|illegal|no scaling`). 03t used temperature 1.0 without top_p (`sglang-gsm8k run` has no top_p flag).
 
@@ -57,9 +57,9 @@ From inside the litellm pod via `http://localhost:4000/v1/chat/completions` with
 
 ## Observations
 
-- Single stream: MTP on gives 57 to 72 tok/s vs 34.6 tok/s without MTP (about 1.7 to 2.1x), with accept len 3.01 (3/1/4), 2.53 (2/1/3), 1.85 (1/1/2). At n=4 MTP is also ahead (162 to 210 vs 116).
-- At n=8 and n=16 the cases are close and the ordering is not stable: MTP off peaks 284.5 at n=16, above case 01 (272.2), while 03 and 04 read 364 to 370. The shipped config re-measured at temperature 1.0 (03t) reads 205.1 at n=16 against 370.3 at temperature 0; accept len fell from 2.53 to 2.34, which does not explain that gap, so run-to-run variance of these short runs is large. n=8/16 differences must not be read as a ranking.
-- The 0.5.20 profile-header numbers (51.5 t/s single stream, aggregate 215.4 at 16 streams, 3/1/4) are not directly comparable (different sampling, wave count, aggregate definition); the 0.5.21 n=1 peak of 67.9 (case 01) and 71.9 (case 05) is above it.
+- Single stream: MTP on gives 57 to 72 tok/s vs 34.6 tok/s without MTP (about 1.7 to 2.1x), with accept len 3.01 (3/1/4), 2.53 (2/1/3), 1.85 (1/1/2). At full load (rerun below) MTP leads by x1.5-1.7 at n=4 and x1.4 at n=8, x1.1-1.2 at n=16/32.
+- The temperature-1.0 rerun of the shipped config (03t) lowered accept len from 2.53 to 2.34.
+- The 0.5.20 profile-header numbers (51.5 t/s single stream, aggregate 215.4 at 16 streams, 3/1/4) are not directly comparable (different sampling, wave count, aggregate definition); the 0.5.21 n=1 rate of 67.9 (case 01) and 71.9 (case 05) is above it.
 - The "!" collapse did not reproduce with MTP on (0/16 in cases 01, 03, 05; control 02 also 0/16). 16 requests of up to 400 tokens per case is informative against the earlier 3/16 to 4/16 rate on the RadixArk checkpoint, not exhaustive.
 
 ## Results / decision
@@ -77,16 +77,17 @@ From inside the litellm pod via `http://localhost:4000/v1/chat/completions` with
 - A = fixed MTP EAGLE steps 2 / topk 1 / draft 3, `speculative_adaptive: false` (already deployed; server_args verified). B = `speculative_adaptive: true`, start steps 2, draft 3, topk 1, `speculative_adaptive_config` = `"1": [1,2,3]`, `"8": [1,2,3]`, `"32": [1,2]` (only these profile keys changed; the "64" tier was dropped). Verified for B: server_args `speculative_adaptive: True`, config file `/tmp/speculative_adaptive_config.json` with exactly those tiers, `AdaptiveSpeculativeParams initialized: steps=2, candidate_steps=[1, 2, 3]`, runtime states built for steps 1 and 3, no disabled warning. Plain `--tags sglang` deployed without the `_sglang_vision_instance` workaround (teardown fix works).
 - Source rule (../sglang adaptive_spec_params.py, working tree is not exactly the v0.5.21 tag): a start value not in a tier's candidate_steps does not raise, it falls back to the middle candidate; `_find_closest_bs` is a floor lookup (largest key <= padded batch size, else the smallest key). With max_running_requests 16: batch sizes 1 to 7 use tier "1", 8 to 16 use tier "8"; tier "32" is unreachable.
 - Levels (concurrency, questions) 1/8, 4/32, 8/64, 16/128, the same first-N GSM8K questions for every run, temperature 0, max_tokens 8192, `--minutes 30`, 30 s pause between levels. Order: A rep 1, A rep 2, rollout B, B rep 1, B rep 2, rollout back to A (profile byte-identical to the saved copy), A rep 3 (n=8, n=16 only) as drift control. A first drift-control attempt failed on a stale port-forward (RemoteDisconnected on all requests) and was discarded and rerun; it is not counted.
-- Peak = harness `concurrent_peak_tok_s`; aggregate = `aggregate_tok_s`; per-request median = median of completion_tokens/latency from the result JSONL. Accept len = mean over all `Decode batch` lines in the head log between bench start and end (probe excluded); those lines are logged periodically, so counts are small (127 to 287 per rep).
+- n=1 = single-stream tok/s; aggregate = `aggregate_tok_s` (total tokens / wall time, diluted by the longest request); per-request median = median of completion_tokens/latency from the result JSONL. Accept len = mean over all `Decode batch` lines in the head log between bench start and end (probe excluded); those lines are logged periodically, so counts are small (127 to 287 per rep).
 
-### Results (peak / aggregate tok/s)
+### Results (n=1 tok/s; aggregate tok/s)
 
 | Level | A rep 1 | A rep 2 | A rep 3 (after redeploy) | B rep 1 | B rep 2 |
 |-------|---------|---------|--------------------------|---------|---------|
-| n=1  | 68.6 / 56.3 | 62.8 / 53.9 | not run | 73.3 / 69.5 | 74.6 / 70.3 |
-| n=4  | 178.8 / 114.4 | 152.6 / 79.8 | not run | 205.6 / 181.2 | 212.9 / 187.1 |
-| n=8  | 217.3 / 172.7 | 252.2 / 124.5 | 276.9 / 236.5 | 302.1 / 245.2 | 317.2 / 214.1 |
-| n=16 | 343.4 / 165.3 | 263.2 / 160.1 | 419.5 / 219.5 | 435.0 / 235.3 | 469.7 / 238.3 |
+| n=1 single stream | 68.6 | 62.8 | not run | 73.3 | 74.6 |
+| n=1 aggregate  | 56.3 | 53.9 | not run | 69.5 | 70.3 |
+| n=4 aggregate  | 114.4 | 79.8 | not run | 181.2 | 187.1 |
+| n=8 aggregate  | 172.7 | 124.5 | 236.5 | 245.2 | 214.1 |
+| n=16 aggregate | 165.3 | 160.1 | 219.5 | 235.3 | 238.3 |
 
 Per-request median tok/s (A r1 / r2 / r3 ; B r1 / r2):
 
@@ -99,9 +100,9 @@ Per-request median tok/s (A r1 / r2 / r3 ; B r1 / r2):
 
 Level wall time (s), A r1 / r2 / r3 ; B r1 / r2: n=1 43.8 / 44.0 / - ; 37.9 / 36.1. n=4 138.7 / 211.8 / - ; 55.5 / 54.4. n=8 124.3 / 204.7 / 83.1 ; 85.7 / 104.1. n=16 423.8 / 471.9 / 272.4 ; 254.4 / 259.9.
 
-Run-to-run spread (max/min of peak): A n=1 1.09x, n=4 1.17x (two reps), n=8 1.27x, n=16 1.59x (three reps); B between its two reps n=1 1.02x, n=4 1.04x, n=8 1.05x, n=16 1.08x.
+Run-to-run spread (max/min of per-request median): A n=1 1.25x, n=4 1.01x (two reps), n=8 1.49x, n=16 1.81x (three reps); B between its two reps n=1 1.02x, n=4 1.05x, n=8 1.02x, n=16 1.07x.
 
-Drift: A rep 3 (after the redeploy) is faster than A reps 1 and 2 at the same levels (n=8 peak 277 vs 217/252, n=16 peak 420 vs 343/263; n=16 per-request median 21.7 vs 12.3/12.0). Cause not investigated; no other SGLang instance shared the GPUs. There is no A rep 3 for n=1 and n=4, so the A-vs-B comparison at those levels rests on A reps 1/2 only and may be inflated by the same slow state.
+Drift: A rep 3 (after the redeploy) is faster than A reps 1 and 2 at the same levels (n=8 per-request median 30.9 vs 21.6/20.8, n=16 21.7 vs 12.3/12.0). Cause not investigated; no other SGLang instance shared the GPUs. There is no A rep 3 for n=1 and n=4, so the A-vs-B comparison at those levels rests on A reps 1/2 only and may be inflated by the same slow state.
 
 ### Accept length and adaptive behaviour
 
@@ -121,5 +122,32 @@ Drift: A rep 3 (after the redeploy) is faster than A reps 1 and 2 at the same le
 ### Decision
 
 - The profile is restored to A (byte-identical to the saved copy) and deployed.
-- Against A reps 1/2, B is ahead at every level (peak n=1 +10 to +19 %, n=4 +15 to +40 %, n=8 +20 to +46 %, n=16 +27 to +78 %), but A rep 3 shows that A itself moved by up to 59 % at n=16 within the session. Against A rep 3, B is +9 % / +15 % peak at n=8 (302 / 317 vs 277) and +4 % / +12 % at n=16 (435 / 470 vs 420); aggregate 245 / 214 vs 237 (n=8) and 235 / 238 vs 220 (n=16). These differences are smaller than the measured run-to-run spread of A, so no throughput win of B at n=8 or n=16 is established. At n=1 and n=4 B exceeds the spread between A reps, but without a drift-matched A rep, so not conclusive.
-- What is consistent: B accept len 3.1 vs 2.5, B rep-to-rep agreement within 1 to 8 %, no correctness or stability regression. Whether 3 steps beats 2 steps in throughput cannot be separated from drift with this data; an interleaved A/B (alternating reps) is needed.
+- Against A reps 1/2, B is ahead at every level (per-request median n=1 +14 to +44 %, n=4 +37 to +44 %, n=8 +54 to +62 %, n=16 +75 to +93 %), but A rep 3 shows that A itself moved by up to 81 % at n=16 within the session. Against A rep 3, B is +7 % / +9 % per-request median at n=8 (33.2 / 33.7 vs 30.9) and -1 % / +6 % at n=16 (21.5 / 23.1 vs 21.7); aggregate 245 / 214 vs 237 (n=8) and 235 / 238 vs 220 (n=16). These differences are smaller than the measured run-to-run spread of A, so no throughput win of B at n=8 or n=16 is established. The full-load rerun (below, one run each, back to back) has B +17 % at n=4, +6 % at n=8, -5 % at n=16, +2 % at n=32 against A.
+- What is consistent: B accept len 3.1 vs 2.5, B rep-to-rep agreement within 2 to 7 % (per-request median), no correctness or stability regression. Whether 3 steps beats 2 steps in throughput cannot be separated from drift with this data; an interleaved A/B (alternating reps) is needed.
+
+## Full-load rerun with the streaming harness (2026-10-11)
+
+All n>1 levels re-measured with `sglang-gsm8k run` (streams by default) and `analyze` -> `full_load_tok_s` (token rate while >= 90 % of the client slots are busy). The old `concurrent_peak_tok_s` was 1.05-1.67x full_load in these runs (highest at n32 with 16 slots, where it averaged the queue away), so no n>1 peak values are listed in this log. Profile edits deployed one config after another, cluster idle-checked (3 min without POSTs/running requests) before each deploy, profile restored afterwards. Levels n4/n8/n16/n32 with 32/64/128/256 questions, 20 s pause, max-tokens 8192, temperature 0; n1 not rerun (exact at n=1). Head log POSTs = 480 of 480 expected in every case, 0 decode batches with `cuda graph: False`.
+
+full_load tok/s:
+
+| config                                             | slots | bench (UTC) | n4    | n8    | n16   | n32   | engine n32 | accept len | queue max |
+|----------------------------------------------------|------:|-------------|-------|-------|-------|-------|-----------:|-----------:|----------:|
+| adaptive, bfloat16 SSM, max_running 32 (= profile) | 32    | 13:20-13:35 | 155.3 | 204.5 | 280.7 | 300.1 | 293        | 2.98       | 2         |
+| adaptive, float32 SSM, max_running 16 (B)          | 16    | 15:24-15:39 | 183.2 | 234.6 | 270.1 | 272.4 | 280        | 3.00       | 17        |
+| fixed 2/1/3, float32 SSM, max_running 16 (A)       | 16    | 15:53-16:09 | 155.9 | 220.8 | 283.0 | 267.5 | 283        | 2.52       | 18        |
+| no MTP, float32 SSM, max_running 16                | 16    | 16:21-16:45 | 106.9 | 162.9 | 249.7 | 243.8 | 244        | -          | 17        |
+
+Best 10 s window / engine max, tok/s. Best 10 s window = highest 10 s streamed token rate of the level (character-weighted timeline; the token-exact timeline via `continuous_usage_stats` came after these runs). Engine max = highest head-log `gen throughput` in the level's time window, logged decode batches in parentheses.
+
+| config                                             | n4             | n8              | n16             | n32             |
+|----------------------------------------------------|----------------|-----------------|-----------------|-----------------|
+| adaptive, bfloat16 SSM, max_running 32 (= profile) | 181 / 221 (22) | 303 / 297 (22)  | 418 / 413 (84)  | 452 / 435 (68)  |
+| adaptive, float32 SSM, max_running 16 (B)          | 209 / 216 (21) | 292 / 320 (21)  | 378 / 376 (87)  | 381 / 416 (122) |
+| fixed 2/1/3, float32 SSM, max_running 16 (A)       | 188 / 202 (61) | 280 / 290 (31)  | 421 / 431 (98)  | 389 / 435 (98)  |
+| no MTP, float32 SSM, max_running 16                | 125 / 122 (97) | 197 / 211 (216) | 291 / 309 (262) | 331 / 329 (364) |
+
+- GSM8K (n4/n8/n16/n32): profile 31/32, 63/64, 124/128 (+1 truncation), 252/256; B 31/32, 63/64, 123/128 (+2), 250/256 (+2); A 31/32, 63/64, 124/128 (+1), 251/256 (+1); no MTP 31/32, 62/64 (+1), 124/128 (+2), 251/256 (+2).
+- Engine n32 = head-log `gen throughput` mean at >= 90 % of min(32, slots) running; full_load agrees within -5 to +3 % at every level in all four cases.
+- With 16 slots n32 equals n16 (queue); A and B are within 6 % at n16/n32, B leads by 6-18 % at n4/n8. bfloat16 with 32 slots adds about 10 % at n32 over the float32 16-slot cases, but is 13-15 % below B at n4/n8: within the about 20 % run-to-run spread. MTP over no MTP: x1.5-1.7 at n4, x1.4 at n8, x1.1-1.2 at n16/n32.
+- Comparison with the single node and the other models: `SINGLE_CLUSTER_COMPARE.md`.

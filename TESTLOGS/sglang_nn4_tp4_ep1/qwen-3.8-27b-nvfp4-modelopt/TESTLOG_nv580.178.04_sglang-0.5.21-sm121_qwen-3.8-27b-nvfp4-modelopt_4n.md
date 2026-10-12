@@ -19,19 +19,19 @@ Single-node reference: `TESTLOGS/standalone_nn1_tp1/qwen-3.8-27b-nvfp4-modelopt/
 
 ## Method
 
-One rollout per case. Bench via `sglang-gsm8k` through `kubectl port-forward svc/sglang` (chat API, GSM8K test split, temperature 0, max_tokens 8192), levels n=1/4/8/16/32 with the first 4/16/32/64/128 questions, 20 s pause between levels. Peak = harness `concurrent_peak_tok_s` (sum of per-request tok/s). Accept len = median of `accept len` over head `Decode batch` lines inside the bench window (the head logs only a sample of batches, 138 to 253 per case).
+One rollout per case. Bench via `sglang-gsm8k` through `kubectl port-forward svc/sglang` (chat API, GSM8K test split, temperature 0, max_tokens 8192), levels n=1/4/8/16/32 with the first 4/16/32/64/128 questions, 20 s pause between levels. n=1 = single-stream tok/s; n>1 throughput of this sweep is not listed (`concurrent_peak_tok_s` overstates full load), see "Full-load rerun" below. Accept len = median of `accept len` over head `Decode batch` lines inside the bench window (the head logs only a sample of batches, 138 to 253 per case).
 
 Differences to the single-node method (keep in mind when comparing): question counts at n=4/8/16 are 16/32/64 here vs 8/16/32 there; TP=4 vs TP=1; `mem_fraction_static` 0.6 vs 0.80; `max_running_requests` 32 vs 48; mamba SSM dtype default here vs float32 there; this role does not set `SGLANG_RAGGED_VERIFY_MODE=static` or `--speculative-draft-attention-backend`.
 
 ## Matrix
 
-| #  | Spec config                         | n=1 | n=4   | n=8   | n=16  | n=32  | accept len median (ceiling) | max_running_requests | max_mamba_cache_size |
-|----|-------------------------------------|----:|------:|------:|------:|------:|----------------------------:|---------------------:|---------------------:|
-| 1  | DSpark g7 (draft 8, = profile)      | 103.8 | 293.3 | 355.5 | 428.7 | 587.6 | 4.25 (8)                    | 32                   | 280                  |
-| 2  | DSpark g5 (block 5, draft 6)        | 93.3  | 279.7 | 345.1 | 394.6 | 555.4 | 3.92 (6)                    | 32                   | 328                  |
-| 3  | MTP (EAGLE) 3 / 1 / 4               | 69.7  | 214.5 | 358.5 | 389.8 | 479.6 | 3.02 (4)                    | 32                   | 405                  |
-| 4  | none (control)                      | 36.0  | 126.8 | 230.3 | 360.8 | 552.5 | -                           | 32                   | 754                  |
-| 5  | DSpark g7 repeat (drift control)    | 93.2  | 294.7 | 341.3 | 423.5 | 563.0 | 4.30 (8)                    | 32                   | 276                  |
+| #  | Spec config                         | n=1 tok/s | accept len median (ceiling) | max_running_requests | max_mamba_cache_size |
+|----|-------------------------------------|----------:|----------------------------:|---------------------:|---------------------:|
+| 1  | DSpark g7 (draft 8, = profile)      | 103.8     | 4.25 (8)                    | 32                   | 280                  |
+| 2  | DSpark g5 (block 5, draft 6)        | 93.3      | 3.92 (6)                    | 32                   | 328                  |
+| 3  | MTP (EAGLE) 3 / 1 / 4               | 69.7      | 3.02 (4)                    | 32                   | 405                  |
+| 4  | none (control)                      | 36.0      | -                           | 32                   | 754                  |
+| 5  | DSpark g7 repeat (drift control)    | 93.2      | 4.30 (8)                    | 32                   | 276                  |
 
 GSM8K correct (n=1 / 4 / 8 / 16 / 32 questions 4/16/32/64/128):
 
@@ -59,27 +59,57 @@ Median accept len by `#running-req` (case 1): 1: 4.05, 4: 4.50, 8: 4.80, 16: 5.3
 
 ## Comparison vs single node (TP=1, 1n log)
 
-Same-config factor (4 node peak / 1 node peak):
+n=1 from the sweep above; n>1 = `full_load_tok_s` from the full-load reruns (this log and the 1n log, 2026-10-11). Same-config factor (4 nodes / 1 node):
 
-| Config                | n=1  | n=4  | n=8  | n=16 |
-|-----------------------|-----:|-----:|-----:|-----:|
-| none                  | x2.86 (36.0 / 12.6) | x2.57 (126.8 / 49.4) | x2.44 (230.3 / 94.2) | x2.17 (360.8 / 166.3) |
-| MTP 3/1/4             | x2.80 (69.7 / 24.9) | x2.28 (214.5 / 94.1) | x2.25 (358.5 / 159.6) | x1.53 (389.8 / 255.2) |
-| DSpark g5             | x2.26 (93.3 / 41.3) | x2.21 (279.7 / 126.4) | x1.65 (345.1 / 209.0) | x1.23 (394.6 / 320.6) |
-| DSpark g7 (case 1)    | x2.15 (103.8 / 48.3) | x2.11 (293.3 / 138.8) | x1.53 (355.5 / 231.7) | x1.27 (428.7 / 336.9) |
+| Config                       | n=1                  | n=4                    | n=8                    | n=16                   | n=32                   |
+|------------------------------|----------------------|------------------------|------------------------|------------------------|------------------------|
+| none                         | x2.86 (36.0 / 12.6)  | x2.31 (113.9 / 49.3)   | x2.24 (211.2 / 94.4)   | x2.05 (322.6 / 157.2)  | x1.83 (449.2 / 245.7)  |
+| DSpark g7, float32 SSM       | x2.15 (103.8 / 48.3) | x1.66 (213.0 / 128.4)  | x1.38 (284.3 / 205.4)  | x1.19 (312.6 / 261.9)  | x1.66 (464.7 / 279.1) ¹ |
+| DSpark g7, bfloat16 SSM      | x2.16 (96.0 / 44.5)  | x1.81 (262.0 / 145.1)  | x1.18 (284.7 / 240.4)  | x0.88 (334.4 / 378.2)  | x1.02 (520.2 / 512.1)  |
 
-Best config per level, 4 node vs best 1 node: n=1 DSpark g7 103.8 vs 48.3 = x2.15; n=4 DSpark g7 293.3 vs 138.8 = x2.11; n=8 MTP 358.5 (DSpark g7 355.5, within noise) vs 231.7 = x1.55; n=16 DSpark g7 428.7 vs 336.9 = x1.27. Four nodes give about x2 for latency-bound single streams and little more than x1.3 at n=16 with a speculative draft.
+¹ Single node float32 g7 runs 15 slots, so its n=32 is the rate at 15 running.
 
-Speculation gain on TP=4 (DSpark g7 mean of cases 1 and 5 over control): n=1 x2.7, n=4 x2.3, n=8 x1.5, n=16 x1.2, n=32 x1.05 (575 vs 552). Single node was x3.8 / x2.8 / x2.5 / x2.0 at 1/4/8/16. The gain shrinks fast with batch size: at TP=4 the target verify is cheap and per-step overhead (draft + inter-node sync) dominates, and the control scales almost linearly with n.
+MTP 3/1/4 and DSpark g5 were not rerun on the single node. Four nodes give about x2.2 for single streams; with bfloat16 SSM on both sides one node matches four from n=16 on.
 
-Ranking on TP=4: DSpark g7 > DSpark g5 > MTP at n=1..4 and n=16; at n=8 the three are within noise (341 to 359); at n=32 DSpark g7 (556 to 588) is ahead of g5 (555), the control (553) and MTP (480). MTP is below the control at n=32 (x0.87).
+Speculation gain on TP=4 (full load, DSpark g7 over the control): float32 x1.87 n=4, x1.35 n=8, x0.97 n=16, x1.03 n=32; bfloat16 x2.30, x1.35, x1.04, x1.16; n=1 x2.7 (sweep, cases 1 and 5). Single node (bfloat16 preset over control): x2.94, x2.55, x2.41, x2.08. The gain shrinks fast with batch size on TP=4: the target verify is cheap and per-step overhead (draft + inter-node sync) dominates, and the control scales almost linearly with n.
 
-Drift control (case 5 vs 1): n=1 -10 %, n=4 +0.5 %, n=8 -4 %, n=16 -1 %, n=32 -4 %. The n=1 difference is 4 questions of which the first request pays warm-up; read single-digit percent as noise.
+Ranking on TP=4 at full load (float32 SSM, one run each, about 20 % run-to-run spread): n=4 g5 244 > g7 213 > MTP 192 > control 114; n=8 MTP 299, g5 292, g7 284 tied, control 211; n=16 MTP 331, control 323, g7 313 tied, g5 285; n=32 g7 465 and control 449 tied, g5 426, MTP 373. At n=1 DSpark g7 (93-104) > g5 (93) > MTP (70) > control (36). MTP is below the control at n=32 (x0.83).
+
+Drift control (case 5 vs 1): n=1 -10 %; the 4 questions include the first request's warm-up, read single-digit percent as noise.
 
 ## Decision
 
-- Keep the profile as shipped (DSpark gamma 7, RadixArk draft). It is best or tied at every level n=1..32 on TP=4, healthy accept len (4.3 median, 5.2 at high concurrency), no graph fallbacks, no warnings beyond the KV-scale line.
-- MTP (EAGLE 3/1/4) is a valid fallback but worse than the control at n=32; gamma 5 offers no advantage (it is -3 to -10 % vs g7).
-- Worth a look (not tested here): at n>=16 the speculative gain on TP=4 is only x1.2 and at n=32 about zero, and the single-node TP=1 deployment of this 20.6 GB model reaches 337 tok/s at n=16 (vs 429 on 4 nodes, x1.27) while leaving three Sparks free. If the workload is mostly concurrent, a TP=1 instance (profile header suggests `sglang_instances`) is the better use of hardware; for single-stream latency TP=4 + DSpark g7 is x2.1 faster.
+- Keep DSpark gamma 7 (RadixArk draft), now with bfloat16 SSM (profile). It leads at n=1, and with bfloat16 also at n=4 (262) and n=32 (520); at n=8/16 all speculative configs and the control are within the spread. Healthy accept len (4.3 median, 5.2 at high concurrency), no graph fallbacks, no warnings beyond the KV-scale line.
+- MTP (EAGLE 3/1/4) is a valid fallback but below the control at n=32; gamma 5 shows no consistent advantage over g7 (ahead at n=4, behind at n=16/32).
+- At n>=16 speculation on TP=4 gains at most x1.16 at full load, and a single TP=1 node with bfloat16 SSM reaches 378 tok/s at n=16 and 512 at n=32 (4 nodes: 334 and 520) while leaving three Sparks free. If the workload is mostly concurrent, a TP=1 instance (profile header suggests `sglang_instances`) is the better use of hardware; for single-stream latency TP=4 + DSpark g7 is x2.2 faster.
 - FP8 KV scales not applied on 0.5.21 (cluster and single node): still open for the p51 / PR #31220 path; unaffected quality at this sample size.
-- Header update proposal (not applied): item C resolved with the numbers above; item D re-measured on TP=4 (x2.7 at n=1, x1.2 at n=16, about x1.0 at n=32).
+- Header update proposal (not applied): item C resolved with the numbers above; item D re-measured on TP=4 (x2.7 at n=1; full load x1.0 at n=16, x1.0-1.2 at n=32).
+
+## Full-load rerun with the streaming harness (2026-10-11)
+
+All n>1 levels re-measured with `sglang-gsm8k run` (streams by default) and `analyze` -> `full_load_tok_s` (token rate while >= 90 % of the client slots are busy). The old `concurrent_peak_tok_s` was 1.09-1.56x full_load in these runs, so no n>1 peak values are listed in this log. Profile edits deployed one config after another, cluster idle-checked (3 min without POSTs/running requests) before each deploy, profile restored afterwards. Levels n4/n8/n16/n32 with 16/32/64/128 questions, 20 s pause, max-tokens 8192, temperature 0; n1 not rerun (exact at n=1). `max_running_requests` 32 in every case, 0 decode batches with `cuda graph: False`. Head log POSTs = 240 of 240 expected, except DSpark g7 float32 (241, one foreign request).
+
+full_load tok/s:
+
+| config                              | bench (UTC) | n4    | n8    | n16   | n32   | engine n32 | accept len | queue max |
+|-------------------------------------|-------------|-------|-------|-------|-------|-----------:|-----------:|----------:|
+| DSpark g7, bfloat16 SSM (= profile) | 14:47-14:56 | 262.0 | 284.7 | 334.4 | 520.2 | 454        | 4.38       | 3         |
+| DSpark g7, float32 SSM              | 16:57-17:06 | 213.0 | 284.3 | 312.6 | 464.7 | 411        | 4.27       | 2         |
+| DSpark g5 (draft 6), float32 SSM    | 17:14-17:24 | 244.0 | 292.2 | 285.0 | 425.6 | 392        | 3.86       | 3         |
+| MTP EAGLE 3/1/4, float32 SSM        | 17:32-17:41 | 191.7 | 298.6 | 330.7 | 373.4 | 342        | 3.05       | 2         |
+| none, float32 SSM                   | 17:49-18:03 | 113.9 | 211.2 | 322.6 | 449.2 | 438        | -          | 1         |
+
+Best 10 s window / engine max, tok/s. Best 10 s window = highest 10 s streamed token rate of the level (character-weighted timeline; the token-exact timeline via `continuous_usage_stats` came after these runs). Engine max = highest head-log `gen throughput` in the level's time window, logged decode batches in parentheses.
+
+| config                              | n4             | n8              | n16             | n32             |
+|-------------------------------------|----------------|-----------------|-----------------|-----------------|
+| DSpark g7, bfloat16 SSM (= profile) | 287 / 330 (20) | 308 / 310 (36)  | 380 / 353 (39)  | 618 / 542 (54)  |
+| DSpark g7, float32 SSM              | 254 / 269 (17) | 321 / 323 (11)  | 355 / 333 (57)  | 513 / 490 (55)  |
+| DSpark g5 (draft 6), float32 SSM    | 261 / 269 (20) | 334 / 328 (37)  | 328 / 322 (54)  | 474 / 462 (59)  |
+| MTP EAGLE 3/1/4, float32 SSM        | 211 / 226 (21) | 331 / 350 (22)  | 376 / 385 (40)  | 456 / 474 (76)  |
+| none, float32 SSM                   | 130 / 128 (68) | 224 / 233 (215) | 358 / 377 (162) | 500 / 518 (232) |
+
+- GSM8K (n4/n8/n16/n32): 15/16 and 31/32 everywhere (none: +1 truncation at n8); n16 61-63/64; n32 122/128 everywhere with 3-4 truncations at 8192 tokens.
+- Engine n32 = head-log `gen throughput` mean at >= 29 running; full_load is 2-10 % above it for none and MTP, 9-18 % for DSpark at n8-n32 (DSpark g7 bf16 n4: 9 % below).
+- Speculation pays at low concurrency (DSpark g7 bf16 vs none x2.3 at n4) and fades at n32 (520 vs 449, +16 %; MTP 3/1/4 falls below none there). bfloat16 vs float32 at g7: +23 % n4, 0 % n8, +7 % n16, +12 % n32.
+- Comparison with the single node (from n16 on one node with bfloat16 SSM matches four): `SINGLE_CLUSTER_COMPARE.md`.
