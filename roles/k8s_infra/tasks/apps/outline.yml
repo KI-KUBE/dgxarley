@@ -16,6 +16,9 @@
           - postgresql_outline_password | length >= 16
           - outline_admin.email != 'admin@example.com'
           - outline_admin.api_key is match('^ol_api_\\w{38}$')
+          - outline_users | map(attribute='role') | difference(['admin', 'member', 'viewer']) | length == 0
+          - outline_users | map(attribute='email') | map('lower') | unique | length == outline_users | length
+          - outline_admin.email | lower not in (outline_users | map(attribute='email') | map('lower'))
         fail_msg: "outline_secret_key / outline_utils_secret / postgresql_outline_password / outline_admin (incl. api_key) still hold dummies; set them in group_vars/all/vault/"
         quiet: true
 
@@ -386,7 +389,7 @@
       ansible.builtin.set_fact:
         _outline_api_keys: >-
           {{ _outline_api_keys + [{'label': item.username, 'email': item.email.address, 'key_name': 'hermes', 'value': item.outline.api_key}] }}
-        _outline_invites: "{{ _outline_invites + [{'email': item.email.address, 'name': item.username, 'role': 'member'}] }}"
+        _outline_invites: "{{ _outline_invites + [{'email': item.email.address, 'name': item.username ~ ' (Hermes)', 'role': 'member'}] }}"
       loop: "{{ hermes_users | default([]) | selectattr('enabled') | selectattr('outline', 'defined') | list }}"
       loop_control:
         label: "{{ item.username }}"
@@ -406,17 +409,18 @@
       failed_when: outline_admin_key.rc != 0 or outline_admin_key.stdout is not search('^USERS 1$', multiline=True)
       no_log: true
 
-    - name: Invite hermes agents as Outline members (users.invite, existing users are skipped)
+    # Existing users are skipped; removal from the lists never deletes or suspends anyone.
+    - name: Invite Outline users (users.invite; hermes agents silently, humans with invite mail)
       when:
         - not ansible_check_mode
-        - _outline_invites | length > 0
+        - item.invites | length > 0
       kubernetes.core.k8s_exec:
         namespace: "{{ outline_namespace }}"
         pod: "{{ outline_pods.resources[0].metadata.name }}"
         container: outline
         command: >-
           node -e {{ _outline_invite_js | quote }} {{ outline_admin.api_key | quote }}
-          {{ {'suppressEmail': true, 'invites': _outline_invites} | to_json | quote }}
+          {{ {'suppressEmail': item.suppress_email, 'invites': item.invites} | to_json | quote }}
       vars:
         _outline_invite_js: >-
           fetch('http://127.0.0.1:{{ outline_port }}/api/users.invite', {method: 'POST',
@@ -425,6 +429,13 @@
           .then(async r => { const b = await r.json(); if (!r.ok) { console.error('HTTP ' + r.status + ' ' + (b.message || '')); process.exit(1); }
           console.log('INVITED ' + b.data.users.length); })
           .catch(e => { console.error(e.message); process.exit(1); })
+      loop:
+        - {label: hermes agents, suppress_email: true, invites: "{{ _outline_invites }}"}
+        - label: outline_users
+          suppress_email: false
+          invites: "{{ outline_users | map('dict2items') | map('selectattr', 'key', 'in', ['email', 'name', 'role']) | map('items2dict') | list }}"
+      loop_control:
+        label: "{{ item.label }}"
       register: outline_invite
       changed_when: outline_invite.stdout is not search('INVITED 0')
       no_log: true

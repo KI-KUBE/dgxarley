@@ -6,3 +6,5 @@ outline_admin:
   name: "Admin"
   email: "admin@example.com"
   api_key: "ol_api_changeme"
+# Example entry: {name: "Jane Doe", email: "jane@example.com", role: member}
+outline_users: []
