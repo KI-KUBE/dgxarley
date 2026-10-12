@@ -157,6 +157,7 @@ The same bump also re-checks the contracts listed above `hermes.image_tag` (the 
   also started writing `API_SERVER_KEY` into `/opt/data/.env` (a stale per-user value there had
   overridden the container env). `hermes_health_patch.py` and the venv-probe pod that fed its
   mounts are retired.
+- 2026-10-12: upstream released v0.21.7 (2026-10-12, 777 commits over v0.21.6). Its adapter.py is blob d983fd81c7 (identical to main), differing from the synced v0.21.6 base 5fb7141781 only by the three ruff lint commits (`d76cce4f11`, `aff64c3eeb`, `2ff58849f4`); no functional email change, so no re-sync is needed until `hermes.image_tag` moves (deployed and pinned tag is still v0.21.6). No upstream change to the dashboard gateway-health probe or `API_SERVER_KEY` handling since 10-11. PRs #28697, #28699, #28702 and #113192 are still open with no maintainer activity since 2026-10-10 (heads unchanged); upstream main has advanced to `7318e666c2` since the 10-10 rebase onto `02c9603730`, #28699 reports MERGEABLE, the other three mergeability UNKNOWN.
 
 
 ## Operational notes
