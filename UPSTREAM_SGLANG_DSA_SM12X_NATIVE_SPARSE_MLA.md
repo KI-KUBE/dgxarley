@@ -856,6 +856,18 @@ watch only.
 > num_stages=1 / threads=128 on SM12x; GPU-verified spark5 2026-10-08, rel err ~2.2e-3 at
 > H=16 and H=32); v2 (`tail_dim > 0`) stays dead on GB10. That is a separate route from the
 > flashinfer-native path in this PR. p34 retirement decision still pending.
+> Re-checked 2026-10-12: PR #31481 unchanged (head `7aa9049335de83ed1c2227c176041301a6309a29`,
+> `updatedAt` 2026-09-22T09:03:28Z, no new comments or reviews, `REVIEW_REQUIRED`,
+> `MERGEABLE`/`BLOCKED`; fork branch head matches). `git merge-tree --write-tree upstream/main`
+> is clean against `f006fb49ec`. No new SGLang tag (v0.5.21 still latest), so e446698cdd
+> (#32779, merged 2026-10-06) and e289989933 (#41807) are still in no tag (both postdate the
+> v0.5.21 tag). Upstream moved flashinfer to 0.7.1 (#43494, 2026-10-11) and left `sgl-deep-gemm`
+> at 0.2.2; no commit touched `flash_mla_sm120.py` or the DSA backend validator. No new
+> SM120/SM121/GB10 PR or issue concerns sparse-MLA routing (nearest: open #42012, GLM-5.3-Flash
+> on SM120, fa4 crashes at CUDA-graph capture, triton is the only working backend). The local
+> image xomoxcc/dgx-spark-sglang:0.5.21-sm121 pins flashinfer 0.6.18.post1 (recipe
+> scripts/patches/sglang-0.5.21-sm121.recipe); the 0.7.1 bump matters only for the next image bump.
+
 
 ## Proposed PR title
 

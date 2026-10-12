@@ -584,6 +584,7 @@ small (~50 MB) and the node has fast local storage.
   change); `web_server.py` commits touch none of npm-install, lockfile or EACCES. The Action
   Item (EACCES re-verification with a non-10000 UID) remains outstanding and deferred by the
   user, not performed here.
+- **Re-verified 2026-10-12:** new release **v0.21.7** (published 2026-10-12, 777 commits over v0.21.6); `hermes.image_tag` and all four hermes-agent pods remain on `v0.21.6`. Scan of the v0.21.6...v0.21.7 commits for tui/npm/lockfile/EACCES finds no change to `scripts/build/node-deps.mjs`, `docker/stage2-hook.sh` or `main_tui_launch.py`; `Dockerfile` gains only `--record-selection` on the sealed venv build (venv extras persistence), and `web_server.py` only lint commits. #18800, #45657, #66978 and #81620 remain CLOSED, PR #94729 remains MERGED, PR #67011 remains CLOSED/unmerged, PR #61753 remains OPEN (unchanged since 2026-08-03). The 2026-08-18 statement that `hermes_health_patch.py` is "still required" is superseded: the file was removed in 7675330 (2026-10-11) after the upstream Bearer probe (`c061068b26`) was verified live with `API_SERVER_KEY`; `GATEWAY_HEALTH_URL` stays set on the dashboard container. The Action Item (EACCES re-verification with a non-10000 UID) remains outstanding and deferred by the user, not performed here.
 
 
 ## Action Items

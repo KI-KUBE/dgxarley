@@ -636,6 +636,18 @@ REST/GraphQL now report `mergeable: MERGEABLE` / `mergeStateStatus: BLOCKED`
 > `dsa_indexer.py`), so the `torch` value silently stays on DeepGEMM for k-pool models
 > without p69. Candidate follow-up if the PR is pursued.
 
+> Re-checked 2026-10-12: PR #31480 unchanged (head `8d3944adb22eba57e258c7129f54333c7896fcf8`,
+> `updatedAt` 2026-09-10T13:10:42Z, no new comments or reviews, `REVIEW_REQUIRED`,
+> `MERGEABLE`/`BLOCKED`; fork branch head matches). `git merge-tree --write-tree upstream/main`
+> is clean against `f006fb49ec`. No new SGLang tag (v0.5.21 still latest). Since 2026-10-11
+> upstream/main only moved flashinfer to 0.7.1 (#43494); `sgl-deep-gemm` stays 0.2.2 and no
+> commit touched `dsa/paged_mqa_logits_backend.py`, `dsa_indexer.py` or `dsa_indexer_kpool.py`.
+> Correction to the 2026-10-11 kpool note: `IndexerKPool` has resolved
+> `DSAPagedMQALogitsBackend` since #39341 (2026-09-22, gfx950), but `_get_topk_paged` only
+> branches aiter, then tilelang, else `deep_gemm.fp8_paged_mqa_logits`; there is still no
+> torch/Triton or cutedsl route, so the p69 deletion condition is not met.
+> Local: p67 was retired on 2026-10-11 (d2ae7b2, now listed in RETIRED_PATCHES.md); DSA_speedup.md and deepgemm_fix.md carry 2026-10-11 update banners stating the DeepGEMM SM121 block is gone; p30, p35, p68, p69 unchanged.
+
 > [DSA] Add an arch-independent `torch` paged-MQA-logits backend with a fused
 > Triton fast path (unblocks DSA models on SM120/SM121)
 
