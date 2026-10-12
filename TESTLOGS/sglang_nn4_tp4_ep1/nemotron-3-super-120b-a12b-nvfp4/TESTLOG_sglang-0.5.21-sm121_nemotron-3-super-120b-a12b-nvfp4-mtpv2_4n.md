@@ -2,7 +2,7 @@
 
 > **STATUS: COMPLETE, executed 2026-10-08 (19:38 to 19:45 UTC).** GSM8K-chat concurrency sweep n=1..32,
 > metrics only. Zero errors, zero truncations, zero restarts, `#queue-req` 0 throughout.
-> 70 tok/s at n=1, accept len 3.1 to 3.6. Full-load throughput at n>1: Run 8.
+> 70 tok/s at n=1, accept len 3.1 to 3.6. Throughput at n>1: Run 8.
 
 ## Environment
 
@@ -56,7 +56,7 @@ Max scheduler gen throughput seen at running == n: 73.2 (n=1), 122.0 (2), 186.6 
 
 - `#queue-req` stayed 0 in every Decode batch line.
 - Accept len median 3.2 to 3.55 across levels (max possible with 4 draft tokens is 4), accept rate 0.71 to 0.86 at n=1.
-- The n=32 scheduler median (150, 2 samples) is low-sample and sits below the n=16 value; full-load figures at n>1: Run 8.
+- The n=32 scheduler median (150, 2 samples) is low-sample and sits below the n=16 value; throughput at n>1: Run 8.
 
 ## Anomalies
 
@@ -224,7 +224,7 @@ Case 01 peak n1 is a 4-question sample, so the n1 column is within about 10 % no
 
 ## Conclusion
 
-MTPv2 4/1/5 (steps 4, topk 1, draft 5) is the pick: highest scheduler median at n32 (374.5 vs 325.6 for 3/1/4 and 345.7 for 5/1/6), at n8 all topk-1 cases are within 3 % (210-217), at n16 3/1/4 leads (309.5 vs 268.3), with 4 to 10 samples per level. Run 8 confirms the n32 order with full-load numbers (4/1/5 378-401, 5/1/6 352, 3/1/4 307) and puts the three within the spread at n<=16. 4/1/5 also has the best agg at n8 and n16 and the best latency p50 at n16 and n32, with 15.5 GB free after capture. 5/1/6 wins only n1 (85.2 vs 82.7, within noise) and 6/1/7 has the lowest topk-1 scheduler median at n16 and n32, so the stop rule ended the topk-1 chain after case 04 (case 05 skipped). topk 2 does not pay off on this hybrid model. The profile is set to 4/1/5.
+MTPv2 4/1/5 (steps 4, topk 1, draft 5) is the pick: highest scheduler median at n32 (374.5 vs 325.6 for 3/1/4 and 345.7 for 5/1/6), at n8 all topk-1 cases are within 3 % (210-217), at n16 3/1/4 leads (309.5 vs 268.3), with 4 to 10 samples per level. Run 8 (engine max, 2026-10-12): at n32 4/1/5 bf16 485, 4/1/5 float32 432, 3/1/4 412, 5/1/6 404; at n<=16 the float32 configs are within about 10 % of each other. 4/1/5 also has the best agg at n8 and n16 and the best latency p50 at n16 and n32, with 15.5 GB free after capture. 5/1/6 wins only n1 (85.2 vs 82.7, within noise) and 6/1/7 has the lowest topk-1 scheduler median at n16 and n32, so the stop rule ended the topk-1 chain after case 04 (case 05 skipped). topk 2 does not pay off on this hybrid model. The profile is set to 4/1/5.
 
 ## Run 5: max_total_tokens cap + Omni companion co-located (2026-10-09)
 
@@ -245,7 +245,7 @@ Head `sglang-head-869849cdd7-lfd9t`, launch `--max-total-tokens 9437184`; only t
 
 ## Run 6: n=4 fill-in (2026-10-11)
 
-Current profile (MTPv2 4/1/5, TP4/EP4, `--max-total-tokens` cap as in Run 5b), head `sglang-head-57cb9d8bb-d6t97`, redeployed with `ansible-playbook k8s_dgx.yml --tags sglang -e sglang_model=nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4`; ready 4.0 min after the rollout. Same GSM8K harness (temperature 0, max-tokens 8192), levels run back to back with a 20 s pause. n1 is the drift anchor against the 2026-10-08 sweep (case 02). n4/n8 full-load throughput: Run 8.
+Current profile (MTPv2 4/1/5, TP4/EP4, `--max-total-tokens` cap as in Run 5b), head `sglang-head-57cb9d8bb-d6t97`, redeployed with `ansible-playbook k8s_dgx.yml --tags sglang -e sglang_model=nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4`; ready 4.0 min after the rollout. Same GSM8K harness (temperature 0, max-tokens 8192), levels run back to back with a 20 s pause. n1 is the drift anchor against the 2026-10-08 sweep (case 02). n4/n8 throughput: Run 8.
 
 | level | questions | n1 tok/s | agg tok/s | accept (median) | correct/scored | p50 / max s |
 |-------|-----------|----------|-----------|-----------------|----------------|-------------|
@@ -272,34 +272,24 @@ Profile now sets `mamba_ssm_dtype: "bfloat16"` (cache 160 slots, MTPv2 4/1/5, TP
 
 - Boot: `mamba_ssm_dtype` bfloat16, `max_running_requests` 32, `max_total_num_tokens` 23.27M, 15.45 GB free after capture (float32 15.5 GB). FP8 KV "no scaling factors" warning twice (target + draft), as before.
 - 32 running at n32, `#queue-req` max 2, 0 decode batches with `cuda graph: False` (the 187 such lines are all prefill batches), accept len mean 4.04 over 101 logged decode batches (sweep 4.02). Collapse probe 0/16, tool calls 4/4, no truncation, no errors.
-- Engine gen throughput by `#running-req`: 1: 80 mean, 8: 224, 14-18: 284, 28-32: 396 mean / 505 max (float32 sweep head log at 28-32: 352 / 429).
-- Verdict: bfloat16 is neutral to slightly positive on TP4 (n1 -1 %, engine at full load +12 %; full load in Run 8: +1 % n4, +3 % n8, +22 % n16, +6 % n32); keep it. Comparison table: `SINGLE_CLUSTER_COMPARE.md`.
+- Engine gen throughput max at 28-32 running: 505 (float32 sweep head log: 429).
+- Verdict: bfloat16 is neutral to slightly positive on TP4 (n1 -1 %, engine max at 28-32 running +18 %; engine max in Run 8: +9 % n4, +13 % n8, +9 % n16, +12 % n32); keep it. Comparison table: `SINGLE_CLUSTER_COMPARE.md`.
 
-## Run 8: full-load rerun with the streaming harness (2026-10-11)
+## Run 8: engine-log rerun (2026-10-12)
 
-All n>1 levels of the four MTPv2 configs re-measured with `sglang-gsm8k run` (streams by default) and `analyze` -> `full_load_tok_s` (token rate while >= 90 % of the client slots are busy). The old `concurrent_peak_tok_s` was 1.12-1.41x full_load in these runs, so all n>1 peak values were removed from Runs 1-7. Same profile per config with only the listed keys changed, deployed one after another, cluster idle-checked (3 min without POSTs/running requests) before each deploy. Levels n4/n8/n16/n32 with 16/32/64/128 questions, 20 s pause, max-tokens 8192, temperature 0; n1 not rerun (exact at n=1). Head log POSTs = 240 of 240 expected in every case, 0 decode batches with `cuda graph: False`, `max_running_requests` 32 in all four.
+The four MTPv2 configs re-run on 2026-10-12 after a power cycle of all Sparks, one rollout per config from a scratch copy of the repo with only the config's profile keys changed, cluster idle-checked (3 min without POSTs/running requests) before each deploy. Levels n4/n8/n16/n32 with 16/32/64/128 questions, 20 s pause, max-tokens 8192, temperature 0, harness `sglang-gsm8k` (token-exact streaming via `continuous_usage_stats`); n1 not rerun. Throughput comes from the head log (`Decode batch` lines, log interval 40 decode steps): each cell is the highest `gen throughput` (tok/s) in the level's time window. SGLang sums every generated token between two log lines and divides by the elapsed wall time, so each line is a measured rate over a few seconds. These numbers replace the client-side figures of 2026-10-11. The old `concurrent_peak_tok_s` n>1 values were removed from Runs 1-7 because they overstate full load.
 
-full_load tok/s:
+engine max tok/s:
 
-| config                          | bench (UTC) | n4    | n8    | n16   | n32   | accept len | queue max |
-|---------------------------------|-------------|-------|-------|-------|-------|------------|-----------|
-| 4/1/5, bfloat16 SSM (= profile) | 15:06-15:14 | 158.2 | 219.9 | 299.5 | 400.5 | 4.03       | 2         |
-| 4/1/5, float32 SSM              | 18:14-18:22 | 157.0 | 213.6 | 245.3 | 378.0 | 4.11       | 3         |
-| 3/1/4, float32 SSM              | 18:31-18:39 | 154.9 | 203.5 | 283.2 | 307.1 | 3.44       | 1         |
-| 5/1/6, float32 SSM ("5/1/7")    | 18:49-18:57 | 145.6 | 192.0 | 273.5 | 351.5 | 4.53       | 2         |
+| config                          | slots | bench (UTC) | n4  | n8  | n16 | n32 | accept len |
+|---------------------------------|------:|-------------|-----|-----|-----|-----|-----------:|
+| 4/1/5, bfloat16 SSM (= profile) |    32 | 10:34-10:42 | 211 | 287 | 358 | 485 |       4.04 |
+| 4/1/5, float32 SSM              |    32 | 13:44-13:53 | 193 | 253 | 327 | 432 |       4.05 |
+| 3/1/4, float32 SSM              |    32 | 14:02-14:10 | 195 | 254 | 355 | 412 |       3.47 |
+| 5/1/6, float32 SSM              |    32 | 14:19-14:28 | 192 | 267 | 299 | 404 |       4.54 |
 
-Best 10 s window / engine max, tok/s. Best 10 s window = highest 10 s streamed token rate of the level (character-weighted timeline; the token-exact timeline via `continuous_usage_stats` came after these runs). Engine max = highest head-log `gen throughput` in the level's time window, logged decode batches in parentheses.
-
-| config                          | n4             | n8             | n16            | n32            |
-|---------------------------------|----------------|----------------|----------------|----------------|
-| 4/1/5, bfloat16 SSM (= profile) | 179 / 198 (12) | 283 / 281 (11) | 377 / 371 (13) | 524 / 493 (33) |
-| 4/1/5, float32 SSM              | 182 / 193 (11) | 258 / 264 (10) | 331 / 318 (13) | 513 / 460 (33) |
-| 3/1/4, float32 SSM              | 180 / 181 (16) | 262 / 251 (13) | 349 / 340 (15) | 463 / 412 (54) |
-| 5/1/6, float32 SSM              | 176 / 178 (11) | 255 / 255 (9)  | 343 / 316 (12) | 476 / 446 (52) |
-
-- GSM8K: 4/1/5 bf16 16/16, 31/32, 64/64, 125/128; 4/1/5 float32 16/16, 31/32, 64/64, 125/128; 3/1/4 15/16, 32/32, 63/64, 126/128; 5/1/6 16/16, 32/32, 63/64, 124/128 (+1 truncation). No accuracy difference between configs at these counts.
-- full_load window at n32: 105-139 s with >= 29 active; n4 36-45 s.
-- Engine cross-check (head-log `gen throughput` at >= 29 running during n32): bf16 387, float32 354, 3/1/4 295, 5/1/6 326 tok/s; full_load is 1-11 % above engine at every level.
-- Ranking at n32 holds: 4/1/5 > 5/1/6 > 3/1/4 (378-401 > 352 > 307); at n<=16 the three are within the spread (4/1/5 float32 n16 245 is the low outlier). bfloat16 vs float32 at 4/1/5: +1 % n4, +3 % n8, +22 % n16, +6 % n32, keep bfloat16.
+- GSM8K (n4/n8/n16/n32): 15-16/16, 31-32/32, 63-64/64, 123-125/128 (4/1/5 bf16 +1 truncation). Head log POSTs = 240 of 240 expected in every case, 0 decode batches with `cuda graph: False`, `max_running_requests` 32 in all four.
+- n32: 4/1/5 bf16 485 > 4/1/5 float32 432 > 3/1/4 412 and 5/1/6 404. bfloat16 vs float32 at 4/1/5: +9 % n4, +13 % n8, +9 % n16, +12 % n32; keep bfloat16.
+- Day-to-day: engine max at n32 vs 2026-10-11 (before a power cycle of all Sparks): 4/1/5 bf16 485 vs 493, 4/1/5 float32 432 vs 460, 3/1/4 412 vs 412, 5/1/6 404 vs 446.
 - "5/1/7" in Runs 3/4 ran as 5/1/6: with topk 1 SGLang rewrites draft tokens to steps+1.
 - Comparison with the single node and the other models: `SINGLE_CLUSTER_COMPARE.md`.

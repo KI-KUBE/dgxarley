@@ -27,7 +27,7 @@ Preset knobs used in all cases: `MAX_RUNNING=32` (sets `--max-running-requests 3
 
 S3 adaptive config (`adaptive_config.json`): `{"1": {"candidate_steps": [1, 2, 3]}, "8": {"candidate_steps": [1, 2, 3]}, "32": {"candidate_steps": [1, 2]}}`. (An earlier revision of the preset used other tiers; this run used the corrected file above.)
 
-Method: one container start per case, bench via `sglang-gsm8k` from the control node against `<host>:30000` (chat API, GSM8K test split, temperature 0, max_tokens 8192), levels n=1/4/8/16/32 with 4/8/16/32/64 questions (first N, identical across cases), 20 s pause between levels. n=1 tok/s = single-stream rate; n>1 throughput of this sweep is not listed (`concurrent_peak_tok_s` overstates full load), see "Full-load rerun" below. Agg = `aggregate_tok_s`. Accept len = mean of `accept len` over all `Decode batch` lines of the case. Probe: 16 requests (4 concurrent), max_tokens 400, temperature 1.0, top_p 0.95, thinking on for even indices, 4 tool-call requests; collapse = `!{4,}` or any char repeated 10+ times.
+Method: one container start per case, bench via `sglang-gsm8k` from the control node against `<host>:30000` (chat API, GSM8K test split, temperature 0, max_tokens 8192), levels n=1/4/8/16/32 with 4/8/16/32/64 questions (first N, identical across cases), 20 s pause between levels. n=1 tok/s = single-stream rate; n>1 throughput of this sweep is not listed (`concurrent_peak_tok_s` overstates full load), see "Engine-log rerun" below. Agg = `aggregate_tok_s`. Accept len = mean of `accept len` over all `Decode batch` lines of the case. Probe: 16 requests (4 concurrent), max_tokens 400, temperature 1.0, top_p 0.95, thinking on for even indices, 4 tool-call requests; collapse = `!{4,}` or any char repeated 10+ times.
 
 ## Matrix
 
@@ -57,36 +57,24 @@ Probe finish reasons (stop / length / tool_calls): S0 11/1/4, S1 9/3/4, S2 10/2/
 ## Results
 
 - n=1: MTP x1.9-2.0 over MTP off (31.3-32.0 vs 16.3); the three MTP variants are equal within noise.
-- n>1 full load (rerun below, S0/S1/S3; S2 not rerun): MTP over off x1.3 at n=4 (62-64 vs 49) and x1.4 at n=8 (103-107 vs 77), but at n=16/32 the float32 cap of 9-11 slots holds every MTP variant at 111-121 tok/s, the same as MTP off with 25 slots (111-117). S1 and S3 are within 4 % at n=4/8; at n=16/32 S3 (11 slots) is 4-9 % above S1 (9 slots).
+- n>1: engine-log rerun below (S0/S1/S3 and the bfloat16 variants; S2 not rerun); the float32 MTP cases are capped at 9-11 slots.
 - Accuracy is the same in all cases (id 12 wrong everywhere, i.e. a model/question property); no "!" collapse in any case (0/16 probes, 0 harness char-runs) and tool-call parsing 4/4 in all cases. Accept len: S1 3.04, S3 2.99 (the adaptive state mostly sits at 3 steps), S2 2.55.
 
-## Full-load rerun with the streaming harness (2026-10-11)
+## Engine-log rerun (2026-10-12)
 
-All n>1 levels re-measured on spark5 (`scripts/run_standalone.sh PRESET=qwen38_nvidia MAX_RUNNING=32` plus the listed overrides) with `sglang-gsm8k run` (streams by default) and `analyze` -> `full_load_tok_s` (token rate while >= 90 % of the client slots are busy). The old `concurrent_peak_tok_s` was 1.06-2.07x full_load in these runs (up to 2.07 at n32 with 9-11 slots, where it averaged the queue away), so no n>1 peak values are listed in this log. Levels n4/n8/n16/n32 with 8/16/32/64 questions, 20 s pause, max-tokens 8192, temperature 0; n1 not rerun (exact at n=1). S2 (2/1/3) was not rerun. 0 decode batches with `cuda graph: False` in all cases.
+Re-run on spark5 on 2026-10-12 (`scripts/run_standalone.sh PRESET=qwen38_nvidia MAX_RUNNING=32` plus the listed overrides, all with `--decode-log-interval 10`, server in the foreground of a tmux session). Levels n4/n8/n16/n32 with 8/16/32/64 questions, 20 s pause, max-tokens 8192, temperature 0, harness `sglang-gsm8k` (token-exact streaming via `continuous_usage_stats`). Throughput comes from the server log (`Decode batch` lines every 10 decode steps): each cell is the highest `gen throughput` (tok/s) in the level's time window. SGLang sums every generated token between two log lines and divides by the elapsed wall time, so each line is a measured rate over a few seconds. These numbers replace the client-side figures of 2026-10-11. S2 (2/1/3) is not rerun; rows marked pending are still running.
 
-full_load tok/s:
+engine max tok/s:
 
-| case | config                             | slots | bench (UTC) | n4   | n8    | n16   | n32   | engine n32 (samples) | accept len | queue max |
-|------|------------------------------------|------:|-------------|------|-------|-------|-------|---------------------:|-----------:|----------:|
-| S0   | MTP off                            | 25    | 17:06-17:20 | 48.8 | 77.0  | 110.9 | 116.5 | 115 (16)             | -          | 7         |
-| S1   | MTP 3/1/4, float32 SSM             | 9     | 16:13-16:23 | 63.9 | 106.8 | 110.6 | 115.8 | 106 (14)             | 3.08       | 24        |
-| S3   | adaptive, float32 SSM              | 11    | 16:39-16:48 | 62.0 | 103.2 | 120.5 | 121.0 | 112 (14)             | 2.91       | 22        |
-| S1b  | MTP 3/1/4, bfloat16 SSM, cache 76  | 19    | 15:46-15:57 | 68.2 | 116.8 | 138.4 | 166.7 | 141 (5)              | 2.99       | 14        |
-| S1c  | MTP 3/1/4, bfloat16 SSM, cache 128 | 32    | 13:50-13:59 | 71.2 | 109.4 | 155.2 | 183.0 | 145 (3)              | 3.06       | 2         |
+| config                                 | slots | bench (UTC) | n4      | n8      | n16     | n32     | accept len |
+|----------------------------------------|------:|-------------|---------|---------|---------|---------|-----------:|
+| S0 MTP off                             |    25 | pending     | pending | pending | pending | pending |          - |
+| S1 MTP 3/1/4, float32 SSM              |     9 | pending     | pending | pending | pending | pending |          - |
+| S3 adaptive, float32 SSM               |    11 | pending     | pending | pending | pending | pending |          - |
+| S1b MTP 3/1/4, bfloat16 SSM, cache 76  |    19 | 14:41-14:56 | 83      | 158     | 246     | 230     |       2.98 |
+| S1c MTP 3/1/4, bfloat16 SSM, cache 128 |    32 | 12:43-12:52 | 98      | 148     | 208     | 285     |       3.02 |
 
-Best 10 s window / engine max, tok/s. Best 10 s window = highest 10 s streamed token rate of the level (character-weighted timeline; the token-exact timeline via `continuous_usage_stats` came after these runs). Engine max = highest head-log `gen throughput` in the level's time window, logged decode batches in parentheses.
-
-| config                                 | n4           | n8             | n16            | n32            |
-|----------------------------------------|--------------|----------------|----------------|----------------|
-| S0 MTP off                             | 54 / 52 (20) | 100 / 85 (126) | 170 / 137 (29) | 175 / 135 (51) |
-| S1 MTP 3/1/4, float32 SSM              | 74 / 70 (5)  | 127 / 111 (38) | 144 / 122 (14) | 152 / 129 (19) |
-| S3 adaptive, float32 SSM               | 74 / 69 (7)  | 131 / 104 (21) | 163 / 140 (10) | 171 / 132 (76) |
-| S1b MTP 3/1/4, bfloat16 SSM, cache 76  | 79 / 81 (5)  | 136 / 125 (37) | 172 / 148 (23) | 248 / 173 (32) |
-| S1c MTP 3/1/4, bfloat16 SSM, cache 128 | 84 / 80 (6)  | 123 / 122 (16) | 233 / 171 (26) | 228 / 214 (14) |
-
-- Overrides: S0 `SPEC=0`; S1 `SPEC=1`; S3 `SPEC=1 ADAPTIVE=1`; S1b `SPEC=1 MAMBA_SSM_DTYPE=bfloat16 --mamba-ssm-dtype bfloat16 --max-mamba-cache-size 76`; S1c as S1b with `--max-mamba-cache-size 128` (KV pool 160k tokens vs 388k).
-- GSM8K (n4/n8/n16/n32): 8/8, 15/16, 31/32, 63/64 in every case except S3 n32 62/64 (+1 truncation); the miss is id 12 as before.
-- Engine n32 = mean of the decode batches at >= 90 % of min(32, slots) running; the server logs a decode batch only every 40 steps, so the samples are thin, the MTP runs at n4-n16 have 1-6.
-- With float32 every MTP variant tops out at 111-121 tok/s from n16 on, no better than MTP off (111-117).
-- bfloat16 SSM: +7-9 % at n4/n8, +25 % n16, +44 % n32 over S1 (cache 76); cache 128 another +12 % n16, +10 % n32.
+- Overrides: S0 `SPEC=0`; S1 `SPEC=1`; S3 `SPEC=1 ADAPTIVE=1`; S1b `SPEC=1 MAMBA_SSM_DTYPE=bfloat16 --mamba-ssm-dtype bfloat16 --max-mamba-cache-size 76`; S1c as S1b with `--max-mamba-cache-size 128`.
+- GSM8K (n4/n8/n16/n32): S1b 8/8, 14/16 (+1 truncation), 30/32 (+1 truncation), 62/64; S1c 8/8, 15/16, 31/32, 63/64 (miss id 12 as before). 0 decode batches with `cuda graph: False`.
+- KV pool: S1b 386k tokens (19 slots), S1c 164k tokens (32 slots); the extra mamba slots come out of the same static pool. Engine max S1c vs S1b: +18 % n4, -6 % n8, -15 % n16, +24 % n32.
 - Comparison with the cluster and the other models: `SINGLE_CLUSTER_COMPARE.md`.
