@@ -341,6 +341,8 @@ no substantive conclusion changes.
 > unguarded `tp_rank` / `param.data[expert_id, ...]` qzeros loader in
 > `moe_wna16.py`; vLLM #35598 stays CLOSED (2026-09-24).
 
+> **Re-verified 2026-10-12:** No new SGLang tag since v0.5.21 (2026-10-02); `git tag --contains e289989933` and `37678784c6` still return nothing. upstream/main HEAD `f006fb49ec` (2026-10-12) has no commits to `moe_wna16.py` or `modelopt_quant.py` since 2026-10-11. Offline replay is unchanged: `p20` applies on v0.5.21 and reports ANCHOR-DRIFT (no write) on `main`; `p23` applies on both; `p28` logs "gate not matched, skipping" on both. vLLM tag `v0.31.1rc0` (`e37e51dd24`, 2026-10-06, prerelease; latest release still v0.31.0) changes only the `w13_qzeros` w1/w3 boundary to `shard_size // bit8_pack_factor`; the loader still uses `tp_rank` and an unguarded `param.data[expert_id, ...]`, so the qzeros EP bug is still present. SGLang #23531 and #37796 remain OPEN, vLLM #35598 remains CLOSED.
+
 > **Re-verified 2026-10-03:** SGLang v0.5.21 was released 2026-10-02
 > (v0.5.20 previous); at that tag `moe_wna16.py` still has the bug
 > (`tp_rank = get_parallel().tp_rank`, unguarded `param.data[expert_id, ...]`)
