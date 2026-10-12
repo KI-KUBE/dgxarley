@@ -1,5 +1,11 @@
 # FlashInfer Upstream Bug: head_dim=512 not supported (Gemma-4 global attention)
 
+## Status 2026-10-12 (re-verify; SGLang main bumps flashinfer pin to 0.7.1; no prefill.cuh/persistent.cuh movement)
+
+No flashinfer release since v0.7.1 (2026-10-09, still GitHub "Latest"); `main` HEAD is `ae312f7c` (2026-10-12). Zero commits to `prefill.cuh` or `persistent.cuh` since the 2026-10-11 check, and no head_dim=512 / SM120 / SM121 issues or PRs opened since. Issue #3297 remains closed (4 comments, unchanged since 2026-06-04), PR #3576 remains merged (2026-06-15), #3684, #4736 and #5329 unchanged.
+
+SGLang v0.5.21 (2026-10-02) is still GitHub "Latest"; `main` HEAD is `f006fb49` (2026-10-12) and now pins `flashinfer_python[cu13]==0.7.1` (#43494, merged 2026-10-12), superseding the 0.7.0.post1 pin recorded in the 2026-10-11 section; the v0.5.21 tag still pins 0.6.18. The Gemma4 allowlist in `arg_groups/model_hook.py` is unchanged from 10-11 (`fa4` present, SM90-only; `flashinfer` still excluded). `attention_backend: triton` remains mandatory for all Gemma-4 profiles. The deployed image `xomoxcc/dgx-spark-sglang:0.5.21-sm121` still carries flashinfer 0.6.18.post1. No action needed.
+
 ## Status 2026-10-11 (re-verify; flashinfer v0.7.1 released, no prefill.cuh/persistent.cuh movement; SGLang main adds fa4 to the Gemma4 allowlist, SM90-only, out of scope)
 
 flashinfer released v0.7.1 stable on 2026-10-09 (now GitHub "Latest", after rc4 on 10-06 and rc5 on 10-07). The diff v0.7.0.post1...v0.7.1 (401 commits) touches neither `prefill.cuh` nor `persistent.cuh`, and there are zero commits to either on `main` since the 2026-10-03 check (`main` HEAD `7cd20a82`, 2026-10-11); v0.7.1 highlights are MoE, KDA, cuDNN linear-attention and sparse-MLA work, none of it the `KTraits::IsInvalid()` / `CTA_TILE_Q` / `NUM_MMA_*` dispatch tracked here. Issue #3297 remains closed (4 comments, unchanged since 2026-06-04), PR #3576 remains merged (2026-06-15).
