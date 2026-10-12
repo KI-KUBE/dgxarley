@@ -340,6 +340,22 @@ Issue #30778 remains closed (`not_planned`, closed 2026-09-24T00:03:03Z, 1 comme
 and #30848 remain open and unmerged, head commits unchanged (247b21a5fa / e60e09c0d3),
 `updatedAt` unchanged at 2026-09-23. The HAProxy TLS sidecar workaround remains required.
 
+**2026-10-12 re-verify, still broken; no fix in v1.104.3/v1.105.0:** LiteLLM advanced to
+**v1.105.0** (stable, published 2026-10-11T09:53Z) and **v1.104.3** (stable, 2026-10-11T10:37Z),
+plus prerelease v1.106.0-rc.1 (2026-10-11). Scanned the v1.105.0, v1.104.3 and v1.106.0-rc.1
+release notes: zero hits for ollama, ssl_verify, module_level_aclient or BaseLLMAIOHTTPHandler.
+`litellm/llms/ollama/completion/handler.py` has blob 449952217b5e420c92ca20ff9cdff62aa95468e4
+(4148 bytes) at v1.105.0, v1.104.3 and v1.104.2, so the 2026-10-06 typing refactor
+(`d4a791d650`, blob ad2f15cdd7c4d5c8602326cfdbce2e5809dfb6ab, 4154 bytes) exists only on `main`,
+not in any stable tag yet. On `main` (HEAD `4fd00513`, 2026-10-12) the bug is unchanged:
+`[TODO]: migrate embeddings to a base handler as well.` at line 4, `response: Final = await
+litellm.module_level_aclient.post(url=api_base, json=data)` without `ssl_verify` at line 98, and
+no commit touched the file since 2026-10-07. Issue #30778 remains closed (`not_planned`, closed
+2026-09-24T00:03:03Z, 1 comment). PRs #30810 and #30848 remain open and unmerged, head commits
+unchanged (247b21a5fa / e60e09c0d3), `updatedAt` unchanged at 2026-09-23. The cluster runs
+`ghcr.io/berriai/litellm:main-stable` (mutable tag; pod started 2026-10-11T16:19Z, image digest
+sha256:60947db020b5). The HAProxy TLS sidecar workaround remains required.
+
 ## Upstream Fix
 
 The embedding path in `litellm/llms/ollama/completion/handler.py` should stop using
