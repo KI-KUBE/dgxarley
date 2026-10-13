@@ -1,102 +1,68 @@
-# Single node vs 4-node cluster: full-load throughput
+# Single node vs 4-node cluster: engine throughput
 
-n=1 = single-stream tok/s (harness `concurrent_peak_tok_s`, exact at n=1). n>1 = `full_load_tok_s`: streamed token rate while at least 90 % of the client slots are busy (all n>1 cells re-measured 2026-10-11, see "Rerun" below).
+n=1 = single-stream tok/s (harness, one request at a time). n>1 = highest `gen throughput` (tok/s) the SGLang engine logged during the level (re-measured 2026-10-12, see "Method" below).
 Slots = SGLang `max_running_requests` after the mamba-cache fit; where it is below n, the rest queues and the cell is the rate at that many running.
-Best measured configuration per setup, SGLang 0.5.21-sm121, GSM8K via chat API (`sglang-gsm8k`), temperature 0.
+SGLang 0.5.21-sm121, GSM8K via chat API (`sglang-gsm8k`), temperature 0. Bold = best per model and column.
 
-| Model                                 | Setup                | Spec config                                                           | Slots |            n=1 |       n=4 |       n=8 |      n=16 |      n=32 |
-|---------------------------------------|----------------------|-----------------------------------------------------------------------|------:|---------------:|----------:|----------:|----------:|----------:|
-| **Qwen3.8-27B** (NVFP4)               | 1 node, TP1          | none, float32 SSM, cache 222 ¹                                        |    44 |           12.6 |      49.3 |      94.4 |     157.2 |     245.7 |
-|                                       | 1 node, TP1          | DSpark gamma 7 RadixArk, float32 SSM                                  |    15 |           48.3 |     128.4 |     205.4 |     261.9 |     279.1 |
-|                                       | 1 node, TP1          | DSpark gamma 7 RedHat (R0, hand-converted config), float32 SSM        |    15 |           49.3 |     120.3 |     191.6 |     267.3 |     280.6 |
-|                                       | 1 node, TP1          | DSpark gamma 7 RadixArk, bfloat16 SSM, cache 152 ²                    |    30 |           45.1 |     143.1 |     239.8 |     372.9 |     499.0 |
-|                                       | 1 node, TP1          | DSpark gamma 7, bfloat16 SSM, cache 160, CG bs 32 (= preset defaults) |    32 |           44.5 |     145.1 |     240.4 | **378.2** | **512.1** |
-|                                       | 4 nodes, TP4         | none                                                                  |    32 |           36.0 |     113.9 |     211.2 |     322.6 |     449.2 |
-|                                       | 4 nodes, TP4         | MTP 3/1/4                                                             |    32 |           69.7 |     191.7 | **298.6** |     330.7 |     373.4 |
-|                                       | 4 nodes, TP4         | DSpark gamma 5                                                        |    32 |           93.3 |     244.0 |     292.2 |     285.0 |     425.6 |
-|                                       | 4 nodes, TP4         | DSpark gamma 7, float32 SSM ³                                         |    32 | **93.2-103.8** |     213.0 |     284.3 |     312.6 |     464.7 |
-|                                       | 4 nodes, TP4         | DSpark gamma 7, bfloat16 SSM (= profile)                              |    32 |           96.0 | **262.0** |     284.7 |     334.4 |     520.2 |
-| **Qwen3.8-Flash-Next** (nvidia NVFP4) | 1 node, TP1          | none                                                                  |    25 |           16.3 |      48.8 |      77.0 |     110.9 |     116.5 |
-|                                       | 1 node, TP1          | MTP 3/1/4, float32 SSM                                                |     9 |           31.7 |      63.9 |     106.8 |     110.6 |     115.8 |
-|                                       | 1 node, TP1          | MTP adaptive, float32 SSM                                             |    11 |           31.3 |      62.0 |     103.2 |     120.5 |     121.0 |
-|                                       | 1 node, TP1          | MTP 3/1/4, bfloat16 SSM, cache 76                                     |    19 |       **34.2** |      68.2 | **116.8** |     138.4 |     166.7 |
-|                                       | 1 node, TP1          | MTP 3/1/4, bfloat16 SSM, cache 128 ⁴                                  |    32 |           32.6 |  **71.2** |     109.4 | **155.2** | **183.0** |
-|                                       | 4 nodes, TP4 EP4     | none, float32 SSM                                                     |    16 |           34.6 |     106.9 |     162.9 |     249.7 |     243.8 |
-|                                       | 4 nodes, TP4 EP4     | MTP 2/1/3 fixed, float32 SSM                                          |    16 |    62.8-68.6 ⁵ |     155.9 |     220.8 | **283.0** |     267.5 |
-|                                       | 4 nodes, TP4 EP4     | MTP adaptive, float32 SSM                                             |    16 |           74.6 | **183.2** | **234.6** |     270.1 |     272.4 |
-|                                       | 4 nodes, TP4 EP4     | MTP adaptive, bfloat16 SSM (= profile)                                |    32 |       **75.8** |     155.3 |     204.5 |     280.7 | **300.1** |
-| **Nemotron-3-Super-120B** (NVFP4)     | 1 node, TP1 (spark5) | MTPv2 4/1/5, float32 SSM, cache 64                                    |    12 |           32.1 |      63.6 |      84.5 |     110.2 |     108.4 |
-|                                       | 1 node, TP1 (spark5) | MTPv2 4/1/5, bfloat16 SSM, cache 128 (= preset)                       |    25 |           32.2 |      67.7 |      91.5 |     146.6 |     189.0 |
-|                                       | 4 nodes, TP4 EP4     | MTPv2 3/1/4                                                           |    32 |           70.3 |     154.9 |     203.5 |     283.2 |     307.1 |
-|                                       | 4 nodes, TP4 EP4     | MTPv2 5/1/6 ⁶                                                         |    32 |           74.1 |     145.6 |     192.0 |     273.5 |     351.5 |
-|                                       | 4 nodes, TP4 EP4     | MTPv2 4/1/5, float32 SSM                                              |    32 |       **82.7** |     157.0 |     213.6 |     245.3 |     378.0 |
-|                                       | 4 nodes, TP4 EP4     | MTPv2 4/1/5, bfloat16 SSM (= profile)                                 |    32 |           82.1 | **158.2** | **219.9** | **299.5** | **400.5** |
+| Model                                 | Setup                | Spec config                                                           | Slots | n=1            | n=4     | n=8     | n=16    | n=32    |
+|---------------------------------------|----------------------|-----------------------------------------------------------------------|------:|---------------:|--------:|--------:|--------:|--------:|
+| **Qwen3.8-27B** (NVFP4)               | 1 node, TP1          | none, float32 SSM, cache 222 ¹                                        |    44 |           12.6 |      50 |      93 |     164 |     257 |
+|                                       | 1 node, TP1          | DSpark gamma 7 RadixArk, float32 SSM                                  |    15 |           48.3 |     153 |     244 |     329 |     322 |
+|                                       | 1 node, TP1          | DSpark gamma 7 RedHat (R0, hand-converted config), float32 SSM        |    15 |           49.3 |     152 |     233 |     320 |     319 |
+|                                       | 1 node, TP1          | DSpark gamma 7 RadixArk, bfloat16 SSM, cache 152 ²                    |    30 |           45.1 |     178 |     293 | **439** |     558 |
+|                                       | 1 node, TP1          | DSpark gamma 7, bfloat16 SSM, cache 160, CG bs 32 (= preset defaults) |    32 |           44.5 |     188 |     305 |     424 |     553 |
+|                                       | 4 nodes, TP4         | none                                                                  |    32 |           36.0 |     129 |     235 |     381 | **559** |
+|                                       | 4 nodes, TP4         | MTP 3/1/4                                                             |    32 |           69.7 |     217 | **344** |     368 |     399 |
+|                                       | 4 nodes, TP4         | DSpark gamma 5                                                        |    32 |           93.3 |     270 |     331 |     323 |     437 |
+|                                       | 4 nodes, TP4         | DSpark gamma 7, float32 SSM ³                                         |    32 | **93.2-103.8** |     263 |     309 |     346 |     504 |
+|                                       | 4 nodes, TP4         | DSpark gamma 7, bfloat16 SSM (= profile)                              |    32 |           96.0 | **292** |     304 |     330 |     517 |
+| **Qwen3.8-Flash-Next** (nvidia NVFP4) | 1 node, TP1          | none                                                                  |    25 |           16.3 |      56 |     106 |     169 |     201 |
+|                                       | 1 node, TP1          | MTP 3/1/4, float32 SSM                                                |     9 |           31.7 |      81 |     124 |     147 |     154 |
+|                                       | 1 node, TP1          | MTP adaptive, float32 SSM                                             |    11 |           31.3 |      77 |     125 |     135 |     167 |
+|                                       | 1 node, TP1          | MTP 3/1/4, bfloat16 SSM, cache 76                                     |    19 |           34.2 |      83 |     158 |     246 |     230 |
+|                                       | 1 node, TP1          | MTP 3/1/4, bfloat16 SSM, cache 128 ⁴                                  |    32 |           32.6 |      98 |     148 |     208 |     285 |
+|                                       | 4 nodes, TP4 EP4     | none, float32 SSM                                                     |    16 |           34.6 |     124 |     206 |     351 |     354 |
+|                                       | 4 nodes, TP4 EP4     | MTP 2/1/3 fixed, float32 SSM                                          |    16 |    62.8-68.6 ⁵ |     202 |     306 |     400 |     372 |
+|                                       | 4 nodes, TP4 EP4     | MTP adaptive, float32 SSM                                             |    16 |           74.6 |     215 |     302 |     430 |     396 |
+|                                       | 4 nodes, TP4 EP4     | MTP adaptive, bfloat16 SSM (= profile)                                |    32 |       **75.8** | **231** | **331** | **476** | **646** |
+| **Nemotron-3-Super-120B** (NVFP4)     | 1 node, TP1 (spark5) | MTPv2 4/1/5, float32 SSM, cache 64                                    |    12 |           32.1 |      78 |     107 |     127 |     133 |
+|                                       | 1 node, TP1 (spark5) | MTPv2 4/1/5, bfloat16 SSM, cache 128 (= preset)                       |    25 |           32.2 |      81 |     119 |     178 |     236 |
+|                                       | 4 nodes, TP4 EP4     | MTPv2 3/1/4                                                           |    32 |           70.3 |     195 |     254 |     355 |     412 |
+|                                       | 4 nodes, TP4 EP4     | MTPv2 5/1/6 ⁶                                                         |    32 |           74.1 |     192 |     267 |     299 |     404 |
+|                                       | 4 nodes, TP4 EP4     | MTPv2 4/1/5, float32 SSM                                              |    32 |       **82.7** |     193 |     253 |     327 |     432 |
+|                                       | 4 nodes, TP4 EP4     | MTPv2 4/1/5, bfloat16 SSM (= profile)                                 |    32 |           82.1 | **211** | **287** | **358** | **485** |
 
-¹ No speculation leaves room for 44 mamba slots; the preset's CUDA graphs stop at batch 16, so 16 decode batches ran eager at n=32 (lower bound).
-² `--max-mamba-cache-size 152` with the then preset `--cuda-graph-max-bs-decode 16`: 3 eager decode batches above 16 running.
+¹ No speculation leaves room for 44 mamba slots; the preset's CUDA graphs stop at batch 16, so 61 of 1990 logged decode batches ran eager.
+² `--max-mamba-cache-size 152` with the then preset `--cuda-graph-max-bs-decode 16`: 12 of 301 logged decode batches ran eager.
 ³ n=1 = range of case 1 and repeat case 5 of the 2026-10-10 sweep.
-⁴ `--max-mamba-cache-size 128` (4 slots per request -> 32). Mamba state 14.2 GB (cache 76: 8.5 GB) out of the same static pool, so the KV pool shrinks from 388k to 160k tokens. vs cache 76: +4 % n=4, -6 % n=8, +12 % n=16, +10 % n=32, i.e. 13 more slots buy about 10 % at n>=16. GSM8K needs only a few % of the KV pool; long-context load would hit the 160k pool. Not adopted as preset default.
+⁴ `--max-mamba-cache-size 128` (4 slots per request -> 32). Mamba state 14.2 GB (cache 76: 8.5 GB) out of the same static pool, so the KV pool shrinks from 386k to 164k tokens. vs cache 76: +18 % n4, -6 % n8, -15 % n16, +24 % n32. GSM8K needs only a few % of the KV pool; long-context load would hit the 164k pool. Not adopted as preset default.
 ⁵ Range of reps 1/2 of the 2026-10-10 sweep.
 ⁶ Listed as "5/1/7" before 2026-10-11: with topk 1 SGLang rewrites draft tokens to steps+1, so it always ran 5/1/6.
 
-## Best 10 s window / engine max
+## Method (2026-10-12)
 
-Same runs as the n>1 cells above, tok/s. Best 10 s window = highest 10 s streamed token rate of the level (character-weighted timeline; the token-exact timeline via `continuous_usage_stats` came after these runs). Engine max = highest head-log `gen throughput` in the level's time window.
-
-| Model                 | Setup   | Spec config                                 | n=4       | n=8       | n=16      | n=32      |
-|-----------------------|---------|---------------------------------------------|----------:|----------:|----------:|----------:|
-| Qwen3.8-27B           | 1 node  | none, float32 SSM, cache 222                |   57 / 50 |  106 / 93 | 194 / 162 | 314 / 257 |
-|                       | 1 node  | DSpark g7 RadixArk, float32 SSM             | 137 / 127 | 219 / 209 | 286 / 278 | 308 / 289 |
-|                       | 1 node  | DSpark g7 RedHat R0, float32 SSM            | 132 / 114 | 208 / 197 | 310 / 277 | 320 / 279 |
-|                       | 1 node  | DSpark g7 RadixArk, bfloat16 SSM, cache 152 | 150 / 142 | 265 / 253 | 408 / 390 | 575 / 515 |
-|                       | 1 node  | DSpark g7, bfloat16 SSM, cache 160 (preset) | 160 / 157 | 254 / 239 | 405 / 386 | 587 / 501 |
-|                       | 4 nodes | none                                        | 130 / 128 | 224 / 233 | 358 / 377 | 500 / 518 |
-|                       | 4 nodes | MTP 3/1/4                                   | 211 / 226 | 331 / 350 | 376 / 385 | 456 / 474 |
-|                       | 4 nodes | DSpark g5                                   | 261 / 269 | 334 / 328 | 328 / 322 | 474 / 462 |
-|                       | 4 nodes | DSpark g7, float32 SSM                      | 254 / 269 | 321 / 323 | 355 / 333 | 513 / 490 |
-|                       | 4 nodes | DSpark g7, bfloat16 SSM (profile)           | 287 / 330 | 308 / 310 | 380 / 353 | 618 / 542 |
-| Qwen3.8-Flash-Next    | 1 node  | none                                        |   54 / 52 |  100 / 85 | 170 / 137 | 175 / 135 |
-|                       | 1 node  | MTP 3/1/4, float32 SSM                      |   74 / 70 | 127 / 111 | 144 / 122 | 152 / 129 |
-|                       | 1 node  | MTP adaptive, float32 SSM                   |   74 / 69 | 131 / 104 | 163 / 140 | 171 / 132 |
-|                       | 1 node  | MTP 3/1/4, bfloat16 SSM, cache 76           |   79 / 81 | 136 / 125 | 172 / 148 | 248 / 173 |
-|                       | 1 node  | MTP 3/1/4, bfloat16 SSM, cache 128          |   84 / 80 | 123 / 122 | 233 / 171 | 228 / 214 |
-|                       | 4 nodes | none, float32 SSM                           | 125 / 122 | 197 / 211 | 291 / 309 | 331 / 329 |
-|                       | 4 nodes | MTP 2/1/3 fixed, float32 SSM                | 188 / 202 | 280 / 290 | 421 / 431 | 389 / 435 |
-|                       | 4 nodes | MTP adaptive, float32 SSM                   | 209 / 216 | 292 / 320 | 378 / 376 | 381 / 416 |
-|                       | 4 nodes | MTP adaptive, bfloat16 SSM (profile)        | 181 / 221 | 303 / 297 | 418 / 413 | 452 / 435 |
-| Nemotron-3-Super-120B | 1 node  | MTPv2 4/1/5, float32 SSM                    |   73 / 66 |  108 / 91 | 131 / 111 | 136 / 116 |
-|                       | 1 node  | MTPv2 4/1/5, bfloat16 SSM (preset)          |   77 / 71 |  111 / 97 | 182 / 151 | 226 / 196 |
-|                       | 4 nodes | MTPv2 3/1/4                                 | 180 / 181 | 262 / 251 | 349 / 340 | 463 / 412 |
-|                       | 4 nodes | MTPv2 5/1/6                                 | 176 / 178 | 255 / 255 | 343 / 316 | 476 / 446 |
-|                       | 4 nodes | MTPv2 4/1/5, float32 SSM                    | 182 / 193 | 258 / 264 | 331 / 318 | 513 / 460 |
-|                       | 4 nodes | MTPv2 4/1/5, bfloat16 SSM (profile)         | 179 / 198 | 283 / 281 | 377 / 371 | 524 / 493 |
-
-## Rerun 2026-10-11
-
-Every n>1 cell was re-measured on one day with the streaming harness (`sglang-gsm8k run`, streams by default; `analyze` -> `full_load_tok_s`, `sustained_10s_tok_s`). n=1 cells are the older single-stream values (one request, no overlap, not affected by the peak bias).
-- Questions per level: single node 8/16/32/64 at n=4/8/16/32; cluster 16/32/64/128 (27B, Nemotron) and 32/64/128/256 (Flash-Next). max_tokens 8192.
-- Single node: spark5 `scripts/run_standalone.sh` with the preset of the row plus env overrides. Cluster: model profile edits deployed from a scratch copy of the repo; the cluster is back on the Flash-Next profile.
-- Cluster head log: POST count = expected in 12 of 13 cases (27B gamma 7 float32: 241 of 240, one foreign request), 0 eager decode batches in all 13. Single node: 0 eager decode batches except footnotes ¹ and ².
-- GSM8K: 61-64/64, 30-32/32, 14-16/16, 8/8 single node; 122-126/128, 250-252/256 cluster; at most 4 truncations at 8192 tokens per level. No accuracy difference between configs is visible at these counts.
-- Engine cross-check (head-log `gen throughput`, decode batches at >= 90 % of min(n, slots) running, within the level's time window): cluster full_load is 0-10 % above the engine mean for no-spec and MTP/EAGLE (e.g. Flash-Next adaptive bf16 n=32 300 vs 293, 27B none 449 vs 438, Nemotron 4/1/5 bf16 401 vs 387) and 10-25 % above for 27B DSpark (gamma 7 bf16 n=32 520 vs 454). The single node logs a decode batch only every 40 steps, so the spec runs have 1-5 samples per level (some covering the ramp); where there are 9-16 samples (no spec, capped runs) full_load is 1-15 % above engine.
-- The old `concurrent_peak_tok_s` of the same runs is 1.0-1.3x full_load where all requests run at once and up to 1.6-2.1x where slots < n (Flash-Next float32 MTP, Nemotron float32, 27B float32 DSpark at n=32): the peak averaged the queue away. Old peak values are in git history (commit 547975f and earlier).
+- All n>1 cells measured on 2026-10-12 after a power cycle of all Sparks. Single node: spark5, `scripts/run_standalone.sh` with the preset of the row plus env overrides and `--decode-log-interval 10`, server in the foreground of a tmux session. Cluster: one rollout per config with only that config's profile keys changed, cluster idle-checked before each deploy, default profile redeployed afterwards.
+- Load: `sglang-gsm8k run` at n=4/8/16/32 with 8/16/32/64 questions (single node), 16/32/64/128 (cluster 27B, Nemotron) or 32/64/128/256 (cluster Flash-Next); max_tokens 8192, 20 s pause between levels.
+- Throughput: highest `gen throughput` of the `Decode batch` lines in the level's time window (server log; cluster log interval 40 decode steps, single node 10). SGLang sums every generated token between two log lines and divides by the elapsed wall time, so each line is a measured rate over a few seconds, readable by anyone from the server log. Client-side harness rates are not used.
+- n=1 cells are the single-stream rates of the 2026-10-10/11 runs (one request, no concurrency).
+- Checks: cluster head-log POSTs = expected in 11 of 13 cases (Flash-Next profile 481 of 480, 27B profile 241 of 240); 0 eager decode batches except footnotes ¹ and ². GSM8K 61-64/64 (single node n=32), 122-125/128 and 250-253/256 (cluster n=32), at most 5 truncations at 8192 tokens per level; no accuracy difference between configs is visible at these counts.
+- Per-config details: testlogs listed under "Sources".
 
 ## Observations
 
-- 27B 1 node vs 4 nodes (DSpark gamma 7, bfloat16 SSM both sides): x2.2-2.3 at n=1 (44.5 -> 96.0-103.8), x1.8 at n=4 (145 -> 262), x1.2 at n=8 (240 -> 285-299 best cluster config), x0.88 at n=16 (378 -> 334), x1.0 at n=32 (512 -> 520). From n=16 on one Spark with bfloat16 SSM matches four. On the single node bfloat16 SSM is worth +13 % at n=4 up to +83 % at n=32 over float32 (15 slots), on TP4 +0-23 %.
-- Flash-Next 1 node vs 4 nodes (MTP, best per side): x2.2 at n=1 (34.2 -> 75.8), x2.6 at n=4 (71 -> 183), x2.0 at n=8 (117 -> 235), x1.8 at n=16 (155 -> 283), x1.6 at n=32 (183 -> 300). On the single node float32 caps MTP at 9-11 slots, so n=16 and n=32 stay at 111-121 tok/s; bfloat16 SSM lifts n=32 to 167-183. On TP4 float32 adaptive (16 slots) and bfloat16 adaptive (32 slots) are within the spread at every level (n=4/8 float32 15-18 % higher, n=16/32 bfloat16 4-10 % higher), the slots above 16 add little.
-- Nemotron Super 1 node vs 4 nodes (MTPv2 4/1/5, bfloat16 SSM both sides): x2.6 at n=1 (32.2 -> 82.1), x2.3 at n=4 (68 -> 158), x2.4 at n=8 (92 -> 220), x2.0 at n=16 (147 -> 300), x2.1 at n=32 (189 -> 401). The cluster gain stays at about x2 or more at every level, unlike the 27B. bfloat16 SSM on the single node: +6 % n=4, +8 % n=8, +33 % n=16, +74 % n=32 (12 -> 25 slots); on TP4 +1-22 %.
-- 1 node, ranking: the 27B with DSpark leads at every level (n=4 145 vs 71 Flash-Next vs 68 Nemotron, n=32 512 vs 183 vs 189). Flash-Next and Nemotron are within 6 % of each other except n=8 (Flash-Next +27 %). Without speculation the 27B is unusable (12.6 tok/s per stream).
-- 4 nodes, ranking: n=1 27B (93-104) > Nemotron (82) > Flash-Next (76); n=4 27B (262) > Flash-Next (155-183) = Nemotron (158); n=8 27B (285-299) > Flash-Next (205-235) = Nemotron (220); n=16 all three within 20 % (27B 313-334, Nemotron 300, Flash-Next 270-283); n=32 27B (520) > Nemotron (401) > Flash-Next (300). The engine cross-check shrinks the 27B lead at n=32 to 454 vs 387 (+17 %), the order holds.
-- Spec config on 4 nodes: 27B without speculation reaches 449 at n=32, above MTP 3/1/4 (373) and close to DSpark gamma 5/7 (426-520); at n=32 speculation is worth at most +16 % there, at n=4 x2.3. Nemotron 4/1/5 > 5/1/6 > 3/1/4 at n=32 (378-401 > 352 > 307), at n<=16 the three are within the spread.
-- Run-to-run spread: configs that should be close differ by up to 20 % (Flash-Next adaptive float32 vs bf16 at n=4, Nemotron 4/1/5 float32 at n=16 245 vs 3/1/4 283 and 5/1/6 274). Differences below about 20 % are not a ranking.
-- full_load window length: as short as 11-17 s for the 27B single node at n=4/8, 20-400 s elsewhere; the short windows carry the most noise.
+- 27B 1 node vs 4 nodes (DSpark gamma 7, bfloat16 SSM both sides): x2.2 at n=1 (44.5 -> 96.0), x1.55 at n=4 (188 -> 292), x1.0 at n=8 (305 -> 304), x0.78 at n=16 (424 -> 330), x0.93 at n=32 (553 -> 517). From n=8 on one Spark with bfloat16 SSM is as fast as four or faster. bfloat16 SSM on the single node: +23 % n=4, +25 % n=8, +29 % n=16, +72 % n=32 over float32 (15 slots); on TP4 -5 to +11 %.
+- 27B on 4 nodes: speculation pays only up to n=8 (gamma 7 over the control x2.0-2.3 at n=4, x1.3 at n=8); from n=16 on the control is faster (381 vs 330-346 at n=16, 559 vs 504-517 at n=32). MTP 3/1/4 is the slowest speculative config at n=32 (399).
+- Flash-Next 1 node vs 4 nodes (MTP, best per side): x2.2 at n=1 (34.2 -> 75.8), x2.4 at n=4 (98 -> 231), x2.1 at n=8 (158 -> 331), x1.9 at n=16 (246 -> 476), x2.3 at n=32 (285 -> 646). On the single node float32 caps MTP at 9-11 slots and MTP falls below no-MTP from n=16 on (147-167 vs 169-201); bfloat16 SSM lifts n=32 to 230-285. On TP4 the profile (bfloat16, 32 slots) leads from n=16 on (476 vs 351-430, n=32 646 vs 354-396); the float32 configs run 16 slots and stop scaling at n=16.
+- Nemotron Super 1 node vs 4 nodes (MTPv2 4/1/5, bfloat16 SSM both sides): x2.5 at n=1 (32.2 -> 82.1), x2.6 at n=4 (81 -> 211), x2.4 at n=8 (119 -> 287), x2.0 at n=16 (178 -> 358), x2.1 at n=32 (236 -> 485). The cluster gain stays at x2 or more at every level, unlike the 27B. bfloat16 SSM on the single node: +3 % n=4, +10 % n=8, +41 % n=16, +78 % n=32 (12 -> 25 slots); on TP4 +9 to +13 %. On TP4 at n=32: 4/1/5 bf16 485 > 4/1/5 float32 432 > 3/1/4 412 and 5/1/6 404.
+- 1 node, ranking: the 27B with DSpark leads at every level (n=4 188 vs 98 Flash-Next vs 81 Nemotron, n=32 558 vs 285 vs 236). Without speculation the 27B is unusable for single streams (12.6 tok/s).
+- 4 nodes, ranking (best config per model): n=1 27B (93-104) > Nemotron (83) > Flash-Next (76); n=4 27B (292) > Flash-Next (231) > Nemotron (211); n=8 27B (344) ~ Flash-Next (331) > Nemotron (287); n=16 Flash-Next (476) > 27B (381) > Nemotron (358); n=32 Flash-Next (646) > 27B (559) > Nemotron (485).
+- Day-to-day: against the 2026-10-11 engine logs (before the power cycle) most cluster configs moved by less than 15 % at n=32, but the Flash-Next profile went from 435 to 646 and 27B MTP 3/1/4 from 474 to 399. Cause not investigated. Differences below about 15 % between configs are not a ranking.
 
 ## Sources
 
 - `TESTLOGS/standalone_nn1_tp1/qwen-3.8-27b-nvfp4-modelopt/TESTLOG_nv580.178.04_sglang-0.5.21-sm121_qwen-3.8-27b-nvfp4-modelopt_1n.md`
 - `TESTLOGS/standalone_nn1_tp1/qwen-3.8-flash-next-nvfp4/TESTLOG_nv580.178.04_sglang-0.5.21-sm121_qwen-3.8-flash-next-nvfp4_1n.md`
+- `TESTLOGS/standalone_nn1_tp1/nemotron-3-super-120b-a12b-nvfp4/TESTLOG_nv580.178.04_sglang-0.5.21-sm121_nemotron-3-super-120b-a12b-nvfp4_1n.md`
 - `TESTLOGS/sglang_nn4_tp4_ep4/qwen-3.8-flash-next-nvfp4/TESTLOG_nv580.178.04_sglang-0.5.21-sm121_qwen-3.8-flash-next-nvfp4_4n.md`
 - `TESTLOGS/sglang_nn4_tp4_ep1/qwen-3.8-27b-nvfp4-modelopt/TESTLOG_nv580.178.04_sglang-0.5.21-sm121_qwen-3.8-27b-nvfp4-modelopt_4n.md`
 - `TESTLOGS/sglang_nn4_tp4_ep1/nemotron-3-super-120b-a12b-nvfp4/TESTLOG_sglang-0.5.21-sm121_nemotron-3-super-120b-a12b-nvfp4-mtpv2_4n.md`
-- n=1 values and the older peak tables are in those testlogs; the n>1 values above supersede their peak numbers.

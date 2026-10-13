@@ -39,15 +39,18 @@ Levels n=1/4/8/16/32 with 4/8/16/32/64 questions (later reruns: 4/16/32/64/128),
 
 ## Run 2: engine-log rerun (2026-10-12)
 
-Re-run on spark5 with `--decode-log-interval 10` added. Levels n4/n8/n16/n32 with 8/16/32/64 questions, 20 s pause, max-tokens 8192, temperature 0, harness `sglang-gsm8k` (token-exact streaming via `continuous_usage_stats`). Throughput comes from the server log (`Decode batch` lines every 10 decode steps): each cell is the highest `gen throughput` (tok/s) in the level's time window. SGLang sums every generated token between two log lines and divides by the elapsed wall time, so each line is a measured rate over a few seconds. Rows marked pending are still running.
+Re-run on spark5 with `--decode-log-interval 10` added. Levels n4/n8/n16/n32 with 8/16/32/64 questions, 20 s pause, max-tokens 8192, temperature 0, harness `sglang-gsm8k` (token-exact streaming via `continuous_usage_stats`). Throughput comes from the server log (`Decode batch` lines every 10 decode steps): each cell is the highest `gen throughput` (tok/s) in the level's time window. SGLang sums every generated token between two log lines and divides by the elapsed wall time, so each line is a measured rate over a few seconds.
 
 engine max tok/s:
 
-| config                                          | slots | bench (UTC) | n4      | n8      | n16     | n32     | accept len |
-|-------------------------------------------------|------:|-------------|---------|---------|---------|---------|-----------:|
-| MTPv2 4/1/5, bfloat16 SSM, cache 128 (= preset) |    25 | 13:04-13:12 | 81      | 119     | 178     | 236     |       4.03 |
-| MTPv2 4/1/5, float32 SSM, cache 64              |    12 | pending     | pending | pending | pending | pending |          - |
+| config                                          | slots | bench (UTC) | n4 | n8  | n16 | n32 | accept len |
+|-------------------------------------------------|------:|-------------|----|-----|-----|-----|-----------:|
+| MTPv2 4/1/5, bfloat16 SSM, cache 128 (= preset) |    25 | 13:04-13:12 | 81 | 119 | 178 | 236 |       4.03 |
+| MTPv2 4/1/5, float32 SSM, cache 64              |    12 | 16:43-16:53 | 78 | 107 | 127 | 133 |       4.08 |
 
 - Overrides: bfloat16 = preset as is; float32 `MAMBA_SSM_DTYPE=float32 MAMBA_CACHE=64`.
-- bfloat16: GSM8K 8/8, 16/16, 32/32, 62/64; accept len mean 4.03 over 131 logged decode batches; 0 decode batches with `cuda graph: False`; `max_total_num_tokens` 668012.
+- bfloat16: GSM8K 8/8, 16/16, 32/32, 62/64; accept len mean 4.03 over 131 logged decode batches; `max_total_num_tokens` 668012.
+- float32: GSM8K 8/8, 16/16, 31/32, 64/64; accept len mean 4.08 over 169 logged decode batches; `max_total_num_tokens` 735558.
+- 0 decode batches with `cuda graph: False` in both.
+- bfloat16 over float32 (25 vs 12 slots): +3 % n4, +10 % n8, +41 % n16, +78 % n32. bfloat16 does not change the accept length.
 - Comparison with the cluster and the other models: `SINGLE_CLUSTER_COMPARE.md`.

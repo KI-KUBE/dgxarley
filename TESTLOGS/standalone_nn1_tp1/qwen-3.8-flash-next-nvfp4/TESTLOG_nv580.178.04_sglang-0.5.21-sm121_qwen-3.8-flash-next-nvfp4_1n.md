@@ -62,19 +62,21 @@ Probe finish reasons (stop / length / tool_calls): S0 11/1/4, S1 9/3/4, S2 10/2/
 
 ## Engine-log rerun (2026-10-12)
 
-Re-run on spark5 on 2026-10-12 (`scripts/run_standalone.sh PRESET=qwen38_nvidia MAX_RUNNING=32` plus the listed overrides, all with `--decode-log-interval 10`, server in the foreground of a tmux session). Levels n4/n8/n16/n32 with 8/16/32/64 questions, 20 s pause, max-tokens 8192, temperature 0, harness `sglang-gsm8k` (token-exact streaming via `continuous_usage_stats`). Throughput comes from the server log (`Decode batch` lines every 10 decode steps): each cell is the highest `gen throughput` (tok/s) in the level's time window. SGLang sums every generated token between two log lines and divides by the elapsed wall time, so each line is a measured rate over a few seconds. These numbers replace the client-side figures of 2026-10-11. S2 (2/1/3) is not rerun; rows marked pending are still running.
+Re-run on spark5 on 2026-10-12 (`scripts/run_standalone.sh PRESET=qwen38_nvidia MAX_RUNNING=32` plus the listed overrides, all with `--decode-log-interval 10`, server in the foreground of a tmux session). Levels n4/n8/n16/n32 with 8/16/32/64 questions, 20 s pause, max-tokens 8192, temperature 0, harness `sglang-gsm8k` (token-exact streaming via `continuous_usage_stats`). Throughput comes from the server log (`Decode batch` lines every 10 decode steps): each cell is the highest `gen throughput` (tok/s) in the level's time window. SGLang sums every generated token between two log lines and divides by the elapsed wall time, so each line is a measured rate over a few seconds. These numbers replace the client-side figures of 2026-10-11. S2 (2/1/3) is not rerun.
 
 engine max tok/s:
 
-| config                                 | slots | bench (UTC) | n4      | n8      | n16     | n32     | accept len |
-|----------------------------------------|------:|-------------|---------|---------|---------|---------|-----------:|
-| S0 MTP off                             |    25 | pending     | pending | pending | pending | pending |          - |
-| S1 MTP 3/1/4, float32 SSM              |     9 | pending     | pending | pending | pending | pending |          - |
-| S3 adaptive, float32 SSM               |    11 | pending     | pending | pending | pending | pending |          - |
-| S1b MTP 3/1/4, bfloat16 SSM, cache 76  |    19 | 14:41-14:56 | 83      | 158     | 246     | 230     |       2.98 |
-| S1c MTP 3/1/4, bfloat16 SSM, cache 128 |    32 | 12:43-12:52 | 98      | 148     | 208     | 285     |       3.02 |
+| config                                 | slots | bench (UTC) | n4 | n8  | n16 | n32 | accept len |
+|----------------------------------------|------:|-------------|----|-----|-----|-----|-----------:|
+| S0 MTP off                             |    25 | 16:03-16:31 | 56 | 106 | 169 | 201 |          - |
+| S1 MTP 3/1/4, float32 SSM              |     9 | 15:13-15:22 | 81 | 124 | 147 | 154 |       3.12 |
+| S3 adaptive, float32 SSM               |    11 | 15:38-15:49 | 77 | 125 | 135 | 167 |       3.01 |
+| S1b MTP 3/1/4, bfloat16 SSM, cache 76  |    19 | 14:41-14:56 | 83 | 158 | 246 | 230 |       2.98 |
+| S1c MTP 3/1/4, bfloat16 SSM, cache 128 |    32 | 12:43-12:52 | 98 | 148 | 208 | 285 |       3.02 |
 
 - Overrides: S0 `SPEC=0`; S1 `SPEC=1`; S3 `SPEC=1 ADAPTIVE=1`; S1b `SPEC=1 MAMBA_SSM_DTYPE=bfloat16 --mamba-ssm-dtype bfloat16 --max-mamba-cache-size 76`; S1c as S1b with `--max-mamba-cache-size 128`.
-- GSM8K (n4/n8/n16/n32): S1b 8/8, 14/16 (+1 truncation), 30/32 (+1 truncation), 62/64; S1c 8/8, 15/16, 31/32, 63/64 (miss id 12 as before). 0 decode batches with `cuda graph: False`.
+- GSM8K (n4/n8/n16/n32): 8/8 everywhere; n8 14-15/16, n16 30-31/32, n32 62-63/64; S0 and S1b have one truncation at n8 and n16 each, the other misses are wrong answers (id 12 as before). 0 decode batches with `cuda graph: False` in all five cases.
+- float32 MTP (9-11 slots) over MTP off (25 slots): x1.4 at n4, x1.2 at n8, but x0.8-0.9 at n16 and x0.8 at n32 (154-167 vs 201): the slot cap costs more than speculation gains.
+- bfloat16 SSM over float32 S1: cache 76 (19 slots) +3 % n4, +27 % n8, +68 % n16, +49 % n32; cache 128 (32 slots) +21 %, +20 %, +42 %, +85 %.
 - KV pool: S1b 386k tokens (19 slots), S1c 164k tokens (32 slots); the extra mamba slots come out of the same static pool. Engine max S1c vs S1b: +18 % n4, -6 % n8, -15 % n16, +24 % n32.
 - Comparison with the cluster and the other models: `SINGLE_CLUSTER_COMPARE.md`.
