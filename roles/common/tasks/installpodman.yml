@@ -69,6 +69,7 @@
         url: "https://github.com/mgoltzsche/podman-static/releases/download/v{{ podman_static_version }}/podman-linux-{{ _podman_static_arch }}.tar.gz"
         dest: "{{ _podman_static_tmp.path }}/podman-static.tar.gz"
         mode: "0644"
+        checksum: "{{ ('sha256:' + podman_static_sha256[_podman_static_arch]) if (podman_static_sha256[_podman_static_arch] | default('')) | length > 0 else omit }}"
 
     - name: unpack static podman bundle
       ansible.builtin.unarchive:
