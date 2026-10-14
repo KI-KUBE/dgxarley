@@ -34,6 +34,16 @@ Examples:
     pin-drift --context ht@dgxarley  # running versions from this context
     pin-drift --no-running           # repo against upstream only
 
+Every option can also be given as a ``PIN_DRIFT_*`` environment variable (the
+CLI option wins); ``--context`` additionally reads ``KUBE_CONTEXT``.
+
+Exit codes:
+    * ``0`` -- every pin is current (or unclear).
+    * ``1`` -- at least one pin has an update available, so the tool doubles as
+      a gate.
+    * ``2`` -- no usable ``pin_drift.yml``, an unknown ``--only`` name or an
+      unusable explicit ``--context``.
+
 Attributes:
     CONFIG_NAME: File name of the pin declarations, searched upwards from the
         current directory.
@@ -55,6 +65,7 @@ Attributes:
     STATUS_STYLE: Rich style per status in the result table.
 """
 
+import logging
 import os
 import re
 import shutil
@@ -624,7 +635,9 @@ def fetch_tags(upstream: Upstream, token: str | None) -> TagLookup:
         return TagLookup(error=f"HTTP {response.status_code} {detail}")
     try:
         entries = _RELEASE_LISTING.validate_json(response.content)
-    except ValidationError:
+    except ValidationError as exc:
+        if any(error["type"] == "json_invalid" for error in exc.errors()):
+            return TagLookup(error="no JSON in the response")
         return TagLookup(error="unexpected response shape")
 
     if upstream.source == "tags":
@@ -874,16 +887,27 @@ def main(
         envvar="PIN_DRIFT_CONFIG",
         help=f"Pin declarations (default: {CONFIG_NAME}, searched upwards from the current directory).",
     ),
-    only: list[str] | None = typer.Option(None, "--only", "-o", help="Check only this pin (repeatable)."),
-    updates_only: bool = typer.Option(False, "--updates-only", help="Hide the pins that are current and rolled out."),
+    only: list[str] | None = typer.Option(
+        None, "--only", "-o", envvar="PIN_DRIFT_ONLY", help="Check only this pin (repeatable)."
+    ),
+    updates_only: bool = typer.Option(
+        False, "--updates-only", envvar="PIN_DRIFT_UPDATES_ONLY", help="Hide the pins that are current and rolled out."
+    ),
     context: str | None = typer.Option(
         None,
         "--context",
-        envvar="KUBE_CONTEXT",
+        envvar=["PIN_DRIFT_CONTEXT", "KUBE_CONTEXT"],
         help="kubeconfig context for the running column (default: the current context).",
     ),
-    no_running: bool = typer.Option(False, "--no-running", help="Do not ask the cluster for running versions."),
-    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress the table, print only the summary."),
+    no_running: bool = typer.Option(
+        False, "--no-running", envvar="PIN_DRIFT_NO_RUNNING", help="Do not ask the cluster for running versions."
+    ),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", envvar="PIN_DRIFT_QUIET", help="Suppress the table, print only the summary."
+    ),
+    verbose: bool = typer.Option(
+        False, "--verbose", "-v", envvar="PIN_DRIFT_VERBOSE", help="DEBUG logging, third-party libraries included."
+    ),
 ) -> None:
     """Check the declared pins and print the drift.
 
@@ -895,12 +919,15 @@ def main(
         context: kubeconfig context for the running versions.
         no_running: Skip the cluster entirely.
         quiet: Print only the summary line, not the table.
+        verbose: Enable DEBUG logging.
 
     Raises:
         typer.Exit: Always. Code 0 if no pin has an update, 1 if at least one
             has, 2 if the configuration is missing, invalid, ``--only``
             names an unknown pin, or an explicit ``--context`` is unusable.
     """
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG, force=True)
     print_banner(module=Path(__file__).stem)
 
     path = config_path or find_config(Path.cwd())

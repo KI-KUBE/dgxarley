@@ -271,7 +271,7 @@ def update_local_kubeconfig(
 ) -> None:
     """Overwrite the credentials in an existing local kubeconfig context.
 
-    Updates ``client-certificate-data`` on the matching user entry and
+    Updates ``client-certificate-data`` and ``client-key-data`` on the matching user entry and
     ``certificate-authority-data`` on the matching cluster entry in-place,
     then serialises the modified kubeconfig back to disk.
 
@@ -281,7 +281,7 @@ def update_local_kubeconfig(
         user_name: Name of the user entry to update (must already exist).
         cluster_name: Name of the cluster entry to update (must already exist).
         remote_creds: The remote user credential dict supplying the new
-            ``client-certificate-data`` value.
+            ``client-certificate-data`` and ``client-key-data`` values.
         remote_ca: The new ``certificate-authority-data`` string for the cluster
             entry.
     """
@@ -290,6 +290,7 @@ def update_local_kubeconfig(
         if user.get("name") == user_name:
             user_data = _as_dict(user.get("user", {}))
             user_data["client-certificate-data"] = remote_creds.get("client-certificate-data")
+            user_data["client-key-data"] = remote_creds.get("client-key-data")
             user["user"] = user_data
             break
 
