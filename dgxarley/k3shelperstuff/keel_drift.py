@@ -25,10 +25,19 @@ Examples:
     keel-drift --namespace somestuff    # a single namespace
     keel-drift --drift-only --quiet     # drift only, terse
     keel-drift --fix-command            # print rollout-restart commands
+
+Every option can also be given as a ``KEEL_*`` environment variable (the CLI
+option wins); ``--context`` additionally reads ``KUBE_CONTEXT``.
+
+Exit codes:
+    * ``0`` -- nothing stale (or no tracked workloads at all).
+    * ``1`` -- at least one container is stale, so the tool doubles as a gate.
+    * ``2`` -- no usable kubeconfig / in-cluster context.
 """
 
 import base64
 import json
+import logging
 import os
 import re
 import sys
@@ -1095,26 +1104,36 @@ def available_contexts() -> list[str]:
 
 @app.command(help=CLI_HELP)
 def main(
-    namespace: str | None = typer.Option(None, "--namespace", "-n", help="Check only this namespace."),
+    namespace: str | None = typer.Option(
+        None, "--namespace", "-n", envvar="KEEL_NAMESPACE", help="Check only this namespace."
+    ),
     context: str | None = typer.Option(
         None,
         "--context",
         "-c",
-        envvar="KUBE_CONTEXT",
+        envvar=["KEEL_CONTEXT", "KUBE_CONTEXT"],
         help="kubeconfig context to use (default: the current context).",
     ),
-    drift_only: bool = typer.Option(False, "--drift-only", help="Show only stale and unclear workloads."),
-    fix_command: bool = typer.Option(False, "--fix-command", help="Print kubectl rollout restart commands."),
-    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress the table, print only the summary."),
+    drift_only: bool = typer.Option(
+        False, "--drift-only", envvar="KEEL_DRIFT_ONLY", help="Show only stale and unclear workloads."
+    ),
+    fix_command: bool = typer.Option(
+        False, "--fix-command", envvar="KEEL_FIX_COMMAND", help="Print kubectl rollout restart commands."
+    ),
+    quiet: bool = typer.Option(
+        False, "--quiet", "-q", envvar="KEEL_QUIET", help="Suppress the table, print only the summary."
+    ),
     verbose: bool = typer.Option(
         False,
         "--verbose",
         "-v",
-        help="Log every namespace, workload and registry access individually.",
+        envvar="KEEL_VERBOSE",
+        help="Log every namespace, workload and registry access individually (DEBUG logging).",
     ),
     no_local_credentials: bool = typer.Option(
         False,
         "--no-local-credentials",
+        envvar="KEEL_NO_LOCAL_CREDENTIALS",
         help="Ignore the local Docker login and query everything anonymously.",
     ),
 ) -> None:
@@ -1131,7 +1150,7 @@ def main(
     Args:
         namespace: Restrict the check to this namespace.
         context: kubeconfig context to check against, ``None`` for the current
-            one. Also readable from ``KUBE_CONTEXT``.
+            one. Also readable from ``KEEL_CONTEXT`` or ``KUBE_CONTEXT``.
         drift_only: Show only stale and unclear workloads.
         fix_command: Print the kubectl commands that would straighten things out.
         quiet: Suppress the table and print only the summary line.
@@ -1142,6 +1161,8 @@ def main(
         typer.Exit: Always -- with code 2 when no Kubernetes context could be
             loaded, 1 when at least one workload is stale, 0 otherwise.
     """
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG, force=True)
     print_banner(module=Path(__file__).stem)
     err_console.print(f"[cyan]Checking against {load_cluster_config(context)}.[/]")
 

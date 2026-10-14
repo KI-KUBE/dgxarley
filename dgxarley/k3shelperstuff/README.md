@@ -5,156 +5,212 @@ Standalone helper scripts for operating the K3s cluster:
 - [`update_local_k3s_keys.py`](#update_local_k3s_keyspy) — keep the local kubeconfig in sync with a remote K3s server
 - [`keel_drift.py`](#keel_driftpy) — find Keel-tracked workloads whose running image lags behind its tag
 - [`pin_drift.py`](#pin_driftpy) — find version pins in the repo that lag behind the upstream release
+- [`drift.py`](#driftpy) — `pin_drift` and `keel_drift` as subcommands `pin`/`keel` of one CLI
 
 ## update_local_k3s_keys.py
 
-K3s kubeconfig credential synchronization utility. Keeps local Kubernetes authentication credentials (`~/.kube/config`) in sync with a remote K3s server.
-
-### What it does
-
-Fetches the kubeconfig from a remote K3s server via SSH, compares user credentials and cluster CA data against the local kubeconfig, and interactively updates any differences.
+Fetches the kubeconfig from a remote K3s server via SSH, compares user
+credentials and cluster CA data against the local kubeconfig, and interactively
+updates any differences.
 
 - Extracts client certificates, client keys, and cluster CA data from both remote and local kubeconfig
 - Shows truncated diffs without exposing full secrets
 - Prompts before writing any changes
 - Auto-detects remote host and context from the current-context in `~/.kube/config`
 
-### Usage
+Also runnable as `python -m dgxarley.k3shelperstuff.update_local_k3s_keys`.
 
 ```bash
-k3s-keys-sync [OPTIONS]                                   # installed entry point
-python -m dgxarley.k3shelperstuff.update_local_k3s_keys   # or as a module
+k3s-keys-sync [OPTIONS]
 ```
 
-| Option                    | Description                                                   |
-|---------------------------|---------------------------------------------------------------|
-| `-u`, `--user USER`       | SSH user (default: `root`)                                    |
-| `-H`, `--host HOST`       | Remote host (auto-detected from kubeconfig server URL)        |
-| `-c`, `--context CONTEXT` | Local kubeconfig context (auto-detected from current-context) |
+| Option                    | Description                                                       |
+|---------------------------|-------------------------------------------------------------------|
+| `-u`, `--user USER`       | SSH user (default: `root`)                                        |
+| `-H`, `--host HOST`       | Remote host (auto-detected from kubeconfig server URL)            |
+| `-c`, `--context CONTEXT` | Local kubeconfig context (auto-detected from current-context)     |
+| `--create`                | Create context/cluster/user if the context does not exist locally |
+| `-y`, `--yes`             | Non-interactive mode (skip confirmation prompts)                  |
+| `--server URL`            | Override the K3s API server URL (default: `https://{host}:6443`)  |
 
 The remote kubeconfig is read from `/etc/rancher/k3s/k3s.yaml` on the target host.
 
 ## keel_drift.py
 
-Finds Keel-tracked workloads whose running image is older than the image its tag currently points at.
-
 ### Why it exists
 
-On every poll, Keel compares the registry digest of right now against the digest it memorised during the previous poll. That memo lives in memory only and is seeded from the registry at startup. What actually runs in the cluster therefore never enters Keel's decision: if a tag is moved while Keel restarts, Keel sets its baseline to the new digest without ever touching the Deployment, and the change stays invisible until the next push.
+On every poll [Keel](https://keel.sh) compares **only** the registry digest of
+right now against the digest it memorised during its previous poll
+(`trigger/poll/single_tag_watcher.go`). That memo lives in memory alone and is
+seeded from the registry at startup (`trigger/poll/watcher.go`, `addJob`).
 
-This script performs exactly the comparison Keel does not: the digest of the running pod against the digest the tag currently points at.
+Which means: **what actually runs in the cluster never enters Keel's decision.**
+If a tag is moved while Keel restarts, Keel sets its baseline to the new digest
+without ever touching the corresponding deployment — the change stays invisible
+until the next push.
 
-### What it does
+`keel_drift.py` makes exactly the comparison Keel does not: **running pod digest
+against the digest the tag currently points at.**
 
-- Collects every Deployment, StatefulSet and DaemonSet carrying an active `keel.sh/policy` (annotations beat labels, `never` and empty count as inactive, the same order Keel itself uses)
-- Reads the running digest per container from the `imageID` of the running pods, **including initContainers** (their status still carries the digest they ran with long after they finished)
-- Marks a stale initContainer that Keel would not touch: tracking is opt-in via `keel.sh/initContainers: "true"` (labels first, then annotations), so without it such a container stays stale indefinitely with nothing pointing at it
-- Resolves the tag against the registry, accepting both the index digest and any per-platform manifest digest of a multi-arch tag
-- Authenticates with the workload's `imagePullSecrets`, falling back to the local Docker login (`DOCKER_CONFIG` or `~/.docker/config.json`) so Docker Hub does not count against the anonymous 100/h per-IP limit
-- Distinguishes **index drift from image drift**: if the running digest does not match the tag, it is resolved as an index and its platform manifests are compared against the tag's. A registry that re-pushes an index (changed attestations, say) without moving the manifests underneath leaves the running bits identical, so this counts as current rather than stale
-- Flags containers with `imagePullPolicy != Always`, since a restart cannot renew an unchanged tag there
+### What it checks
+
+- All `Deployment`/`StatefulSet`/`DaemonSet` objects carrying a `keel.sh/policy`
+  annotation or label (`never`/empty is treated as untracked, exactly as Keel does)
+- Regular containers **and** initContainers — the latter are flagged when they are
+  stale while `keel.sh/initContainers: "true"` is missing, i.e. where Keel would
+  never act
+- `imagePullPolicy != Always` on a stale container — there a restart (and Keel's
+  force policy) cannot re-pull the unchanged tag at all
+- Multi-arch tags: both the index digest and its platform manifests count as a
+  match, and an older index pointing at the same platform manifests is reported
+  as current rather than as a false positive
+
+Credentials come from the workload's `imagePullSecrets`; the local
+`~/.docker/config.json` (or `$DOCKER_CONFIG`) is used as a fallback, because
+anonymous Docker Hub access is capped at 100 manifest requests per hour and IP.
 
 ### Usage
 
+Needs the optional dependencies: `pip install 'dgxarley[k3s]'`. Also runnable as
+`python -m dgxarley.k3shelperstuff.keel_drift`.
+
 ```bash
-keel-drift [OPTIONS]                          # installed entry point
-python -m dgxarley.k3shelperstuff.keel_drift  # or as a module
+keel-drift                        # all tracked workloads
+keel-drift --namespace somestuff  # a single namespace
+keel-drift --drift-only --quiet   # only deviations, terse
+keel-drift --fix-command          # emit rollout-restart commands
 ```
 
-Needs the optional dependencies: `pip install 'dgxarley[k3s]'`.
+| Option                   | Env var                     | Description                                      |
+|--------------------------|-----------------------------|--------------------------------------------------|
+| `-n`, `--namespace NS`   | `KEEL_NAMESPACE`            | Only check this namespace                        |
+| `-c`, `--context CTX`    | `KEEL_CONTEXT`, `KUBE_CONTEXT` | kubeconfig context instead of the active one  |
+| `--drift-only`           | `KEEL_DRIFT_ONLY`           | Only show stale and unclear workloads            |
+| `--fix-command`          | `KEEL_FIX_COMMAND`          | Emit `kubectl rollout restart` commands (with `--context`, if given) |
+| `-q`, `--quiet`          | `KEEL_QUIET`                | Suppress the table, print the summary only       |
+| `-v`, `--verbose`        | `KEEL_VERBOSE`              | Log every workload and registry access (DEBUG)   |
+| `--no-local-credentials` | `KEEL_NO_LOCAL_CREDENTIALS` | Ignore the local Docker login, query anonymously |
 
-| Option                   | Description                                                   |
-|--------------------------|---------------------------------------------------------------|
-| `-n`, `--namespace NS`   | Check only this namespace (default: all)                      |
-| `-c`, `--context CTX`    | kubeconfig context to check (default: current, env `KUBE_CONTEXT`) |
-| `--drift-only`           | Show only stale and unclear workloads                         |
-| `--fix-command`          | Print the `kubectl rollout restart` commands to straighten out |
-| `-q`, `--quiet`          | Suppress the table, print only the summary                    |
-| `-v`, `--verbose`        | Log every namespace, workload and registry access             |
-| `--no-local-credentials` | Ignore the local Docker login, query everything anonymously   |
+The table and the summary go to **stdout**, logging and the progress display to
+**stderr** — so the result can be piped while the diagnostics stay visible.
 
-The table goes to stdout, progress and diagnostics to stderr, so the output stays pipe-friendly.
+Without a kubeconfig the in-cluster service account is used, so the tool also
+runs as a `Job`/`CronJob` inside the cluster.
 
 ### Exit codes
 
-| Code | Meaning                                                      |
-|------|--------------------------------------------------------------|
-| `0`  | No workload is stale (or none is tracked by Keel at all)      |
-| `1`  | At least one workload is stale, usable as a pipeline gate     |
-| `2`  | The named context is unknown, or no kubeconfig / in-cluster context could be used |
-
-### Examples
-
-```bash
-keel-drift                          # every tracked workload
-keel-drift --context ht@dgxarley    # a specific kubeconfig context
-keel-drift --namespace somestuff    # a single namespace
-keel-drift --drift-only --quiet     # drift only, terse
-keel-drift --fix-command            # print rollout-restart commands
-```
+| Code | Meaning                                                     |
+|------|-------------------------------------------------------------|
+| `0`  | Nothing stale (or no tracked workloads at all)              |
+| `1`  | At least one container is stale — usable as a pipeline gate |
+| `2`  | Unusable `--context` (the available ones are listed), or no kubeconfig and no in-cluster context |
 
 ## pin_drift.py
 
-Finds version pins in the repo that are older than the newest upstream release. Counterpart to `keel_drift.py`: that one compares the digest of a rolling tag (`latest`, `main-stable`), this one compares a fixed pin (`v1.2.3`) against the release list of the project it comes from. Read-only: it reads repo files and release APIs, nothing else.
+Counterpart to `keel_drift`: that one checks a rolling tag by digest, this one
+checks a **fixed pin** (`v1.2.3`) against the release list of the project it
+comes from. Read-only — it reads the repo files, the release APIs and, if a
+kubeconfig is usable, the pods and nodes of the cluster, nothing else.
 
-### What it does
+The pins are declared in `pin_drift.yml`, searched upwards from the current
+directory (or given via `--config`). Paths in it are relative to the file
+itself.
 
-- Loads the pin declarations from `pin_drift.yml` (searched upwards from the current directory, so it works from anywhere inside the repo)
-- Extracts each pin from the declared file(s) by regex. If a pin lives in several files (role defaults plus `group_vars` copies, manifest plus update script), **all occurrences must agree**, otherwise the pin is reported as `unclear`
-- Fetches the upstream releases (GitHub or Forgejo/Gitea API), skipping pre-releases and drafts, and keeps the tags matching `tag_pattern`
-- Classifies the gap as `patch`, `minor` or `MAJOR` by the first version component that differs. For a major gap it also names the newest release within the pinned major
-- Treats a pin shorter than the upstream version (`5.1` against `5.1.3`) as a floating tag: current until a newer `5.2` appears
-- Reports a git-crypt locked file, a pattern that no longer matches, or an unreachable upstream as `unclear` instead of guessing
+```yaml
+pins:
+  - name: mosquitto
+    file: mosquitto-2.1/Dockerfile
+    pattern: 'mosquitto/archive/refs/tags/v([\d.]+)\.tar\.gz'
+    github: eclipse-mosquitto/mosquitto
+    source: tags
+  - name: some-chart
+    files: [values.yaml, values-prod.yaml]
+    var: app_version                 # matches `app_version: 1.4.2`
+    forgejo: git.example.com/owner/repo
+  - name: grafana
+    file: deploy/grafana.yaml
+    image: grafana/grafana           # matches `grafana/grafana:11.2.0`
+    github: grafana/grafana
+    tag_pattern: '^v\d+\.\d+\.\d+$'
+```
 
-### Declaring a pin
+| Key                      | Meaning                                                                         |
+|--------------------------|---------------------------------------------------------------------------------|
+| `name`                   | Unique name, used by `--only`                                                   |
+| `file` / `files`         | File(s) carrying the pin; several files must agree on the same value            |
+| `var`                    | Extract from a `key: value` line                                                |
+| `image`                  | Extract the tag after `image:`                                                  |
+| `pattern`                | Raw regex with exactly one capture group                                        |
+| `github` / `forgejo`     | `owner/repo` or `host/owner/repo` the releases come from                        |
+| `source`                 | `releases` (default, drafts/prereleases skipped) or `tags`                      |
+| `tag_pattern`            | Filter for upstream tags (default: `^v?\d+(?:\.\d+)+$`)                         |
+| `running_image`          | Image(s) whose tags in live pods are the running version (default: `image`)     |
+| `running_kubelet`        | `true`: the running version is the nodes' kubelet version (k3s, k8s)            |
 
-One entry in `pin_drift.yml` per pin:
+Exactly one of `var`/`image`/`pattern` and one of `github`/`forgejo` is required.
+A pin shorter than the upstream version (`5.1` against `5.1.3`) is a floating
+tag and counts as current until a `5.2` appears. Files encrypted with git-crypt
+are reported as `unclear` instead of failing.
 
-| Key           | Meaning                                                                 |
-|---------------|-------------------------------------------------------------------------|
-| `name`        | Unique label                                                            |
-| `file` / `files` | Repo-relative file(s) carrying the pin                               |
-| `var`         | YAML key whose scalar value is the version (`hindsight_version`)        |
-| `image`       | Image repo; the tag after the colon is the version (`prom/prometheus`)  |
-| `pattern`     | Raw regex with exactly one capture group, for everything else           |
-| `github`      | Upstream as `owner/repo`                                                |
-| `forgejo`     | Upstream as `host/owner/repo` (Codeberg and other Forgejo/Gitea hosts)  |
-| `source`      | `releases` (default) or `tags`, for projects that tag without releasing |
-| `tag_pattern` | Regex an upstream tag must match (default `^v?\d+(\.\d+)+$`)            |
+### Running column
 
-Exactly one of `var` / `image` / `pattern` and exactly one of `github` / `forgejo`. Versions are compared by their numeric components, so a pin whose suffix contains digits (`0.5.21-sm121`) needs a `pattern` that captures the version part only.
+With a usable kubeconfig (or in-cluster context) the table gets a `running`
+column: the distinct tags of the matching images across all live pods
+(containers and initContainers, finished pods ignored), or the kubelet versions
+for `running_kubelet` pins. Image names are compared normalised (`redis` ==
+`docker.io/library/redis`), tags ignoring a leading `v`. A pin whose running
+version differs is noted as `not rolled out`, or `partially rolled out` if the
+pinned version runs alongside older ones; this does not affect the exit code.
+`-` means no matching pod — expected for pins outside the cluster.
+
+GitHub allows 60 anonymous API requests per hour; a token is taken from
+`GITHUB_TOKEN` / `GH_TOKEN` or `gh auth token`.
 
 ### Usage
 
-```bash
-pin-drift [OPTIONS]                          # installed entry point
-python -m dgxarley.k3shelperstuff.pin_drift  # or as a module
-```
-
-Needs the optional dependencies: `pip install 'dgxarley[k3s]'`.
-
-| Option                | Description                                                              |
-|-----------------------|--------------------------------------------------------------------------|
-| `-c`, `--config PATH` | Pin declarations (default: `pin_drift.yml` found upwards, env `PIN_DRIFT_CONFIG`) |
-| `-o`, `--only NAME`   | Check only this pin (repeatable)                                         |
-| `--updates-only`      | Hide the pins that are current                                           |
-| `-q`, `--quiet`       | Suppress the table, print only the summary                               |
-
-GitHub allows 60 anonymous API requests per hour, fewer than two full runs. A token is taken from `GITHUB_TOKEN` / `GH_TOKEN` or, failing that, from `gh auth token`; it is sent to `api.github.com` only.
-
-### Exit codes
-
-| Code | Meaning                                                  |
-|------|----------------------------------------------------------|
-| `0`  | Every pin is current (unclear pins do not fail the run)  |
-| `1`  | At least one pin has an update, usable as a pipeline gate |
-| `2`  | No `pin_drift.yml` found, it is invalid, or `--only` names an unknown pin |
-
-### Examples
+Needs the optional dependencies: `pip install 'dgxarley[k3s]'`. Also runnable as
+`python -m dgxarley.k3shelperstuff.pin_drift`.
 
 ```bash
 pin-drift                        # every declared pin
 pin-drift --updates-only         # hide the pins that are current
-pin-drift --only hermes-agent    # a single pin
-pin-drift -o k3s -o sglang -q    # two pins, summary only
+pin-drift --only mosquitto       # a single pin (repeatable)
+pin-drift --config ../pin_drift.yml
+pin-drift --context ht@dgxarley  # running versions from this context
+pin-drift --no-running           # repo against upstream only
 ```
+
+| Option               | Env var                  | Description                                   |
+|----------------------|--------------------------|-----------------------------------------------|
+| `-c`, `--config P`   | `PIN_DRIFT_CONFIG`       | Pin declarations (default: search upwards)    |
+| `-o`, `--only NAME`  | `PIN_DRIFT_ONLY`         | Check only this pin (repeatable)              |
+| `--updates-only`     | `PIN_DRIFT_UPDATES_ONLY` | Hide the pins that are current and rolled out |
+| `--context CTX`      | `PIN_DRIFT_CONTEXT`, `KUBE_CONTEXT` | kubeconfig context (default: active one) |
+| `--no-running`       | `PIN_DRIFT_NO_RUNNING`   | Do not query the cluster                      |
+| `-q`, `--quiet`      | `PIN_DRIFT_QUIET`        | Suppress the table, print the summary only    |
+| `-v`, `--verbose`    | `PIN_DRIFT_VERBOSE`      | DEBUG logging, third-party libraries included |
+
+### Exit codes
+
+| Code | Meaning                                                          |
+|------|------------------------------------------------------------------|
+| `0`  | No update available (pins current or unclear)                    |
+| `1`  | At least one pin has a major/minor/patch update — pipeline gate  |
+| `2`  | No usable `pin_drift.yml`, an unknown `--only` name, or an unusable explicit `--context` |
+
+## drift.py
+
+Both checks behind one CLI, so `--help` lists them side by side instead of only
+showing the options of whichever tool happens to be the default.
+
+Needs the optional dependencies: `pip install 'dgxarley[k3s]'`. Also runnable as
+`python -m dgxarley.k3shelperstuff.drift`.
+
+```bash
+k3s-drift --help               # lists pin and keel
+k3s-drift pin [pin options]    # same options as pin_drift
+k3s-drift keel [keel options]  # same options as keel_drift
+```
+
+`DRIFT_PROG_NAME` overrides the program name shown in `--help`, for wrapper
+scripts (`./drift.sh`, `scripts/check_pin_drift.sh`) that call the module.
