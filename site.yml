@@ -1,6 +1,6 @@
 ---
 # DGX Spark Cluster — Master Playbook
-# Reihenfolge: mikrotik → common → dgx_prepare → k3sserver → k8s_dgx
+# Reihenfolge: mikrotik → common → dgx_prepare → k3sserver; k8s_dgx.yml und k8s_infra.yml danach separat (siehe README „Playbooks")
 
 - import_playbook: mikrotik.yml
 - import_playbook: common.yml

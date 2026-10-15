@@ -322,7 +322,7 @@ patching, the Multus pod fails with:
 failed to find the primary CNI plugin: could not find a plugin configuration in /host/etc/cni/net.d
 ```
 
-**Fixes applied** after downloading the manifest:
+**Fixes applied** by `roles/k8s_dgx/files/update_multus_manifest.sh` (the patched manifest is committed under `roles/k8s_dgx/files/`):
 
 1. **`cni` volume hostPath**: `/etc/cni/net.d` → `/var/lib/rancher/k3s/agent/etc/cni/net.d`
    (K3s stores Flannel CNI config there). Container-side `mountPath` (`/host/etc/cni/net.d`) and
@@ -398,17 +398,10 @@ ansible-playbook site.yml -e 'clevis_luks_passphrase=YOUR_PASSPHRASE'
 - SSH keys distributed to all nodes (`ansible_ssh_user: root`)
 - Interface names verified on actual hardware (`hw_iface`, `qsfp_interfaces`)
 - `openwebui_secret_key` and `openwebui_admin_password` override via vault in production
-- Multus manifest downloaded and patched for K3s CNI paths (see [Multus section](#multus--cni-path-fix-for-k3s)):
-  ```
-  curl -o roles/k8s_dgx/files/multus-daemonset-thick.yml \
-    https://raw.githubusercontent.com/k8snetworkplumbingwg/multus-cni/master/deployments/multus-daemonset-thick.yml
-  # Then patch (see header comment in the file for full details):
-  #   cni volume:    /etc/cni/net.d → /var/lib/rancher/k3s/agent/etc/cni/net.d
-  #   cnibin volume: /opt/cni/bin   → /var/lib/rancher/k3s/data (parent, for symlink resolution)
-  #   binDir:        add /var/lib/rancher/k3s/data/cni to daemon-config.json
-  #   mountPropagation: Bidirectional → HostToContainer (prevents bind mount stacking)
-  ```
-- Extra CNI plugins installed on sparks (`ansible-playbook dgx.yml --tags cni`): `host-device`, `static`
+- Multus: nothing to do by hand. `roles/k8s_dgx/files/multus-daemonset-thick.yml` ships pre-patched for the
+  K3s CNI paths (see [Multus section](#multus--cni-path-fix-for-k3s)) and is applied by `k8s_dgx.yml --tags multus`.
+  To bump the upstream release, run `roles/k8s_dgx/files/update_multus_manifest.sh` and commit the result.
+- Extra CNI plugins `host-device` and `static` on the sparks: installed by `dgx.yml` (tag `cni`), must have run before `k8s_dgx.yml --tags multus`
 - Switch configuration in place (Netgear VLANs, MikroTik bridge, PVID settings)
 - kubectl context (configured via `kubeconfig_context_name` in vault) — auto-provisioned by `k3sserver` role (tag `kubeconfig`), no manual setup needed
 - NFS server configured if desired (`wantsnfsmount` in `group_vars/k3sserver/main/nfs.yml`)
