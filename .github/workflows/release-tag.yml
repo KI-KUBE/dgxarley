@@ -120,4 +120,5 @@ jobs:
               git log --no-merges --format='- %h %s' "$prev_up..$up" | head -n 300
             fi
           } > /tmp/notes.md
-          gh release create "$tag" --verify-tag --title "$tag" --notes-file /tmp/notes.md
+          # -R: with the upstream remote added, gh would otherwise pick vroomfondel/dgxarley
+          gh release create "$tag" -R "$GITHUB_REPOSITORY" --verify-tag --title "$tag" --notes-file /tmp/notes.md
