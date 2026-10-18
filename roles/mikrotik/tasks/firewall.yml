@@ -1,25 +1,45 @@
 ---
-- name: Ensure fasttrack filter rules
+# Runs after uplink.yml and wireguard.yml (main.yml), so both rules end up above their accept/drop rules: only
+# established/related connections are fasttracked, new ones still pass the uplink/hub rules below. Same comments as
+# kikube-ccc scripts/mikrotik_bootstrap.py, so rules it created are taken over. Each rule is moved above every static
+# rule (the dynamic fasttrack counter rule stays first) instead of `add place-before=0`, which silently falls back to
+# append; accept is listed first, so fasttrack ends up on top. A re-run repairs the order.
+- name: Ensure fasttrack filter rules on top
   community.routeros.command:
     commands:
       - >-
-        :if ([:len [/ip/firewall/filter/find comment="{{ item.comment }}"]] = 0)
-        do={ /ip/firewall/filter/add chain={{ item.chain }} action={{ item.action }}
-        connection-state={{ item.connection_state }}
-        comment="{{ item.comment }}" }
-        else={ /ip/firewall/filter/set [find comment="{{ item.comment }}"]
-        chain={{ item.chain }} action={{ item.action }}
-        connection-state={{ item.connection_state }} }
+        { :if ([:len [/ip/firewall/filter/find comment="{{ item.comment }}"]] = 0)
+        do={ /ip/firewall/filter/add {{ item.rule }} comment="{{ item.comment }}" }
+        else={ /ip/firewall/filter/set [find comment="{{ item.comment }}"] {{ item.rule }} };
+        :local top [:pick [/ip/firewall/filter/find dynamic=no] 0];
+        :local rule [:pick [/ip/firewall/filter/find comment="{{ item.comment }}"] 0];
+        :if ($rule != $top) do={ /ip/firewall/filter/move $rule destination=$top } }
   loop:
-    - comment: "fasttrack established/related"
-      chain: forward
-      action: fasttrack-connection
-      connection_state: established,related
     - comment: "accept established/related"
-      chain: forward
-      action: accept
-      connection_state: established,related
+      rule: "chain=forward action=accept connection-state=established,related"
+    - comment: "fasttrack established/related"
+      rule: "chain=forward action=fasttrack-connection connection-state=established,related"
   loop_control:
     label: "{{ item.comment }}"
   changed_when: false
+  when: mikrotik_fasttrack_enabled | default(false)
+
+# The console echoes the command, wrapped at terminal width, into stdout; the fwd| marker separates the rule lines
+# from it without dropping rules that have no comment.
+- name: Read fasttrack rule order
+  community.routeros.command:
+    commands:
+      - ':foreach i in=[/ip/firewall/filter/find chain=forward dynamic=no] do={ :put ("fwd|" . [/ip/firewall/filter/get $i comment]) }'
+  register: mikrotik_fasttrack_rule_order
+  changed_when: false
+  check_mode: false
+  when: mikrotik_fasttrack_enabled | default(false)
+
+- name: Assert fasttrack rule order
+  vars:
+    _fwd: "{{ mikrotik_fasttrack_rule_order.stdout_lines[0] | map('trim') | select('match', '^fwd\\|') | map('regex_replace', '^fwd\\|', '') | list }}"
+  ansible.builtin.assert:
+    that:
+      - _fwd[:2] == ['fasttrack established/related', 'accept established/related']
+    fail_msg: "fasttrack/accept established rules are not the first forward rules: {{ _fwd }}"
   when: mikrotik_fasttrack_enabled | default(false)
