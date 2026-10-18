@@ -5,3 +5,9 @@
   import_tasks: config_clevis.yml
   tags:
     - clevis
+
+- name: optional LUKS keyfile fallback (USB stick / initramfs-embedded)
+  import_tasks: keyfile_fallback.yml
+  tags:
+    - clevis
+    - clevis_keyfile

@@ -1,0 +1,47 @@
+#!/bin/bash
+# clevis_keyfile_write_usb.sh - copy the LUKS fallback key onto a USB stick
+# Deployed by Ansible (clevis role, clevis_keyfile_enabled) - do not edit manually
+#
+# Usage: sudo /root/clevis_keyfile_write_usb.sh <partition>   (e.g. /dev/sdb1)
+# The partition must already carry the filesystem label {{ clevis_keyfile_usb_label }} (vfat/exfat/ext4),
+# e.g.: mkfs.vfat -n {{ clevis_keyfile_usb_label }} /dev/sdb1
+
+set -euo pipefail
+
+LUKS_DEVICE={{ clevis_luks_device | quote }}
+KEYFILE={{ clevis_keyfile_path | quote }}
+USB_LABEL={{ clevis_keyfile_usb_label | quote }}
+USB_FILE={{ clevis_keyfile_usb_file | quote }}
+
+if [ "$EUID" -ne 0 ]; then
+  echo "This script must be run as root (sudo)." >&2
+  exit 1
+fi
+
+DEV="${1:-}"
+if [ ! -b "$DEV" ]; then
+  echo "Usage: $0 <partition>  (block device not found: '${DEV}')" >&2
+  exit 1
+fi
+
+LABEL=$(blkid -s LABEL -o value "$DEV" || true)
+if [ "$LABEL" != "$USB_LABEL" ]; then
+  echo "Label of $DEV is '${LABEL}', expected '${USB_LABEL}'." >&2
+  echo "Relabel (vfat: fatlabel $DEV $USB_LABEL, ext4: e2label $DEV $USB_LABEL) or format it." >&2
+  exit 1
+fi
+
+MNT=$(mktemp -d)
+trap 'umount "$MNT" 2>/dev/null || true; rmdir "$MNT"' EXIT
+mount "$DEV" "$MNT"
+
+install -m 0400 "$KEYFILE" "$MNT/$USB_FILE"
+sync
+cmp "$KEYFILE" "$MNT/$USB_FILE"
+
+if cryptsetup open --test-passphrase --key-file "$MNT/$USB_FILE" "$LUKS_DEVICE"; then
+  echo "OK: $DEV:/$USB_FILE unlocks $LUKS_DEVICE."
+else
+  echo "FAIL: key on $DEV does not unlock $LUKS_DEVICE (keyslot missing?)." >&2
+  exit 1
+fi

@@ -30,12 +30,35 @@ ansible-playbook common.yml --tags clevis --check --diff
 
 The existing LUKS passphrase remains valid as fallback. If tang servers are unreachable at boot, the normal password prompt appears.
 
+## Keyfile Fallback (optional, tag `clevis_keyfile`)
+
+An extra LUKS keyslot whose key is offered at boot from a USB stick (by filesystem label) and/or embedded in the initramfs. Gate `clevis_keyfile_enabled` (default `false`), opt-in removal `clevis_keyfile_teardown`.
+
+```bash
+# Install (no tang servers needed; auth = clevis_luks_passphrase, else an existing clevis binding):
+ansible-playbook common.yml --tags clevis_keyfile -e clevis_keyfile_enabled=true
+
+# Put the key on a stick (partition must be labelled LUKSKEY, e.g. mkfs.vfat -n LUKSKEY /dev/sdb1):
+/root/clevis_keyfile_write_usb.sh /dev/sdb1
+
+# Teardown: removes the keyslot (refuses if it is the last one), initramfs scripts, shreds the key:
+ansible-playbook common.yml --tags clevis_keyfile -e clevis_keyfile_teardown=true
+```
+
+- **crypttab is not modified.** `local-top/clevis-keyfile` works like the clevis initramfs script: a background loop waits for cryptroot's `askpass`, and writes the key into its `passfifo`. Tang, keyfile and typed passphrase race; the first valid answer wins. The stick may be plugged in while the prompt is shown.
+- A key is only written after `cryptsetup --test-passphrase` accepted it, so a stale stick never consumes one of cryptroot's tries.
+- The key is 64 ASCII chars (base64) without a trailing newline, as required by the passfifo path. Master copy: `/etc/clevis-keyfile/fallback.key` (on the encrypted root).
+- `clevis_keyfile_embed_initramfs: true` puts the key into the initramfs, i.e. **unencrypted on /boot** (sets `UMASK=0077` for the initrd). Only for the initial boot: switch it off, or tear down, once tang works. The teardown removes the keyslot, so leftover copies in old initrds or on sticks become useless.
+- `setup_clevis_tang.sh` only unbinds clevis slots and leaves the fallback keyslot alone.
+
 ## Task Files
 
 ### `main.yml`
 
 Single import:
 - **`config_clevis.yml`** — all clevis/tang configuration (tag: `clevis`)
+- **`keyfile_fallback.yml`**: optional keyfile fallback, install + teardown blocks (tags: `clevis`, `clevis_keyfile`)
+- **`detect_luks.yml`**: LUKS device detection, imported by both
 
 ### `config_clevis.yml`
 
@@ -45,7 +68,8 @@ The main task file containing all logic. Read-only tasks use `check_mode: false`
 
 | Tag | Scope |
 |---|---|
-| `clevis` | All clevis/tang tasks |
+| `clevis` | All clevis/tang tasks (incl. keyfile fallback) |
+| `clevis_keyfile` | Keyfile fallback only (runs without reachable tang servers) |
 
 ## Host Variables
 
@@ -62,6 +86,13 @@ The main task file containing all logic. Read-only tasks use `check_mode: false`
 |---|---|---|
 | `clevis_tang_servers` | `["http://tang.example.com", "http://tang2.example.com:9090"]` | Tang server URLs (real values in vault) |
 | `clevis_sss_threshold` | `2` | SSS threshold (number of tang servers needed for decryption) |
+| `clevis_keyfile_enabled` | `false` | Install the keyfile fallback |
+| `clevis_keyfile_teardown` | `false` | Remove keyslot + files (opt-in, `-e`) |
+| `clevis_keyfile_path` | `/etc/clevis-keyfile/fallback.key` | Master copy of the key (must stay in `/etc/clevis-keyfile`) |
+| `clevis_keyfile_usb_enabled` | `true` | Look for the key on a USB stick |
+| `clevis_keyfile_usb_label` | `LUKSKEY` | Filesystem label of the stick (vfat/exfat/ext4) |
+| `clevis_keyfile_usb_file` | `luks-fallback.key` | Key file name in the stick's root |
+| `clevis_keyfile_embed_initramfs` | `false` | Embed the key into the initramfs (unencrypted /boot, initial boot only) |
 
 ## Helper Scripts
 
@@ -69,6 +100,7 @@ The main task file containing all logic. Read-only tasks use `check_mode: false`
 |---|---|
 | `setup_clevis_tang.sh` | Standalone rebind script (templatized). Auto-detects UUID and network driver at runtime. Usage: `/root/setup_clevis_tang.sh [PASSPHRASE]` |
 | `tang_check_connection.sh` | Verifies tang server connectivity and clevis binding. Usage: `/root/tang_check_connection.sh <luks-device>` |
+| `clevis_keyfile_write_usb.sh` | Copies the fallback key onto a labelled USB partition and verifies it unlocks the LUKS device. Usage: `/root/clevis_keyfile_write_usb.sh /dev/sdX1` |
 
 ## Clevis + OVS Interaction
 
@@ -84,10 +116,17 @@ roles/clevis/
 │   └── main.yml                              # Tang servers and SSS threshold
 ├── tasks/
 │   ├── main.yml                              # Imports config_clevis.yml
-│   └── config_clevis.yml                     # All clevis/tang configuration
+│   ├── config_clevis.yml                     # All clevis/tang configuration
+│   ├── detect_luks.yml                       # LUKS device detection
+│   └── keyfile_fallback.yml                  # Optional keyfile fallback (install + teardown)
 ├── templates/
-│   └── setup_clevis_tang.sh.j2               # Standalone rebind script
+│   ├── setup_clevis_tang.sh.j2               # Standalone rebind script
+│   ├── etc_clevis-keyfile_keyfile.conf.j2    # Keyfile fallback config (sourced in initramfs)
+│   └── clevis_keyfile_write_usb.sh.j2        # Writes the key onto a USB stick
 └── files/
     ├── tang_check_connection.sh              # Tang connectivity checker
-    └── initramfs_local-bottom_cleanup-netplan # Initramfs cleanup script (deployed to init-bottom/)
+    ├── initramfs_local-bottom_cleanup-netplan # Initramfs cleanup script (deployed to init-bottom/)
+    ├── initramfs_hooks_clevis-keyfile        # Ships config/key/USB modules into the initramfs
+    ├── initramfs_local-top_clevis-keyfile    # Background loop feeding the key into askpass
+    └── initramfs_local-bottom_clevis-keyfile # Stops the loop, unmounts the stick
 ```

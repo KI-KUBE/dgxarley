@@ -1,0 +1,98 @@
+#!/bin/sh
+# Managed by Ansible (clevis role)
+#
+# Keyfile fallback for LUKS unlock, running in parallel to clevis/tang and the
+# passphrase prompt. Like the clevis local-top script it waits in the background
+# for cryptroot's askpass and writes the key into its passfifo, so crypttab
+# stays untouched and the stock prompt keeps working. Key sources: the
+# initramfs-embedded key (EMBED=1) or a USB stick by filesystem label (USB=1,
+# may be plugged in while the prompt is shown). A key is only written after
+# `cryptsetup --test-passphrase` accepted it, so a stale stick never burns one
+# of cryptroot's tries. Killed by local-bottom/clevis-keyfile.
+
+PREREQ=""
+
+prereqs() {
+    echo "$PREREQ"
+}
+
+case "$1" in
+    prereqs)
+        prereqs
+        exit 0
+    ;;
+esac
+
+CONF=/etc/clevis-keyfile/keyfile.conf
+[ -r "$CONF" ] || exit 0
+. "$CONF"
+
+EMBEDDED_KEY=/etc/clevis-keyfile/fallback.key
+MNT=/run/clevis-keyfile-usb
+
+# Prints "<pid> <fifo-path>" of the process holding cryptsetup's passfifo.
+find_askpass() {
+    for fd in /proc/[0-9]*/fd/*; do
+        target=$(readlink "$fd" 2>/dev/null) || continue
+        case "$target" in
+            */cryptsetup/passfifo)
+                pid=${fd#/proc/}
+                echo "${pid%%/*} $target"
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+fetch_key() {
+    if [ "$EMBED" = 1 ] && [ -r "$EMBEDDED_KEY" ]; then
+        echo "$EMBEDDED_KEY"
+        return 0
+    fi
+    [ "$USB" = 1 ] || return 1
+    dev="/dev/disk/by-label/$USB_LABEL"
+    [ -e "$dev" ] || return 1
+    if ! grep -q " $MNT " /proc/mounts; then
+        mkdir -p "$MNT"
+        for fstype in vfat exfat ext4; do
+            mount -t "$fstype" -o ro "$dev" "$MNT" 2>/dev/null && break
+        done
+    fi
+    [ -r "$MNT/$USB_FILE" ] || return 1
+    echo "$MNT/$USB_FILE"
+}
+
+keyloop() {
+    if [ "$USB" = 1 ]; then
+        for mod in usb_storage uas sd_mod vfat exfat ext4 nls_cp437 nls_iso8859_1; do
+            modprobe -q "$mod" 2>/dev/null
+        done
+    fi
+
+    served=""
+    while true; do
+        sleep 1
+        askpass=$(find_askpass) || continue
+        pid=${askpass%% *}
+        fifo=${askpass#* }
+        [ "$pid" = "$served" ] && continue
+
+        src=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^CRYPTTAB_SOURCE=//p')
+        [ -b "$src" ] || continue
+
+        key=$(fetch_key) || continue
+        if ! cryptsetup open --test-passphrase --key-file "$key" "$src" >/dev/null 2>&1; then
+            sleep 4
+            continue
+        fi
+
+        # Builtin printf keeps the blocking fifo open inside this subshell, so local-bottom's kill ends it.
+        [ -p "$fifo" ] || continue
+        printf '%s' "$(cat "$key")" > "$fifo" && echo "clevis-keyfile: unlocked $src with fallback keyfile ($key)"
+        served=$pid
+    done
+}
+
+keyloop &
+echo $! > /run/clevis-keyfile.pid

@@ -1,0 +1,32 @@
+#!/bin/sh
+# Managed by Ansible (clevis role)
+#
+# Stops the local-top/clevis-keyfile background loop and unmounts the USB key stick.
+
+PREREQ=""
+
+prereqs() {
+    echo "$PREREQ"
+}
+
+case "$1" in
+    prereqs)
+        prereqs
+        exit 0
+    ;;
+esac
+
+if [ -s /run/clevis-keyfile.pid ]; then
+    pid=$(cat /run/clevis-keyfile.pid)
+    child_pids="$(ps -o pid,ppid 2>/dev/null | awk -v pid="$pid" 'NR > 1 && $2 == pid { print $1 }')"
+    for kill_pid in $pid $child_pids; do
+        kill "$kill_pid" 2>/dev/null
+    done
+    rm -f /run/clevis-keyfile.pid
+fi
+
+if grep -q " /run/clevis-keyfile-usb " /proc/mounts; then
+    umount /run/clevis-keyfile-usb
+fi
+
+exit 0

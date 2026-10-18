@@ -1,0 +1,44 @@
+#!/bin/sh
+# Managed by Ansible (clevis role)
+#
+# Ships the keyfile-fallback config into the initramfs, plus the fallback key
+# itself when EMBED=1 and the USB/filesystem modules when USB=1.
+
+PREREQ=""
+
+prereqs() {
+    echo "$PREREQ"
+}
+
+case "$1" in
+    prereqs)
+        prereqs
+        exit 0
+    ;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+CONF=/etc/clevis-keyfile/keyfile.conf
+[ -r "$CONF" ] || exit 0
+. "$CONF"
+
+mkdir -p "$DESTDIR/etc/clevis-keyfile"
+cp "$CONF" "$DESTDIR/etc/clevis-keyfile/keyfile.conf"
+
+if [ "$EMBED" = 1 ]; then
+    if [ -r "$KEYFILE" ]; then
+        cp "$KEYFILE" "$DESTDIR/etc/clevis-keyfile/fallback.key"
+        chmod 0400 "$DESTDIR/etc/clevis-keyfile/fallback.key"
+    else
+        echo "clevis-keyfile hook: $KEYFILE not readable, NOT embedding fallback key" >&2
+    fi
+fi
+
+if [ "$USB" = 1 ]; then
+    manual_add_modules usb_storage uas sd_mod vfat exfat ext4 nls_cp437 nls_iso8859_1
+fi
+
+copy_exec "$(command -v cryptsetup)" /sbin
+
+exit 0

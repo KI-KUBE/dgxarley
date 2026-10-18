@@ -1,0 +1,6 @@
+# Managed by Ansible (clevis role), sourced by the clevis-keyfile initramfs hook and local-top script
+KEYFILE={{ clevis_keyfile_path | quote }}
+USB={{ 1 if (clevis_keyfile_usb_enabled | bool) else 0 }}
+USB_LABEL={{ clevis_keyfile_usb_label | quote }}
+USB_FILE={{ clevis_keyfile_usb_file | quote }}
+EMBED={{ 1 if (clevis_keyfile_embed_initramfs | bool) else 0 }}

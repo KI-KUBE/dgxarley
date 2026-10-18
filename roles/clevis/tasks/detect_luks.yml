@@ -1,0 +1,41 @@
+---
+# detect_luks.yml
+# Sets clevis_luks_device / clevis_has_luks from /etc/crypttab (or clevis_luks_device_override).
+
+- name: detect LUKS partition from crypttab
+  shell: |
+    set -euo pipefail
+    awk '/luks/ {
+      if ($2 ~ /^UUID=/) {
+        sub(/^UUID=/, "", $2)
+        cmd="blkid -U " $2
+        cmd | getline dev; close(cmd)
+        print dev
+      } else {
+        print $2
+      }
+      exit
+    }' /etc/crypttab
+  args:
+    executable: /bin/bash
+  register: clevis_detected_device
+  changed_when: false
+  check_mode: false
+
+- name: set LUKS device fact
+  set_fact:
+    clevis_luks_device: "{{ clevis_luks_device_override | default(clevis_detected_device.stdout | trim) }}"
+
+- name: set LUKS-available flag
+  set_fact:
+    clevis_has_luks: "{{ clevis_luks_device | length > 0 }}"
+
+- name: warn if no LUKS device detected (skipping clevis bind/config)
+  debug:
+    msg: "WARNING — No LUKS device found in /etc/crypttab. Clevis bind and initramfs config will be skipped. Set clevis_luks_device_override if needed."
+  when: not (clevis_has_luks | bool)
+
+- name: display detected LUKS device
+  debug:
+    msg: "LUKS device: {{ clevis_luks_device }}"
+  when: clevis_has_luks | bool

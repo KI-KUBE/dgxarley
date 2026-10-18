@@ -15,3 +15,16 @@ clevis_sss_threshold: 2
 # roles/clevis/files/initramfs_init-bottom_dhcp-release and
 # scripts/debughelper/mdns_who.py. Set false to skip (and remove) the script.
 clevis_dhcp_release_enabled: true
+
+# Optional LUKS keyfile fallback (tasks/keyfile_fallback.yml, tag clevis_keyfile):
+# an extra keyslot whose key is offered at boot from a USB stick and/or the initramfs.
+# enabled: false only skips install; -e clevis_keyfile_teardown=true removes the keyslot + files.
+clevis_keyfile_enabled: false
+clevis_keyfile_teardown: false
+# Must stay inside /etc/clevis-keyfile (teardown removes that directory).
+clevis_keyfile_path: /etc/clevis-keyfile/fallback.key
+clevis_keyfile_usb_enabled: true
+clevis_keyfile_usb_label: LUKSKEY
+clevis_keyfile_usb_file: luks-fallback.key
+# Embeds the key into the initramfs on unencrypted /boot: initial-boot use only.
+clevis_keyfile_embed_initramfs: false

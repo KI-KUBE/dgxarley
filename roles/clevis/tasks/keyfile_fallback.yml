@@ -1,0 +1,269 @@
+---
+# keyfile_fallback.yml
+# Optional LUKS keyfile fallback next to clevis/tang: an extra LUKS keyslot whose
+# key is offered in the initramfs from a labelled USB stick and/or embedded in
+# the initramfs itself (i.e. lives unencrypted in /boot -- meant for the initial
+# boot only). Unlock order at boot is a race: whichever of tang / keyfile /
+# typed passphrase answers cryptroot's askpass first wins; crypttab is untouched.
+#
+# Independent of the tang servers, so it can run before they exist:
+#   ansible-playbook common.yml --tags clevis_keyfile -e clevis_keyfile_enabled=true
+#
+# Adding the keyslot needs an existing key: clevis_luks_passphrase if valid,
+# else the key recovered from an existing clevis binding (`clevis luks pass`).
+#
+# Teardown (removes the keyslot, the initramfs scripts and shreds the key):
+#   ansible-playbook common.yml --tags clevis_keyfile -e clevis_keyfile_teardown=true
+
+- name: detect LUKS device (keyfile fallback)
+  import_tasks: detect_luks.yml
+  when: >-
+    (clevis_keyfile_enabled | default(false) | bool) or
+    (clevis_keyfile_teardown | default(false) | bool)
+
+- name: "LUKS keyfile fallback: install"
+  when:
+    - clevis_keyfile_enabled | default(false) | bool
+    - not (clevis_keyfile_teardown | default(false) | bool)
+    - clevis_has_luks | bool
+  block:
+    - name: create keyfile directory
+      file:
+        path: /etc/clevis-keyfile
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: generate fallback keyfile (ASCII, no trailing newline; must survive askpass' passfifo)
+      shell: |
+        set -euo pipefail
+        umask 077
+        head -c 48 /dev/urandom | base64 -w0 > {{ clevis_keyfile_path | quote }}
+      args:
+        executable: /bin/bash
+        creates: "{{ clevis_keyfile_path }}"
+      register: clevis_keyfile_generated
+
+    - name: check whether the fallback key already unlocks the LUKS device
+      command: cryptsetup open --test-passphrase --key-file {{ clevis_keyfile_path | quote }} {{ clevis_luks_device | quote }}
+      register: clevis_keyfile_enrolled
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: not ansible_check_mode or not (clevis_keyfile_generated is changed)
+
+    - name: add the fallback key as an extra LUKS keyslot
+      when:
+        - not ansible_check_mode
+        - clevis_keyfile_enrolled.rc | default(1) != 0
+      block:
+        - name: write LUKS passphrase to temporary auth file
+          copy:
+            content: "{{ clevis_luks_passphrase }}"
+            dest: /run/.clevis_keyfile_auth
+            mode: '0600'
+          no_log: true
+          when: clevis_luks_passphrase is defined
+
+        - name: add LUKS keyslot (auth via passphrase, else via existing clevis binding)
+          shell: |
+            set -uo pipefail
+            DEV={{ clevis_luks_device | quote }}
+            NEW={{ clevis_keyfile_path | quote }}
+            AUTH=/run/.clevis_keyfile_auth
+            umask 077
+            if ! { [ -s "$AUTH" ] && cryptsetup open --test-passphrase --key-file "$AUTH" "$DEV" 2>/dev/null; }; then
+              ok=0
+              for slot in $(clevis luks list -d "$DEV" 2>/dev/null | awk -F: '{print $1}'); do
+                if clevis luks pass -d "$DEV" -s "$slot" > "$AUTH" 2>/dev/null \
+                   && cryptsetup open --test-passphrase --key-file "$AUTH" "$DEV" 2>/dev/null; then
+                  ok=1
+                  break
+                fi
+              done
+              if [ "$ok" != 1 ]; then
+                echo "No valid existing key: clevis_luks_passphrase is wrong/unset and no clevis binding could be unlocked." >&2
+                exit 2
+              fi
+            fi
+            cryptsetup luksAddKey --key-file "$AUTH" "$DEV" "$NEW"
+          args:
+            executable: /bin/bash
+          register: clevis_keyfile_added
+
+      always:
+        - name: remove temporary auth file
+          file:
+            path: /run/.clevis_keyfile_auth
+            state: absent
+
+    - name: deploy keyfile fallback config
+      template:
+        src: etc_clevis-keyfile_keyfile.conf.j2
+        dest: /etc/clevis-keyfile/keyfile.conf
+        owner: root
+        group: root
+        mode: '0600'
+      register: clevis_keyfile_conf_changed
+
+    - name: deploy clevis-keyfile initramfs hook
+      copy:
+        src: initramfs_hooks_clevis-keyfile
+        dest: /etc/initramfs-tools/hooks/clevis-keyfile
+        owner: root
+        group: root
+        mode: '0755'
+      register: clevis_keyfile_hook_changed
+
+    - name: deploy clevis-keyfile initramfs local-top script
+      copy:
+        src: initramfs_local-top_clevis-keyfile
+        dest: /etc/initramfs-tools/scripts/local-top/clevis-keyfile
+        owner: root
+        group: root
+        mode: '0755'
+      register: clevis_keyfile_localtop_changed
+
+    - name: deploy clevis-keyfile initramfs local-bottom script
+      copy:
+        src: initramfs_local-bottom_clevis-keyfile
+        dest: /etc/initramfs-tools/scripts/local-bottom/clevis-keyfile
+        owner: root
+        group: root
+        mode: '0755'
+      register: clevis_keyfile_localbottom_changed
+
+    - name: restrict initramfs permissions while the key is embedded
+      copy:
+        content: "# Managed by Ansible (clevis role): initramfs embeds the LUKS fallback key\nUMASK=0077\n"
+        dest: /etc/initramfs-tools/conf.d/clevis-keyfile-umask
+        owner: root
+        group: root
+        mode: '0644'
+      register: clevis_keyfile_umask_deployed
+      when: clevis_keyfile_embed_initramfs | bool
+
+    - name: drop initramfs umask override (key not embedded)
+      file:
+        path: /etc/initramfs-tools/conf.d/clevis-keyfile-umask
+        state: absent
+      register: clevis_keyfile_umask_removed
+      when: not (clevis_keyfile_embed_initramfs | bool)
+
+    - name: deploy clevis_keyfile_write_usb.sh
+      template:
+        src: clevis_keyfile_write_usb.sh.j2
+        dest: /root/clevis_keyfile_write_usb.sh
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: rebuild initramfs for all kernels (keyfile fallback)
+      command: update-initramfs -u -k all
+      when: >-
+        (clevis_keyfile_generated is changed) or
+        (clevis_keyfile_added is changed) or
+        (clevis_keyfile_conf_changed is changed) or
+        (clevis_keyfile_hook_changed is changed) or
+        (clevis_keyfile_localtop_changed is changed) or
+        (clevis_keyfile_localbottom_changed is changed) or
+        (clevis_keyfile_umask_deployed is changed) or
+        (clevis_keyfile_umask_removed is changed)
+
+    - name: verify keyfile fallback in initramfs
+      shell: lsinitramfs /boot/initrd.img-$(uname -r) 2>/dev/null | grep -E 'clevis-keyfile|fallback\.key$' || true
+      register: clevis_keyfile_initramfs_check
+      changed_when: false
+      check_mode: false
+
+    - name: fail if the embedded key is missing from the initramfs
+      fail:
+        msg: "clevis_keyfile_embed_initramfs is true but etc/clevis-keyfile/fallback.key is not in the current initramfs."
+      when:
+        - not ansible_check_mode
+        - clevis_keyfile_embed_initramfs | bool
+        - "'fallback.key' not in clevis_keyfile_initramfs_check.stdout"
+
+    - name: display keyfile fallback status
+      debug:
+        msg:
+          - "initramfs: {{ clevis_keyfile_initramfs_check.stdout_lines | join(', ') }}"
+          - "USB stick: {{ ('label ' + clevis_keyfile_usb_label + ', file /' + clevis_keyfile_usb_file + ' -- write it with: /root/clevis_keyfile_write_usb.sh /dev/sdX1') if (clevis_keyfile_usb_enabled | bool) else 'disabled' }}"
+          - "{{ 'WARNING: key is EMBEDDED in the initramfs (/boot is unencrypted) -- set clevis_keyfile_embed_initramfs=false once tang works' if (clevis_keyfile_embed_initramfs | bool) else 'initramfs embedding: off' }}"
+
+- name: "LUKS keyfile fallback: teardown"
+  when:
+    - clevis_keyfile_teardown | default(false) | bool
+    - clevis_has_luks | bool
+  block:
+    - name: stat fallback keyfile
+      stat:
+        path: "{{ clevis_keyfile_path }}"
+      register: clevis_keyfile_stat
+
+    - name: check whether the fallback key still unlocks the LUKS device
+      command: cryptsetup open --test-passphrase --key-file {{ clevis_keyfile_path | quote }} {{ clevis_luks_device | quote }}
+      register: clevis_keyfile_still_enrolled
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: clevis_keyfile_stat.stat.exists
+
+    - name: count active LUKS keyslots
+      shell: cryptsetup luksDump {{ clevis_luks_device | quote }} | grep -cE '^[[:space:]]+[0-9]+:[[:space:]]+luks2$|^Key Slot [0-9]+:[[:space:]]+ENABLED$'
+      register: clevis_keyfile_slot_count
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: refuse to remove the last LUKS keyslot
+      fail:
+        msg: "The fallback key holds the only remaining LUKS keyslot -- removing it would make the disk unrecoverable."
+      when:
+        - clevis_keyfile_still_enrolled.rc | default(1) == 0
+        - clevis_keyfile_slot_count.stdout | default('0') | int <= 1
+
+    - name: remove the fallback LUKS keyslot
+      command: cryptsetup luksRemoveKey {{ clevis_luks_device | quote }} {{ clevis_keyfile_path | quote }}
+      when: clevis_keyfile_still_enrolled.rc | default(1) == 0
+
+    - name: warn if the keyfile is gone but a keyslot may remain
+      debug:
+        msg: >-
+          WARNING: {{ clevis_keyfile_path }} does not exist, so the fallback keyslot cannot be identified.
+          Check `cryptsetup luksDump {{ clevis_luks_device }}` and remove a leftover slot by hand
+          (cryptsetup luksKillSlot) if you still have the key, e.g. on the USB stick.
+      when: not clevis_keyfile_stat.stat.exists
+
+    - name: remove keyfile fallback initramfs files
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/initramfs-tools/hooks/clevis-keyfile
+        - /etc/initramfs-tools/scripts/local-top/clevis-keyfile
+        - /etc/initramfs-tools/scripts/local-bottom/clevis-keyfile
+        - /etc/initramfs-tools/conf.d/clevis-keyfile-umask
+        - /etc/clevis-keyfile/keyfile.conf
+        - /root/clevis_keyfile_write_usb.sh
+      register: clevis_keyfile_files_removed
+
+    - name: rebuild initramfs for all kernels (keyfile fallback removed)
+      command: update-initramfs -u -k all
+      when: clevis_keyfile_files_removed is changed
+
+    - name: shred fallback keyfile
+      command: shred -u {{ clevis_keyfile_path | quote }}
+      when:
+        - clevis_keyfile_stat.stat.exists
+        - not ansible_check_mode
+
+    - name: remove keyfile directory
+      file:
+        path: /etc/clevis-keyfile
+        state: absent
+
+    - name: display teardown reminder
+      debug:
+        msg: "Keyfile fallback removed. Wipe the key from any USB stick (file /{{ clevis_keyfile_usb_file }}); with the keyslot gone, old copies no longer unlock the disk."
