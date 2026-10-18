@@ -3,6 +3,8 @@
 
 - name: configure clevis/tang NBDE for automatic LUKS decryption
   import_tasks: config_clevis.yml
+  # the play also runs for keyfile-only hosts (no tang): never configure tang there
+  when: wantsclevis | default(false) | bool
   tags:
     - clevis
 

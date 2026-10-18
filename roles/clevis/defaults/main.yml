@@ -28,3 +28,23 @@ clevis_keyfile_usb_label: LUKSKEY
 clevis_keyfile_usb_file: luks-fallback.key
 # Embeds the key into the initramfs on unencrypted /boot: initial-boot use only.
 clevis_keyfile_embed_initramfs: false
+# Third key source: a plain copy of the key on an unencrypted local partition (default: the /boot
+# filesystem next to the initrd; ext4 gives real 0600 perms, unlike the ESP). Security-equivalent to
+# the embedded key (unencrypted /boot) but needs no initrd rebuild when the key changes. The device
+# is derived at run time via `findmnt <mount>` and referenced as UUID=<uuid>.
+clevis_keyfile_boot_enabled: false
+# Mountpoint of the unencrypted partition that holds the key.
+clevis_keyfile_boot_mount: /boot
+# Path of the key relative to that filesystem's root (parent dir is created 0700, file 0600 root:root).
+clevis_keyfile_boot_file: clevis-keyfile/luks-fallback.key
+# Initramfs generator for the keyfile fallback. "" = auto-detect (dracut if the binary exists
+# and the initramfs-tools package is not installed, else initramfs-tools); or force "dracut" /
+# "initramfs-tools". The dracut path edits /etc/crypttab instead of deploying initramfs scripts.
+clevis_initramfs_generator_override: ""
+# dracut/systemd-cryptsetup: crypttab option keyfile-timeout=. How long to wait for the key
+# device (USB stick) before falling back to the passphrase prompt.
+clevis_keyfile_dracut_keyfile_timeout: "10s"
+# Optional existing key file (e.g. /var/log/installer/recovery-key.txt or
+# /etc/cryptsetup-keys.d/<mapper>.key) used for `cryptsetup luksAddKey --key-file` when it
+# unlocks the device; tried before clevis_luks_passphrase / clevis bindings.
+clevis_keyfile_auth_keyfile: ""

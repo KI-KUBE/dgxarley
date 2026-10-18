@@ -1,7 +1,7 @@
 #!/bin/sh
 # Managed by Ansible (clevis role)
 #
-# Stops the local-top/clevis-keyfile background loop and unmounts the USB key stick.
+# Stops the local-top/clevis-keyfile background loop and unmounts the USB key stick and the boot key partition.
 
 PREREQ=""
 
@@ -27,6 +27,10 @@ fi
 
 if grep -q " /run/clevis-keyfile-usb " /proc/mounts; then
     umount /run/clevis-keyfile-usb
+fi
+
+if grep -q " /run/clevis-keyfile-boot " /proc/mounts; then
+    umount /run/clevis-keyfile-boot
 fi
 
 exit 0

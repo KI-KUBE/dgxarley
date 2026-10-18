@@ -1,0 +1,12 @@
+# Managed by Ansible (clevis role, keyfile fallback on dracut)
+{% if clevis_keyfile_usb_enabled | bool %}
+# hostonly dracut would not ship the USB mass storage + key filesystem drivers otherwise
+add_drivers+=" usb_storage uas sd_mod vfat exfat nls_cp437 nls_iso8859_1 "
+{% elif (clevis_keyfile_boot_enabled | default(false) | bool) and (clevis_boot_fstype | default('')) == 'vfat' %}
+# key on a vfat /boot: ship the filesystem + codepage modules (ext4 is already in a hostonly initrd)
+add_drivers+=" vfat nls_cp437 nls_iso8859_1 "
+{% endif %}
+{% if clevis_keyfile_embed_initramfs | bool %}
+# key lives inside the initrd (unencrypted /boot) -- initial boot only
+install_items+=" {{ clevis_keyfile_path }} "
+{% endif %}

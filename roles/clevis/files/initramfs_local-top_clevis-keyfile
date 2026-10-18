@@ -5,8 +5,9 @@
 # passphrase prompt. Like the clevis local-top script it waits in the background
 # for cryptroot's askpass and writes the key into its passfifo, so crypttab
 # stays untouched and the stock prompt keeps working. Key sources: the
-# initramfs-embedded key (EMBED=1) or a USB stick by filesystem label (USB=1,
-# may be plugged in while the prompt is shown). A key is only written after
+# initramfs-embedded key (EMBED=1), a key file on an unencrypted local partition
+# found by UUID (BOOT=1, e.g. /boot), or a USB stick by filesystem label (USB=1, may
+# be plugged in while the prompt is shown), tried in that order. A key is only written after
 # `cryptsetup --test-passphrase` accepted it, so a stale stick never burns one
 # of cryptroot's tries. Killed by local-bottom/clevis-keyfile.
 
@@ -29,6 +30,7 @@ CONF=/etc/clevis-keyfile/keyfile.conf
 
 EMBEDDED_KEY=/etc/clevis-keyfile/fallback.key
 MNT=/run/clevis-keyfile-usb
+BMNT=/run/clevis-keyfile-boot
 
 # Prints "<pid> <fifo-path>" of the process holding cryptsetup's passfifo.
 find_askpass() {
@@ -45,26 +47,54 @@ find_askpass() {
     return 1
 }
 
+# Mounts read-only $1 (device) on $2 unless already mounted there.
+mount_ro() {
+    grep -q " $2 " /proc/mounts && return 0
+    mkdir -p "$2"
+    for fstype in vfat exfat ext4; do
+        mount -t "$fstype" -o ro "$1" "$2" 2>/dev/null && return 0
+    done
+    # ext4 with a dirty journal refuses a plain ro mount
+    mount -t ext4 -o ro,noload "$1" "$2" 2>/dev/null
+}
+
+# Prints the path of the first key (embedded, boot partition, USB) that unlocks $1.
+# Returns 1 if no key file is available at all, 2 if keys exist but none unlocks.
 fetch_key() {
+    found=0
     if [ "$EMBED" = 1 ] && [ -r "$EMBEDDED_KEY" ]; then
-        echo "$EMBEDDED_KEY"
-        return 0
+        found=1
+        if cryptsetup open --test-passphrase --key-file "$EMBEDDED_KEY" "$1" >/dev/null 2>&1; then
+            echo "$EMBEDDED_KEY"
+            return 0
+        fi
     fi
-    [ "$USB" = 1 ] || return 1
-    dev="/dev/disk/by-label/$USB_LABEL"
-    [ -e "$dev" ] || return 1
-    if ! grep -q " $MNT " /proc/mounts; then
-        mkdir -p "$MNT"
-        for fstype in vfat exfat ext4; do
-            mount -t "$fstype" -o ro "$dev" "$MNT" 2>/dev/null && break
-        done
+    if [ "$BOOT" = 1 ]; then
+        dev="/dev/disk/by-uuid/${BOOT_DEV#UUID=}"
+        if [ -e "$dev" ] && mount_ro "$dev" "$BMNT" && [ -r "$BMNT/$BOOT_FILE" ]; then
+            found=1
+            if cryptsetup open --test-passphrase --key-file "$BMNT/$BOOT_FILE" "$1" >/dev/null 2>&1; then
+                echo "$BMNT/$BOOT_FILE"
+                return 0
+            fi
+        fi
     fi
-    [ -r "$MNT/$USB_FILE" ] || return 1
-    echo "$MNT/$USB_FILE"
+    if [ "$USB" = 1 ]; then
+        dev="/dev/disk/by-label/$USB_LABEL"
+        if [ -e "$dev" ] && mount_ro "$dev" "$MNT" && [ -r "$MNT/$USB_FILE" ]; then
+            found=1
+            if cryptsetup open --test-passphrase --key-file "$MNT/$USB_FILE" "$1" >/dev/null 2>&1; then
+                echo "$MNT/$USB_FILE"
+                return 0
+            fi
+        fi
+    fi
+    [ "$found" = 1 ] && return 2
+    return 1
 }
 
 keyloop() {
-    if [ "$USB" = 1 ]; then
+    if [ "$USB" = 1 ] || [ "$BOOT" = 1 ]; then
         for mod in usb_storage uas sd_mod vfat exfat ext4 nls_cp437 nls_iso8859_1; do
             modprobe -q "$mod" 2>/dev/null
         done
@@ -81,11 +111,11 @@ keyloop() {
         src=$(tr '\0' '\n' < "/proc/$pid/environ" 2>/dev/null | sed -n 's/^CRYPTTAB_SOURCE=//p')
         [ -b "$src" ] || continue
 
-        key=$(fetch_key) || continue
-        if ! cryptsetup open --test-passphrase --key-file "$key" "$src" >/dev/null 2>&1; then
-            sleep 4
-            continue
-        fi
+        key=$(fetch_key "$src")
+        rc=$?
+        # stale key(s): back off, the passphrase is memory-hard
+        [ "$rc" = 2 ] && sleep 4
+        [ "$rc" = 0 ] || continue
 
         # Builtin printf keeps the blocking fifo open inside this subshell, so local-bottom's kill ends it.
         [ -p "$fifo" ] || continue

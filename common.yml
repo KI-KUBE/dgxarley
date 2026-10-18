@@ -11,7 +11,11 @@
   gather_facts: true
   roles:
     - role: clevis
-      when: wantsclevis | default(false)
+      # keyfile fallback (tag clevis_keyfile) also runs without wantsclevis; the role gates tang itself
+      when: >-
+        (wantsclevis | default(false)) or
+        (clevis_keyfile_enabled | default(false)) or
+        (clevis_keyfile_teardown | default(false))
 
 - name: NUT UPS monitoring
   hosts: all,!disabled,!switches
