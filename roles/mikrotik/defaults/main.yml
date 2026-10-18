@@ -8,6 +8,19 @@ mikrotik_dhcp_servers: []
 mikrotik_srcnat_rules: []
 mikrotik_fasttrack_enabled: false
 
+# Marker for the comments/lists uplink.yml and wireguard.yml look up their objects by; letters, digits, - and _ only.
+mikrotik_object_prefix: ansible
+mikrotik_uplink_comment: "{{ mikrotik_object_prefix }}-uplink"
+mikrotik_internal_list: "{{ mikrotik_object_prefix }}-internal"
+mikrotik_wireguard_comment: "{{ mikrotik_object_prefix }}-hub"
+
+# Routed uplink into the upstream LAN (tasks/uplink.yml); empty = not managed, the default route
+# then comes from mikrotik_default_gateway (routing.yml). Static mode uses mikrotik_default_gateway too.
+mikrotik_uplink_interface: ""
+mikrotik_uplink_mode: dhcp
+mikrotik_uplink_address: ""
+mikrotik_uplink_use_peer_dns: true
+
 # RoCE/RDMA lossless Ethernet — only active when qsfp_switch: true
 mikrotik_qsfp_roce_ports: []
 mikrotik_qsfp_mtu: 9000
@@ -16,3 +29,16 @@ mikrotik_roce_dscp_data: 26
 mikrotik_roce_dscp_cnp: 48
 mikrotik_roce_traffic_class: 3
 mikrotik_cnp_traffic_class: 6
+
+mikrotik_wireguard_enabled: false
+mikrotik_wireguard_teardown: false
+mikrotik_wireguard_forward_lan: false
+mikrotik_wireguard_interface: "wg-{{ mikrotik_object_prefix }}"
+mikrotik_wireguard_hub_endpoint: ""
+mikrotik_wireguard_hub_public_key: ""
+mikrotik_wireguard_tunnel_address: ""
+mikrotik_wireguard_ops_subnet: ""
+mikrotik_wireguard_keepalive: 25s
+mikrotik_wireguard_input_tcp_ports: [22, 8291]
+# Network CIDRs (not interface addresses); never the uplink VLAN, that is the upstream LAN.
+mikrotik_wireguard_forward_lans: []

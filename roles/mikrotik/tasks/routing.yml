@@ -7,6 +7,7 @@
         do={ /ip/route/add dst-address=0.0.0.0/0 gateway={{ mikrotik_default_gateway }} }
         else={ /ip/route/set [find dst-address=0.0.0.0/0] gateway={{ mikrotik_default_gateway }} }
   changed_when: false
+  when: mikrotik_uplink_interface | length == 0
 
 - name: Ensure DNS servers
   community.routeros.command:

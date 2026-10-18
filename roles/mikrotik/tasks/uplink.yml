@@ -1,0 +1,132 @@
+---
+# Routed uplink into the upstream LAN: the port leaves the bridge, gets its address via DHCP
+# (default route + DNS from the upstream LAN) or statically, traffic to it is masqueraded, nothing from it
+# reaches the device or the internal LAN unless established, and MAC access/discovery stay on the internal side.
+# Objects are found by mikrotik_uplink_comment; a bootstrap that pre-creates them must use the same names.
+- name: Assert uplink parameters
+  ansible.builtin.assert:
+    that:
+      - mikrotik_uplink_mode in ['dhcp', 'static']
+      - mikrotik_uplink_mode == 'dhcp' or (mikrotik_uplink_address | length > 0 and mikrotik_default_gateway | default('') | length > 0)
+      - mikrotik_uplink_interface not in (mikrotik_bridge_ports | map(attribute='interface') | list)
+      - mikrotik_object_prefix is match('^[A-Za-z0-9_-]+$')
+    fail_msg: "uplink: mode must be dhcp or static (static needs mikrotik_uplink_address + mikrotik_default_gateway); the uplink port must not be in mikrotik_bridge_ports; mikrotik_object_prefix allows only letters, digits, - and _"
+    quiet: true
+
+- name: Take the uplink port out of the bridge
+  community.routeros.command:
+    commands:
+      - /interface/bridge/port/remove [find interface={{ mikrotik_uplink_interface }}]
+  changed_when: false
+
+- name: Ensure uplink DHCP client
+  community.routeros.command:
+    commands:
+      - /ip/address/remove [find comment="{{ mikrotik_uplink_comment }} address"]
+      - /ip/route/remove [find comment="{{ mikrotik_uplink_comment }} default"]
+      - >-
+        :if ([:len [/ip/dhcp-client/find interface={{ mikrotik_uplink_interface }}]] = 0)
+        do={ /ip/dhcp-client/add interface={{ mikrotik_uplink_interface }} add-default-route=yes
+        use-peer-dns={{ 'yes' if mikrotik_uplink_use_peer_dns else 'no' }} use-peer-ntp=yes
+        comment="{{ mikrotik_uplink_comment }} dhcp" }
+        else={ /ip/dhcp-client/set [find interface={{ mikrotik_uplink_interface }}] add-default-route=yes
+        use-peer-dns={{ 'yes' if mikrotik_uplink_use_peer_dns else 'no' }} disabled=no
+        comment="{{ mikrotik_uplink_comment }} dhcp" }
+  changed_when: false
+  when: mikrotik_uplink_mode == 'dhcp'
+
+- name: Ensure static uplink address and default route
+  community.routeros.command:
+    commands:
+      - /ip/dhcp-client/remove [find interface={{ mikrotik_uplink_interface }}]
+      - >-
+        :if ([:len [/ip/address/find comment="{{ mikrotik_uplink_comment }} address"]] = 0)
+        do={ /ip/address/add address={{ mikrotik_uplink_address }} interface={{ mikrotik_uplink_interface }}
+        comment="{{ mikrotik_uplink_comment }} address" }
+        else={ /ip/address/set [find comment="{{ mikrotik_uplink_comment }} address"] address={{ mikrotik_uplink_address }}
+        interface={{ mikrotik_uplink_interface }} }
+      - >-
+        :if ([:len [/ip/route/find comment="{{ mikrotik_uplink_comment }} default"]] = 0)
+        do={ /ip/route/add dst-address=0.0.0.0/0 gateway={{ mikrotik_default_gateway }}
+        comment="{{ mikrotik_uplink_comment }} default" }
+        else={ /ip/route/set [find comment="{{ mikrotik_uplink_comment }} default"] gateway={{ mikrotik_default_gateway }} }
+  changed_when: false
+  when: mikrotik_uplink_mode == 'static'
+
+- name: Ensure uplink masquerade
+  community.routeros.command:
+    commands:
+      - >-
+        :if ([:len [/ip/firewall/nat/find comment="{{ mikrotik_uplink_comment }} masquerade"]] = 0)
+        do={ /ip/firewall/nat/add chain=srcnat action=masquerade
+        out-interface={{ mikrotik_uplink_interface }} comment="{{ mikrotik_uplink_comment }} masquerade" }
+        else={ /ip/firewall/nat/set [find comment="{{ mikrotik_uplink_comment }} masquerade"]
+        out-interface={{ mikrotik_uplink_interface }} }
+  changed_when: false
+
+# Each new rule goes on top, so the drops are listed first and end up below the accepts.
+- name: Ensure uplink filter rules
+  community.routeros.command:
+    commands:
+      - >-
+        :if ([:len [/ip/firewall/filter/find comment="{{ item.comment }}"]] = 0)
+        do={ :do { /ip/firewall/filter/add {{ item.rule }}
+        comment="{{ item.comment }}" place-before=0 } on-error={
+        /ip/firewall/filter/add {{ item.rule }}
+        comment="{{ item.comment }}" } }
+        else={ /ip/firewall/filter/set [find comment="{{ item.comment }}"]
+        {{ item.rule }} }
+  loop:
+    - comment: "{{ mikrotik_uplink_comment }} input drop"
+      rule: "chain=input action=drop in-interface={{ mikrotik_uplink_interface }}"
+    - comment: "{{ mikrotik_uplink_comment }} input icmp"
+      rule: "chain=input action=accept protocol=icmp in-interface={{ mikrotik_uplink_interface }}"
+    - comment: "{{ mikrotik_uplink_comment }} input established"
+      rule: >-
+        chain=input action=accept connection-state=established,related,untracked
+        in-interface={{ mikrotik_uplink_interface }}
+    - comment: "{{ mikrotik_uplink_comment }} forward drop"
+      rule: "chain=forward action=drop in-interface={{ mikrotik_uplink_interface }}"
+    - comment: "{{ mikrotik_uplink_comment }} forward established"
+      rule: >-
+        chain=forward action=accept connection-state=established,related
+        in-interface={{ mikrotik_uplink_interface }}
+  loop_control:
+    label: "{{ item.comment }}"
+  changed_when: false
+
+- name: Read uplink rule order
+  community.routeros.command:
+    commands:
+      - ':foreach i in=[/ip/firewall/filter/find chain=input] do={ :put [/ip/firewall/filter/get $i comment] }'
+      - ':foreach i in=[/ip/firewall/filter/find chain=forward] do={ :put [/ip/firewall/filter/get $i comment] }'
+  register: mikrotik_uplink_rule_order
+  changed_when: false
+  check_mode: false
+
+- name: Assert uplink rule order
+  vars:
+    _in: "{{ mikrotik_uplink_rule_order.stdout_lines[0] | map('trim') | list }}"
+    _fwd: "{{ mikrotik_uplink_rule_order.stdout_lines[1] | map('trim') | list }}"
+  ansible.builtin.assert:
+    that:
+      - _in.index('{{ mikrotik_uplink_comment }} input established') < _in.index('{{ mikrotik_uplink_comment }} input drop')
+      - _in.index('{{ mikrotik_uplink_comment }} input icmp') < _in.index('{{ mikrotik_uplink_comment }} input drop')
+      - _fwd.index('{{ mikrotik_uplink_comment }} forward established') < _fwd.index('{{ mikrotik_uplink_comment }} forward drop')
+    fail_msg: "uplink accept rules ended up below their drop rule; move them up on the router"
+
+- name: Restrict MAC access and neighbor discovery to the internal side
+  community.routeros.command:
+    commands:
+      - ':if ([:len [/interface/list/find name="{{ mikrotik_uplink_comment }}"]] = 0) do={ /interface/list/add name="{{ mikrotik_uplink_comment }}" }'
+      - >-
+        :if ([:len [/interface/list/member/find list="{{ mikrotik_uplink_comment }}"]] = 0)
+        do={ /interface/list/member/add list="{{ mikrotik_uplink_comment }}" interface={{ mikrotik_uplink_interface }} }
+        else={ /interface/list/member/set [find list="{{ mikrotik_uplink_comment }}"] interface={{ mikrotik_uplink_interface }} }
+      - >-
+        :if ([:len [/interface/list/find name="{{ mikrotik_internal_list }}"]] = 0)
+        do={ /interface/list/add name="{{ mikrotik_internal_list }}" include=all exclude="{{ mikrotik_uplink_comment }}" }
+      - /tool/mac-server/set allowed-interface-list="{{ mikrotik_internal_list }}"
+      - /tool/mac-server/mac-winbox/set allowed-interface-list="{{ mikrotik_internal_list }}"
+      - /ip/neighbor/discovery-settings/set discover-interface-list="{{ mikrotik_internal_list }}"
+  changed_when: false

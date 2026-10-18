@@ -7,6 +7,9 @@
   tags: [mikrotik_vlans, mikrotik]
 - import_tasks: management.yml
   tags: [mikrotik_mgmt, mikrotik]
+- import_tasks: uplink.yml
+  tags: [mikrotik_uplink, mikrotik]
+  when: mikrotik_uplink_interface | length > 0
 - import_tasks: routing.yml
   tags: [mikrotik_routing, mikrotik]
 - import_tasks: dhcp.yml
@@ -15,5 +18,7 @@
   tags: [mikrotik_nat, mikrotik]
 - import_tasks: firewall.yml
   tags: [mikrotik_firewall, mikrotik]
+- import_tasks: wireguard.yml
+  tags: [mikrotik_wireguard, mikrotik]
 - import_tasks: qsfp_roce.yml
   tags: [mikrotik_roce, mikrotik]
