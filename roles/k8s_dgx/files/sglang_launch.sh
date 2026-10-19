@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+# The MoE runners look up tuned kernel configs under $SGLANG_MOE_CONFIG_DIR/configs and crash on a missing
+# directory (get_moe_configs -> os.listdir -> FileNotFoundError at CUDA-graph capture). A fresh node has
+# none until sglang_tune_moe ran, so make sure the (possibly empty) tree exists; empty = kernel defaults.
+if [ -n "${SGLANG_MOE_CONFIG_DIR:-}" ]; then
+  mkdir -p "${SGLANG_MOE_CONFIG_DIR}/configs"
+fi
+
 # Runtime deps (tini/ping/ip/ethtool/net-tools/curl — used for ARP priming + the
 # QSFP peer-wait) are NOT in the stock upstream sglang image and get apt-installed
 # at boot. Our custom sm121 image bakes them in, so skip the whole apt bootstrap
