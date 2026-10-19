@@ -3,6 +3,7 @@
 n=1 = single-stream tok/s (harness, one request at a time). n>1 = highest `gen throughput` (tok/s) the SGLang engine logged during the level (re-measured 2026-10-12, see "Method" below).
 Slots = SGLang `max_running_requests` after the mamba-cache fit; where it is below n, the rest queues and the cell is the rate at that many running.
 SGLang 0.5.21-sm121, GSM8K via chat API (`sglang-gsm8k`), temperature 0. Bold = best per model and column.
+The first table is the 2026-10-12 state (cluster with 16 NCCL channels, single rail). Current cluster numbers (both rails, 4 NCCL channels, now the role default): "Cluster rerun 2026-10-19" below; the single-node rows are unaffected.
 
 | Model                                 | Setup                | Spec config                                                           | Slots | n=1            | n=4     | n=8     | n=16    | n=32    |
 |---------------------------------------|----------------------|-----------------------------------------------------------------------|------:|---------------:|--------:|--------:|--------:|--------:|
@@ -41,25 +42,44 @@ SGLang 0.5.21-sm121, GSM8K via chat API (`sglang-gsm8k`), temperature 0. Bold = 
 
 ## Cluster rerun 2026-10-19 (dual-rail, 4 NCCL channels)
 
-Same method as 2026-10-12, but NCCL over both QSFP rails and `NCCL_MIN_NCHANNELS`/`NCCL_MAX_NCHANNELS` = 4 (was 16 by default), see `NCCL_DUALRAIL_QSFP_TEST.md`. No power cycle before the run. n=1 = single-stream tok/s of this run (4 questions, Flash-Next 8). In progress; "pending" cells are not measured yet. Last column: n=32 against the 2026-10-12 cell above.
+Same method as 2026-10-12, but NCCL over both QSFP rails and `NCCL_MIN_NCHANNELS`/`NCCL_MAX_NCHANNELS` = 4 (was 16 by default), see `NCCL_DUALRAIL_QSFP_TEST.md`. No power cycle before the run. n=1 = single-stream tok/s of this run (4 questions, Flash-Next 8). Last column: n=32 against the 2026-10-12 cell above. Bold = best per model and column.
 
-| Model                                 | Setup            | Spec config                              | Slots |     n=1 |     n=4 |     n=8 |    n=16 |    n=32 | n=32 vs 10-12 |
-|---------------------------------------|------------------|------------------------------------------|------:|--------:|--------:|--------:|--------:|--------:|--------------:|
-| **Qwen3.8-Flash-Next** (nvidia NVFP4) | 4 nodes, TP4 EP4 | MTP adaptive, bfloat16 SSM (= profile)   |    32 |    83.5 |     254 |     356 |     504 |     762 |         +18 % |
-|                                       | 4 nodes, TP4 EP4 | MTP adaptive, float32 SSM                |       | pending | pending | pending | pending | pending |               |
-|                                       | 4 nodes, TP4 EP4 | MTP 2/1/3 fixed, float32 SSM             |       | pending | pending | pending | pending | pending |               |
-|                                       | 4 nodes, TP4 EP4 | none, float32 SSM                        |       | pending | pending | pending | pending | pending |               |
-| **Qwen3.8-27B** (NVFP4)               | 4 nodes, TP4     | DSpark gamma 7, bfloat16 SSM (= profile) |       | pending | pending | pending | pending | pending |               |
-|                                       | 4 nodes, TP4     | DSpark gamma 7, float32 SSM              |       | pending | pending | pending | pending | pending |               |
-|                                       | 4 nodes, TP4     | DSpark gamma 5, float32 SSM              |       | pending | pending | pending | pending | pending |               |
-|                                       | 4 nodes, TP4     | MTP 3/1/4, float32 SSM                   |       | pending | pending | pending | pending | pending |               |
-|                                       | 4 nodes, TP4     | none, float32 SSM                        |       | pending | pending | pending | pending | pending |               |
-| **Nemotron-3-Super-120B** (NVFP4)     | 4 nodes, TP4 EP4 | MTPv2 4/1/5, bfloat16 SSM (= profile)    |       | pending | pending | pending | pending | pending |               |
-|                                       | 4 nodes, TP4 EP4 | MTPv2 4/1/5, float32 SSM                 |       | pending | pending | pending | pending | pending |               |
-|                                       | 4 nodes, TP4 EP4 | MTPv2 3/1/4, float32 SSM                 |       | pending | pending | pending | pending | pending |               |
-|                                       | 4 nodes, TP4 EP4 | MTPv2 5/1/6, float32 SSM                 |       | pending | pending | pending | pending | pending |               |
+| Model                                 | Setup            | Spec config                              | Slots |       n=1 |     n=4 |     n=8 |    n=16 |     n=32 | n=32 vs 10-12 |
+|---------------------------------------|------------------|------------------------------------------|------:|----------:|--------:|--------:|--------:|---------:|--------------:|
+| **Qwen3.8-Flash-Next** (nvidia NVFP4) | 4 nodes, TP4 EP4 | MTP adaptive, bfloat16 SSM (= profile)   |    32 |  **83.5** | **254** | **356** | **504** |  **762** |         +18 % |
+|                                       | 4 nodes, TP4 EP4 | MTP adaptive, float32 SSM                |    16 |      77.7 |     235 |     335 |     434 |      494 |         +25 % |
+|                                       | 4 nodes, TP4 EP4 | MTP 2/1/3 fixed, float32 SSM             |    16 |      71.6 |     217 |     312 |     438 |      436 |         +17 % |
+|                                       | 4 nodes, TP4 EP4 | none, float32 SSM                        |    16 |      35.9 |     126 |     207 |     339 |      336 |          -5 % |
+| **Qwen3.8-27B** (NVFP4)               | 4 nodes, TP4     | DSpark gamma 7, bfloat16 SSM (= profile) |    32 | **117.4** | **366** | **576** | **791** | **1109** |        +115 % |
+|                                       | 4 nodes, TP4     | DSpark gamma 7, float32 SSM              |    32 |     111.0 |     326 |     527 |     668 |      846 |         +68 % |
+|                                       | 4 nodes, TP4     | DSpark gamma 5, float32 SSM              |    32 |      99.5 |     308 |     518 |     650 |      886 |        +103 % |
+|                                       | 4 nodes, TP4     | MTP 3/1/4, float32 SSM                   |    32 |      72.7 |     257 |     423 |     610 |      869 |        +118 % |
+|                                       | 4 nodes, TP4     | none, float32 SSM                        |    32 |      37.3 |     133 |     245 |     408 |      685 |         +23 % |
+| **Nemotron-3-Super-120B** (NVFP4)     | 4 nodes, TP4 EP4 | MTPv2 4/1/5, bfloat16 SSM (= profile)    |    32 |      83.8 |     202 | **307** | **482** |  **704** |         +45 % |
+|                                       | 4 nodes, TP4 EP4 | MTPv2 4/1/5, float32 SSM                 |    32 |  **84.5** |     201 |     290 |     421 |      613 |         +42 % |
+|                                       | 4 nodes, TP4 EP4 | MTPv2 3/1/4, float32 SSM                 |    32 |      79.2 |     199 |     278 |     395 |      581 |         +41 % |
+|                                       | 4 nodes, TP4 EP4 | MTPv2 5/1/6, float32 SSM                 |    32 |  **84.5** | **205** |     304 |     444 |      599 |         +48 % |
 
 Flash-Next profile n=4 to n=32: run of 2026-10-19 03:09-03:21 UTC (`NCCL_DUALRAIL_QSFP_TEST.md`).
+
+Observations:
+
+- 27B against 2026-10-12, n=4 / 8 / 16 / 32: profile (DSpark g7, bfloat16 SSM) +25 / +89 / +140 / +115 % (n=32 1109 tok/s), g7 float32 +24 / +71 / +93 / +68 %, g5 +14 / +56 / +101 / +103 %, MTP 3/1/4 +18 / +23 / +66 / +118 %, none +3 / +4 / +7 / +23 %. Engine settings are identical to 2026-10-12, only the NCCL channels and the second rail changed; the speculative gains are far above the ~15 % day-to-day noise.
+- The gain depends on speculation: without it the 27B moves by +3 to +7 % up to n=16 and +23 % at n=32, with it by up to x2.4. A verify step sends several tokens per request through each all-reduce, so the messages are larger and presumably land in the range where the 16-channel default degrades (from 256 KB up in the microbenchmark; message sizes not measured).
+- 27B speculation now pays at every level on TP4. Profile over none: x3.1 at n=1, x2.75 at n=4, x2.35 at n=8, x1.94 at n=16, x1.62 at n=32 (2026-10-12: from n=16 on the control was faster, n=32 559 vs 504-517).
+- 27B ranking on TP4 from n=4 to n=16: profile > g7 float32 ≈ g5 > MTP 3/1/4 > none (n=16 791 > 668 / 650 > 610 > 408). At n=32 the profile leads (1109), g5, MTP and g7 float32 are within noise of each other (886 / 869 / 846), none is last (685).
+- 27B bfloat16 vs float32 SSM on TP4 (DSpark g7): +12 % n=4, +9 % n=8, +18 % n=16, +31 % n=32 (2026-10-12: -5 to +11 %).
+- 27B 1 node vs 4 nodes (DSpark g7, bfloat16 SSM both sides) now: x2.6 at n=1 (44.5 -> 117.4), x1.95 at n=4 (188 -> 366), x1.9 at n=8 (305 -> 576), x1.9 at n=16 (424 -> 791), x2.0 at n=32 (553 -> 1109). The 2026-10-12 finding "from n=8 on one Spark is as fast as four or faster" no longer holds; the cluster is about twice as fast at every level. Without speculation the factor is x2.96 at n=1 to x2.67 at n=32 (12.6 -> 37.3, 257 -> 685).
+- Flash-Next: the profile is +10 % at n=1 and +18 % at n=32; the three 16-slot configs stay within ±15 % of 2026-10-12 except n=32 for MTP adaptive (+25 %, 494 vs 396) and MTP 2/1/3 (+17 %, 436 vs 372). Why Flash-Next (MoE, EP4) profits less is not measured.
+- Nemotron against 2026-10-12, n=4 / 8 / 16 / 32: profile (MTPv2 4/1/5, bfloat16 SSM) -4 / +7 / +35 / +45 % (n=32 704 vs 485), 4/1/5 float32 +4 / +15 / +29 / +42 % (613 vs 432), 3/1/4 float32 +2 / +9 / +11 / +41 % (581 vs 412), 5/1/6 float32 +7 / +14 / +48 / +48 % (599 vs 404); n=1 +2 % for the two 4/1/5 configs, 3/1/4 79.2 vs 70.3 in the table above (77.9 in the testlog sweep of 2026-10-08, +2 %). Same pattern as the 27B: no change up to n=8, a clear gain from n=16 on.
+- Nemotron ranking at n=32 unchanged: profile 704 > 4/1/5 float32 613 > 5/1/6 float32 599 ≈ 3/1/4 float32 581 (2026-10-12: 485 > 432 > 412 ≈ 404); the float32 configs are within noise of each other.
+- Nemotron bfloat16 vs float32 SSM on TP4 (4/1/5): 0 % n=4, +6 % n=8, +14 % n=16, +15 % n=32 (2026-10-12: +9 to +13 %), so the profile choice is unchanged.
+- Nemotron 1 node vs 4 nodes (MTPv2 4/1/5, bfloat16 SSM both sides) now: x2.6 at n=1 (32.2 -> 83.8), x2.5 at n=4 (81 -> 202), x2.6 at n=8 (119 -> 307), x2.7 at n=16 (178 -> 482), x3.0 at n=32 (236 -> 704); on 2026-10-12 the factor fell to x2.0-2.1 at n=16/32.
+- 4 nodes at n=32, profiles: 27B 1109 > Flash-Next 762 > Nemotron 704 (2026-10-12: Flash-Next 646 > 27B 559 (none) > Nemotron 485).
+- Flash-Next 1 node vs 4 nodes (MTP, best per side) now: x2.4 at n=1 (34.2 -> 83.5), x2.6 at n=4 (98 -> 254), x2.3 at n=8 (158 -> 356), x2.0 at n=16 (246 -> 504), x2.7 at n=32 (285 -> 762).
+- 4 nodes, ranking (best config per model): the 27B leads at every level. n=1 27B (117) > Nemotron (85) ≈ Flash-Next (84); n=4 27B (366) > Flash-Next (254) > Nemotron (205); n=8 27B (576) > Flash-Next (356) > Nemotron (307); n=16 27B (791) > Flash-Next (504) ≈ Nemotron (482); n=32 27B (1109) > Flash-Next (762) ≈ Nemotron (704). On 2026-10-12 Flash-Next led from n=16 on.
+- Checks: head-log POSTs = questions in every level, 0 decode batches with `cuda graph: False`, `#running-req` reached n or the slot count in every level, engine settings checked in `server_args` per config. GSM8K at n=32 120-125/128 (27B, Nemotron) and 249-253/256 (Flash-Next), at most 4 truncations at 8192 tokens per level; no accuracy change against 2026-10-12 is visible at these counts.
+- No power cycle before this run, unlike 2026-10-12; the ~15 % day-to-day noise applies to every comparison with the table above. Per-config details (bench windows, accept len): last section of each 4n testlog (Nemotron: Run 9).
 
 ## Method (2026-10-12)
 
@@ -72,6 +92,7 @@ Flash-Next profile n=4 to n=32: run of 2026-10-19 03:09-03:21 UTC (`NCCL_DUALRAI
 
 ## Observations
 
+- All cluster statements in this section are from 2026-10-12 with 16 NCCL channels and one rail; with 4 channels see "Cluster rerun 2026-10-19" above, where several of them no longer hold (27B 1 node vs 4 nodes, 27B speculation vs control, the 4-node ranking).
 - 27B 1 node vs 4 nodes (DSpark gamma 7, bfloat16 SSM both sides): x2.2 at n=1 (44.5 -> 96.0), x1.55 at n=4 (188 -> 292), x1.0 at n=8 (305 -> 304), x0.78 at n=16 (424 -> 330), x0.93 at n=32 (553 -> 517). From n=8 on one Spark with bfloat16 SSM is as fast as four or faster. bfloat16 SSM on the single node: +23 % n=4, +25 % n=8, +29 % n=16, +72 % n=32 over float32 (15 slots); on TP4 -5 to +11 %.
 - 27B on 4 nodes: speculation pays only up to n=8 (gamma 7 over the control x2.0-2.3 at n=4, x1.3 at n=8); from n=16 on the control is faster (381 vs 330-346 at n=16, 559 vs 504-517 at n=32). MTP 3/1/4 is the slowest speculative config at n=32 (399).
 - Flash-Next 1 node vs 4 nodes (MTP, best per side): x2.2 at n=1 (34.2 -> 75.8), x2.4 at n=4 (98 -> 231), x2.1 at n=8 (158 -> 331), x1.9 at n=16 (246 -> 476), x2.3 at n=32 (285 -> 646). On the single node float32 caps MTP at 9-11 slots and MTP falls below no-MTP from n=16 on (147-167 vs 169-201); bfloat16 SSM lifts n=32 to 230-285. On TP4 the profile (bfloat16, 32 slots) leads from n=16 on (476 vs 351-430, n=32 646 vs 354-396); the float32 configs run 16 slots and stop scaling at n=16.
@@ -81,6 +102,8 @@ Flash-Next profile n=4 to n=32: run of 2026-10-19 03:09-03:21 UTC (`NCCL_DUALRAI
 - Day-to-day: against the 2026-10-11 engine logs (before the power cycle) most cluster configs moved by less than 15 % at n=32, but the Flash-Next profile went from 435 to 646 and 27B MTP 3/1/4 from 474 to 399. Cause not investigated. Differences below about 15 % between configs are not a ranking.
 
 ## Sources
+
+The 4n testlogs carry the 2026-10-12 rerun and, in their last section, the 2026-10-19 rerun; NCCL background in `NCCL_DUALRAIL_QSFP_TEST.md`.
 
 - `TESTLOGS/standalone_nn1_tp1/qwen-3.8-27b-nvfp4-modelopt/TESTLOG_nv580.178.04_sglang-0.5.21-sm121_qwen-3.8-27b-nvfp4-modelopt_1n.md`
 - `TESTLOGS/standalone_nn1_tp1/qwen-3.8-flash-next-nvfp4/TESTLOG_nv580.178.04_sglang-0.5.21-sm121_qwen-3.8-flash-next-nvfp4_1n.md`
