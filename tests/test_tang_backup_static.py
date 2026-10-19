@@ -51,6 +51,7 @@ def test_import_is_tagged() -> None:
 def test_defaults() -> None:
     d = yaml.safe_load((ROLE / "defaults" / "main.yml").read_text())
     assert d["tang_backup_enabled"] is True
+    assert d["tang_backup_teardown"] is False
     assert d["tang_backup_schedule"] != "*-*-* 02:30:00"
     assert d["tang_backup_script"] == "/usr/local/sbin/tang-backup.sh"
     assert d["tang_backup_rc_bin"] == "/usr/local/bin/rc"
@@ -60,8 +61,10 @@ def test_defaults() -> None:
 def test_gate_and_cleanup_blocks() -> None:
     tasks = yaml.safe_load((ROLE / "tasks" / "backup.yml").read_text())
     install, remove = tasks
-    assert install["when"] == "tang_backup_enabled | default(true) | bool"
-    assert remove["when"] == "not (tang_backup_enabled | default(true) | bool)"
+    assert install["when"] == (
+        "(tang_backup_enabled | default(true) | bool) and not (tang_backup_teardown | default(false) | bool)"
+    )
+    assert remove["when"] == "tang_backup_teardown | default(false) | bool"
     text = (ROLE / "tasks" / "backup.yml").read_text()
     assert "ansible_check_mode" in text
     assert "state: absent" in text
@@ -111,3 +114,4 @@ def test_readme_documents_backup() -> None:
     text = (ROLE / "README.md").read_text()
     assert "## Backup" in text
     assert "tang_backup_enabled" in text
+    assert "-e tang_backup_teardown=true" in text

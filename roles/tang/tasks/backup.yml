@@ -1,8 +1,9 @@
 ---
 # file: roles/tang/tasks/backup.yml
 
+# enabled: false only skips the install; removal is the opt-in -e tang_backup_teardown=true.
 - name: Install the tang key backup
-  when: tang_backup_enabled | default(true) | bool
+  when: (tang_backup_enabled | default(true) | bool) and not (tang_backup_teardown | default(false) | bool)
   block:
     - name: Check the rc binary and config exist
       ansible.builtin.stat:
@@ -19,7 +20,7 @@
         that: _tang_backup_rc.results | rejectattr('stat.exists') | list | length == 0
         fail_msg: >-
           {{ tang_backup_rc_bin }} or {{ tang_backup_rc_config_dir }} missing on {{ inventory_hostname }}.
-          Run k3sserver.yml --tags rustfs_client first, or set tang_backup_enabled=false.
+          Run k3sserver.yml --tags rustfs_client first, or set tang_backup_enabled: false.
         success_msg: "rc present"
       when: not ansible_check_mode
 
@@ -60,7 +61,7 @@
         daemon_reload: true
 
 - name: Remove the tang key backup
-  when: not (tang_backup_enabled | default(true) | bool)
+  when: tang_backup_teardown | default(false) | bool
   block:
     - name: Stop and disable the tang backup timer
       ansible.builtin.systemd:

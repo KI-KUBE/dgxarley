@@ -16,6 +16,8 @@ tang_quadlet_dir: /etc/containers/systemd
 tang_container_log_driver: passthrough
 
 tang_backup_enabled: true
+# Opt-in: stop the timer and remove script + units (bucket objects are kept).
+tang_backup_teardown: false
 tang_backup_schedule: "*-*-* 02:45:00"
 tang_backup_random_delay: 15min
 tang_backup_script: /usr/local/sbin/tang-backup.sh
