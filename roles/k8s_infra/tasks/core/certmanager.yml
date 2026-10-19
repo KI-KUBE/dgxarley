@@ -128,9 +128,14 @@
   when:
     - cmtclout is defined
 
+# right after the apply the webhook pod needs a moment before the API answers ("no endpoints available for
+# service cert-manager-webhook"), so poll instead of failing on the first try
 - name: check if api accessible
   shell: "cmctl check api"
   register: cmctl
+  until: cmctl.rc == 0
+  retries: 30
+  delay: 5
 
 - name: debug
   debug:
