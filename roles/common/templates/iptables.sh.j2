@@ -70,6 +70,14 @@ iptables -A HTSTUFFIN -s {{ qsfp_network }} -j RETURN
 iptables -A HTSTUFFIN -s {{ qsfp_vf_network }} -j RETURN
 {% endif %}
 
+{% if qsfp_dualrail_enabled | default(false) | bool %}
+# QSFP rail 2 (second PCIe x4 link to the same cage, own /24s: third octet + qsfp_rail2_octet3_offset)
+{% for _net in [qsfp_network | default(''), qsfp_vf_network | default('')] if _net %}
+{% set _o = _net.split('/')[0].split('.') %}
+iptables -A HTSTUFFIN -s {{ _o[0] }}.{{ _o[1] }}.{{ _o[2] | int + qsfp_rail2_octet3_offset | default(1) | int }}.{{ _o[3] | int }}/{{ _net.split('/')[1] }} -j RETURN
+{% endfor %}
+{% endif %}
+
 {% if juicefs_enabled | default(false) | bool and inventory_hostname == juicefs_primary_node | default('')
    and (juicefs_mount_master | default(false) | bool
         or hostvars[juicefs_primary_node | default('')].qsfp_ip is not defined) %}
@@ -185,6 +193,17 @@ iptables -A HTSTUFFIN -p udp --dport 55660 -j RETURN
 iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 80,443 -j RETURN
 {% endif %}
 
+{% if ops_wireguard_enabled | default(false) | bool %}
+{# role defaults of ops_wireguard are NOT loaded in the common play: every default below must match roles/ops_wireguard/defaults/main.yml #}
+{% set kwg_if = ops_wireguard_interface | default('ops-wg') %}
+{% set kwg_ops = ops_wireguard_ops_subnet | mandatory %}
+# Ops WireGuard tunnel (roles/ops_wireguard, outbound to the Ops hub):
+# the ops subnet may reach this box (ssh, 6443, ...) through the tunnel interface only.
+# ACCEPT (not RETURN): trusted subnet, no later HTSTUFFIN rule may veto it. Return traffic of
+# connections WE open towards ops is covered by the ESTABLISHED,RELATED rules further down.
+iptables -A HTSTUFFIN -i {{ kwg_if }} -s {{ kwg_ops }} -j ACCEPT
+
+{% endif %}
 # iptables -A HTSTUFFIN -i docker0 -j RETURN
 
 # LIFELINE:
@@ -370,6 +389,33 @@ iptables -A HTSTUFFOUT -m limit --limit 10/min -j LOG --log-prefix "IPTABLES_REJ
 iptables -A HTSTUFFOUT -j DROP
 
 
+{% if ops_wireguard_enabled | default(false) | bool and ops_wireguard_forward_lan | default(false) | bool %}
+{% set kwg_if = ops_wireguard_interface | default('ops-wg') %}
+{% set kwg_ops = ops_wireguard_ops_subnet | mandatory %}
+# Ops WireGuard tunnel: let the ops subnet reach the LANs behind this box
+# (same behaviour as the former wg-forward.sh of the initial setup script). Own chains, flushed and
+# rebuilt on every run, jumped to first so k3s/kube-proxy FORWARD rules cannot shadow them.
+iptables -N HTOPSWG 2>/dev/null || true
+iptables -F HTOPSWG
+iptables -D FORWARD -j HTOPSWG 2>/dev/null || true
+iptables -I FORWARD 1 -j HTOPSWG
+{% for lan in ops_wireguard_forward_lans | default([]) %}
+iptables -A HTOPSWG -i {{ kwg_if }} -s {{ kwg_ops }} -d {{ lan }} -j ACCEPT
+{% endfor %}
+iptables -A HTOPSWG -o {{ kwg_if }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+{% if ops_wireguard_forward_masquerade | default(true) | bool %}
+
+# masquerade: LAN hosts answer to this box, no route to the ops subnet needed on them
+iptables -t nat -N HTOPSWGNAT 2>/dev/null || true
+iptables -t nat -F HTOPSWGNAT
+iptables -t nat -D POSTROUTING -j HTOPSWGNAT 2>/dev/null || true
+iptables -t nat -I POSTROUTING 1 -j HTOPSWGNAT
+{% for lan in ops_wireguard_forward_lans | default([]) %}
+iptables -t nat -A HTOPSWGNAT -s {{ kwg_ops }} -d {{ lan }} ! -o {{ kwg_if }} -j MASQUERADE
+{% endfor %}
+{% endif %}
+
+{% endif %}
 # iptables -A FORWARD -j blocklists
 # iptables -A FORWARD -m set --match-set geoblocklist src -j DROP
 

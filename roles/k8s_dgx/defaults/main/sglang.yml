@@ -469,8 +469,12 @@ sglang_nccl_transport: "{{ _sglang_nccl_transport_requested if (_sglang_nccl_tra
 # NCCL env vars derived from transport mode. Merged into the SGLang ConfigMap.
 # roce: RDMA/RoCE via HPC-X IBext plugin, GPU Direct DMABUF over SR-IOV VFs.
 # socket: TCP/IP over QSFP. Safe fallback, no RoCE/IB dependencies.
+# Dual-rail: the rail-1 AND rail-2 VF of the instance's VF index (net1 + net2 in the pod), see
+# _qsfp_sriov_ib_hca in defaults/main/qsfp.yml. Leading "=" = exact device names.
 _sglang_nccl_env_roce:
-  NCCL_IB_HCA: "roce{{ qsfp_sriov_vf_prefix | regex_replace('^en', '') }}v{{ qsfp_sriov_assignments[_sglang_active_sriov_key].vf }}"
+  NCCL_IB_HCA: >-
+    ={{ _qsfp_rdma_vf_prefix }}{{ qsfp_sriov_assignments[_sglang_active_sriov_key].vf }}
+    {%- if qsfp_dualrail_enabled | default(false) | bool %},{{ _qsfp_rdma_vf2_prefix }}{{ qsfp_sriov_assignments[_sglang_active_sriov_key].vf }}{% endif %}
   NCCL_IB_GID_INDEX: "3"
   NCCL_IB_MERGE_NICS: "0"
 _sglang_nccl_env_socket:
