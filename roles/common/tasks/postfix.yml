@@ -1,4 +1,13 @@
 ---
+# Ubuntu's postfix copies /etc/hosts into the smtp client's chroot only at (re)start, hence the notify.
+- name: ensure postfix relay alias in /etc/hosts
+  lineinfile:
+    path: /etc/hosts
+    regexp: '^\S+\s+{{ postfix_relay_alias }}(\s|$)'
+    line: "{{ postfix_relay_alias_ip }} {{ postfix_relay_alias }}"
+    state: "{{ 'present' if postfix_relay_alias_ip | length > 0 else 'absent' }}"
+  notify: restart postfix
+
 - name: copy postfix main config
   template:
     src: etc_postfix_main.cf.j2
@@ -8,7 +17,7 @@
     mode: '0644'
   notify: restart postfix
 
-- name: copy postfix main config
+- name: write /etc/mailname
   copy:
     content: "{{ mailname }}"
     dest: "/etc/mailname"
