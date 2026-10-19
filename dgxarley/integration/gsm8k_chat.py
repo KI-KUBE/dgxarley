@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import asyncio
+import concurrent.futures
 import json
 import math
 import re
@@ -204,6 +205,10 @@ async def run(args: argparse.Namespace) -> None:
             out.write(json.dumps(rec) + "\n")
             out.flush()
 
+    # Default executor is min(32, cpu_count + 4) threads and would silently cap in-flight requests.
+    asyncio.get_running_loop().set_default_executor(
+        concurrent.futures.ThreadPoolExecutor(max_workers=args.concurrency + 2, thread_name_prefix="gsm8k")
+    )
     workers = [asyncio.create_task(worker()) for _ in range(args.concurrency)]
     _done, pending = await asyncio.wait(workers, timeout=hard_stop - time.time())
     for task in pending:
