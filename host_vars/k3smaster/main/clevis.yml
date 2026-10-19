@@ -1,3 +1,5 @@
 ---
 # Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
 clevis_luks_passphrase: "changeme"
+clevis_keyfile_enabled: true
+clevis_keyfile_boot_enabled: true

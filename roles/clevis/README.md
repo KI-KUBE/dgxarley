@@ -29,6 +29,12 @@ ansible-playbook common.yml --tags clevis --check --diff
 8. Deploys helper scripts to `/root/`: `setup_clevis_tang.sh` (templatized rebind script) and `tang_check_connection.sh` (verification)
 9. Verifies clevis hooks and network driver are present in the built initramfs
 
+**Drift re-bind:** a host whose sss binding does not match `clevis_tang_servers` + `clevis_sss_threshold` (order-insensitive) gets a new slot bound; the role then test-unlocks the device through that slot (`clevis luks pass | cryptsetup open --test-passphrase`) and only then unbinds the stale tang slots (`tasks/parse_bindings.yml`). Binding needs `clevis_luks_passphrase`.
+
+**Tang teardown (`clevis_tang_teardown`, opt-in):** `ansible-playbook common.yml --tags clevis --limit <host> -e clevis_tang_teardown=true` unbinds every tang slot on a host that will not bind again (`wantsclevis: false` or an empty `clevis_tang_servers`, asserted), after the keyfile fallback ran, and refuses if no other keyslot would remain. Used for the only tang server of the cluster, which cannot unlock through its own keys.
+
+**Tang server list:** `clevis_tang_servers` is derived from the inventory in `group_vars/all/main/common.yml`: every enabled host with `providestang` except the client itself, `clevis_sss_threshold: 1`. An empty list skips the binding (debug message), the host then relies on the keyfile fallback.
+
 The existing LUKS passphrase remains valid as fallback. If tang servers are unreachable at boot, the normal password prompt appears.
 
 ## Keyfile Fallback (optional, tag `clevis_keyfile`)

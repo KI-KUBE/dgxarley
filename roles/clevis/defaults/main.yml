@@ -6,6 +6,8 @@ clevis_tang_servers:
   - "http://tang.example.com"
   - "http://tang2.example.com:9090"
 clevis_sss_threshold: 2
+# Opt-in: unbind every tang slot on a host with wantsclevis: false (tasks/tang_teardown.yml).
+clevis_tang_teardown: false
 
 # Release the clevis/tang boot-time DHCP lease at the end of initramfs
 # (init-bottom) so the upstream DHCP server (e.g. Fritzbox) drops it and stops

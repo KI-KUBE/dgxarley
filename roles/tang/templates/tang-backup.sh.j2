@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+set -euo pipefail
+
+RC={{ tang_backup_rc_bin | quote }}
+RC_CONFIG_DIR={{ tang_backup_rc_config_dir | quote }}
+SRC={{ tang_data_dir | quote }}
+DEST={{ rustfs_rc_alias | quote }}/{{ rustfs_rc_backup_bucket | quote }}/tang/{{ inventory_hostname | quote }}
+
+[ -x "${RC}" ] || { echo "rc binary missing: ${RC}" >&2; exit 1; }
+[ -d "${RC_CONFIG_DIR}" ] || { echo "rc config dir missing: ${RC_CONFIG_DIR}" >&2; exit 1; }
+[ -d "${SRC}" ] || { echo "tang data dir missing: ${SRC}" >&2; exit 1; }
+
+shopt -s nullglob
+set -- "${SRC}"/*.jwk
+total=$#
+[ "${total}" -gt 0 ] || { echo "no *.jwk in ${SRC}, refusing to report success" >&2; exit 1; }
+
+existing="$("${RC}" ls "${DEST}/" 2>/dev/null || true)"
+
+uploaded=0
+skipped=0
+for key in "$@"; do
+  name="$(basename "${key}")"
+  if grep -qF -- "${name}" <<<"${existing}"; then
+    skipped=$((skipped + 1))
+    continue
+  fi
+  "${RC}" cp -q "${key}" "${DEST}/${name}"
+  uploaded=$((uploaded + 1))
+done
+
+echo "tang-backup: ${uploaded} uploaded, ${skipped} already present (${total} keys) -> ${DEST}/"

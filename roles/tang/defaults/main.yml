@@ -1,0 +1,24 @@
+---
+# file: roles/tang/defaults/main.yml
+# Tang NBDE server as a rootful Podman Quadlet unit, on hosts with `providestang: true`.
+# Clients: every host with `wantsclevis: true` (clevis_tang_servers in group_vars/all).
+
+tang_image: "docker.io/xomoxcc/tang:latest"
+tang_data_dir: /var/lib/tang
+tang_port: 9090
+
+# _tang inside the image; rootful podman without a user namespace maps these 1:1 onto the host.
+tang_data_uid: "100"
+tang_data_gid: "101"
+
+tang_quadlet_dir: /etc/containers/systemd
+# The static podman bundle has no libsystemd, so the journald log driver does not exist.
+tang_container_log_driver: passthrough
+
+tang_backup_enabled: true
+tang_backup_schedule: "*-*-* 02:45:00"
+tang_backup_random_delay: 15min
+tang_backup_script: /usr/local/sbin/tang-backup.sh
+tang_backup_systemd_dir: /etc/systemd/system
+tang_backup_rc_bin: /usr/local/bin/rc
+tang_backup_rc_config_dir: /root/.config/rc

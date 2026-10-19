@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Daily tang key backup to RustFS
+
+[Timer]
+OnCalendar={{ tang_backup_schedule }}
+RandomizedDelaySec={{ tang_backup_random_delay }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

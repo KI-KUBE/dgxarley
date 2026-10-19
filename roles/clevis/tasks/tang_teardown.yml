@@ -1,0 +1,63 @@
+---
+# tang_teardown.yml
+# Opt-in removal of every clevis slot carrying a tang pin, for a host that leaves tang
+# (wantsclevis: false, or no other providestang host, e.g. the only tang server itself):
+#   ansible-playbook common.yml --tags clevis --limit <host> -e clevis_tang_teardown=true
+# The LUKS passphrase and the keyfile-fallback slot are not touched.
+
+- name: refuse tang teardown while the next run would bind again
+  assert:
+    that:
+      - not (wantsclevis | default(false) | bool) or clevis_tang_servers | length == 0
+    fail_msg: >-
+      {{ inventory_hostname }} would re-bind to {{ clevis_tang_servers }} on the next run;
+      set wantsclevis: false first.
+
+- name: detect LUKS device (tang teardown)
+  import_tasks: detect_luks.yml
+
+- name: tang teardown
+  when: clevis_has_luks | bool
+  block:
+    - name: list clevis bindings (tang teardown)
+      command: clevis luks list -d {{ clevis_luks_device | quote }}
+      register: _clevis_td_list
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: collect tang slots
+      set_fact:
+        _clevis_td_slots: >-
+          {%- set out = [] -%}
+          {%- for l in _clevis_td_list.stdout_lines | default([]) -%}
+          {%- set m = l | regex_search("^([0-9]+): (sss|tang) '(.*)'$", '\\1', '\\2', '\\3') -%}
+          {%- if m and (m[1] == 'tang' or 'tang' in (m[2] | from_json).pins) -%}
+          {%- set _ = out.append(m[0] | int) -%}
+          {%- endif -%}
+          {%- endfor -%}
+          {{ out }}
+
+    - name: count LUKS keyslots
+      shell: cryptsetup luksDump {{ clevis_luks_device | quote }} | grep -cE '^\s+[0-9]+:\s+luks2'
+      register: _clevis_td_keyslots
+      changed_when: false
+      check_mode: false
+
+    - name: assert a non-tang keyslot survives the teardown
+      assert:
+        that:
+          - _clevis_td_keyslots.stdout | int > _clevis_td_slots | length
+        fail_msg: "Refusing: removing slots {{ _clevis_td_slots }} would leave no keyslot on {{ clevis_luks_device }}."
+
+    - name: warn if no automatic unlock path remains
+      debug:
+        msg: >-
+          WARNING: {{ inventory_hostname }} has no keyfile fallback enabled; after the tang teardown
+          every boot waits for the console passphrase.
+      when: not (clevis_keyfile_enabled | default(false) | bool)
+
+    - name: unbind clevis/tang slots
+      command: clevis luks unbind -f -d {{ clevis_luks_device | quote }} -s {{ item }}
+      loop: "{{ _clevis_td_slots }}"
+      when: not ansible_check_mode

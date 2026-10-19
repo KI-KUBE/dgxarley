@@ -34,9 +34,17 @@ iptables_lifeline_ips: []
 iptables_k3s_external_ips: []
 iptables_static_dns_ips: []
 
-# Clevis / Tang NBDE
-clevis_tang_servers:
-  - "http://tang.example.com"
+# Clevis / Tang NBDE: every enabled host with providestang except the client itself; t=1 = any one tang unlocks.
+# Per tang host, `tang_url` overrides the derived http://<k3s_node_ip>:<tang_port>.
+clevis_tang_servers: >-
+  {%- set out = [] -%}
+  {%- for h in groups['all'] | difference(groups['disabled'] | default([])) | sort -%}
+  {%- if (hostvars[h].providestang | default(false) | bool) and h != inventory_hostname -%}
+  {%- set _ = out.append(hostvars[h].tang_url | default('http://' ~ hostvars[h].k3s_node_ip ~ ':' ~ (hostvars[h].tang_port | default(9090)))) -%}
+  {%- endif -%}
+  {%- endfor -%}
+  {{ out }}
+clevis_sss_threshold: 1
 
 # WiFi access points
 wifi_access_points: []

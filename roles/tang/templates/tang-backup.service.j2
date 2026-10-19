@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Back up the tang JWK keys to RustFS
+After=network-online.target tang.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart={{ tang_backup_script }}
+Nice=10

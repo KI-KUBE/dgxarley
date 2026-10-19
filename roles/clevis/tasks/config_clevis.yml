@@ -26,8 +26,9 @@
 #   1. Installs clevis packages (clevis, clevis-luks, clevis-systemd + clevis-initramfs on
 #      initramfs-tools hosts or clevis-dracut on dracut hosts)
 #   2. Auto-detects the LUKS partition from /etc/crypttab
-#   3. Checks for existing clevis bindings (skips bind if already present)
-#   4. Fetches tang advertisements and creates clevis/tang SSS binding (threshold 2)
+#   3. Checks for existing clevis bindings (skips bind if one matches clevis_tang_servers + threshold)
+#   4. Fetches tang advertisements and creates clevis/tang SSS binding (threshold clevis_sss_threshold);
+#      on drift, test-unlocks via the new slot and then unbinds the stale tang slots
 #   5. Configures initrd networking, depending on the generator (fact clevis_initramfs_generator,
 #      detect_generator.yml):
 #        initramfs-tools: interface driver, DEVICE=, IP=:::::<device>:dhcp, netplan cleanup,
@@ -101,9 +102,16 @@
   check_mode: false
   when: clevis_has_luks | bool
 
+- name: classify existing clevis bindings
+  import_tasks: parse_bindings.yml
+  vars:
+    _clevis_list_lines: "{{ clevis_existing_bindings.stdout_lines | default([]) }}"
+  when: clevis_has_luks | bool
+
+# A drifted tang set (other servers / threshold) binds a new slot; the stale one goes after the unlock test below.
 - name: set bind-needed flag
   set_fact:
-    clevis_needs_bind: "{{ clevis_existing_bindings.stdout | default('') | trim | length == 0 }}"
+    clevis_needs_bind: "{{ _clevis_match_slots | length == 0 }}"
   when: clevis_has_luks | bool
 
 - name: display binding status
@@ -197,6 +205,38 @@
   debug:
     msg: "Current clevis bindings: {{ clevis_verify_binding.stdout }}"
   when: clevis_has_luks | bool
+
+# --- Retire stale tang bindings (only after the desired binding provably unlocks) ---
+
+- name: retire stale clevis/tang bindings
+  when:
+    - clevis_has_luks | bool
+    - not ansible_check_mode
+  block:
+    - name: re-classify clevis bindings after bind
+      import_tasks: parse_bindings.yml
+      vars:
+        _clevis_list_lines: "{{ clevis_verify_binding.stdout_lines | default([]) }}"
+
+    - name: assert exactly the desired binding exists
+      assert:
+        that:
+          - _clevis_match_slots | length >= 1
+        fail_msg: "No clevis slot matches {{ clevis_tang_servers }} (t={{ clevis_sss_threshold }}): {{ clevis_verify_binding.stdout }}"
+
+    - name: test-unlock the LUKS device through the desired binding
+      shell: |
+        set -euo pipefail
+        clevis luks pass -d {{ clevis_luks_device | quote }} -s {{ _clevis_match_slots[0] }} \
+          | cryptsetup open --test-passphrase --key-file - {{ clevis_luks_device | quote }}
+      args:
+        executable: /bin/bash
+      changed_when: false
+      when: _clevis_stale_slots | length > 0
+
+    - name: unbind stale clevis/tang slots
+      command: clevis luks unbind -f -d {{ clevis_luks_device | quote }} -s {{ item }}
+      loop: "{{ _clevis_stale_slots }}"
 
 # --- Network interface and driver for the initrd (both generators) ---
 

@@ -1,0 +1,25 @@
+# {{ ansible_managed }}
+# Podman Quadlet, turned into tang.service on daemon-reload; cannot be `systemctl enable`d.
+
+[Unit]
+Description=Tang NBDE server (Podman)
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image={{ tang_image }}
+ContainerName=tang
+# Host network: no netavark NAT rules next to k3s/kube-router and iptables.sh.
+Network=host
+Volume={{ tang_data_dir }}:/var/lib/tang:rw
+Environment=TANGPORT={{ tang_port }}
+Environment=USEHAPROXY=0
+Environment=USENGINX=0
+LogDriver={{ tang_container_log_driver }}
+
+[Service]
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target default.target

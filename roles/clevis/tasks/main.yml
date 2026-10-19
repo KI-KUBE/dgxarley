@@ -4,7 +4,20 @@
 - name: configure clevis/tang NBDE for automatic LUKS decryption
   import_tasks: config_clevis.yml
   # the play also runs for keyfile-only hosts (no tang): never configure tang there
-  when: wantsclevis | default(false) | bool
+  when:
+    - wantsclevis | default(false) | bool
+    - clevis_tang_servers | length > 0
+  tags:
+    - clevis
+
+- name: report a clevis host without any reachable tang server
+  debug:
+    msg: >-
+      {{ inventory_hostname }}: wantsclevis but no other host provides tang; binding skipped,
+      boot relies on the keyfile fallback / passphrase.
+  when:
+    - wantsclevis | default(false) | bool
+    - clevis_tang_servers | length == 0
   tags:
     - clevis
 
@@ -13,3 +26,10 @@
   tags:
     - clevis
     - clevis_keyfile
+
+# after the keyfile fallback, so the host keeps an automatic unlock path when tang goes
+- name: opt-in removal of the clevis/tang binding
+  import_tasks: tang_teardown.yml
+  when: clevis_tang_teardown | default(false) | bool
+  tags:
+    - clevis

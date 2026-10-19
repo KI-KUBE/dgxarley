@@ -22,7 +22,8 @@
       when: >-
         (wantsclevis | default(false)) or
         (clevis_keyfile_enabled | default(false)) or
-        (clevis_keyfile_teardown | default(false))
+        (clevis_keyfile_teardown | default(false)) or
+        (clevis_tang_teardown | default(false) | bool)
 
 - name: NUT UPS monitoring
   hosts: all,!disabled,!switches

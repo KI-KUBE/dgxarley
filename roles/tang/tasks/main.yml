@@ -1,0 +1,13 @@
+---
+# file: roles/tang/tasks/main.yml
+
+- name: configure the tang NBDE server
+  import_tasks: podman_tang.yml
+  tags:
+    - tang
+
+- name: back up the tang keys to RustFS
+  import_tasks: backup.yml
+  tags:
+    - tang
+    - tang_backup

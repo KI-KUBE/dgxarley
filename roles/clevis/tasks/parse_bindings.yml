@@ -1,0 +1,38 @@
+---
+# parse_bindings.yml
+# Input: _clevis_list_lines (stdout_lines of `clevis luks list`).
+# Sets _clevis_match_slots (sss slots equal to clevis_tang_servers + clevis_sss_threshold) and
+# _clevis_stale_slots (every other slot carrying a tang pin).
+
+- name: parse clevis sss/tang bindings
+  set_fact:
+    _clevis_sss_slots: >-
+      {%- set out = [] -%}
+      {%- for l in _clevis_list_lines -%}
+      {%- set m = l | regex_search("^([0-9]+): sss '(.*)'$", '\\1', '\\2') -%}
+      {%- if m -%}
+      {%- set c = m[1] | from_json -%}
+      {%- set _ = out.append({'slot': m[0] | int, 't': c.t | int,
+                              'pins': c.pins.keys() | list | sort,
+                              'urls': c.pins.tang | default([]) | map(attribute='url') | sort}) -%}
+      {%- endif -%}
+      {%- endfor -%}
+      {{ out }}
+
+- name: classify clevis bindings against the desired tang set
+  set_fact:
+    _clevis_match_slots: >-
+      {{ _clevis_sss_slots
+         | selectattr('pins', 'equalto', ['tang'])
+         | selectattr('t', 'equalto', clevis_sss_threshold | int)
+         | selectattr('urls', 'equalto', clevis_tang_servers | sort)
+         | map(attribute='slot') | list }}
+    _clevis_stale_slots: >-
+      {{ _clevis_sss_slots
+         | selectattr('pins', 'contains', 'tang')
+         | rejectattr('slot', 'in', _clevis_sss_slots
+             | selectattr('pins', 'equalto', ['tang'])
+             | selectattr('t', 'equalto', clevis_sss_threshold | int)
+             | selectattr('urls', 'equalto', clevis_tang_servers | sort)
+             | map(attribute='slot') | list)
+         | map(attribute='slot') | list }}

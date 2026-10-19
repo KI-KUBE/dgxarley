@@ -1,0 +1,19 @@
+---
+# file: roles/tang/handlers/main.yml
+
+# daemon_reload re-runs the Quadlet generator, else the restart relaunches the old unit.
+- name: restart tang
+  ansible.builtin.systemd:
+    name: tang.service
+    state: restarted
+    daemon_reload: true
+
+- name: reload systemd for tang-backup
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart tang-backup timer
+  ansible.builtin.systemd:
+    name: tang-backup.timer
+    state: restarted
+    daemon_reload: true
