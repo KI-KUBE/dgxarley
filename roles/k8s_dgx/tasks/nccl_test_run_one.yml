@@ -7,6 +7,9 @@
 # then fetch logs and clean up.
 
 - name: "{{ _transport_name }}: set transport config"
+  vars:
+    # input of _qsfp_sriov_ib_hca (defaults/main/qsfp.yml): VF index of the test pods
+    _qsfp_net_vf: "{{ qsfp_sriov_assignments.iperf_test.vf }}"
   ansible.builtin.set_fact:
     _tc: >-
       {%- if _transport_name == 'host' -%}
@@ -15,7 +18,7 @@
         "master_addr": "{{ qsfp_pf_ip_spark1 }}",
         "pf_ips": ["{{ qsfp_pf_ip_spark1 }}", "{{ qsfp_pf_ip_spark2 }}", "{{ qsfp_pf_ip_spark3 }}", "{{ qsfp_pf_ip_spark4 }}"],
         "nccl_env": {
-          "NCCL_SOCKET_IFNAME": "enP2p1s0f0np0",
+          "NCCL_SOCKET_IFNAME": "{{ qsfp_sriov_pf_iface | default('enp1s0f0np0') }}",
           "HOST_NETWORK_MODE": "1"
         }
       }
@@ -35,7 +38,7 @@
         "master_addr": "{{ qsfp_sriov_assignments.iperf_test.head_ip }}",
         "nccl_env": {
           "NCCL_SOCKET_IFNAME": "{{ nccl_socket_ifname }}",
-          "NCCL_IB_HCA": "roce{{ qsfp_sriov_vf_prefix | regex_replace('^en', '') }}v{{ qsfp_sriov_assignments.iperf_test.vf }}",
+          "NCCL_IB_HCA": "{{ _qsfp_sriov_ib_hca }}",
           "NCCL_IB_GID_INDEX": "{{ nccl_test_gid_index | default('3') }}",
           "NCCL_IB_MERGE_NICS": "0"
         }
@@ -46,8 +49,8 @@
         "master_addr": "{{ qsfp_pf_ip_spark1 }}",
         "pf_ips": ["{{ qsfp_pf_ip_spark1 }}", "{{ qsfp_pf_ip_spark2 }}", "{{ qsfp_pf_ip_spark3 }}", "{{ qsfp_pf_ip_spark4 }}"],
         "nccl_env": {
-          "NCCL_SOCKET_IFNAME": "enP2p1s0f0np0",
-          "NCCL_IB_HCA": "rocep1s0f0",
+          "NCCL_SOCKET_IFNAME": "{{ qsfp_sriov_pf_iface | default('enp1s0f0np0') }}",
+          "NCCL_IB_HCA": "{{ _qsfp_host_ib_hca }}",
           "NCCL_IB_GID_INDEX": "{{ nccl_test_gid_index | default('3') }}",
           "NCCL_IB_MERGE_NICS": "0",
           "HOST_NETWORK_MODE": "1"

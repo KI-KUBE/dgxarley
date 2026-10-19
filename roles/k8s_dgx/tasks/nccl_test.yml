@@ -2,7 +2,7 @@
 # NCCL connectivity + bandwidth test across all 4 DGX Spark nodes.
 #
 # Three transport variants deployed as separate sets of 4 K8s Pods:
-#   host    — hostNetwork:true, NCCL over host's QSFP PF (enP2p1s0f0np0)
+#   host    — hostNetwork:true, NCCL over host's rail-1 QSFP PF (enp1s0f0np0)
 #   socket  — Multus QSFP secondary NIC (net1), NCCL_NET=Socket
 #   roce    — Multus QSFP SR-IOV VF, NCCL over RoCE/IB verbs
 #             (requires qsfp_sriov_enabled=true, skipped otherwise)

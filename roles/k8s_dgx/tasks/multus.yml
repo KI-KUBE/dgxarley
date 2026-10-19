@@ -135,3 +135,27 @@
             }
           }
   loop: "{{ [sglang_namespace, vllm_namespace] | product(range(0, qsfp_sriov_numvfs | default(8) | int)) | list }}"
+
+# Rail-2 twins (qsfp-r2-vf0 .. N): same VF index on the second PCIe x4 link of the cage
+# (qsfp_dualrail_enabled). A pod attaches qsfp-vfN as net1 and qsfp-r2-vfN as net2, see
+# _qsfp_sriov_networks in defaults/main/qsfp.yml.
+- name: Create NADs for QSFP SR-IOV rail-2 VFs
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: k8s.cni.cncf.io/v1
+      kind: NetworkAttachmentDefinition
+      metadata:
+        name: "qsfp-r2-vf{{ item.1 }}"
+        namespace: "{{ item.0 }}"
+      spec:
+        config: |
+          {
+            "cniVersion": "0.3.1",
+            "type": "host-device",
+            "device": "{{ qsfp_sriov_vf2_prefix | default('enP2p1s0f0') }}v{{ item.1 }}",
+            "ipam": {
+              "type": "static"
+            }
+          }
+  loop: "{{ [sglang_namespace, vllm_namespace] | product(range(0, qsfp_sriov_numvfs | default(8) | int)) | list }}"
