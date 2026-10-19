@@ -60,6 +60,36 @@ qsfp_sriov_assignments:
 nccl_bootstrap_port: 50000
 nccl_socket_ifname: "net1"
 
+# Dual-rail (qsfp_dualrail_enabled, group_vars/all/main/qsfp.yml): every SR-IOV pod gets the
+# rail-1 VF as net1 plus the rail-2 VF with the SAME index as net2, and NCCL's IB plugin gets
+# both RDMA devices (one PCIe x4 link each, ~100 Gbit/s apiece). Bootstrap/socket stay on net1.
+# The helpers below are evaluated lazily in the calling task, which sets _qsfp_net_vf (VF index)
+# and _qsfp_net_ip (the pod's rail-1 IP) as task vars.
+# TODO(revisit): only sglang_instance.yml and the NCCL tests are wired for dual-rail. vllm.yml,
+# vllm_shard.yml and sglang_shard.yml still attach the rail-1 VF only and set no NCCL_IB_HCA
+# (NCCL picks devices itself), i.e. at most ~100 Gbit/s; switch them to _qsfp_sriov_networks +
+# _qsfp_sriov_ib_hca if they are ever used again.
+# Rail-2 IP = rail-1 IP with the third octet + qsfp_rail2_octet3_offset (matches dgx_prepare netplan).
+_qsfp_net_ip2: "{{ _qsfp_net_ip.split('.')[:2] | join('.') }}.{{ _qsfp_net_ip.split('.')[2] | int + qsfp_rail2_octet3_offset | default(1) | int }}.{{ _qsfp_net_ip.split('.')[3] | int }}"
+# Multus k8s.v1.cni.cncf.io/networks value for an SR-IOV pod.
+_qsfp_sriov_networks: >-
+  [{"name":"qsfp-vf{{ _qsfp_net_vf }}","ips":["{{ _qsfp_net_ip }}/24"]}
+  {%- if qsfp_dualrail_enabled | default(false) | bool -%}
+  ,{"name":"qsfp-r2-vf{{ _qsfp_net_vf }}","ips":["{{ _qsfp_net_ip2 }}/24"]}
+  {%- endif %}]
+# NCCL_IB_HCA for an SR-IOV pod. Leading "=" = exact device names (not prefixes).
+_qsfp_sriov_ib_hca: >-
+  ={{ _qsfp_rdma_vf_prefix }}{{ _qsfp_net_vf }}
+  {%- if qsfp_dualrail_enabled | default(false) | bool %},{{ _qsfp_rdma_vf2_prefix }}{{ _qsfp_net_vf }}{% endif %}
+# NCCL_IB_HCA for hostNetwork pods: the PF RDMA devices themselves. Exact match matters here —
+# as a prefix "rocep1s0f0" would also pull in all rocep1s0f0vN VFs.
+_qsfp_host_ib_hca: >-
+  ={{ _qsfp_rdma_vf_prefix[:-1] }}
+  {%- if qsfp_dualrail_enabled | default(false) | bool %},{{ _qsfp_rdma_vf2_prefix[:-1] }}{% endif %}
+# RDMA device names follow the netdev: enp1s0f0vN → rocep1s0f0vN, enP2p1s0f0vN → roceP2p1s0f0vN
+_qsfp_rdma_vf_prefix: "roce{{ qsfp_sriov_vf_prefix | default('enp1s0f0') | regex_replace('^en', '') }}v"
+_qsfp_rdma_vf2_prefix: "roce{{ qsfp_sriov_vf2_prefix | default('enP2p1s0f0') | regex_replace('^en', '') }}v"
+
 # Ordered QSFP IP lists per engine (index 0 = head/rank 0, index N = worker rank N).
 # PF mode: uses qsfp_ip_sparkN host variables.
 # SR-IOV mode: uses per-engine VF IPs from qsfp_sriov_assignments.

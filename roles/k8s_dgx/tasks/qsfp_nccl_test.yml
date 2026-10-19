@@ -3,6 +3,9 @@
 # Uses torch.distributed for multi-node init (no MPI needed).
 #
 # Usage: ansible-playbook k8s_dgx.yml --tags qsfp_nccl
+# RoCE via the iperf_test VF; with qsfp_dualrail_enabled over BOTH rails (net1 + net2, two
+# RDMA devices in NCCL_IB_HCA) — one rail alone caps at ~100 Gbit/s (one PCIe Gen5 x4 link).
+# Single-rail comparison run: -e qsfp_nccl_ib_hca==rocep1s0f0v7  (value "=rocep1s0f0v7", exact match)
 # GPU time-slicing (nvidia_gpu_timeslice_replicas: 4) allows this to run alongside SGLang.
 
 - name: Ensure nccl-test namespace exists
@@ -34,6 +37,26 @@
             }
           }
 
+- name: Create QSFP rail-2 VF NAD in nccl-test namespace
+  kubernetes.core.k8s:
+    state: "{{ 'present' if qsfp_dualrail_enabled | default(false) | bool else 'absent' }}"
+    definition:
+      apiVersion: k8s.cni.cncf.io/v1
+      kind: NetworkAttachmentDefinition
+      metadata:
+        name: "qsfp-r2-vf{{ qsfp_sriov_assignments.iperf_test.vf }}"
+        namespace: nccl-test
+      spec:
+        config: |
+          {
+            "cniVersion": "0.3.1",
+            "type": "host-device",
+            "device": "{{ qsfp_sriov_vf2_prefix | default('enP2p1s0f0') }}v{{ qsfp_sriov_assignments.iperf_test.vf }}",
+            "ipam": {
+              "type": "static"
+            }
+          }
+
 - name: Create NCCL test scripts ConfigMap
   kubernetes.core.k8s:
     state: present
@@ -49,6 +72,10 @@
 
 # Head (rank 0) must start first — torch.distributed tcp init listens on MASTER_ADDR
 - name: Deploy NCCL test head — rank 0 (spark1)
+  vars:
+    # inputs of _qsfp_sriov_networks / _qsfp_sriov_ib_hca (defaults/main/qsfp.yml)
+    _qsfp_net_vf: "{{ qsfp_sriov_assignments.iperf_test.vf }}"
+    _qsfp_net_ip: "{{ qsfp_sriov_assignments.iperf_test.server_ip }}"
   kubernetes.core.k8s:
     state: present
     definition:
@@ -58,7 +85,7 @@
         name: nccl-head
         namespace: nccl-test
         annotations:
-          k8s.v1.cni.cncf.io/networks: '[{"name":"qsfp-vf{{ qsfp_sriov_assignments.iperf_test.vf }}","ips":["{{ qsfp_sriov_assignments.iperf_test.server_ip }}/24"]}]'
+          k8s.v1.cni.cncf.io/networks: "{{ _qsfp_sriov_networks }}"
       spec:
         nodeSelector:
           spark-id: "1"
@@ -72,6 +99,12 @@
             env:
               - name: NCCL_SOCKET_IFNAME
                 value: "net1"
+              - name: NCCL_IB_HCA
+                value: "{{ qsfp_nccl_ib_hca | default(_qsfp_sriov_ib_hca) }}"
+              - name: NCCL_IB_GID_INDEX
+                value: "{{ nccl_test_gid_index | default('3') }}"
+              - name: NCCL_IB_MERGE_NICS
+                value: "0"
               - name: NCCL_DEBUG
                 value: "INFO"
               - name: MASTER_ADDR
@@ -114,6 +147,10 @@
 
 # Worker (rank 1) connects to head's MASTER_ADDR
 - name: Deploy NCCL test worker — rank 1 (spark2)
+  vars:
+    # inputs of _qsfp_sriov_networks / _qsfp_sriov_ib_hca (defaults/main/qsfp.yml)
+    _qsfp_net_vf: "{{ qsfp_sriov_assignments.iperf_test.vf }}"
+    _qsfp_net_ip: "{{ qsfp_sriov_assignments.iperf_test.client_ip }}"
   kubernetes.core.k8s:
     state: present
     definition:
@@ -123,7 +160,7 @@
         name: nccl-worker
         namespace: nccl-test
         annotations:
-          k8s.v1.cni.cncf.io/networks: '[{"name":"qsfp-vf{{ qsfp_sriov_assignments.iperf_test.vf }}","ips":["{{ qsfp_sriov_assignments.iperf_test.client_ip }}/24"]}]'
+          k8s.v1.cni.cncf.io/networks: "{{ _qsfp_sriov_networks }}"
       spec:
         nodeSelector:
           spark-id: "2"
@@ -137,6 +174,12 @@
             env:
               - name: NCCL_SOCKET_IFNAME
                 value: "net1"
+              - name: NCCL_IB_HCA
+                value: "{{ qsfp_nccl_ib_hca | default(_qsfp_sriov_ib_hca) }}"
+              - name: NCCL_IB_GID_INDEX
+                value: "{{ nccl_test_gid_index | default('3') }}"
+              - name: NCCL_IB_MERGE_NICS
+                value: "0"
               - name: NCCL_DEBUG
                 value: "INFO"
               - name: MASTER_ADDR

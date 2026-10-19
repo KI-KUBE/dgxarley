@@ -13,6 +13,23 @@ qsfp_sriov_enabled: true
 # VF interface name prefix (kernel drops "npN" from VF names: enp1s0f0np0 → enp1s0f0vX)
 qsfp_sriov_vf_prefix: "enp1s0f0"
 
+# Dual-rail QSFP. The GB10 gives the ConnectX-7 only PCIe Gen5 x4 per link, so the NIC runs in
+# multi-host mode over two x4 links, each good for ~100 Gbit/s. Every QSFP cage therefore shows up
+# twice, once per link: for the cabled cage rail 1 = enp1s0f0np0 (PCI 0000:01:00.0, RDMA rocep1s0f0)
+# and rail 2 = enP2p1s0f0np0 (PCI 0002:01:00.0, RDMA roceP2p1s0f0). One netdev / one RDMA device
+# tops out at ~92-98 Gbit/s although the cable links at 200G; only RoCE over BOTH rails reaches
+# ~185-190 Gbit/s. With dual-rail on, dgx_prepare puts an IP on the rail-2 PF and creates the same
+# VFs (+ IPs) on rail 2 as on rail 1, pods get the matching rail-2 VF as a second Multus interface
+# (net2, NAD qsfp-r2-vfN) and NCCL_IB_HCA lists both rails. NCCL bootstrap and the socket
+# transport stay on rail 1 (net1).
+qsfp_dualrail_enabled: true
+# Rail-2 VF interface name prefix (enP2p1s0f0np0 → enP2p1s0f0vX, RDMA device roceP2p1s0f0vX)
+qsfp_sriov_vf2_prefix: "enP2p1s0f0"
+# Rail-2 IPs are the rail-1 IPs with the third octet shifted by this offset
+# (10.10.10.1 → 10.10.11.1, 10.10.100.1 → 10.10.101.1). Own /24 per rail, so the kernel resolves
+# each rail's RoCEv2 GID through that rail's netdev instead of whichever one owns a shared subnet.
+qsfp_rail2_octet3_offset: 1
+
 # SR-IOV VF assignments per deployment.
 # Each deployment gets its own VF index + dedicated IPs per spark node.
 # This allows multiple engines to run on different VFs simultaneously.
