@@ -66,7 +66,7 @@ class Sandbox:
         return p
 
     def conf(self, **kw: str) -> Path:
-        vals = {"EMBED": "0", "BOOT": "0", "USB": "0", "BOOT_DEV": "''", "BOOT_FILE": BOOT_REL, "USB_LABEL": "LUKSKEY"}
+        vals = {"BOOT": "0", "USB": "0", "BOOT_DEV": "''", "BOOT_FILE": BOOT_REL, "USB_LABEL": "LUKSKEY"}
         vals |= {"USB_FILE": "luks-fallback.key"} | kw
         p = self.root / "keyfile.conf"
         p.write_text("".join(f"{k}={v}\n" for k, v in vals.items()))
@@ -78,16 +78,10 @@ class Sandbox:
         (d / rel).write_bytes(key.encode())
         return d
 
-    def embedded(self, key: str) -> Path:
-        p = self.root / "embedded.key"
-        p.write_bytes(key.encode())
-        return p
-
     def start(self, conf: Path, **env: str) -> subprocess.Popen[str]:
         full = {
             **os.environ,
             "CLEVIS_KEYFILE_CONF": str(conf),
-            "CLEVIS_KEYFILE_EMBEDDED_KEY": str(self.root / "embedded.key"),
             "CLEVIS_KEYFILE_ASK_DIR": str(self.ask),
             "CLEVIS_KEYFILE_REPLY_BIN": str(self.reply),
             "CLEVIS_KEYFILE_CRYPTSETUP_BIN": str(self.cryptsetup),
@@ -125,10 +119,10 @@ def finish(proc: subprocess.Popen[str], settle: float = 0.6) -> tuple[int, str]:
     return proc.returncode, out + err
 
 
-def test_good_embedded_key_replied_once(sb: Sandbox) -> None:
-    sb.embedded(GOOD)
+def test_good_boot_key_replied_once(sb: Sandbox) -> None:
+    boot = sb.source_dir("boot", GOOD, BOOT_REL)
     sb.ask_file()
-    proc = sb.start(sb.conf(EMBED="1"))
+    proc = sb.start(sb.conf(BOOT="1", BOOT_DEV="UUID=x"), CLEVIS_KEYFILE_BOOT_DIR=str(boot))
     assert sb.wait_reply()
     rc, output = finish(proc)
     assert rc == 0
@@ -138,18 +132,33 @@ def test_good_embedded_key_replied_once(sb: Sandbox) -> None:
     assert list(sb.run_dir.iterdir()) == []  # scratch dir (key copies) removed
 
 
-def test_stale_embedded_good_boot_key(sb: Sandbox) -> None:
-    sb.embedded(STALE)
-    boot = sb.source_dir("boot", GOOD, BOOT_REL)
+def test_stale_boot_good_usb_key(sb: Sandbox) -> None:
+    boot = sb.source_dir("boot", STALE, BOOT_REL)
+    usb = sb.source_dir("usb", GOOD, "luks-fallback.key")
     sb.ask_file()
-    proc = sb.start(sb.conf(EMBED="1", BOOT="1", BOOT_DEV="UUID=x"), CLEVIS_KEYFILE_BOOT_DIR=str(boot))
+    proc = sb.start(
+        sb.conf(BOOT="1", BOOT_DEV="UUID=x", USB="1"),
+        CLEVIS_KEYFILE_BOOT_DIR=str(boot),
+        CLEVIS_KEYFILE_USB_DIR=str(usb),
+    )
     assert sb.wait_reply()
     rc, output = finish(proc)
     assert rc == 0
     assert sb.replies() == [GOOD.encode()]
     assert STALE not in output and GOOD not in output
-    assert "source 'embedded' does not unlock" in output
-    assert "answered /dev/fake from source 'boot'" in output
+    assert "source 'boot' does not unlock" in output
+    assert "answered /dev/fake from source 'usb'" in output
+
+
+def test_leftover_embed_config_is_ignored(sb: Sandbox) -> None:
+    legacy = sb.root / "etc" / "clevis-keyfile" / "fallback.key"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_bytes(GOOD.encode())
+    sb.ask_file()
+    proc = sb.start(sb.conf(EMBED="1"), CLEVIS_KEYFILE_EMBEDDED_KEY=str(legacy), CLEVIS_KEYFILE_MAX_SECONDS="1")
+    rc, _ = finish(proc, settle=0.2)
+    assert rc == 0
+    assert not sb.rec.exists()
 
 
 def test_good_usb_key(sb: Sandbox) -> None:
@@ -176,12 +185,11 @@ def test_stick_plugged_in_later(sb: Sandbox) -> None:
 
 
 def test_all_stale_no_reply_exits_when_ask_removed(sb: Sandbox) -> None:
-    sb.embedded(STALE)
     boot = sb.source_dir("boot", STALE, BOOT_REL)
     usb = sb.source_dir("usb", STALE, "luks-fallback.key")
     ask = sb.ask_file()
     proc = sb.start(
-        sb.conf(EMBED="1", BOOT="1", BOOT_DEV="UUID=x", USB="1"),
+        sb.conf(BOOT="1", BOOT_DEV="UUID=x", USB="1"),
         CLEVIS_KEYFILE_BOOT_DIR=str(boot),
         CLEVIS_KEYFILE_USB_DIR=str(usb),
         CLEVIS_KEYFILE_IDLE_ROUNDS="2",
@@ -193,7 +201,8 @@ def test_all_stale_no_reply_exits_when_ask_removed(sb: Sandbox) -> None:
     assert proc.returncode == 0
     assert not sb.rec.exists()
     # each stale key is tried once per ask file, not once per round
-    assert err.count("source 'embedded' does not unlock") == 1
+    assert err.count("source 'boot' does not unlock") == 1
+    assert err.count("source 'usb' does not unlock") == 1
     assert STALE not in out + err
 
 
@@ -211,18 +220,22 @@ def test_changed_stick_is_retried(sb: Sandbox) -> None:
 
 
 def test_non_cryptsetup_ask_ignored(sb: Sandbox) -> None:
-    sb.embedded(GOOD)
+    boot = sb.source_dir("boot", GOOD, BOOT_REL)
     sb.ask_file(id_="ask-password:other")
-    proc = sb.start(sb.conf(EMBED="1"), CLEVIS_KEYFILE_MAX_SECONDS="1")
+    proc = sb.start(
+        sb.conf(BOOT="1", BOOT_DEV="UUID=x"), CLEVIS_KEYFILE_BOOT_DIR=str(boot), CLEVIS_KEYFILE_MAX_SECONDS="1"
+    )
     rc, _ = finish(proc, settle=0.2)
     assert rc == 0
     assert not sb.rec.exists()
 
 
 def test_expired_ask_skipped(sb: Sandbox) -> None:
-    sb.embedded(GOOD)
+    boot = sb.source_dir("boot", GOOD, BOOT_REL)
     sb.ask_file(not_after="1")  # monotonic usec 1: long past
-    proc = sb.start(sb.conf(EMBED="1"), CLEVIS_KEYFILE_MAX_SECONDS="1")
+    proc = sb.start(
+        sb.conf(BOOT="1", BOOT_DEV="UUID=x"), CLEVIS_KEYFILE_BOOT_DIR=str(boot), CLEVIS_KEYFILE_MAX_SECONDS="1"
+    )
     rc, _ = finish(proc, settle=0.2)
     assert rc == 0
     assert not sb.rec.exists()

@@ -1,9 +1,8 @@
 ---
 # keyfile_fallback.yml
 # Optional LUKS keyfile fallback next to clevis/tang: an extra LUKS keyslot whose
-# key is offered in the initramfs from a labelled USB stick and/or embedded in
-# the initramfs itself (i.e. lives unencrypted in /boot -- meant for the initial
-# boot only).
+# key is offered in the initramfs from a labelled USB stick and/or a plain file on
+# the unencrypted /boot partition. The key itself is never put into the initrd.
 #
 # Two initramfs generators are supported (fact clevis_initramfs_generator), both with the same
 # race model: ALL enabled key sources are offered at boot in parallel to the console passphrase
@@ -12,7 +11,7 @@
 #     cryptroot's askpass (passfifo); tang (clevis-initramfs), keyfile and typed passphrase race.
 #   dracut (systemd-cryptsetup, e.g. Ubuntu 26.04 without initramfs-tools): the dracut module
 #     clevis-keyfile ships a systemd password agent that answers systemd-cryptsetup's
-#     ask-password requests with the embedded / /boot / USB key, next to the console prompt.
+#     ask-password requests with the /boot / USB key, next to the console prompt.
 #     tang there is clevis-dracut's job (config_clevis.yml, same ask-password mechanism): the
 #     clevis-luks-askpass agent, this keyfile agent and the typed passphrase answer the same ask
 #     files, the first valid answer wins.
@@ -20,7 +19,7 @@
 # Independent of the tang servers, so it can run before they exist:
 #   ansible-playbook common.yml --tags clevis_keyfile -e clevis_keyfile_enabled=true
 #
-# Key sources (all optional, combinable): USB stick by label, key embedded in the initrd, and
+# Key sources (optional, combinable): USB stick by label and
 # a plain key file on an unencrypted local partition (clevis_keyfile_boot_*, default /boot,
 # referenced as UUID=<uuid> derived from `findmnt` at run time). All enabled sources are tried.
 #
@@ -76,6 +75,14 @@
           crypttab any more: restore field 3 to 'none' and drop keyfile-timeout= from field 4
           (backup of the original: /etc/crypttab.clevis-keyfile.bak), then run again.
       when: "'LEGACY' in clevis_crypttab_legacy.stdout"
+
+- name: refuse the removed initrd-embedding option
+  fail:
+    msg: >-
+      clevis_keyfile_embed_initramfs was removed (the key is never put into the initrd any more).
+      Drop the variable and use clevis_keyfile_boot_enabled (key file on /boot) instead; the next
+      run rebuilds the initrd without the key.
+  when: clevis_keyfile_embed_initramfs | default(false) | bool
 
 - name: "LUKS keyfile fallback: install"
   when:
@@ -214,6 +221,10 @@
             mode: "{{ omit if clevis_boot_fstype == 'vfat' else '0600' }}"
           register: clevis_keyfile_bootfile_changed
 
+    - name: "boot key file disabled: remove a copy left on {{ clevis_keyfile_boot_mount }}"
+      import_tasks: remove_boot_keyfile.yml
+      when: not (clevis_keyfile_boot_enabled | bool)
+
     - name: deploy keyfile fallback config
       template:
         src: etc_clevis-keyfile_keyfile.conf.j2
@@ -261,49 +272,45 @@
           mode: '0755'
         register: clevis_keyfile_localbottom_changed
 
-      - name: restrict initramfs permissions while the key is embedded
-        copy:
-          content: "# Managed by Ansible (clevis role): initramfs embeds the LUKS fallback key\nUMASK=0077\n"
-          dest: /etc/initramfs-tools/conf.d/clevis-keyfile-umask
-          owner: root
-          group: root
-          mode: '0644'
-        register: clevis_keyfile_umask_deployed
-        when: clevis_keyfile_embed_initramfs | bool
-
-      - name: drop initramfs umask override (key not embedded)
+      # left over from the removed initrd-embedding option
+      - name: drop the initramfs umask override
         file:
           path: /etc/initramfs-tools/conf.d/clevis-keyfile-umask
           state: absent
         register: clevis_keyfile_umask_removed
-        when: not (clevis_keyfile_embed_initramfs | bool)
-
 
       - name: rebuild initramfs for all kernels (keyfile fallback)
         command: update-initramfs -u -k all
         when: >-
-          (clevis_keyfile_generated is changed) or
-          (clevis_keyfile_added is changed) or
           (clevis_keyfile_conf_changed is changed) or
           (clevis_keyfile_hook_changed is changed) or
           (clevis_keyfile_localtop_changed is changed) or
           (clevis_keyfile_localbottom_changed is changed) or
-          (clevis_keyfile_umask_deployed is changed) or
           (clevis_keyfile_umask_removed is changed)
 
       - name: verify keyfile fallback in initramfs
-        shell: lsinitramfs /boot/initrd.img-$(uname -r) 2>/dev/null | grep -E 'clevis-keyfile|fallback\.key$' || true
+        shell: lsinitramfs /boot/initrd.img-$(uname -r) 2>/dev/null | grep -E 'clevis-keyfile' || true
         register: clevis_keyfile_initramfs_check
         changed_when: false
         check_mode: false
 
-      - name: fail if the embedded key is missing from the initramfs
+      - name: look for a LUKS key left in any initrd (removed embedding option)
+        shell: |
+          for f in /boot/initrd.img-*; do
+            [ -e "$f" ] || continue
+            lsinitramfs "$f" 2>/dev/null | grep -qE '(^|/)etc/clevis-keyfile/fallback\.key$' && echo "$f"
+          done
+          exit 0
+        register: clevis_keyfile_initrd_leak
+        changed_when: false
+        check_mode: false
+
+      - name: fail if an initrd still carries the key
         fail:
-          msg: "clevis_keyfile_embed_initramfs is true but etc/clevis-keyfile/fallback.key is not in the current initramfs."
+          msg: "The LUKS fallback key is still inside: {{ clevis_keyfile_initrd_leak.stdout_lines | join(', ') }} -- rebuild those initrds (update-initramfs -u -k all) or remove them."
         when:
           - not ansible_check_mode
-          - clevis_keyfile_embed_initramfs | bool
-          - "'fallback.key' not in clevis_keyfile_initramfs_check.stdout"
+          - clevis_keyfile_initrd_leak.stdout | trim | length > 0
 
     - name: "keyfile fallback (dracut / systemd-cryptsetup): password agent module, rebuild"
       when: clevis_initramfs_generator == 'dracut'
@@ -341,8 +348,6 @@
         - name: rebuild initramfs for all kernels (dracut, keyfile fallback)
           import_tasks: dracut_rebuild.yml
           when: >-
-            (clevis_keyfile_generated is changed) or
-            (clevis_keyfile_added is changed) or
             (clevis_keyfile_conf_changed is changed) or
             (clevis_dracut_module_deployed is changed) or
             (clevis_dracut_conf_deployed is changed)
@@ -359,31 +364,25 @@
                 || { echo "ERROR: $f not in $INITRD"; exit 1; }
               echo "present: $f"
             done
-            if [ "$EMBED" = 1 ]; then
-              n=$(grep -cE '(^|[[:space:]])etc/clevis-keyfile/fallback\.key$' <<< "$LIST" || true)
-              if [ "$n" != 1 ]; then echo "ERROR: embedded key not found exactly once in $INITRD (count $n)"; exit 1; fi
-              echo "embedded key: present"
-            fi
             if [ "$USB" = 1 ] || [ "$BOOT" = 1 ]; then
               for m in "usb[-_]storage" vfat ext4; do
                 if grep -qE "/$m\.ko" <<< "$LIST"; then echo "module $m: present"
                 else echo "WARN: module $m not in $INITRD (fine only if built into the kernel)"; fi
               done
             fi
-            bad=0
+            # left over from the removed initrd-embedding option
+            leak=0
             for f in /boot/initrd.img-* /boot/initramfs-*.img; do
               [ -e "$f" ] || continue
-              if [ "$(stat -c %a "$f")" != 600 ]; then
-                echo "$( [ "$EMBED" = 1 ] && echo ERROR || echo WARN ): $f is not mode 0600"
-                bad=1
+              if lsinitrd "$f" 2>/dev/null | grep -qE '(^|[[:space:]])etc/clevis-keyfile/fallback\.key$'; then
+                echo "ERROR: $f still carries the LUKS key, rebuild it"
+                leak=1
               fi
             done
-            [ "$EMBED" = 1 ] && [ "$bad" = 1 ] && exit 1
-            exit 0
+            exit "$leak"
           args:
             executable: /bin/bash
           environment:
-            EMBED: "{{ 1 if (clevis_keyfile_embed_initramfs | bool) else 0 }}"
             USB: "{{ 1 if (clevis_keyfile_usb_enabled | bool) else 0 }}"
             BOOT: "{{ 1 if (clevis_keyfile_boot_enabled | bool) else 0 }}"
           register: clevis_dracut_check
@@ -402,7 +401,6 @@
           - "initramfs generator: {{ clevis_initramfs_generator }}"
           - "USB stick: {{ ('label ' + clevis_keyfile_usb_label + ', file /' + clevis_keyfile_usb_file + ' -- write it with: /root/clevis_keyfile_write_usb.sh /dev/sdX1') if (clevis_keyfile_usb_enabled | bool) else 'disabled' }}"
           - "{{ ('boot key file: ' + clevis_keyfile_boot_mount + '/' + clevis_keyfile_boot_file + ' (UUID=' + clevis_boot_uuid + ', ' + clevis_boot_fstype + ')') if (clevis_keyfile_boot_enabled | bool) else 'boot key file: disabled' }}"
-          - "{{ 'WARNING: key is EMBEDDED in the initramfs (/boot is unencrypted) -- set clevis_keyfile_embed_initramfs=false once tang works' if (clevis_keyfile_embed_initramfs | bool) else 'initramfs embedding: off' }}"
 
 - name: "LUKS keyfile fallback: teardown"
   when:
@@ -466,33 +464,8 @@
           (cryptsetup luksKillSlot) if you still have the key, e.g. on the USB stick.
       when: not clevis_keyfile_stat.stat.exists
 
-    - name: stat the boot key file
-      stat:
-        path: "{{ clevis_keyfile_boot_mount }}/{{ clevis_keyfile_boot_file }}"
-      register: clevis_keyfile_bootfile_stat
-
-    - name: shred the boot key file
-      command: shred -u {{ (clevis_keyfile_boot_mount ~ '/' ~ clevis_keyfile_boot_file) | quote }}
-      register: clevis_keyfile_bootfile_shred
-      failed_when: false
-      when:
-        - clevis_keyfile_bootfile_stat.stat.exists
-        - not ansible_check_mode
-
-    # vfat (or any fs where shred fails): plain removal is fine
-    - name: remove the boot key file (fallback if shred failed)
-      file:
-        path: "{{ clevis_keyfile_boot_mount }}/{{ clevis_keyfile_boot_file }}"
-        state: absent
-      when: clevis_keyfile_bootfile_stat.stat.exists
-
-    - name: remove the empty boot key directory
-      command: rmdir --ignore-fail-on-non-empty {{ (clevis_keyfile_boot_mount ~ '/' ~ (clevis_keyfile_boot_file | dirname)) | quote }}
-      changed_when: false
-      when:
-        - clevis_keyfile_bootfile_stat.stat.exists
-        - (clevis_keyfile_boot_file | dirname) | length > 0
-        - not ansible_check_mode
+    - name: remove the boot key file
+      import_tasks: remove_boot_keyfile.yml
 
     - name: remove keyfile fallback config and helper
       file:

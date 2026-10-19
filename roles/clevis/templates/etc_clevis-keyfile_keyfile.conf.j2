@@ -3,7 +3,6 @@ KEYFILE={{ clevis_keyfile_path | quote }}
 USB={{ 1 if (clevis_keyfile_usb_enabled | bool) else 0 }}
 USB_LABEL={{ clevis_keyfile_usb_label | quote }}
 USB_FILE={{ clevis_keyfile_usb_file | quote }}
-EMBED={{ 1 if (clevis_keyfile_embed_initramfs | bool) else 0 }}
 BOOT={{ 1 if (clevis_keyfile_boot_enabled | bool) else 0 }}
 BOOT_DEV={{ ('UUID=' ~ clevis_boot_uuid) | quote if (clevis_keyfile_boot_enabled | bool) else "''" }}
 BOOT_FILE={{ clevis_keyfile_boot_file | regex_replace('^/+', '') | quote }}

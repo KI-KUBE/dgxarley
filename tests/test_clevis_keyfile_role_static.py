@@ -196,7 +196,6 @@ def _keyfile_conf(**kw: object) -> dict[str, str]:
         "clevis_keyfile_usb_enabled": True,
         "clevis_keyfile_usb_label": "LUKSKEY",
         "clevis_keyfile_usb_file": "luks-fallback.key",
-        "clevis_keyfile_embed_initramfs": False,
         "clevis_keyfile_boot_enabled": False,
         "clevis_keyfile_boot_file": "clevis-keyfile/luks-fallback.key",
     }
@@ -220,22 +219,44 @@ def test_keyfile_conf_boot_disabled() -> None:
     conf = _keyfile_conf()
     assert conf["BOOT"] == "0"
     assert conf["BOOT_DEV"] == "''"
-    assert conf["USB"] == "1" and conf["EMBED"] == "0"
+    assert conf["USB"] == "1"
+    assert "EMBED" not in conf
 
 
-@pytest.mark.parametrize("embed", [True, False])
 @pytest.mark.parametrize("usb", [True, False])
 @pytest.mark.parametrize("boot", [True, False])
-def test_keyfile_conf_combinations(embed: bool, usb: bool, boot: bool) -> None:
+def test_keyfile_conf_combinations(usb: bool, boot: bool) -> None:
     conf = _keyfile_conf(
-        clevis_keyfile_embed_initramfs=embed,
         clevis_keyfile_usb_enabled=usb,
         clevis_keyfile_boot_enabled=boot,
         clevis_boot_uuid="U-1",
     )
-    assert (conf["EMBED"], conf["USB"], conf["BOOT"]) == tuple("1" if x else "0" for x in (embed, usb, boot))
+    assert (conf["USB"], conf["BOOT"]) == tuple("1" if x else "0" for x in (usb, boot))
     assert conf["BOOT_DEV"] == ("UUID=U-1" if boot else "''")
     # the dracut agent and the initramfs-tools scripts source the file with sh
-    script = "\n".join(f"{k}={v}" for k, v in conf.items()) + '\necho "$EMBED$USB$BOOT|$USB_LABEL|$USB_FILE"'
+    script = "\n".join(f"{k}={v}" for k, v in conf.items()) + '\necho "$USB$BOOT|$USB_LABEL|$USB_FILE"'
     res = subprocess.run(["sh", "-c", script], capture_output=True, text=True)
-    assert res.stdout.strip() == f"{int(embed)}{int(usb)}{int(boot)}|LUKSKEY|luks-fallback.key"
+    assert res.stdout.strip() == f"{int(usb)}{int(boot)}|LUKSKEY|luks-fallback.key"
+
+
+def test_initrd_embedding_removed() -> None:
+    assert "clevis_keyfile_embed_initramfs" not in yaml.safe_load((ROLE / "defaults" / "main.yml").read_text())
+    for p in [
+        ROLE / "files" / "initramfs_hooks_clevis-keyfile",
+        ROLE / "files" / "initramfs_local-top_clevis-keyfile",
+        ROLE / "files" / "dracut" / "90clevis-keyfile" / "module-setup.sh",
+        ROLE / "files" / "dracut" / "90clevis-keyfile" / "clevis-keyfile-agent.sh",
+        ROLE / "templates" / "etc_clevis-keyfile_keyfile.conf.j2",
+    ]:
+        assert "EMBED" not in p.read_text(), p
+    tasks = (ROLE / "tasks" / "keyfile_fallback.yml").read_text()
+    assert "refuse the removed initrd-embedding option" in tasks
+    assert "UMASK=0077" not in tasks
+
+
+def test_boot_copy_removed_when_boot_disabled() -> None:
+    tasks = yaml.safe_load((ROLE / "tasks" / "keyfile_fallback.yml").read_text())
+    install = next(t for t in tasks if t.get("name") == "LUKS keyfile fallback: install")
+    imports = [t for t in install["block"] if t.get("import_tasks") == "remove_boot_keyfile.yml"]
+    assert len(imports) == 1
+    assert imports[0]["when"] == "not (clevis_keyfile_boot_enabled | bool)"

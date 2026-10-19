@@ -1,0 +1,32 @@
+---
+# remove_boot_keyfile.yml
+# Removes the plain key copy on the unencrypted boot partition (shred, plain rm as fallback, empty dir).
+# Imported by keyfile_fallback.yml: install with clevis_keyfile_boot_enabled=false, and teardown.
+
+- name: stat the boot key file
+  stat:
+    path: "{{ clevis_keyfile_boot_mount }}/{{ clevis_keyfile_boot_file }}"
+  register: clevis_keyfile_bootfile_stat
+
+- name: shred the boot key file
+  command: shred -u {{ (clevis_keyfile_boot_mount ~ '/' ~ clevis_keyfile_boot_file) | quote }}
+  register: clevis_keyfile_bootfile_shred
+  failed_when: false
+  when:
+    - clevis_keyfile_bootfile_stat.stat.exists
+    - not ansible_check_mode
+
+# vfat (or any fs where shred fails): plain removal is fine
+- name: remove the boot key file (fallback if shred failed)
+  file:
+    path: "{{ clevis_keyfile_boot_mount }}/{{ clevis_keyfile_boot_file }}"
+    state: absent
+  when: clevis_keyfile_bootfile_stat.stat.exists
+
+- name: remove the empty boot key directory
+  command: rmdir --ignore-fail-on-non-empty {{ (clevis_keyfile_boot_mount ~ '/' ~ (clevis_keyfile_boot_file | dirname)) | quote }}
+  changed_when: false
+  when:
+    - clevis_keyfile_bootfile_stat.stat.exists
+    - (clevis_keyfile_boot_file | dirname) | length > 0
+    - not ansible_check_mode

@@ -8,7 +8,7 @@
   tags:
     - clevis
 
-- name: optional LUKS keyfile fallback (USB stick / initramfs-embedded)
+- name: optional LUKS keyfile fallback (USB stick / key file on /boot)
   import_tasks: keyfile_fallback.yml
   tags:
     - clevis

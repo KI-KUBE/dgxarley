@@ -1,10 +1,10 @@
 #!/bin/sh
 # Managed by Ansible (clevis role)
 #
-# Ships the keyfile-fallback config into the initramfs, plus the fallback key
-# itself when EMBED=1 and the USB/filesystem modules when USB=1. BOOT=1 (key on an
-# unencrypted local partition, found by UUID) needs the filesystem modules only; the
-# /dev/disk/by-uuid udev rules are part of initramfs-tools by default.
+# Ships the keyfile-fallback config into the initramfs (never the key itself), plus the
+# USB/filesystem modules when USB=1. BOOT=1 (key on an unencrypted local partition, found
+# by UUID) needs the filesystem modules only; the /dev/disk/by-uuid udev rules are part of
+# initramfs-tools by default.
 
 PREREQ=""
 
@@ -27,15 +27,6 @@ CONF=/etc/clevis-keyfile/keyfile.conf
 
 mkdir -p "$DESTDIR/etc/clevis-keyfile"
 cp "$CONF" "$DESTDIR/etc/clevis-keyfile/keyfile.conf"
-
-if [ "$EMBED" = 1 ]; then
-    if [ -r "$KEYFILE" ]; then
-        cp "$KEYFILE" "$DESTDIR/etc/clevis-keyfile/fallback.key"
-        chmod 0400 "$DESTDIR/etc/clevis-keyfile/fallback.key"
-    else
-        echo "clevis-keyfile hook: $KEYFILE not readable, NOT embedding fallback key" >&2
-    fi
-fi
 
 if [ "$USB" = 1 ]; then
     manual_add_modules usb_storage uas sd_mod vfat exfat ext4 nls_cp437 nls_iso8859_1

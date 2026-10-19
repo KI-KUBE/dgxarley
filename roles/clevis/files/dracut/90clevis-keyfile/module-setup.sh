@@ -2,9 +2,10 @@
 # Managed by Ansible (clevis role)
 #
 # dracut module clevis-keyfile: ships a systemd password agent that answers systemd-cryptsetup's
-# ask-password requests with a key from the enabled sources (initrd-embedded key, key file on the
-# unencrypted /boot partition, USB stick) while the console prompt (and clevis-dracut/tang) keeps
-# working in parallel. crypttab stays untouched. Configuration: /etc/clevis-keyfile/keyfile.conf.
+# ask-password requests with a key from the enabled sources (key file on the unencrypted /boot
+# partition, USB stick) while the console prompt (and clevis-dracut/tang) keeps working in parallel.
+# crypttab stays untouched and the key itself is never put into the initrd.
+# Configuration: /etc/clevis-keyfile/keyfile.conf.
 
 # Only part of the initrd when the role deployed its config (hostonly-friendly).
 check() {
@@ -24,7 +25,7 @@ installkernel() {
 
 install() {
     local conf=/etc/clevis-keyfile/keyfile.conf
-    local EMBED=0 BOOT=0 USB=0 KEYFILE=/etc/clevis-keyfile/fallback.key
+    local BOOT=0 USB=0 KEYFILE=/etc/clevis-keyfile/fallback.key
     local BOOT_DEV='' BOOT_FILE='' USB_LABEL='' USB_FILE=''
     local unitdir=${systemdsystemunitdir:-/usr/lib/systemd/system}
     # an explicit add_dracutmodules skips check()
@@ -43,15 +44,6 @@ install() {
     inst_simple "$moddir/clevis-keyfile-agent.sh" /usr/libexec/clevis-keyfile-agent
     chmod 0755 "${initdir}/usr/libexec/clevis-keyfile-agent"
     inst_simple "$conf" /etc/clevis-keyfile/keyfile.conf
-
-    if [[ ${EMBED:-0} == 1 ]]; then
-        if [[ -r $KEYFILE ]]; then
-            inst_simple "$KEYFILE" /etc/clevis-keyfile/fallback.key
-            chmod 0400 "${initdir}/etc/clevis-keyfile/fallback.key"
-        else
-            dwarn "clevis-keyfile: $KEYFILE not readable, NOT embedding the fallback key"
-        fi
-    fi
 
     # Wants= only (cryptsetup.target.wants): the agent is never a hard dependency of unlocking
     inst_simple "$moddir/clevis-keyfile-agent.service" "$unitdir/clevis-keyfile-agent.service"

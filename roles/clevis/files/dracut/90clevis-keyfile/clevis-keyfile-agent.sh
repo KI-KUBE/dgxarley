@@ -7,9 +7,8 @@
 # systemd-tty-ask-password-agent), clevis-dracut (tang) and whatever else answers: the first
 # valid answer wins, the ask file then disappears. crypttab is never touched.
 #
-# Key sources, tried every round in the order embedded -> /boot partition -> USB stick; a failing
+# Key sources, tried every round in the order /boot partition -> USB stick; a failing
 # source never blocks the next one:
-#   EMBED=1  /etc/clevis-keyfile/fallback.key inside the initrd
 #   BOOT=1   BOOT_FILE on the unencrypted partition BOOT_DEV (UUID=/LABEL=/PARTUUID=), mounted read-only
 #   USB=1    USB_FILE on the stick with filesystem label USB_LABEL (may be plugged in while the prompt is shown)
 # A key is only sent after `cryptsetup open --test-passphrase --key-file <copy> <dev>` accepted it, so a
@@ -22,7 +21,6 @@
 #
 # Test seams (all optional; the defaults are the production values):
 #   CLEVIS_KEYFILE_CONF           config file                          (/etc/clevis-keyfile/keyfile.conf)
-#   CLEVIS_KEYFILE_EMBEDDED_KEY   embedded key                         (/etc/clevis-keyfile/fallback.key)
 #   CLEVIS_KEYFILE_ASK_DIR        ask-password directory               (/run/systemd/ask-password)
 #   CLEVIS_KEYFILE_REPLY_BIN      systemd-reply-password               (PATH, else /usr/lib/systemd/systemd-reply-password)
 #   CLEVIS_KEYFILE_CRYPTSETUP_BIN cryptsetup                           (cryptsetup)
@@ -37,7 +35,6 @@
 set -u
 
 CONF=${CLEVIS_KEYFILE_CONF:-/etc/clevis-keyfile/keyfile.conf}
-EMBEDDED_KEY=${CLEVIS_KEYFILE_EMBEDDED_KEY:-/etc/clevis-keyfile/fallback.key}
 ASK_DIR=${CLEVIS_KEYFILE_ASK_DIR:-/run/systemd/ask-password}
 # systemd-reply-password is not in PATH on every distro (Ubuntu ships it only under /usr/lib/systemd)
 REPLY_BIN=${CLEVIS_KEYFILE_REPLY_BIN:-$(command -v systemd-reply-password 2>/dev/null || echo /usr/lib/systemd/systemd-reply-password)}
@@ -52,7 +49,7 @@ log() {
     echo "clevis-keyfile-agent: $*" >&2
 }
 
-EMBED=0 BOOT=0 USB=0 BOOT_DEV='' BOOT_FILE='' USB_LABEL='' USB_FILE=''
+BOOT=0 USB=0 BOOT_DEV='' BOOT_FILE='' USB_LABEL='' USB_FILE=''
 if [ -r "$CONF" ]; then
     # shellcheck disable=SC1090
     . "$CONF"
@@ -125,13 +122,10 @@ fetch_from() {
     return 0
 }
 
-# Gathers the candidate keys of all enabled sources into $WORK/key.{embedded,boot,usb}.
+# Gathers the candidate keys of all enabled sources into $WORK/key.{boot,usb}.
 # Sets BACKOFF_NEEDED=1 if a present source could not be read.
 gather() {
-    rm -f "$WORK"/key.embedded "$WORK"/key.boot "$WORK"/key.usb
-    if [ "$EMBED" = 1 ] && [ -r "$EMBEDDED_KEY" ]; then
-        cat "$EMBEDDED_KEY" > "$WORK/key.embedded" 2>/dev/null
-    fi
+    rm -f "$WORK"/key.boot "$WORK"/key.usb
     if [ "$BOOT" = 1 ]; then
         fetch_from boot "$(resolve_dev "$BOOT_DEV")" "${CLEVIS_KEYFILE_BOOT_DIR:-}" "$BMNT" "$BOOT_FILE"
         [ $? = 2 ] && BACKOFF_NEEDED=1
@@ -178,7 +172,7 @@ handle_ask() {
     fi
     a_dev=${ID#cryptsetup:}
 
-    for a_src in embedded boot usb; do
+    for a_src in boot usb; do
         a_key=$WORK/key.$a_src
         [ -s "$a_key" ] || continue
         a_sum=$(cksum < "$a_key")
