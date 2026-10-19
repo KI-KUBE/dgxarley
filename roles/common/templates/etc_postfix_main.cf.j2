@@ -48,6 +48,8 @@ mydestination = {{ mailname }}, {{ mailname | regex_replace("^(.*?)\\.(.*)$", "\
 relayhost = {{ postfix_relayhost }}
 # default "dns" ignores /etc/hosts, so a bracketed relayhost alias (postfix_relay_alias) would not resolve
 smtp_host_lookup = dns, native
+maximal_queue_lifetime = {{ postfix_queue_lifetime }}
+bounce_queue_lifetime = {{ postfix_queue_lifetime }}
 mynetworks = 10.0.0.0/8 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128
 mailbox_size_limit = 0
 recipient_delimiter = +

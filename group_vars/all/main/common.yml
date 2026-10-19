@@ -13,6 +13,7 @@ postfix_relayhost: "[mail.example.com]"
 # /etc/hosts alias for the relay (roles/common/defaults); the IP is set per host in host_vars
 postfix_relay_alias: "mailrelay"
 postfix_relay_alias_ip: ""
+postfix_queue_lifetime: "5d"
 
 # Geoblock/Allow
 geoallow:

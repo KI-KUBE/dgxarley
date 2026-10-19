@@ -9,6 +9,8 @@ postfix_relayhost: "[mail.example.com]"
 # alias line is removed). main.cf uses smtp_host_lookup = dns, native so the alias resolves.
 postfix_relay_alias: "mailrelay"
 postfix_relay_alias_ip: ""
+# Deferred mail waits this long for the relay before it bounces to the local sender (Postfix default 5d)
+postfix_queue_lifetime: "5d"
 
 # docker-ce-cli (needs Docker's apt repo; set false on hosts without it, e.g. Ubuntu 26.04)
 install_docker_cli: true

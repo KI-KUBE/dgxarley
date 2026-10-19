@@ -47,6 +47,7 @@ def test_common_defaults_and_mirror() -> None:
         assert d["postfix_relay_alias"] == "mailrelay", path
         assert d["postfix_relay_alias_ip"] == "", path
         assert d["postfix_relayhost"] == "[mail.example.com]", path
+        assert d["postfix_queue_lifetime"] == "5d", path
 
 
 def test_hosts_alias_task() -> None:
@@ -72,9 +73,11 @@ def test_main_cf_template() -> None:
     env = jinja2.Environment(undefined=jinja2.StrictUndefined, keep_trailing_newline=True)
     env.filters["regex_replace"] = lambda s, pat, rep: re.sub(pat, rep, s)
     out = env.from_string((COMMON / "templates" / "etc_postfix_main.cf.j2").read_text()).render(
-        mailname="node.example.invalid", postfix_relayhost="[mailrelay]"
+        mailname="node.example.invalid", postfix_relayhost="[mailrelay]", postfix_queue_lifetime="30d"
     )
     assert "\nrelayhost = [mailrelay]\n" in out
+    assert "\nmaximal_queue_lifetime = 30d\n" in out
+    assert "\nbounce_queue_lifetime = 30d\n" in out
     assert "\nsmtp_host_lookup = dns, native\n" in out
 
 
