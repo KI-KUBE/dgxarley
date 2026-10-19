@@ -1,0 +1,16 @@
+# Managed by Ansible (clevis role)
+[Unit]
+Description=LUKS keyfile fallback password agent (initrd)
+Documentation=file:///usr/libexec/clevis-keyfile-agent
+DefaultDependencies=no
+After=systemd-udevd.service systemd-udev-trigger.service
+Before=cryptsetup.target
+Conflicts=shutdown.target initrd-switch-root.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/clevis-keyfile-agent
+KillMode=process
+
+[Install]
+WantedBy=cryptsetup.target

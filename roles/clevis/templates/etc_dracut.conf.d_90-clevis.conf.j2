@@ -1,0 +1,9 @@
+# Managed by Ansible (clevis role, tang on dracut) -- do not edit manually
+# clevis (+ pin modules) unlock LUKS via tang from a systemd password agent (clevis-luks-askpass),
+# `network` pulls the network backend (dracut-network); dracut injects the kernel command line
+# below into the initrd, so no GRUB edit is needed.
+add_dracutmodules+=" {{ (['clevis'] + (clevis_dracut_extra_modules | default([])) + ['network']) | join(' ') }} "
+kernel_cmdline+=" rd.neednet=1 ip={{ clevis_net_iface | default(hw_iface) }}:dhcp{% if (clevis_dracut_net_timeout_carrier | default(0) | int) > 0 %} rd.net.timeout.carrier={{ clevis_dracut_net_timeout_carrier }}{% endif %}{% if (clevis_dracut_net_dhcp_retry | default(0) | int) > 0 %} rd.net.dhcp.retry={{ clevis_dracut_net_dhcp_retry }}{% endif %} "
+{% if clevis_net_driver.stdout | default('') | trim | length > 0 %}
+add_drivers+=" {{ clevis_net_driver.stdout | trim }} "
+{% endif %}

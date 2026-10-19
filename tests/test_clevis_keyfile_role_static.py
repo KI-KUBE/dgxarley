@@ -12,11 +12,11 @@ import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 ROLE = REPO / "roles" / "clevis"
+DRACUT_MODULE = ROLE / "files" / "dracut" / "90clevis-keyfile"
 VENV_BIN = REPO / ".venv" / "bin"
 
 NEW_VARS = {
     "clevis_initramfs_generator_override": "",
-    "clevis_keyfile_dracut_keyfile_timeout": "10s",
     "clevis_keyfile_auth_keyfile": "",
     "clevis_keyfile_boot_enabled": False,
     "clevis_keyfile_boot_mount": "/boot",
@@ -51,7 +51,14 @@ def test_keyfile_tag_lists_both_generator_blocks(generator: str) -> None:
     assert res.returncode == 0, res.stdout + res.stderr
     # --list-tasks is static (blocks are not filtered by `when`): both generator paths are listed
     assert "deploy clevis-keyfile initramfs hook" in res.stdout
-    assert "set crypttab field 3 / keyfile-timeout for the LUKS mapper" in res.stdout
+    assert "deploy the clevis-keyfile dracut module" in res.stdout
+    assert "deploy dracut config (add the module)" in res.stdout
+    assert "verify keyfile fallback in the dracut initramfs" in res.stdout
+    assert "fail on a legacy crypttab edit (never edited silently)" in res.stdout
+    assert "remove the clevis-keyfile dracut module and config" in res.stdout
+    # the crypttab editor of the old dracut variant is gone
+    assert "set crypttab field 3" not in res.stdout
+    assert "edit /etc/crypttab line" not in res.stdout
     assert "clevis : detect LUKS mapper name from crypttab" in res.stdout
     assert "copy the key to the boot partition" in res.stdout
     assert "shred the boot key file" in res.stdout
@@ -85,57 +92,84 @@ def test_readme_defaults_table_aligned() -> None:
     assert set(NEW_VARS) <= documented
 
 
-@pytest.mark.parametrize("usb", [True, False])
-@pytest.mark.parametrize("embed", [True, False])
-def test_dracut_template_renders(usb: bool, embed: bool) -> None:
-    env = jinja2.Environment(loader=jinja2.FileSystemLoader(ROLE / "templates"), keep_trailing_newline=True)
-    env.filters["bool"] = bool  # Ansible filter
-    out = env.get_template("etc_dracut.conf.d_90-clevis-keyfile.conf.j2").render(
-        clevis_keyfile_usb_enabled=usb,
-        clevis_keyfile_embed_initramfs=embed,
-        clevis_keyfile_path="/etc/clevis-keyfile/fallback.key",
-    )
-    lines = [ln for ln in out.splitlines() if not ln.startswith("#")]
-    drivers = [ln for ln in lines if ln.startswith("add_drivers")]
-    items = [ln for ln in lines if ln.startswith("install_items")]
-    if usb:
-        assert drivers == ['add_drivers+=" usb_storage uas sd_mod vfat exfat nls_cp437 nls_iso8859_1 "']
-    else:
-        assert drivers == []
-    if embed:
-        assert items == ['install_items+=" /etc/clevis-keyfile/fallback.key "']
-    else:
-        assert items == []
+SH_FILES = [
+    ROLE / "files" / "initramfs_hooks_clevis-keyfile",
+    ROLE / "files" / "initramfs_local-top_clevis-keyfile",
+    ROLE / "files" / "initramfs_local-bottom_clevis-keyfile",
+    DRACUT_MODULE / "clevis-keyfile-agent.sh",
+]
 
 
-def test_shell_snippets_syntax() -> None:
+@pytest.mark.parametrize("script", SH_FILES, ids=lambda p: p.name)
+@pytest.mark.parametrize("shell", ["sh", "dash", "busybox"])
+def test_shell_snippets_syntax(script: Path, shell: str) -> None:
+    exe = shutil.which(shell)
+    if exe is None:
+        pytest.skip(f"{shell} not available")  # initramfs runs busybox ash / dash
+    cmd = [exe, "sh", "-n", str(script)] if shell == "busybox" else [exe, "-n", str(script)]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    assert res.returncode == 0, f"{script.name} ({shell}): {res.stderr}"
+    assert script.read_text().startswith("#!/bin/sh")
+
+
+def test_module_setup_syntax() -> None:
     bash = shutil.which("bash")
     if bash is None:
         pytest.skip("bash not available")
-    for script in [
-        ROLE / "files" / "initramfs_hooks_clevis-keyfile",
-        ROLE / "files" / "initramfs_local-top_clevis-keyfile",
-        ROLE / "files" / "initramfs_local-bottom_clevis-keyfile",
-    ]:
-        shebang = script.read_text().splitlines()[0]
-        shell = "sh" if "/bin/sh" in shebang else "bash"
-        exe = shutil.which(shell)
-        assert exe is not None
-        res = subprocess.run([exe, "-n", str(script)], capture_output=True, text=True)
-        assert res.returncode == 0, f"{script.name}: {res.stderr}"
-        busybox = shutil.which("busybox")
-        if busybox:  # initramfs runs busybox ash
-            res = subprocess.run([busybox, "sh", "-n", str(script)], capture_output=True, text=True)
-            assert res.returncode == 0, f"{script.name} (busybox): {res.stderr}"
-    # the embedded task shells need a rendered template; syntax-check the awk instead
-    awk = shutil.which("awk")
-    if awk:
-        res = subprocess.run(
-            [awk, "--source", "BEGIN{}", "-f", str(ROLE / "files" / "clevis_keyfile_crypttab.awk"), "/dev/null"],
-            capture_output=True,
-            text=True,
-        )
-        assert res.returncode in (0, 4), res.stderr  # 4 = "no mapper line" on empty input, i.e. it parsed
+    script = DRACUT_MODULE / "module-setup.sh"
+    res = subprocess.run([bash, "-n", str(script)], capture_output=True, text=True)
+    assert res.returncode == 0, res.stderr
+    text = script.read_text()
+    for fn in ("check()", "depends()", "installkernel()", "install()"):
+        assert fn in text
+    assert "systemd systemd-ask-password crypt" in text
+    assert "/usr/libexec/clevis-keyfile-agent" in text
+    assert "cryptsetup.target.wants" in text
+
+
+def test_agent_unit_file() -> None:
+    unit = DRACUT_MODULE / "clevis-keyfile-agent.service"
+    sections: dict[str, dict[str, str]] = {}
+    cur = ""
+    for ln in unit.read_text().splitlines():
+        if ln.startswith("[") and ln.endswith("]"):
+            cur = ln[1:-1]
+            sections[cur] = {}
+        elif "=" in ln and not ln.startswith("#"):
+            k, v = ln.split("=", 1)
+            sections[cur][k] = v
+    assert sections["Unit"]["DefaultDependencies"] == "no"
+    assert sections["Unit"]["Before"] == "cryptsetup.target"
+    assert "initrd-switch-root.target" in sections["Unit"]["Conflicts"]
+    assert "systemd-udevd.service" in sections["Unit"]["After"]
+    assert sections["Service"]["ExecStart"] == "/usr/libexec/clevis-keyfile-agent"
+    assert sections["Service"]["Type"] == "simple"
+    assert sections["Service"]["KillMode"] == "process"
+    assert sections["Install"]["WantedBy"] == "cryptsetup.target"
+    analyze = shutil.which("systemd-analyze")
+    if analyze:
+        # the ExecStart binary does not exist on the test host: only syntax problems count
+        res = subprocess.run([analyze, "verify", str(unit)], capture_output=True, text=True)
+        assert "Failed to parse" not in res.stderr and "Unknown section" not in res.stderr, res.stderr
+
+
+def test_dracut_conf_adds_module() -> None:
+    text = (ROLE / "files" / "dracut" / "90-clevis-keyfile.conf").read_text()
+    lines = [ln for ln in text.splitlines() if ln and not ln.startswith("#")]
+    assert lines == ['add_dracutmodules+=" clevis-keyfile "']
+
+
+def test_removed_crypttab_variant_is_gone() -> None:
+    for gone in (
+        ROLE / "tasks" / "dracut_crypttab.yml",
+        ROLE / "files" / "clevis_keyfile_crypttab.awk",
+        ROLE / "templates" / "etc_dracut.conf.d_90-clevis-keyfile.conf.j2",
+    ):
+        assert not gone.exists(), gone
+    defaults = yaml.safe_load((ROLE / "defaults" / "main.yml").read_text())
+    assert "clevis_keyfile_dracut_keyfile_timeout" not in defaults
+    readme = (ROLE / "README.md").read_text()
+    assert "precedence" not in readme.lower()
 
 
 @pytest.mark.parametrize("linter", ["yamllint", "ansible-lint"])
@@ -189,62 +223,19 @@ def test_keyfile_conf_boot_disabled() -> None:
     assert conf["USB"] == "1" and conf["EMBED"] == "0"
 
 
-@pytest.mark.parametrize("fstype", ["ext4", "vfat"])
-def test_dracut_template_boot_fstype(fstype: str) -> None:
-    out = _jinja().get_template("etc_dracut.conf.d_90-clevis-keyfile.conf.j2").render(
-        clevis_keyfile_usb_enabled=False,
-        clevis_keyfile_embed_initramfs=False,
-        clevis_keyfile_boot_enabled=True,
-        clevis_boot_fstype=fstype,
-        clevis_keyfile_path="/etc/clevis-keyfile/fallback.key",
-    )  # fmt: skip
-    drivers = [ln for ln in out.splitlines() if ln.startswith("add_drivers")]
-    assert drivers == (['add_drivers+=" vfat nls_cp437 nls_iso8859_1 "'] if fstype == "vfat" else [])
-
-
-def _find_vars(node: object, key: str) -> dict[str, str] | None:
-    if isinstance(node, dict):
-        if key in node.get("vars", {}):
-            return node["vars"]  # type: ignore[no-any-return]
-        for v in node.values():
-            found = _find_vars(v, key)
-            if found:
-                return found
-    elif isinstance(node, list):
-        for v in node:
-            found = _find_vars(v, key)
-            if found:
-                return found
-    return None
-
-
-@pytest.mark.parametrize(
-    ("embed", "boot", "usb", "field3", "source"),
-    [
-        (True, True, True, "/etc/clevis-keyfile/fallback.key", "embedded"),
-        (False, True, True, "/clevis-keyfile/luks-fallback.key:UUID=U1", "boot-file"),
-        (False, False, True, "/luks-fallback.key:LABEL=LUKSKEY", "usb"),
-        (False, False, False, "", "none"),
-    ],
-)
-def test_dracut_source_precedence(embed: bool, boot: bool, usb: bool, field3: str, source: str) -> None:
-    tasks = yaml.safe_load((ROLE / "tasks" / "keyfile_fallback.yml").read_text())
-    block_vars = _find_vars(tasks, "clevis_dracut_field3")
-    assert block_vars is not None
-    env = _jinja()
-    env.filters["regex_replace"] = lambda v, a, b="": re.sub(a, b, v)
-    ctx: dict[str, object] = {
-        "clevis_keyfile_embed_initramfs": embed,
-        "clevis_keyfile_boot_enabled": boot,
-        "clevis_keyfile_usb_enabled": usb,
-        "clevis_keyfile_path": "/etc/clevis-keyfile/fallback.key",
-        "clevis_keyfile_boot_file": "clevis-keyfile/luks-fallback.key",
-        "clevis_keyfile_usb_file": "luks-fallback.key",
-        "clevis_keyfile_usb_label": "LUKSKEY",
-        "clevis_boot_uuid": "U1",
-        "clevis_boot_fstype": "ext4",
-    }
-    for name in ("clevis_dracut_boot_value", "clevis_dracut_field3", "clevis_dracut_source"):
-        ctx[name] = env.from_string(block_vars[name]).render(**ctx).strip()
-    assert ctx["clevis_dracut_field3"] == field3
-    assert ctx["clevis_dracut_source"] == source
+@pytest.mark.parametrize("embed", [True, False])
+@pytest.mark.parametrize("usb", [True, False])
+@pytest.mark.parametrize("boot", [True, False])
+def test_keyfile_conf_combinations(embed: bool, usb: bool, boot: bool) -> None:
+    conf = _keyfile_conf(
+        clevis_keyfile_embed_initramfs=embed,
+        clevis_keyfile_usb_enabled=usb,
+        clevis_keyfile_boot_enabled=boot,
+        clevis_boot_uuid="U-1",
+    )
+    assert (conf["EMBED"], conf["USB"], conf["BOOT"]) == tuple("1" if x else "0" for x in (embed, usb, boot))
+    assert conf["BOOT_DEV"] == ("UUID=U-1" if boot else "''")
+    # the dracut agent and the initramfs-tools scripts source the file with sh
+    script = "\n".join(f"{k}={v}" for k, v in conf.items()) + '\necho "$EMBED$USB$BOOT|$USB_LABEL|$USB_FILE"'
+    res = subprocess.run(["sh", "-c", script], capture_output=True, text=True)
+    assert res.stdout.strip() == f"{int(embed)}{int(usb)}{int(boot)}|LUKSKEY|luks-fallback.key"

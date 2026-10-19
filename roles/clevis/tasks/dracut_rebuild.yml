@@ -1,0 +1,19 @@
+---
+# dracut_rebuild.yml
+# Rebuilds the initrd of every kernel that still has a /boot/vmlinuz-* (= `update-initramfs -k all`).
+# Imported with a `when:` by the tang path (config_clevis.yml) and the keyfile fallback.
+- name: rebuild initramfs for all kernels (dracut)
+  # not `dracut -f --regenerate-all`: it iterates over /usr/lib/modules/* and dies on the depmod
+  # leftovers of purged kernels; build only for kernels that still have a /boot/vmlinuz (= `-k all`)
+  shell: |
+    set -euo pipefail
+    n=0
+    for d in /usr/lib/modules/*/; do
+      v=${d%/}; v=${v##*/}
+      [ -e "/boot/vmlinuz-$v" ] || continue
+      dracut -f "/boot/initrd.img-$v" "$v"
+      n=$((n + 1))
+    done
+    [ "$n" -gt 0 ] || { echo "no kernel with /boot/vmlinuz-* found" >&2; exit 1; }
+  args:
+    executable: /bin/bash

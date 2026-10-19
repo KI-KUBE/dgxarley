@@ -124,6 +124,41 @@ chmod 600 "$KEYFILE"
 clevis luks bind -k "$KEYFILE" -d "$LUKS_DEVICE" sss "$CONFIG"
 echo -e "${GREEN}Clevis binding successful.${NC}"
 
+{% if clevis_initramfs_generator | default('initramfs-tools') == 'dracut' %}
+# --- dracut: the network/clevis config is Ansible-managed ---
+# /etc/dracut.conf.d/90-clevis.conf (modules clevis + network, rd.neednet=1 ip=<iface>:dhcp, NIC
+# driver) is deployed by the playbook (--tags clevis); this script only re-binds and rebuilds.
+if [ ! -f /etc/dracut.conf.d/90-clevis.conf ]; then
+  echo -e "${YELLOW}Warning: /etc/dracut.conf.d/90-clevis.conf is missing - run the playbook with --tags clevis.${NC}"
+fi
+
+# --- Rebuild initramfs ---
+echo -e "\nRebuilding initramfs (dracut)..."
+# not `dracut --regenerate-all`: it dies on depmod leftovers of purged kernels
+REBUILT=0
+for D in /usr/lib/modules/*/; do
+  V=${D%/}; V=${V##*/}
+  [ -e "/boot/vmlinuz-$V" ] || continue
+  dracut -f "/boot/initrd.img-$V" "$V"
+  REBUILT=$((REBUILT + 1))
+done
+[ "$REBUILT" -gt 0 ] || { echo -e "${RED}No kernel with /boot/vmlinuz-* found.${NC}"; exit 1; }
+echo -e "${GREEN}Initramfs rebuilt.${NC}"
+
+# --- Verify ---
+echo -e "\n--- Verification ---"
+echo "Clevis bindings:"
+clevis luks list -d "$LUKS_DEVICE"
+
+INITRD=/boot/initrd.img-"$(uname -r)"
+CLEVIS_COUNT=$(lsinitrd "$INITRD" 2>/dev/null | grep -c clevis || echo "0")
+echo "Clevis files in initramfs: $CLEVIS_COUNT"
+
+if [ -n "$NETWORK_DRIVER" ]; then
+  DRIVER_COUNT=$(lsinitrd "$INITRD" 2>/dev/null | grep -c "$NETWORK_DRIVER" || echo "0")
+  echo "Network driver ($NETWORK_DRIVER) in initramfs: $DRIVER_COUNT files"
+fi
+{% else %}
 # --- Configure initramfs networking ---
 echo -e "\nConfiguring initramfs networking..."
 
@@ -168,5 +203,6 @@ if [ -n "$NETWORK_DRIVER" ]; then
   echo "Network driver ($NETWORK_DRIVER) in initramfs: $DRIVER_COUNT files"
 fi
 
+{% endif %}
 echo -e "\n${GREEN}Setup complete.${NC}"
 echo "Test with: /root/tang_check_connection.sh $LUKS_DEVICE"

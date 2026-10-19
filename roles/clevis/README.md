@@ -18,7 +18,8 @@ ansible-playbook common.yml --tags clevis --check --diff
 
 ## What it does
 
-1. Installs clevis packages (`clevis`, `clevis-luks`, `clevis-initramfs`, `clevis-systemd`)
+0. Detects the initramfs generator (`dracut` or `initramfs-tools`, see below); steps 5-9 below describe the initramfs-tools path, dracut hosts: section "Tang on dracut"
+1. Installs clevis packages (`clevis`, `clevis-luks`, `clevis-systemd` + `clevis-initramfs` on initramfs-tools, `clevis-dracut` on dracut)
 2. Auto-detects the LUKS partition from `/etc/crypttab` (supports UUID= format)
 3. Checks for existing clevis bindings (skips bind if already present)
 4. Verifies tang server connectivity, fetches advertisements, and creates clevis/tang SSS binding (threshold 2)
@@ -45,7 +46,7 @@ ansible-playbook common.yml --tags clevis_keyfile -e clevis_keyfile_enabled=true
 ansible-playbook common.yml --tags clevis_keyfile -e clevis_keyfile_teardown=true
 ```
 
-- **crypttab is not modified.** `local-top/clevis-keyfile` works like the clevis initramfs script: a background loop waits for cryptroot's `askpass`, and writes the key into its `passfifo`. Tang, keyfile and typed passphrase race; the first valid answer wins. The stick may be plugged in while the prompt is shown.
+- **Race model (both generators): crypttab is never modified.** All enabled key sources (embedded key, key file on `/boot`, USB stick) are offered at boot in parallel to the console passphrase prompt (and to tang, see below); the first valid answer wins. The stick may be plugged in while the prompt is shown. initramfs-tools: `local-top/clevis-keyfile` works like the clevis initramfs script, a background loop waits for cryptroot's `askpass` and writes the key into its `passfifo`. dracut: a systemd password agent (below).
 - A key is only written after `cryptsetup --test-passphrase` accepted it, so a stale stick never consumes one of cryptroot's tries.
 - The key is 64 ASCII chars (base64) without a trailing newline, as required by the passfifo path. Master copy: `/etc/clevis-keyfile/fallback.key` (on the encrypted root).
 - `clevis_keyfile_embed_initramfs: true` puts the key into the initramfs, i.e. **unencrypted on /boot** (sets `UMASK=0077` for the initrd). Only for the initial boot: switch it off, or tear down, once tang works. The teardown removes the keyslot, so leftover copies in old initrds or on sticks become useless.
@@ -55,10 +56,11 @@ ansible-playbook common.yml --tags clevis_keyfile -e clevis_keyfile_teardown=tru
 
 The initramfs generator is auto-detected (fact `clevis_initramfs_generator`): `dracut` if the `dracut` binary exists and the `initramfs-tools` package is **not** installed (a stale `/etc/initramfs-tools/` or an `update-initramfs` compat wrapper does not count), else `initramfs-tools`. Force it with `clevis_initramfs_generator_override`. The keyslot, key, `keyfile.conf`, `clevis_keyfile_write_usb.sh` and the teardown of keyslot + shred are identical on both; the initramfs-tools hooks/scripts are not deployed on dracut.
 
-- Instead of scripts, only the `/etc/crypttab` line of the detected mapper is rewritten (backup once: `/etc/crypttab.clevis-keyfile.bak`; the run fails if field 3 holds anything but `none`/`-` or a value managed here). Stick: `dm_crypt-0 UUID=... /luks-fallback.key:LABEL=LUKSKEY luks,keyfile-timeout=10s` (systemd "keyfile:device" syntax, the key is read from the stick's filesystem root). With `clevis_keyfile_embed_initramfs`: field 3 is `/etc/clevis-keyfile/fallback.key` and `/etc/dracut.conf.d/90-clevis-keyfile.conf` adds it via `install_items`. Existing options (`luks,discard`, ...) are kept; `keyfile-timeout=` is never duplicated.
-- `90-clevis-keyfile.conf` also adds `usb_storage uas sd_mod vfat exfat nls_cp437 nls_iso8859_1` via `add_drivers` (hostonly dracut would not ship them). Rebuild: `dracut -f --regenerate-all`; verification reads `etc/crypttab`, the embedded key and `usb-storage` with `lsinitrd` and warns if `/boot/initrd.img-*` is not 0600.
-- Fallback: with `keyfile-timeout=` systemd-cryptsetup waits for the key device and falls back to the interactive passphrase prompt if it does not appear or the key is rejected. A missing or stale stick costs only the timeout, never a lockout. There is no tang + keyfile + passphrase race on dracut; clevis/tang on dracut is not covered by this role.
-- Teardown: field 3 back to `none`, `keyfile-timeout=` dropped, dracut conf removed, initramfs rebuilt, then keyslot removal and shred.
+- **systemd password agent as dracut module.** The role deploys the module `clevis-keyfile` to `/usr/lib/dracut/modules.d/90clevis-keyfile/` (`module-setup.sh`, `clevis-keyfile-agent.sh`, `clevis-keyfile-agent.service`) and `/etc/dracut.conf.d/90-clevis-keyfile.conf` (`add_dracutmodules+=" clevis-keyfile "`). In the initrd, `clevis-keyfile-agent.service` (wanted by `cryptsetup.target`, never a hard dependency) runs `/usr/libexec/clevis-keyfile-agent`. Every second it looks at `/run/systemd/ask-password/ask.*`, and for each `Id=cryptsetup:<device>` it tries the embedded key, the `/boot` key file and the USB key (in that order, a failing source never blocks the next) with `cryptsetup open --test-passphrase`; the first key that unlocks is sent with `systemd-reply-password 1 <socket>`. The console prompt (plymouth / tty agent) keeps running in parallel and answers the same ask file, so typing a passphrase works at any time. A key rejected for an ask file is not retried until its content changes; after a stale or unreadable source the loop backs off 4 s. The agent keeps running until the unit is stopped before switch-root, it never gives up while ask files exist. The key is never logged.
+- The module adds the kernel modules `usb_storage uas sd_mod vfat exfat nls_cp437 nls_iso8859_1 ext4` (hostonly dracut would not ship them) and, with `clevis_keyfile_embed_initramfs`, the key as `etc/clevis-keyfile/fallback.key` (0400). `check()` includes the module only while `/etc/clevis-keyfile/keyfile.conf` exists. Rebuild: `dracut -f /boot/initrd.img-<v> <v>` for every kernel that still has a `/boot/vmlinuz-<v>` (not `--regenerate-all`, which trips over the depmod leftovers of purged kernels). Verification with `lsinitrd` requires the agent, the unit and `keyfile.conf` in the initrd, the key exactly once when embedding (fail otherwise, and fail if a `/boot/initrd.img-*` is not 0600 while embedding), and warns if the USB/boot kernel modules are missing (fine only if built in).
+- **crypttab stays `none`.** An older version of this role edited the mapper line (`keyfile-timeout=`, `/luks-fallback.key:LABEL=...`). If such an edit is still there, the run **fails** and asks the operator to restore field 3 to `none` and drop `keyfile-timeout=` (backup of the original: `/etc/crypttab.clevis-keyfile.bak`); crypttab is never edited silently.
+- **tang on dracut** is provided by the distro's `clevis-dracut` package and configured by this role (next section); it answers the same ask-password requests.
+- Teardown: dracut module and conf removed, initramfs rebuilt, then keyslot removal and shred.
 
 ### Key file on /boot (`clevis_keyfile_boot_enabled`)
 
@@ -66,9 +68,20 @@ A third key source: the key is copied to `<clevis_keyfile_boot_mount>/<clevis_ke
 
 - Why `/boot` (ext4, real `0600`) and not the ESP (vfat, world-readable): same exposure class, but permissions are enforceable.
 - Security-equivalent to the embedded key (unencrypted `/boot`), but the initrd is **not** rebuilt when the key changes, because the key is read from the partition at boot. Tear down (or rotate) once tang works.
-- dracut: crypttab field 3 becomes `/<boot file>:UUID=<uuid>` (systemd "path:device" syntax) plus `keyfile-timeout=`, e.g. `dm_crypt-0 UUID=<luks> /clevis-keyfile/luks-fallback.key:UUID=<boot-uuid> luks,keyfile-timeout=10s`. Field 3 holds one value only, so with several sources enabled the precedence is **embedded > boot file > usb**; a debug message names the chosen source. The crypttab editor treats any `/<boot file>:UUID=*` as managed, so a changed UUID after a reinstall is still ours. An ext4 `/boot` needs no extra drivers in a hostonly initrd; for vfat `add_drivers` gets `vfat` + nls.
-- initramfs-tools: `keyfile.conf` gets `BOOT=1`, `BOOT_DEV=UUID=...`, `BOOT_FILE=...`. `local-top/clevis-keyfile` tries embedded, then boot partition (mounted read-only by `/dev/disk/by-uuid/`), then USB, using the first key that passes `--test-passphrase`; `local-bottom` unmounts it. The hook adds `ext4 vfat nls_*`.
+- dracut: the agent resolves `BOOT_DEV` (`UUID=`, also `LABEL=`/`PARTUUID=`) to `/dev/disk/by-*`, mounts it read-only on `/run/clevis-keyfile-boot` (retry with `ro,noload` for a dirty ext4 journal), reads the key, unmounts again.
+- Both: `keyfile.conf` gets `BOOT=1`, `BOOT_DEV=UUID=...`, `BOOT_FILE=...`. initramfs-tools `local-top/clevis-keyfile` tries embedded, then boot partition (mounted read-only by `/dev/disk/by-uuid/`), then USB, using the first key that passes `--test-passphrase`; `local-bottom` unmounts it. The hook adds `ext4 vfat nls_*`.
 - Teardown shreds and removes the file from the boot partition (plain `rm` where shred is not possible, e.g. vfat) and drops the empty directory.
+
+## Tang on dracut (systemd-cryptsetup, e.g. Ubuntu 26.04)
+
+With `clevis_initramfs_generator == 'dracut'` (auto-detected, see the keyfile section; shared include `tasks/detect_generator.yml`) `wantsclevis: true` unlocks LUKS via tang at boot. Binding, tang check, binding verification and the helper scripts are identical on both generators; only the initrd part differs. The initramfs-tools tasks are skipped (`initramfs.conf`, `/etc/initramfs-tools/*`, `cleanup-netplan`, dhcpcd hook, `update-initramfs`), `wantsclevis_initramfs: false` skips the initrd steps on both.
+
+- **Packages:** `clevis clevis-luks clevis-systemd clevis-dracut` (not `clevis-initramfs`). `clevis-dracut` depends on `clevis-systemd`, `dracut` and `dracut-network`; `clevis-systemd` on `clevis-luks` and `systemd`. `clevis-dracut` ships only dracut modules (`/usr/lib/dracut/modules.d/60clevis/{module-setup.sh,clevis-hook.sh}`, `60clevis-pin-{null,sss,tang,tpm2}`); the password agent comes from `clevis-systemd`: `/usr/libexec/clevis-luks-askpass` with `clevis-luks-askpass.path` (watches `/run/systemd/ask-password`) and `.service`.
+- **Network in the initrd:** `/etc/dracut.conf.d/90-clevis.conf` (template `etc_dracut.conf.d_90-clevis.conf.j2`) holds `add_dracutmodules+=" clevis <clevis_dracut_extra_modules> network "`, `kernel_cmdline+=" rd.neednet=1 ip=<iface>:dhcp rd.net.timeout.carrier=.. rd.net.dhcp.retry=.. "` and `add_drivers+=" <nic driver> "`. `<iface>` is `hw_iface` (fallback `ansible_default_ipv4.interface`), the driver comes from the same detection task as on initramfs-tools. dracut writes `kernel_cmdline` into the initrd (`etc/cmdline.d`), **no GRUB edit** is needed. The `network` meta-module picks the backend (NetworkManager or systemd-networkd, both release their lease themselves, therefore no `dhcp-release` script on dracut). `rd.neednet=1` is what makes the initrd configure the NIC.
+- **Race (unit names):** in the initrd `clevis-luks-askpass.path` fires on `/run/systemd/ask-password/ask.*`, `clevis-luks-askpass.service` runs `/usr/libexec/clevis-luks-askpass`, which recovers the key from the tang/sss JWE of the LUKS header and answers the `Id=cryptsetup:<device>` request. In parallel `clevis-keyfile-agent.service` (this role, keyfile fallback) and the console prompt (plymouth / `systemd-tty-ask-password-agent`) answer the same ask file. The first valid answer wins, crypttab is untouched (`none`), unreachable tang just leaves the other sources.
+- **Rebuild:** `tasks/dracut_rebuild.yml` (shared with the keyfile fallback): `dracut -f /boot/initrd.img-<v> <v>` for every kernel with a `/boot/vmlinuz-<v>`; runs on first bind or when `90-clevis.conf` changed.
+- **Verification (`lsinitrd`, fails on a miss):** `usr/libexec/clevis-luks-askpass`, `clevis-luks-askpass.path/.service`, `clevis-decrypt-tang`, `clevis-decrypt-sss`, a network backend, the NIC driver `.ko`; warns if `rd.neednet=1` is not in `etc/cmdline.d`.
+- **Teardown:** the tang path has none on either generator (unbind via `setup_clevis_tang.sh`, which asks before removing bindings). Without `wantsclevis`, remove `/etc/dracut.conf.d/90-clevis.conf` and rebuild by hand. `setup_clevis_tang.sh` is generator-aware: on dracut it re-binds and rebuilds with dracut and leaves `90-clevis.conf` to Ansible.
 
 ## Task Files
 
@@ -77,8 +90,9 @@ A third key source: the key is copied to `<clevis_keyfile_boot_mount>/<clevis_ke
 Single import:
 - **`config_clevis.yml`** — all clevis/tang configuration (tag: `clevis`)
 - **`keyfile_fallback.yml`**: optional keyfile fallback, install + teardown blocks (tags: `clevis`, `clevis_keyfile`); runs without `wantsclevis` (the play in `common.yml` also fires for `clevis_keyfile_enabled`/`clevis_keyfile_teardown`)
-- **`dracut_crypttab.yml`**: idempotent crypttab line edit of the dracut path
 - **`detect_luks.yml`**: LUKS device detection, imported by both
+- **`detect_generator.yml`**: sets `clevis_initramfs_generator` (guarded by the marker fact `clevis_generator_detected`, so it runs once per host), imported by both
+- **`dracut_rebuild.yml`**: kernel-exact `dracut -f` loop, imported by the dracut tang path and the keyfile fallback (with a `when:` each)
 
 ### `config_clevis.yml`
 
@@ -102,23 +116,25 @@ The main task file containing all logic. Read-only tasks use `check_mode: false`
 
 ## Defaults
 
-| Variable                                | Default                                                        | Description                                                                                                                  |
-|-----------------------------------------|----------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|
-| `clevis_tang_servers`                   | `["http://tang.example.com", "http://tang2.example.com:9090"]` | Tang server URLs (real values in vault)                                                                                      |
-| `clevis_sss_threshold`                  | `2`                                                            | SSS threshold (number of tang servers needed for decryption)                                                                 |
-| `clevis_keyfile_enabled`                | `false`                                                        | Install the keyfile fallback                                                                                                 |
-| `clevis_keyfile_teardown`               | `false`                                                        | Remove keyslot + files (opt-in, `-e`)                                                                                        |
-| `clevis_keyfile_path`                   | `/etc/clevis-keyfile/fallback.key`                             | Master copy of the key (must stay in `/etc/clevis-keyfile`)                                                                  |
-| `clevis_keyfile_usb_enabled`            | `true`                                                         | Look for the key on a USB stick                                                                                              |
-| `clevis_keyfile_usb_label`              | `LUKSKEY`                                                      | Filesystem label of the stick (vfat/exfat/ext4)                                                                              |
-| `clevis_keyfile_usb_file`               | `luks-fallback.key`                                            | Key file name in the stick's root                                                                                            |
-| `clevis_keyfile_embed_initramfs`        | `false`                                                        | Embed the key into the initramfs (unencrypted /boot, initial boot only). On dracut: `install_items` + explicit crypttab path |
-| `clevis_keyfile_boot_enabled`           | `false`                                                        | Third key source: plain key file on an unencrypted local partition (see below)                                               |
-| `clevis_keyfile_boot_mount`             | `/boot`                                                        | Mountpoint of that partition; device is derived via `findmnt` and referenced as `UUID=`                                      |
-| `clevis_keyfile_boot_file`              | `clevis-keyfile/luks-fallback.key`                             | Key path relative to that filesystem's root (dir `0700`, file `0600`, root:root)                                             |
-| `clevis_initramfs_generator_override`   | `""`                                                           | Force `dracut` or `initramfs-tools` (empty = auto-detect)                                                                    |
-| `clevis_keyfile_dracut_keyfile_timeout` | `10s`                                                          | dracut: crypttab `keyfile-timeout=` (wait for the stick, then passphrase prompt)                                             |
-| `clevis_keyfile_auth_keyfile`           | `""`                                                           | Existing key file for `luksAddKey --key-file` (tried before passphrase / clevis binding)                                     |
+| Variable                              | Default                                                        | Description                                                                              |
+|---------------------------------------|----------------------------------------------------------------|------------------------------------------------------------------------------------------|
+| `clevis_tang_servers`                 | `["http://tang.example.com", "http://tang2.example.com:9090"]` | Tang server URLs (real values in vault)                                                  |
+| `clevis_sss_threshold`                | `2`                                                            | SSS threshold (number of tang servers needed for decryption)                             |
+| `clevis_keyfile_enabled`              | `false`                                                        | Install the keyfile fallback                                                             |
+| `clevis_keyfile_teardown`             | `false`                                                        | Remove keyslot + files (opt-in, `-e`)                                                    |
+| `clevis_keyfile_path`                 | `/etc/clevis-keyfile/fallback.key`                             | Master copy of the key (must stay in `/etc/clevis-keyfile`)                              |
+| `clevis_keyfile_usb_enabled`          | `true`                                                         | Look for the key on a USB stick                                                          |
+| `clevis_keyfile_usb_label`            | `LUKSKEY`                                                      | Filesystem label of the stick (vfat/exfat/ext4)                                          |
+| `clevis_keyfile_usb_file`             | `luks-fallback.key`                                            | Key file name in the stick's root                                                        |
+| `clevis_keyfile_embed_initramfs`      | `false`                                                        | Embed the key into the initramfs (unencrypted /boot, initial boot only)                  |
+| `clevis_keyfile_boot_enabled`         | `false`                                                        | Third key source: plain key file on an unencrypted local partition (see below)           |
+| `clevis_keyfile_boot_mount`           | `/boot`                                                        | Mountpoint of that partition; device is derived via `findmnt` and referenced as `UUID=`  |
+| `clevis_keyfile_boot_file`            | `clevis-keyfile/luks-fallback.key`                             | Key path relative to that filesystem's root (dir `0700`, file `0600`, root:root)         |
+| `clevis_initramfs_generator_override` | `""`                                                           | Force `dracut` or `initramfs-tools` (empty = auto-detect)                                |
+| `clevis_keyfile_auth_keyfile`         | `""`                                                           | Existing key file for `luksAddKey --key-file` (tried before passphrase / clevis binding) |
+| `clevis_dracut_extra_modules`         | `[clevis-pin-tang, clevis-pin-sss]`                            | dracut: modules added next to `clevis` and `network` in `90-clevis.conf`                 |
+| `clevis_dracut_net_timeout_carrier`   | `15`                                                           | dracut: `rd.net.timeout.carrier` seconds (0 = omit)                                      |
+| `clevis_dracut_net_dhcp_retry`        | `3`                                                            | dracut: `rd.net.dhcp.retry` attempts (0 = omit)                                          |
 
 ## Helper Scripts
 
@@ -144,17 +160,22 @@ roles/clevis/
 │   ├── main.yml                              # Imports config_clevis.yml
 │   ├── config_clevis.yml                     # All clevis/tang configuration
 │   ├── detect_luks.yml                       # LUKS device + mapper detection
-│   ├── dracut_crypttab.yml                   # dracut path: crypttab line edit
+│   ├── detect_generator.yml                  # dracut | initramfs-tools detection (fact)
+│   ├── dracut_rebuild.yml                    # kernel-exact dracut -f loop (tang + keyfile)
 │   └── keyfile_fallback.yml                  # Optional keyfile fallback (install + teardown)
 ├── templates/
-│   ├── setup_clevis_tang.sh.j2               # Standalone rebind script
+│   ├── setup_clevis_tang.sh.j2               # Standalone rebind script (generator-aware)
+│   ├── etc_dracut.conf.d_90-clevis.conf.j2   # dracut: clevis + network + ip= + NIC driver (tang)
 │   ├── etc_clevis-keyfile_keyfile.conf.j2    # Keyfile fallback config (sourced in initramfs)
-│   ├── etc_dracut.conf.d_90-clevis-keyfile.conf.j2 # dracut: USB drivers / embedded key
 │   └── clevis_keyfile_write_usb.sh.j2        # Writes the key onto a USB stick
 └── files/
     ├── tang_check_connection.sh              # Tang connectivity checker
     ├── initramfs_local-bottom_cleanup-netplan # Initramfs cleanup script (deployed to init-bottom/)
-    ├── clevis_keyfile_crypttab.awk           # dracut: crypttab line rewrite (unit-tested)
+    ├── dracut/90-clevis-keyfile.conf         # dracut: add_dracutmodules+=" clevis-keyfile "
+    ├── dracut/90clevis-keyfile/              # dracut module (password agent), deployed to /usr/lib/dracut/modules.d/
+    │   ├── module-setup.sh
+    │   ├── clevis-keyfile-agent.sh           # answers systemd-cryptsetup ask-password requests (unit-tested)
+    │   └── clevis-keyfile-agent.service
     ├── initramfs_hooks_clevis-keyfile        # Ships config/key/USB modules into the initramfs
     ├── initramfs_local-top_clevis-keyfile    # Background loop feeding the key into askpass
     └── initramfs_local-bottom_clevis-keyfile # Stops the loop, unmounts the stick

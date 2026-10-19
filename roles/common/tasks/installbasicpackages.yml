@@ -153,7 +153,6 @@
       - cifs-utils
       - cmake
       - cmake-data
-      - docker-ce-cli
       - fping
       - iperf
       - libelf-dev
@@ -172,6 +171,16 @@
       - ncdu
     state: present
     update_cache: true
+  tags:
+    - installbasicpackages
+
+# docker-ce-cli needs Docker's apt repo, which is absent on hosts without it
+# (e.g. Ubuntu 26.04) -- set install_docker_cli: false there.
+- name: install docker-ce-cli
+  apt:
+    pkg: docker-ce-cli
+    state: present
+  when: install_docker_cli | default(true) | bool
   tags:
     - installbasicpackages
 

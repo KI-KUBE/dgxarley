@@ -1,0 +1,51 @@
+---
+# detect_generator.yml
+# Sets the fact clevis_initramfs_generator ('dracut' | 'initramfs-tools'). Imported by
+# config_clevis.yml (tang) and keyfile_fallback.yml; the checks run once per host and play run:
+# the marker fact clevis_generator_detected is set by the last task, so the earlier tasks of the
+# block are still evaluated in the run that sets it, and skipped by every later import.
+
+- name: detect initramfs generator
+  when: clevis_generator_detected is not defined
+  block:
+    - name: check for the dracut binary
+      shell: command -v dracut >/dev/null 2>&1 && echo yes || echo no
+      args:
+        executable: /bin/bash
+      register: clevis_has_dracut
+      changed_when: false
+      check_mode: false
+
+    - name: check whether the initramfs-tools package is installed
+      shell: dpkg-query -W -f='${Status}' initramfs-tools 2>/dev/null || true
+      args:
+        executable: /bin/bash
+      register: clevis_initramfs_tools_status
+      changed_when: false
+      check_mode: false
+
+    # dracut wins only if initramfs-tools is really gone: /etc/initramfs-tools/ and
+    # an update-initramfs compat wrapper may linger on dracut systems.
+    - name: set initramfs generator fact (override > auto-detect)
+      set_fact:
+        clevis_initramfs_generator: >-
+          {{ clevis_initramfs_generator_override
+             if (clevis_initramfs_generator_override | length > 0)
+             else ('dracut'
+                   if (clevis_has_dracut.stdout | trim == 'yes'
+                       and clevis_initramfs_tools_status.stdout | trim != 'install ok installed')
+                   else 'initramfs-tools') }}
+
+    - name: validate initramfs generator
+      assert:
+        that: clevis_initramfs_generator in ['dracut', 'initramfs-tools']
+        fail_msg: "clevis_initramfs_generator_override must be '', 'dracut' or 'initramfs-tools' (got '{{ clevis_initramfs_generator }}')."
+        quiet: true
+
+    - name: display initramfs generator
+      debug:
+        msg: "initramfs generator: {{ clevis_initramfs_generator }}"
+
+    - name: mark initramfs generator as detected
+      set_fact:
+        clevis_generator_detected: true

@@ -4,6 +4,9 @@
 # Postfix relayhost - set to empty string for direct delivery
 postfix_relayhost: "[mail.example.com]"
 
+# docker-ce-cli (needs Docker's apt repo; set false on hosts without it, e.g. Ubuntu 26.04)
+install_docker_cli: true
+
 # AppArmor removal - set to true for cloud/dns servers
 deinstall_apparmor: false
 

@@ -23,21 +23,36 @@
 #   ansible-playbook common.yml  --tags clevis --check --diff
 #
 # What this does:
-#   1. Installs clevis packages (clevis, clevis-luks, clevis-initramfs, clevis-systemd)
+#   1. Installs clevis packages (clevis, clevis-luks, clevis-systemd + clevis-initramfs on
+#      initramfs-tools hosts or clevis-dracut on dracut hosts)
 #   2. Auto-detects the LUKS partition from /etc/crypttab
 #   3. Checks for existing clevis bindings (skips bind if already present)
 #   4. Fetches tang advertisements and creates clevis/tang SSS binding (threshold 2)
-#   5. Configures initramfs networking (interface driver, DEVICE=, IP=:::::<device>:dhcp)
-#   6. Rebuilds initramfs (only when changes occurred)
+#   5. Configures initrd networking, depending on the generator (fact clevis_initramfs_generator,
+#      detect_generator.yml):
+#        initramfs-tools: interface driver, DEVICE=, IP=:::::<device>:dhcp, netplan cleanup,
+#          dhcp-release; rebuild with update-initramfs
+#        dracut (systemd-cryptsetup, e.g. Ubuntu 26.04): /etc/dracut.conf.d/90-clevis.conf (modules
+#          clevis + network, kernel_cmdline rd.neednet=1 ip=<iface>:dhcp, NIC driver); rebuild with
+#          dracut_rebuild.yml. clevis-luks-askpass answers systemd-cryptsetup's ask-password
+#          requests, racing with the console prompt and the keyfile agent.
+#   6. Rebuilds the initrd (only when changes occurred)
 #   7. Deploys setup_clevis_tang.sh and tang_check_connection.sh to /root/
-#   8. Verifies clevis hooks and network driver in initramfs
+#   8. Verifies clevis hooks and network driver in the initrd (lsinitramfs / lsinitrd)
 #
 # Defaults (roles/clevis/defaults/main.yml):
 #   clevis_tang_servers: (list of tang server URLs — real values in vault)
 #   clevis_sss_threshold: 2
 #
+# wantsclevis_initramfs: false skips every initrd step on both generators (binding only).
+#
 # The existing LUKS passphrase remains valid as fallback.
 # If tang servers are unreachable at boot, the normal password prompt appears.
+
+# --- Initramfs generator (dracut | initramfs-tools) ---
+
+- name: detect initramfs generator
+  import_tasks: detect_generator.yml
 
 # --- Install clevis packages ---
 
@@ -55,7 +70,21 @@
     pkg:
       - clevis-initramfs
     state: present
-  when: wantsclevis_initramfs | default(true)
+  when:
+    - wantsclevis_initramfs | default(true)
+    - clevis_initramfs_generator == 'initramfs-tools'
+
+# clevis-dracut ships only the dracut modules (60clevis, 60clevis-pin-{null,sss,tang,tpm2});
+# the askpass agent (clevis-luks-askpass) comes from clevis-systemd, installed above.
+# It depends on dracut-network, which provides the network modules.
+- name: install clevis-dracut package
+  apt:
+    pkg:
+      - clevis-dracut
+    state: present
+  when:
+    - wantsclevis_initramfs | default(true)
+    - clevis_initramfs_generator == 'dracut'
 
 # --- Detect LUKS device from crypttab ---
 
@@ -169,10 +198,15 @@
     msg: "Current clevis bindings: {{ clevis_verify_binding.stdout }}"
   when: clevis_has_luks | bool
 
-# --- Configure initramfs networking ---
+# --- Network interface and driver for the initrd (both generators) ---
+
+- name: set initrd network interface fact
+  set_fact:
+    clevis_net_iface: "{{ hw_iface | default(ansible_default_ipv4.interface) }}"
+  when: clevis_has_luks | bool
 
 - name: detect network interface driver
-  shell: basename $(readlink /sys/class/net/{{ hw_iface }}/device/driver) 2>/dev/null || echo ""
+  shell: basename $(readlink /sys/class/net/{{ clevis_net_iface }}/device/driver) 2>/dev/null || echo ""
   register: clevis_net_driver
   changed_when: false
   check_mode: false
@@ -180,180 +214,251 @@
     - clevis_has_luks | bool
     - wantsclevis_initramfs | default(true)
 
-- name: ensure network driver in initramfs modules
-  lineinfile:
-    path: /etc/initramfs-tools/modules
-    line: "{{ clevis_net_driver.stdout }}"
-    state: present
+# --- initramfs-tools path (hosts without dracut) ---
+
+- name: tang on initramfs-tools (clevis-initramfs, initramfs.conf IP=, update-initramfs)
+  when: clevis_initramfs_generator == 'initramfs-tools'
+  block:
+    - name: ensure network driver in initramfs modules
+      lineinfile:
+        path: /etc/initramfs-tools/modules
+        line: "{{ clevis_net_driver.stdout }}"
+        state: present
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
+        - clevis_net_driver.stdout | default('') | length > 0
+      register: clevis_initramfs_modules_changed
+
+    - name: set DEVICE in initramfs.conf
+      lineinfile:
+        path: /etc/initramfs-tools/initramfs.conf
+        regexp: '^DEVICE='
+        line: "DEVICE={{ hw_iface }}"
+      register: clevis_initramfs_device_changed
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
+
+    - name: set IP in initramfs.conf with device and dhcp
+      lineinfile:
+        path: /etc/initramfs-tools/initramfs.conf
+        regexp: '^IP='
+        line: "IP=:::::{{ hw_iface }}:dhcp"
+        insertafter: '^DEVICE='
+      register: clevis_initramfs_ip_changed
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
+
+    # --- Clean up stale initramfs netplan artifacts ---
+    # The initramfs init script calls configure_networking() AFTER local-bottom,
+    # so the cleanup must be in init-bottom (which runs after configure_networking).
+    # configure_networking() writes /run/netplan/<iface>.yaml which persists into
+    # userspace and causes netplan generate to re-enable DHCP on OVS bridge ports.
+
+    - name: remove old local-bottom cleanup-netplan script (wrong location)
+      file:
+        path: /etc/initramfs-tools/scripts/local-bottom/cleanup-netplan
+        state: absent
+      register: clevis_cleanup_old_removed
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
+
+    - name: deploy initramfs init-bottom cleanup-netplan script
+      copy:
+        src: initramfs_local-bottom_cleanup-netplan
+        dest: /etc/initramfs-tools/scripts/init-bottom/cleanup-netplan
+        owner: root
+        group: root
+        mode: '0755'
+      register: clevis_cleanup_netplan_changed
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
+
+    # --- Ensure dhcpcd is bundled into the initramfs ---
+    # The dhcp-release script below needs a release-capable DHCP client in the
+    # initramfs. Ubuntu's dhcpcd-base ships its own hook
+    # (/usr/share/initramfs-tools/hooks/dhcpcd); Raspberry Pi (dhcpcd5) and Debian
+    # Trixie (dhcpcd-base) do NOT. We therefore deploy our own hook ONLY when the
+    # packaged one is absent, so we never shadow/duplicate the vendor hook.
+
+    - name: check for a package-supplied dhcpcd initramfs hook
+      stat:
+        path: /usr/share/initramfs-tools/hooks/dhcpcd
+      register: clevis_vendor_dhcpcd_hook
+      check_mode: false
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
+        - clevis_dhcp_release_enabled | default(true) | bool
+
+    - name: deploy fallback initramfs hook to bundle dhcpcd (no vendor hook present)
+      copy:
+        src: initramfs_hooks_dhcpcd
+        dest: /etc/initramfs-tools/hooks/dhcpcd
+        owner: root
+        group: root
+        mode: '0755'
+      register: clevis_dhcpcd_hook_changed
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
+        - clevis_dhcp_release_enabled | default(true) | bool
+        - not (clevis_vendor_dhcpcd_hook.stat.exists | default(false))
+
+    - name: remove fallback dhcpcd initramfs hook (vendor hook present or release disabled)
+      file:
+        path: /etc/initramfs-tools/hooks/dhcpcd
+        state: absent
+      register: clevis_dhcpcd_hook_removed
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
+        - >-
+          (not (clevis_dhcp_release_enabled | default(true) | bool)) or
+          (clevis_vendor_dhcpcd_hook.stat.exists | default(false))
+
+    # --- Release the boot-time DHCP lease before switch_root ---
+    # klibc ipconfig obtains but never releases the clevis/tang lease, so the
+    # upstream DHCP server keeps reflecting the host under the stale boot IP via
+    # mDNS (<host>.local / <host>.fritz.box). This init-bottom script uses the
+    # initramfs' dhcpcd to send a proper DHCPRELEASE. Gate: clevis_dhcp_release_enabled.
+
+    - name: deploy initramfs init-bottom dhcp-release script
+      copy:
+        src: initramfs_init-bottom_dhcp-release
+        dest: /etc/initramfs-tools/scripts/init-bottom/dhcp-release
+        owner: root
+        group: root
+        mode: '0755'
+      register: clevis_dhcp_release_changed
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
+        - clevis_dhcp_release_enabled | default(true) | bool
+
+    - name: remove initramfs init-bottom dhcp-release script (disabled)
+      file:
+        path: /etc/initramfs-tools/scripts/init-bottom/dhcp-release
+        state: absent
+      register: clevis_dhcp_release_removed
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
+        - not (clevis_dhcp_release_enabled | default(true) | bool)
+
+    # --- Rebuild initramfs ---
+
+    - name: rebuild initramfs for all kernels
+      command: update-initramfs -u -k all
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
+        - >-
+          (clevis_needs_bind | bool) or
+          (clevis_initramfs_modules_changed is changed) or
+          (clevis_initramfs_device_changed is changed) or
+          (clevis_initramfs_ip_changed is changed) or
+          (clevis_cleanup_netplan_changed is changed) or
+          (clevis_cleanup_old_removed is changed) or
+          (clevis_dhcp_release_changed is changed) or
+          (clevis_dhcp_release_removed is changed) or
+          (clevis_dhcpcd_hook_changed is changed) or
+          (clevis_dhcpcd_hook_removed is changed)
+
+    # Verify AFTER the rebuild, so the check reflects the freshly-built initramfs
+    # (the fallback hook above only takes effect once update-initramfs has run).
+    - name: verify dhcpcd is present in initramfs (required for dhcp-release)
+      shell: lsinitramfs /boot/initrd.img-$(uname -r) 2>/dev/null | grep -cE 'sbin/dhcpcd$' || echo "0"
+      register: clevis_dhcpcd_check
+      changed_when: false
+      check_mode: false
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
+        - clevis_dhcp_release_enabled | default(true) | bool
+
+    - name: warn if dhcpcd missing from initramfs (dhcp-release will no-op)
+      debug:
+        msg: >-
+          WARNING — dhcpcd not found in the initramfs even after rebuild. The
+          dhcp-release script needs it to send a DHCPRELEASE (klibc ipconfig cannot);
+          the release will silently no-op. Check that dhcpcd is installed on the host
+          so the fallback hook can copy it in.
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
+        - clevis_dhcp_release_enabled | default(true) | bool
+        - (clevis_dhcpcd_check.stdout | default('0') | trim | int) == 0
+
+
+# --- dracut path (systemd-cryptsetup hosts, e.g. Ubuntu 26.04 without initramfs-tools) ---
+# dracut injects kernel_cmdline from dracut.conf.d into the initrd (no GRUB edit). The dracut
+# module clevis runs clevis-luks-askpass as a systemd password agent: it answers the same
+# /run/systemd/ask-password requests as the console prompt and the clevis-keyfile agent, the
+# first valid answer wins, crypttab stays untouched. No dhcp-release script is needed: the
+# initrd network backend (NetworkManager / systemd-networkd) releases its own lease.
+
+- name: tang on dracut (clevis-dracut, /etc/dracut.conf.d/90-clevis.conf, dracut rebuild)
   when:
     - clevis_has_luks | bool
     - wantsclevis_initramfs | default(true)
-    - clevis_net_driver.stdout | default('') | length > 0
-  register: clevis_initramfs_modules_changed
+    - clevis_initramfs_generator == 'dracut'
+  block:
+    - name: deploy dracut config (clevis, network, ip=, NIC driver)
+      template:
+        src: etc_dracut.conf.d_90-clevis.conf.j2
+        dest: /etc/dracut.conf.d/90-clevis.conf
+        owner: root
+        group: root
+        mode: '0644'
+      register: clevis_dracut_tang_conf_changed
 
-- name: set DEVICE in initramfs.conf
-  lineinfile:
-    path: /etc/initramfs-tools/initramfs.conf
-    regexp: '^DEVICE='
-    line: "DEVICE={{ hw_iface }}"
-  register: clevis_initramfs_device_changed
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
+    - name: rebuild initramfs for all kernels (dracut, tang)
+      import_tasks: dracut_rebuild.yml
+      when: >-
+        (clevis_needs_bind | bool) or
+        (clevis_dracut_tang_conf_changed is changed)
 
-- name: set IP in initramfs.conf with device and dhcp
-  lineinfile:
-    path: /etc/initramfs-tools/initramfs.conf
-    regexp: '^IP='
-    line: "IP=:::::{{ hw_iface }}:dhcp"
-    insertafter: '^DEVICE='
-  register: clevis_initramfs_ip_changed
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
+    - name: verify clevis, network and NIC driver in the dracut initramfs
+      shell: |
+        set -uo pipefail
+        INITRD=$(ls /boot/initrd.img-"$(uname -r)" /boot/initramfs-"$(uname -r)".img 2>/dev/null | head -1 || true)
+        if [ -z "$INITRD" ]; then echo "ERROR: no initrd found for $(uname -r)"; exit 1; fi
+        echo "initrd: $INITRD"
+        LIST=$(lsinitrd "$INITRD" 2>/dev/null)
+        rc=0
+        for f in usr/libexec/clevis-luks-askpass clevis-luks-askpass.path clevis-luks-askpass.service \
+                 clevis-decrypt-tang clevis-decrypt-sss; do
+          if grep -qE "(^|[[:space:]/])$f(\$|[[:space:]])" <<< "$LIST"; then echo "present: $f"
+          else echo "ERROR: $f not in $INITRD"; rc=1; fi
+        done
+        if grep -qE 'NetworkManager|systemd-networkd|nm-initrd-generator|net-lib\.sh|dhclient' <<< "$LIST"; then
+          echo "network backend: present"
+        else echo "ERROR: no network backend (NetworkManager / systemd-networkd / net-lib.sh) in $INITRD"; rc=1; fi
+        if [ -n "$DRIVER" ]; then
+          if grep -qE "/$DRIVER\.ko" <<< "$LIST"; then echo "NIC driver $DRIVER: present"
+          else echo "ERROR: NIC driver $DRIVER not in $INITRD"; rc=1; fi
+        fi
+        # the cmdline is baked in as etc/cmdline.d/*.conf; not critical if the layout differs
+        CMD=$(for c in $(grep -oE 'etc/cmdline\.d/[^[:space:]]+' <<< "$LIST" | sort -u); do lsinitrd "$INITRD" -f "$c" 2>/dev/null; done)
+        if grep -q 'rd\.neednet=1' <<< "$CMD"; then echo "cmdline: rd.neednet=1 present"
+        else echo "WARN: rd.neednet=1 not found in etc/cmdline.d of $INITRD"; fi
+        exit $rc
+      args:
+        executable: /bin/bash
+      environment:
+        DRIVER: "{{ clevis_net_driver.stdout | default('') | trim }}"
+      register: clevis_dracut_tang_check
+      changed_when: false
+      check_mode: false
 
-# --- Clean up stale initramfs netplan artifacts ---
-# The initramfs init script calls configure_networking() AFTER local-bottom,
-# so the cleanup must be in init-bottom (which runs after configure_networking).
-# configure_networking() writes /run/netplan/<iface>.yaml which persists into
-# userspace and causes netplan generate to re-enable DHCP on OVS bridge ports.
-
-- name: remove old local-bottom cleanup-netplan script (wrong location)
-  file:
-    path: /etc/initramfs-tools/scripts/local-bottom/cleanup-netplan
-    state: absent
-  register: clevis_cleanup_old_removed
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
-
-- name: deploy initramfs init-bottom cleanup-netplan script
-  copy:
-    src: initramfs_local-bottom_cleanup-netplan
-    dest: /etc/initramfs-tools/scripts/init-bottom/cleanup-netplan
-    owner: root
-    group: root
-    mode: '0755'
-  register: clevis_cleanup_netplan_changed
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
-
-# --- Ensure dhcpcd is bundled into the initramfs ---
-# The dhcp-release script below needs a release-capable DHCP client in the
-# initramfs. Ubuntu's dhcpcd-base ships its own hook
-# (/usr/share/initramfs-tools/hooks/dhcpcd); Raspberry Pi (dhcpcd5) and Debian
-# Trixie (dhcpcd-base) do NOT. We therefore deploy our own hook ONLY when the
-# packaged one is absent, so we never shadow/duplicate the vendor hook.
-
-- name: check for a package-supplied dhcpcd initramfs hook
-  stat:
-    path: /usr/share/initramfs-tools/hooks/dhcpcd
-  register: clevis_vendor_dhcpcd_hook
-  check_mode: false
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
-    - clevis_dhcp_release_enabled | default(true) | bool
-
-- name: deploy fallback initramfs hook to bundle dhcpcd (no vendor hook present)
-  copy:
-    src: initramfs_hooks_dhcpcd
-    dest: /etc/initramfs-tools/hooks/dhcpcd
-    owner: root
-    group: root
-    mode: '0755'
-  register: clevis_dhcpcd_hook_changed
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
-    - clevis_dhcp_release_enabled | default(true) | bool
-    - not (clevis_vendor_dhcpcd_hook.stat.exists | default(false))
-
-- name: remove fallback dhcpcd initramfs hook (vendor hook present or release disabled)
-  file:
-    path: /etc/initramfs-tools/hooks/dhcpcd
-    state: absent
-  register: clevis_dhcpcd_hook_removed
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
-    - >-
-      (not (clevis_dhcp_release_enabled | default(true) | bool)) or
-      (clevis_vendor_dhcpcd_hook.stat.exists | default(false))
-
-# --- Release the boot-time DHCP lease before switch_root ---
-# klibc ipconfig obtains but never releases the clevis/tang lease, so the
-# upstream DHCP server keeps reflecting the host under the stale boot IP via
-# mDNS (<host>.local / <host>.fritz.box). This init-bottom script uses the
-# initramfs' dhcpcd to send a proper DHCPRELEASE. Gate: clevis_dhcp_release_enabled.
-
-- name: deploy initramfs init-bottom dhcp-release script
-  copy:
-    src: initramfs_init-bottom_dhcp-release
-    dest: /etc/initramfs-tools/scripts/init-bottom/dhcp-release
-    owner: root
-    group: root
-    mode: '0755'
-  register: clevis_dhcp_release_changed
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
-    - clevis_dhcp_release_enabled | default(true) | bool
-
-- name: remove initramfs init-bottom dhcp-release script (disabled)
-  file:
-    path: /etc/initramfs-tools/scripts/init-bottom/dhcp-release
-    state: absent
-  register: clevis_dhcp_release_removed
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
-    - not (clevis_dhcp_release_enabled | default(true) | bool)
-
-# --- Rebuild initramfs ---
-
-- name: rebuild initramfs for all kernels
-  command: update-initramfs -u -k all
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
-    - >-
-      (clevis_needs_bind | bool) or
-      (clevis_initramfs_modules_changed is changed) or
-      (clevis_initramfs_device_changed is changed) or
-      (clevis_initramfs_ip_changed is changed) or
-      (clevis_cleanup_netplan_changed is changed) or
-      (clevis_cleanup_old_removed is changed) or
-      (clevis_dhcp_release_changed is changed) or
-      (clevis_dhcp_release_removed is changed) or
-      (clevis_dhcpcd_hook_changed is changed) or
-      (clevis_dhcpcd_hook_removed is changed)
-
-# Verify AFTER the rebuild, so the check reflects the freshly-built initramfs
-# (the fallback hook above only takes effect once update-initramfs has run).
-- name: verify dhcpcd is present in initramfs (required for dhcp-release)
-  shell: lsinitramfs /boot/initrd.img-$(uname -r) 2>/dev/null | grep -cE 'sbin/dhcpcd$' || echo "0"
-  register: clevis_dhcpcd_check
-  changed_when: false
-  check_mode: false
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
-    - clevis_dhcp_release_enabled | default(true) | bool
-
-- name: warn if dhcpcd missing from initramfs (dhcp-release will no-op)
-  debug:
-    msg: >-
-      WARNING — dhcpcd not found in the initramfs even after rebuild. The
-      dhcp-release script needs it to send a DHCPRELEASE (klibc ipconfig cannot);
-      the release will silently no-op. Check that dhcpcd is installed on the host
-      so the fallback hook can copy it in.
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
-    - clevis_dhcp_release_enabled | default(true) | bool
-    - (clevis_dhcpcd_check.stdout | default('0') | trim | int) == 0
+    - name: display dracut initramfs verification (tang)
+      debug:
+        msg: "{{ clevis_dracut_tang_check.stdout_lines }}"
 
 # --- Deploy scripts ---
 
@@ -375,34 +480,37 @@
     group: root
   when: clevis_has_luks | bool
 
-# --- Final verification ---
+# --- Final verification (initramfs-tools; the dracut path verifies right after its rebuild) ---
 
-- name: verify clevis hooks in initramfs
-  shell: lsinitramfs /boot/initrd.img-$(uname -r) 2>/dev/null | grep -c clevis || echo "0"
-  register: clevis_initramfs_check
-  changed_when: false
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
+- name: final verification on initramfs-tools
+  when: clevis_initramfs_generator == 'initramfs-tools'
+  block:
+    - name: verify clevis hooks in initramfs
+      shell: lsinitramfs /boot/initrd.img-$(uname -r) 2>/dev/null | grep -c clevis || echo "0"
+      register: clevis_initramfs_check
+      changed_when: false
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
 
-- name: verify network driver in initramfs
-  shell: lsinitramfs /boot/initrd.img-$(uname -r) 2>/dev/null | grep -c {{ clevis_net_driver.stdout }} || echo "0"
-  register: clevis_driver_check
-  changed_when: false
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
-    - clevis_net_driver.stdout | default('') | length > 0
+    - name: verify network driver in initramfs
+      shell: lsinitramfs /boot/initrd.img-$(uname -r) 2>/dev/null | grep -c {{ clevis_net_driver.stdout }} || echo "0"
+      register: clevis_driver_check
+      changed_when: false
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)
+        - clevis_net_driver.stdout | default('') | length > 0
 
-- name: display final verification
-  debug:
-    msg:
-      - "clevis hooks in initramfs: {{ clevis_initramfs_check.stdout }} files"
-      - "network driver ({{ clevis_net_driver.stdout | default('n/a') }}) in initramfs: {{ clevis_driver_check.stdout | default('n/a') }} files"
-      - "setup_clevis_tang.sh deployed to /root/"
-      - "tang_check_connection.sh deployed to /root/"
-      - "Check: /root/tang_check_connection.sh {{ clevis_luks_device }}"
-      - "Rebind: /root/setup_clevis_tang.sh [PASSPHRASE]"
-  when:
-    - clevis_has_luks | bool
-    - wantsclevis_initramfs | default(true)
+    - name: display final verification
+      debug:
+        msg:
+          - "clevis hooks in initramfs: {{ clevis_initramfs_check.stdout }} files"
+          - "network driver ({{ clevis_net_driver.stdout | default('n/a') }}) in initramfs: {{ clevis_driver_check.stdout | default('n/a') }} files"
+          - "setup_clevis_tang.sh deployed to /root/"
+          - "tang_check_connection.sh deployed to /root/"
+          - "Check: /root/tang_check_connection.sh {{ clevis_luks_device }}"
+          - "Rebind: /root/setup_clevis_tang.sh [PASSPHRASE]"
+      when:
+        - clevis_has_luks | bool
+        - wantsclevis_initramfs | default(true)

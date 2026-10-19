@@ -39,12 +39,22 @@ clevis_keyfile_boot_mount: /boot
 clevis_keyfile_boot_file: clevis-keyfile/luks-fallback.key
 # Initramfs generator for the keyfile fallback. "" = auto-detect (dracut if the binary exists
 # and the initramfs-tools package is not installed, else initramfs-tools); or force "dracut" /
-# "initramfs-tools". The dracut path edits /etc/crypttab instead of deploying initramfs scripts.
+# "initramfs-tools". The dracut path deploys a dracut module (systemd password agent) instead of
+# initramfs scripts. crypttab is never modified on either path.
 clevis_initramfs_generator_override: ""
-# dracut/systemd-cryptsetup: crypttab option keyfile-timeout=. How long to wait for the key
-# device (USB stick) before falling back to the passphrase prompt.
-clevis_keyfile_dracut_keyfile_timeout: "10s"
 # Optional existing key file (e.g. /var/log/installer/recovery-key.txt or
 # /etc/cryptsetup-keys.d/<mapper>.key) used for `cryptsetup luksAddKey --key-file` when it
 # unlocks the device; tried before clevis_luks_passphrase / clevis bindings.
 clevis_keyfile_auth_keyfile: ""
+
+# Tang on dracut (tasks/config_clevis.yml, generator dracut): /etc/dracut.conf.d/90-clevis.conf.
+# Extra dracut modules next to `clevis` and `network`: the pin modules decrypt the tang / sss
+# bindings (clevis-dracut ships 60clevis-pin-{null,sss,tang,tpm2}; naming them is harmless, a
+# hostonly build might otherwise drop them).
+clevis_dracut_extra_modules:
+  - clevis-pin-tang
+  - clevis-pin-sss
+# rd.net.timeout.carrier=<s>: how long dracut waits for link on the NIC (USB NICs are slow). 0 = omit.
+clevis_dracut_net_timeout_carrier: 15
+# rd.net.dhcp.retry=<n>: DHCP attempts before giving up (the prompt stays available meanwhile). 0 = omit.
+clevis_dracut_net_dhcp_retry: 3
