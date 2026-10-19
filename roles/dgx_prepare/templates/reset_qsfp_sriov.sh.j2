@@ -6,7 +6,7 @@
 #       the VFs can get stuck in orphaned CNI network namespaces, preventing new pods from
 #       starting ("failed to find host device: Link not found").
 #
-# What it does:
+# What it does (for every QSFP rail, see qsfp_dualrail_enabled):
 #   1. Deletes all orphaned CNI network namespaces (releases trapped VF interfaces)
 #   2. Resets SR-IOV: sets numvfs=0, then re-creates VFs
 #   3. Sets unique MACs on each VF (required for NIC internal switch unicast delivery)
@@ -21,23 +21,27 @@
 set -euo pipefail
 
 # --- Configuration (baked in by Ansible from dgx_prepare role) ---
-PF_PCI="{{ qsfp_sriov_pf_pci }}"
-NUMVFS="{{ qsfp_sriov_numvfs }}"
+# One entry per rail: "<PF PCI> <numvfs> <VF name prefix> <MAC byte 4>"
+RAILS=(
+{% for pf in _sriov_pfs %}
+    "{{ pf.pci }} {{ pf.numvfs }} {{ pf.vf_prefix }} {{ pf.mac_byte }}"
+{% endfor %}
+)
 HOST_OCTET="{{ host_octet }}"
 MTU="{{ qsfp_mtu }}"
-VF_PREFIX="{{ qsfp_sriov_vf_prefix }}"
-SRIOV_PATH="/sys/bus/pci/devices/${PF_PCI}/sriov_numvfs"
-
-# Derive PF interface name from PCI address
-PF_NAME=$(ls "/sys/bus/pci/devices/${PF_PCI}/net/" 2>/dev/null | head -1)
-if [ -z "$PF_NAME" ]; then
-    echo "ERROR: No network interface found for PCI device ${PF_PCI}"
-    exit 1
-fi
 
 echo "=== QSFP SR-IOV Reset ({{ inventory_hostname }}) ==="
-echo "PF: ${PF_NAME} (PCI: ${PF_PCI}), host_octet: ${HOST_OCTET}"
-echo "Target VFs: ${NUMVFS}, MTU: ${MTU}"
+echo "host_octet: ${HOST_OCTET}, MTU: ${MTU}"
+for rail in "${RAILS[@]}"; do
+    read -r pf_pci numvfs vf_prefix _ <<< "$rail"
+    # Derive PF interface name from PCI address
+    pf_name=$(ls "/sys/bus/pci/devices/${pf_pci}/net/" 2>/dev/null | head -1)
+    if [ -z "$pf_name" ]; then
+        echo "ERROR: No network interface found for PCI device ${pf_pci}"
+        exit 1
+    fi
+    echo "PF: ${pf_name} (PCI: ${pf_pci}), target VFs: ${numvfs} (${vf_prefix}vN)"
+done
 echo ""
 
 # --- Step 1: Clean orphaned CNI namespaces ---
@@ -55,30 +59,39 @@ echo ""
 
 # --- Step 2: Reset SR-IOV VFs ---
 echo "--- Step 2: Resetting SR-IOV VFs ---"
-current=$(cat "$SRIOV_PATH" 2>/dev/null || echo 0)
-echo "  Current numvfs: ${current}"
+for rail in "${RAILS[@]}"; do
+    read -r pf_pci numvfs _ _ <<< "$rail"
+    sriov_path="/sys/bus/pci/devices/${pf_pci}/sriov_numvfs"
+    current=$(cat "$sriov_path" 2>/dev/null || echo 0)
+    echo "  ${pf_pci}: current numvfs: ${current}"
 
-if [ "$current" -ne 0 ]; then
-    echo "  Disabling VFs (numvfs=0)..."
-    echo 0 > "$SRIOV_PATH"
-    sleep 1
-fi
+    if [ "$current" -ne 0 ]; then
+        echo "  ${pf_pci}: disabling VFs (numvfs=0)..."
+        echo 0 > "$sriov_path"
+        sleep 1
+    fi
 
-echo "  Creating ${NUMVFS} VFs..."
-echo "$NUMVFS" > "$SRIOV_PATH"
-sleep 1
+    if [ "$numvfs" -ne 0 ]; then
+        echo "  ${pf_pci}: creating ${numvfs} VFs..."
+        echo "$numvfs" > "$sriov_path"
+        sleep 1
+    fi
+done
 echo ""
 
 # --- Step 3: Set unique MACs, MTU, bring UP ---
-# MAC format: 02:00:0a:0a:<host_octet>:<vf_idx> (matches netplan template)
+# MAC format: 02:00:0a:<rail byte 0a|0b>:<host_octet>:<vf_idx> (matches netplan template)
 # Without unique MACs, the NIC internal switch cannot deliver unicast frames
 # to the correct VF — all VFs get the same default MAC after SR-IOV reset.
 echo "--- Step 3: Configuring VF MACs, MTU, state ---"
-for i in $(seq 0 $((NUMVFS - 1))); do
-    vf_name="${VF_PREFIX}v${i}"
-    mac=$(printf '02:00:0a:0a:%02x:%02x' "$HOST_OCTET" "$i")
-    ip link set "$vf_name" address "$mac" mtu "$MTU" up 2>/dev/null || true
-    echo "  ${vf_name}: mac=${mac} mtu=${MTU} UP"
+for rail in "${RAILS[@]}"; do
+    read -r _ numvfs vf_prefix mac_byte <<< "$rail"
+    for ((i = 0; i < numvfs; i++)); do
+        vf_name="${vf_prefix}v${i}"
+        mac=$(printf "02:00:0a:${mac_byte}:%02x:%02x" "$HOST_OCTET" "$i")
+        ip link set "$vf_name" address "$mac" mtu "$MTU" up 2>/dev/null || true
+        echo "  ${vf_name}: mac=${mac} mtu=${MTU} UP"
+    done
 done
 echo ""
 
@@ -89,21 +102,26 @@ echo ""
 
 # --- Step 5: Verify ---
 echo "--- Step 5: Verifying VFs ---"
+expected=0
 found=0
 missing=()
-for i in $(seq 0 $((NUMVFS - 1))); do
-    vf_name="${VF_PREFIX}v${i}"
-    if ip link show "$vf_name" &>/dev/null; then
-        ((found++))
-    else
-        missing+=("$vf_name")
-    fi
+for rail in "${RAILS[@]}"; do
+    read -r _ numvfs vf_prefix _ <<< "$rail"
+    for ((i = 0; i < numvfs; i++)); do
+        vf_name="${vf_prefix}v${i}"
+        expected=$((expected + 1))
+        if ip link show "$vf_name" &>/dev/null; then
+            found=$((found + 1))
+        else
+            missing+=("$vf_name")
+        fi
+    done
 done
 
-if [ "$found" -eq "$NUMVFS" ]; then
-    echo "  OK: All ${NUMVFS} VFs present (${VF_PREFIX}v0..v$((NUMVFS-1)))"
+if [ "$found" -eq "$expected" ]; then
+    echo "  OK: All ${expected} VFs present"
 else
-    echo "  WARNING: Only ${found}/${NUMVFS} VFs found."
+    echo "  WARNING: Only ${found}/${expected} VFs found."
     echo "  Missing: ${missing[*]}"
     exit 1
 fi

@@ -1,58 +1,103 @@
 ---
-# Enable or disable SR-IOV Virtual Functions on the QSFP PF.
+# Enable or disable SR-IOV Virtual Functions on the QSFP PF(s).
 # Gated by qsfp_sriov_enabled (default: false).
 #
-# Single source of truth is qsfp_sriov_pf_iface (the PF netdev name). The PCI
-# address is RESOLVED from the interface at runtime via /sys/class/net/<iface>/device
-# (set as the qsfp_sriov_pf_pci fact for the systemd unit + reset script). This keeps
+# Rails: rail 1 = qsfp_sriov_pf_iface, rail 2 = qsfp_rail2_pf_iface (the second PCIe x4
+# link to the same QSFP cage, see qsfp_dualrail_enabled in group_vars/all/main/qsfp.yml).
+# Rail 2 is always in the list; without dual-rail its target VF count is 0, so turning
+# dual-rail off removes its VFs again.
+#
+# Single source of truth per rail is the PF netdev name. The PCI address is RESOLVED
+# from the interface at runtime via /sys/class/net/<iface>/device (set as the
+# _sriov_pfs / qsfp_sriov_pf_pci facts for the systemd unit + reset script). This keeps
 # it correct-by-construction per host even when PCIe-domain enumeration differs across
 # nodes, and it can never drift out of sync with the interface name.
 
+- name: Build QSFP SR-IOV rail list
+  ansible.builtin.set_fact:
+    _sriov_rails:
+      - rail: 1
+        iface: "{{ qsfp_sriov_pf_iface }}"
+        vf_prefix: "{{ qsfp_sriov_vf_prefix }}"
+        mac_byte: "0a"
+        numvfs: "{{ qsfp_sriov_numvfs | int }}"
+      - rail: 2
+        iface: "{{ qsfp_rail2_pf_iface }}"
+        vf_prefix: "{{ qsfp_sriov_vf2_prefix | default('enP2p1s0f0') }}"
+        mac_byte: "0b"
+        numvfs: "{{ (qsfp_sriov_numvfs | int) if qsfp_dualrail_enabled | default(false) | bool else 0 }}"
+    _sriov_pfs: []
+
 # Tolerate a slow ConnectX-7 driver bind (e.g. node just booted): the sysfs attr
 # appears only once mlx5_core has named the netdev. Retry rather than hard-fail on
-# the first miss. When disabled, a single best-effort probe is enough.
-- name: Wait for QSFP PF interface to expose SR-IOV
+# the first miss. When disabled (or the rail wants no VFs), a single best-effort probe is enough.
+- name: Wait for QSFP PF interfaces to expose SR-IOV
   ansible.builtin.stat:
-    path: "/sys/class/net/{{ qsfp_sriov_pf_iface }}/device/sriov_totalvfs"
+    path: "/sys/class/net/{{ item.iface }}/device/sriov_totalvfs"
   register: _sriov_sysfs
   until: _sriov_sysfs.stat.exists
-  retries: "{{ 12 if qsfp_sriov_enabled else 0 }}"
+  retries: "{{ 12 if (qsfp_sriov_enabled and (item.numvfs | int) > 0) else 0 }}"
   delay: 5
   failed_when: false
+  loop: "{{ _sriov_rails }}"
+  loop_control:
+    label: "rail {{ item.rail }}: {{ item.iface }}"
 
-- name: Fail if QSFP PF does not support SR-IOV
+- name: Fail if a QSFP PF does not support SR-IOV
   ansible.builtin.fail:
     msg: >-
-      Interface {{ qsfp_sriov_pf_iface }} on {{ inventory_hostname }} did not expose
-      sriov_totalvfs within 60s. Check that the ConnectX-7 driver is bound and the
-      interface is present (ip link show {{ qsfp_sriov_pf_iface }}), that the interface
+      Interface {{ item.item.iface }} (rail {{ item.item.rail }}) on {{ inventory_hostname }} did not
+      expose sriov_totalvfs within 60s. Check that the ConnectX-7 driver is bound and the
+      interface is present (ip link show {{ item.item.iface }}), that the interface
       name is correct for this host, and that SR-IOV is enabled in NIC firmware
       (mlxconfig -d <pci> query | grep SRIOV_EN).
-  when: qsfp_sriov_enabled and not _sriov_sysfs.stat.exists
+  when: qsfp_sriov_enabled and (item.item.numvfs | int) > 0 and not item.stat.exists
+  loop: "{{ _sriov_sysfs.results }}"
+  loop_control:
+    label: "rail {{ item.item.rail }}: {{ item.item.iface }}"
 
 # Resolve PCI from the interface for the templates that need it at boot time
 # (systemd unit + reset script address the PF by PCI, which is stable across reboots).
-- name: Resolve QSFP PF PCI address from interface
-  ansible.builtin.command: "readlink -f /sys/class/net/{{ qsfp_sriov_pf_iface }}/device"
+- name: Resolve QSFP PF PCI addresses from interfaces
+  ansible.builtin.command: "readlink -f /sys/class/net/{{ item.item.iface }}/device"
   register: _sriov_pf_dev
   changed_when: false
-  when: _sriov_sysfs.stat.exists
+  when: item.stat.exists
+  loop: "{{ _sriov_sysfs.results }}"
+  loop_control:
+    label: "rail {{ item.item.rail }}: {{ item.item.iface }}"
 
-- name: Set resolved PF PCI fact
+- name: Set resolved PF PCI facts
   ansible.builtin.set_fact:
-    qsfp_sriov_pf_pci: "{{ _sriov_pf_dev.stdout | basename }}"
-  when: _sriov_sysfs.stat.exists
+    _sriov_pfs: "{{ _sriov_pfs + [item.item.item | combine({'pci': item.stdout | basename})] }}"
+  when: item.stdout is defined
+  loop: "{{ _sriov_pf_dev.results }}"
+  loop_control:
+    label: "rail {{ item.item.item.rail }}: {{ item.item.item.iface }}"
+
+- name: Set rail-1 PF PCI fact
+  ansible.builtin.set_fact:
+    qsfp_sriov_pf_pci: "{{ (_sriov_pfs | selectattr('rail', 'equalto', 1) | first).pci }}"
+  when: _sriov_pfs | selectattr('rail', 'equalto', 1) | list | length > 0
 
 - name: Read max supported VFs
   ansible.builtin.slurp:
-    src: "/sys/class/net/{{ qsfp_sriov_pf_iface }}/device/sriov_totalvfs"
+    src: "/sys/bus/pci/devices/{{ item.pci }}/sriov_totalvfs"
   register: _sriov_max_raw
   when: qsfp_sriov_enabled
+  loop: "{{ _sriov_pfs }}"
+  loop_control:
+    label: "rail {{ item.rail }}: {{ item.iface }}"
 
 - name: Validate requested VF count
   ansible.builtin.fail:
-    msg: "Requested {{ qsfp_sriov_numvfs }} VFs but PF only supports {{ _sriov_max_raw.content | b64decode | trim }}"
-  when: qsfp_sriov_enabled and (qsfp_sriov_numvfs | int) > (_sriov_max_raw.content | b64decode | trim | int)
+    msg: >-
+      Requested {{ item.item.numvfs }} VFs on {{ item.item.iface }} (rail {{ item.item.rail }})
+      but the PF only supports {{ item.content | b64decode | trim }}
+  when: qsfp_sriov_enabled and (item.item.numvfs | int) > (item.content | b64decode | trim | int)
+  loop: "{{ _sriov_max_raw.results | default([]) }}"
+  loop_control:
+    label: "rail {{ item.item.rail }}: {{ item.item.iface }}"
 
 - name: Deploy SR-IOV systemd service
   ansible.builtin.template:
@@ -70,12 +115,38 @@
     state: started
   when: qsfp_sriov_enabled
 
+- name: Read current VF counts
+  ansible.builtin.slurp:
+    src: "/sys/bus/pci/devices/{{ item.pci }}/sriov_numvfs"
+  register: _sriov_cur_raw
+  when: qsfp_sriov_enabled
+  loop: "{{ _sriov_pfs }}"
+  loop_control:
+    label: "rail {{ item.rail }}: {{ item.iface }}"
+
+# Per rail instead of restarting qsfp-sriov.service: a restart would drop and re-create the
+# VFs of EVERY rail, ripping the rail-1 VFs out of running pods just because rail 2 was added.
+# A non-zero count can only be changed via 0, hence the reset before the new value.
+- name: Apply changed VF counts (only the rails that differ)
+  ansible.builtin.shell: |
+    set -e
+    p=/sys/bus/pci/devices/{{ item.item.pci }}/sriov_numvfs
+    [ "$(cat "$p")" -eq 0 ] || echo 0 > "$p"
+    echo {{ item.item.numvfs }} > "$p"
+  when:
+    - qsfp_sriov_enabled
+    - (item.content | b64decode | trim | int) != (item.item.numvfs | int)
+  loop: "{{ _sriov_cur_raw.results | default([]) }}"
+  loop_control:
+    label: "rail {{ item.item.rail }}: {{ item.item.iface }} → {{ item.item.numvfs }} VFs"
+  register: _sriov_numvfs_changed
+
 # netplan apply re-runs the OVS bridge units, which can fail on the OVS native/tagged
 # VLAN seam (a stale access tag makes ovs-vsctl report the PF as on the fake VLAN bridge,
 # so "add-port <bridge> <iface>" errors). Converging that state is the `common` role's job
 # (installnetplan.yml has the migration/cleanup + its own failed_when:false apply). Here we
 # only need the VF MTU/MAC stanzas applied, so tolerate a non-zero rc and warn rather than
-# hard-fail the play — the SR-IOV systemd service already created the VFs.
+# hard-fail the play — the VFs themselves already exist at this point.
 - name: Apply netplan for VF MTU and MAC settings
   ansible.builtin.command: netplan apply
   when: qsfp_sriov_enabled
@@ -94,20 +165,6 @@
     - qsfp_sriov_enabled
     - _sriov_netplan_apply.rc | default(0) != 0
 
-- name: Read current VF count
-  ansible.builtin.slurp:
-    src: "/sys/class/net/{{ qsfp_sriov_pf_iface }}/device/sriov_numvfs"
-  register: _sriov_cur_raw
-  when: qsfp_sriov_enabled
-
-- name: Restart SR-IOV service if VF count changed
-  ansible.builtin.systemd:
-    name: qsfp-sriov.service
-    state: restarted
-  when: >
-    qsfp_sriov_enabled and
-    (_sriov_cur_raw.content | b64decode | trim | int) != (qsfp_sriov_numvfs | int)
-
 - name: Stop, disable and remove SR-IOV service
   when: not qsfp_sriov_enabled
   block:
@@ -117,9 +174,12 @@
       register: _sriov_unit_file
 
     - name: Disable SR-IOV VFs
-      ansible.builtin.shell: echo 0 > /sys/class/net/{{ qsfp_sriov_pf_iface }}/device/sriov_numvfs
-      when: _sriov_unit_file.stat.exists and _sriov_sysfs.stat.exists
+      ansible.builtin.shell: echo 0 > /sys/bus/pci/devices/{{ item.pci }}/sriov_numvfs
+      when: _sriov_unit_file.stat.exists
       failed_when: false
+      loop: "{{ _sriov_pfs }}"
+      loop_control:
+        label: "rail {{ item.rail }}: {{ item.iface }}"
 
     - name: Stop and disable SR-IOV service
       ansible.builtin.systemd:

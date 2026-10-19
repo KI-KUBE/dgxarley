@@ -1,6 +1,7 @@
 # Managed by Ansible — do not edit
 [Unit]
-Description=Enable {{ qsfp_sriov_numvfs }} SR-IOV VFs on QSFP PF {{ qsfp_sriov_pf_pci }}
+Description=Enable SR-IOV VFs on QSFP PF(s) {% for pf in _sriov_pfs %}{{ pf.pci }} ({{ pf.numvfs }}){{ ', ' if not loop.last }}{% endfor %}
+
 DefaultDependencies=no
 Before=network-pre.target
 After=systemd-modules-load.service
@@ -8,8 +9,14 @@ After=systemd-modules-load.service
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/bin/bash -c 'echo {{ qsfp_sriov_numvfs }} > /sys/bus/pci/devices/{{ qsfp_sriov_pf_pci }}/sriov_numvfs'
-ExecStop=/bin/bash -c 'echo 0 > /sys/bus/pci/devices/{{ qsfp_sriov_pf_pci }}/sriov_numvfs'
+# One line per rail. A non-zero VF count can only be changed via 0, so a PF that already
+# has the wanted count is left alone (no EBUSY on a manual start) and anything else is reset first.
+{% for pf in _sriov_pfs %}
+ExecStart=/bin/bash -c 'grep -qx {{ pf.numvfs }} /sys/bus/pci/devices/{{ pf.pci }}/sriov_numvfs || { echo 0 > /sys/bus/pci/devices/{{ pf.pci }}/sriov_numvfs; echo {{ pf.numvfs }} > /sys/bus/pci/devices/{{ pf.pci }}/sriov_numvfs; }'
+{% endfor %}
+{% for pf in _sriov_pfs %}
+ExecStop=/bin/bash -c 'echo 0 > /sys/bus/pci/devices/{{ pf.pci }}/sriov_numvfs'
+{% endfor %}
 
 [Install]
 WantedBy=multi-user.target
