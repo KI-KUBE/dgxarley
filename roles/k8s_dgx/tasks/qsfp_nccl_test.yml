@@ -70,6 +70,19 @@
         run.sh: "{{ lookup('file', role_path ~ '/files/nccl_test_run.sh') }}"
         nccl_bench.py: "{{ lookup('file', role_path ~ '/files/nccl_bench.py') }}"
 
+# Optional extra env for the test pods (NCCL tuning vars, NCCL_BENCH_* size range ...), see
+# defaults/main/qsfp.yml qsfp_nccl_extra_env. Loaded via envFrom, so the fixed `env:` keys below win.
+- name: Create NCCL test extra-env ConfigMap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: nccl-test-extra-env
+        namespace: nccl-test
+      data: "{{ dict((qsfp_nccl_extra_env | default({})).items() | map('map', 'string')) }}"
+
 # Head (rank 0) must start first — torch.distributed tcp init listens on MASTER_ADDR
 - name: Deploy NCCL test head — rank 0 (spark1)
   vars:
@@ -96,6 +109,9 @@
             securityContext:
               privileged: true
             command: ["bash", "/scripts/run.sh"]
+            envFrom:
+              - configMapRef:
+                  name: nccl-test-extra-env
             env:
               - name: NCCL_SOCKET_IFNAME
                 value: "net1"
@@ -172,6 +188,9 @@
             securityContext:
               privileged: true
             command: ["bash", "/scripts/run.sh"]
+            envFrom:
+              - configMapRef:
+                  name: nccl-test-extra-env
             env:
               - name: NCCL_SOCKET_IFNAME
                 value: "net1"

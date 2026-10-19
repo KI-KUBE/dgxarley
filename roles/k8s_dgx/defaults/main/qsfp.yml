@@ -59,6 +59,11 @@ qsfp_sriov_assignments:
 
 nccl_bootstrap_port: 50000
 nccl_socket_ifname: "net1"
+# Extra environment for the 2-node gate pods (tag qsfp_nccl): NCCL tuning (NCCL_PROTO, NCCL_ALGO,
+# NCCL_MIN/MAX_NCHANNELS ...) and the bench's size range (NCCL_BENCH_MIN_BYTES/MAX_BYTES/STEP/WARMUP/ITERS,
+# defaults 1M..1G). Values are stringified; the task's fixed env keys (NCCL_IB_HCA, GID, ...) take precedence.
+#   -e '{"qsfp_nccl_extra_env": {"NCCL_BENCH_MIN_BYTES": "8K", "NCCL_BENCH_MAX_BYTES": "16M", "NCCL_PROTO": "LL"}}'
+qsfp_nccl_extra_env: {}
 
 # Dual-rail (qsfp_dualrail_enabled, group_vars/all/main/qsfp.yml): every SR-IOV pod gets the
 # rail-1 VF as net1 plus the rail-2 VF with the SAME index as net2, and NCCL's IB plugin gets
