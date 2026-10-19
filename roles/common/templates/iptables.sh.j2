@@ -155,6 +155,11 @@ iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 8080 -m set --match-se
 iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 8080,9090 -m set --match-set localnets src -j RETURN
 {% endif %}
 
+{% if providestang | default(false) | bool %}
+# tang NBDE (podman, host network)
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport {{ tang_port | default(9090) }} -m set --match-set localnets src -j RETURN
+{% endif %}
+
 {% if keepalived_vlans is defined %}
 # VRRP (protocol 112) for keepalived unicast advertisements between peers
 iptables -A HTSTUFFIN -p 112 -m set --match-set localnets src -j RETURN

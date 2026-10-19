@@ -5,6 +5,13 @@
   roles:
     - common
 
+- name: Tang NBDE server
+  hosts: all,!disabled,!switches
+  become: true
+  roles:
+    - role: tang
+      when: providestang | default(false) | bool
+
 - name: clevis/tang NBDE automatic LUKS decryption
   hosts: all,!disabled,!switches
   become: true

@@ -2,7 +2,7 @@
 # hostPath base directory on k3smaster
 k8s_infra_data_base: "/var/lib/k8s-data"
 # Subdirectories: postgresql, redis, keel, loki, grafana, grafana-dashboards,
-#                 prometheus, alertmanager, uptimekuma, tang, pgbackup
+#                 prometheus, alertmanager, uptimekuma, pgbackup
 
 # Secrets (overridden by vault)
 postgresql_postgres_password: "changeme"
