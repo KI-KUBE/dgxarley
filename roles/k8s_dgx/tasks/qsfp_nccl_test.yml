@@ -142,7 +142,8 @@
   until: >
     _nccl_head_wait.resources | length > 0 and
     _nccl_head_wait.resources[0].status.phase == 'Running'
-  retries: 30
+  # the first run pulls the (multi-GB) sglang image on the node; 150 s is not enough for that
+  retries: "{{ qsfp_nccl_head_wait_retries | default(120) }}"
   delay: 5
 
 # Worker (rank 1) connects to head's MASTER_ADDR
