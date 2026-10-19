@@ -23,3 +23,12 @@
   roles:
     - role: nut
       when: wantsnut | default(false)
+
+- name: Ops WireGuard tunnel (box side)
+  hosts: all,!disabled,!switches
+  become: true
+  roles:
+    - role: ops_wireguard
+      tags:
+        - ops_wireguard
+      when: (ops_wireguard_enabled | default(false) | bool) or (ops_wireguard_teardown | default(false) | bool)

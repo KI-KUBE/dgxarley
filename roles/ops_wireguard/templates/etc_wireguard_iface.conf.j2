@@ -1,0 +1,21 @@
+# Managed by Ansible (roles/ops_wireguard) - local edits are overwritten.
+# No secret in this file: the private key is loaded from {{ ops_wireguard_private_key_file }} by PostUp.
+# Forwarding/NAT for the ops subnet is NOT done here but in the common firewall (iptables.sh.j2).
+# route_mode {{ ops_wireguard_route_mode }}.{% if ops_wireguard_route_mode == 'source' %} source: the ops route lives in table {{ ops_wireguard_route_table }}, used only for packets sourced from
+# the tunnel address (ip rule). Without it a node that is also reachable via another path (e.g. a Mikrotik
+# tunnel) would answer LAN-originated flows through THIS tunnel; the hub drops them (asymmetric routing).{% endif %}
+
+[Interface]
+Address = {{ ops_wireguard_tunnel_address }}
+{% if ops_wireguard_route_mode == 'source' %}
+Table = {{ ops_wireguard_route_table }}
+PostUp = ip -4 rule add from {{ ops_wireguard_tunnel_address.split('/')[0] }} lookup {{ ops_wireguard_route_table }} priority {{ ops_wireguard_rule_priority }}
+PostDown = ip -4 rule del from {{ ops_wireguard_tunnel_address.split('/')[0] }} lookup {{ ops_wireguard_route_table }} priority {{ ops_wireguard_rule_priority }}
+{% endif %}
+PostUp = wg set %i private-key {{ ops_wireguard_private_key_file }}
+
+[Peer]
+PublicKey = {{ ops_wireguard_hub_public_key }}
+Endpoint = {{ ops_wireguard_hub_endpoint }}
+AllowedIPs = {{ ops_wireguard_ops_subnet }}
+PersistentKeepalive = {{ ops_wireguard_keepalive }}

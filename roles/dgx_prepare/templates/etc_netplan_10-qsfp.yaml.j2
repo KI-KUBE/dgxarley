@@ -1,4 +1,10 @@
 # QSFP112 Point-to-Point — managed by Ansible
+{% set _dualrail = qsfp_dualrail_enabled | default(false) | bool %}
+{# Rail-2 IP = rail-1 IP with the third octet + qsfp_rail2_octet3_offset (own /24 per rail) #}
+{% macro rail2_ip(ip) -%}
+{%- set o = ip.split('.') -%}
+{{ o[0] }}.{{ o[1] }}.{{ o[2] | int + qsfp_rail2_octet3_offset | default(1) | int }}.{{ o[3] | int }}
+{%- endmacro %}
 network:
   version: 2
   ethernets:
@@ -8,6 +14,14 @@ network:
       mtu: {{ qsfp_mtu }}
       addresses:
         - {{ qsfp_ip }}/24
+      routes: []
+{% elif _dualrail and iface == qsfp_rail2_pf_iface %}
+    # Rail 2: second PCIe x4 link to the same cabled QSFP cage (see qsfp_dualrail_enabled).
+    # IPv4 needed for its RoCEv2 GID (host-network NCCL over roceP2p1s0f0).
+    {{ iface }}:
+      mtu: {{ qsfp_mtu }}
+      addresses:
+        - {{ rail2_ip(qsfp_ip) }}/24
       routes: []
 {% else %}
     {{ iface }}:
@@ -49,5 +63,18 @@ network:
 {% endif %}
       dhcp4: false
       dhcp6: false
+{% if _dualrail %}
+    # Rail-2 twin of the VF above: same VF index, MAC byte 4 = 0x0b instead
+    # of 0x0a, rail-2 IP (same pod gets it as net2, see k8s_dgx multus.yml).
+    {{ qsfp_sriov_vf2_prefix }}v{{ vf_idx }}:
+      macaddress: {{ '02:00:0a:0b:%02x:%02x' | format(host_octet | int, vf_idx) }}
+      mtu: {{ qsfp_mtu }}
+{% if _vf_ip.val %}
+      addresses:
+        - {{ rail2_ip(_vf_ip.val) }}/24
+{% endif %}
+      dhcp4: false
+      dhcp6: false
+{% endif %}
 {% endfor %}
 {% endif %}
