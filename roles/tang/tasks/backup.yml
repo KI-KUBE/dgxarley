@@ -1,0 +1,80 @@
+---
+# file: roles/tang/tasks/backup.yml
+
+- name: Install the tang key backup
+  when: tang_backup_enabled | default(true) | bool
+  block:
+    - name: Check the rc binary and config exist
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop:
+        - "{{ tang_backup_rc_bin }}"
+        - "{{ tang_backup_rc_config_dir }}"
+      register: _tang_backup_rc
+      check_mode: false
+
+    - name: Assert rc and its alias config are present
+      # Installed and configured by common/k3sserver (tag rustfs_client); not reinstalled here.
+      ansible.builtin.assert:
+        that: _tang_backup_rc.results | rejectattr('stat.exists') | list | length == 0
+        fail_msg: >-
+          {{ tang_backup_rc_bin }} or {{ tang_backup_rc_config_dir }} missing on {{ inventory_hostname }}.
+          Run k3sserver.yml --tags rustfs_client first, or set tang_backup_enabled=false.
+        success_msg: "rc present"
+      when: not ansible_check_mode
+
+    - name: Deploy the tang backup script
+      ansible.builtin.template:
+        src: tang-backup.sh.j2
+        dest: "{{ tang_backup_script }}"
+        owner: root
+        group: root
+        mode: "0750"
+
+    - name: Deploy the tang backup service unit
+      ansible.builtin.template:
+        src: tang-backup.service.j2
+        dest: "{{ tang_backup_systemd_dir }}/tang-backup.service"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: reload systemd for tang-backup
+
+    - name: Deploy the tang backup timer unit
+      ansible.builtin.template:
+        src: tang-backup.timer.j2
+        dest: "{{ tang_backup_systemd_dir }}/tang-backup.timer"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart tang-backup timer
+
+    - name: Flush handlers before enabling the timer
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start the tang backup timer
+      ansible.builtin.systemd:
+        name: tang-backup.timer
+        state: started
+        enabled: true
+        daemon_reload: true
+
+- name: Remove the tang key backup
+  when: not (tang_backup_enabled | default(true) | bool)
+  block:
+    - name: Stop and disable the tang backup timer
+      ansible.builtin.systemd:
+        name: tang-backup.timer
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove the tang backup script and units
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ tang_backup_script }}"
+        - "{{ tang_backup_systemd_dir }}/tang-backup.service"
+        - "{{ tang_backup_systemd_dir }}/tang-backup.timer"
+      notify: reload systemd for tang-backup
