@@ -215,8 +215,21 @@ for model_id in models:
             for target in rsync_targets:
                 dst = f"root@{target}:{hf_cache_host_path}/hub/{model_dir}/"
                 print(f"Syncing {model_dir} to {target}:{hf_cache_host_path}/hub/ ...", flush=True)
+                # rsync only creates the last path component: make sure <cache>/hub exists on a fresh target
+                rsync_path = f"mkdir -p {hf_cache_host_path}/hub && rsync"
                 proc = subprocess.Popen(
-                    ["rsync", "-ah", "--info=progress2", "--inplace", "-e", "ssh " + " ".join(ssh_opts), src, dst],
+                    [
+                        "rsync",
+                        "-ah",
+                        "--info=progress2",
+                        "--inplace",
+                        "--rsync-path",
+                        rsync_path,
+                        "-e",
+                        "ssh " + " ".join(ssh_opts),
+                        src,
+                        dst,
+                    ],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
@@ -228,7 +241,11 @@ for model_id in models:
                 t_err.join()
                 rc = proc.wait()
                 if rc != 0:
-                    raise RuntimeError(f"rsync to {target} failed with exit code {rc}")
+                    # not an exception: the outer handler would fall back to the local cache and report
+                    # success although the target node never got the model
+                    print(f"FAILED: rsync of {model_id} to {target} exited with {rc}", flush=True)
+                    failed.append(f"{model_id} (rsync to {target})")
+                    continue
                 print(f"Sync to {target} complete.", flush=True)
     except Exception as e:
         # Online path failed (e.g. HF API 504 / unreachable / egress down). A model
