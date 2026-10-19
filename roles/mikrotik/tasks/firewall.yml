@@ -2,8 +2,9 @@
 # Runs after uplink.yml and wireguard.yml (main.yml), so both rules end up above their accept/drop rules: only
 # established/related connections are fasttracked, new ones still pass the uplink/hub rules below. Same comments as
 # the external bootstrap script, so rules it created are taken over. Each rule is moved above every static
-# rule (the dynamic fasttrack counter rule stays first) instead of `add place-before=0`, which silently falls back to
-# append; accept is listed first, so fasttrack ends up on top. A re-run repairs the order.
+# rule (the dynamic fasttrack counter rule stays first); a numeric place-before is not "top of the list" on
+# RouterOS 7, and uplink.yml/wireguard.yml anchor their rules before their drops by id, never at the top.
+# accept is listed first, so fasttrack ends up on top. A re-run repairs the order.
 - name: Ensure fasttrack filter rules on top
   community.routeros.command:
     commands:
