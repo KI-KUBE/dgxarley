@@ -75,3 +75,4 @@ engine max tok/s:
 - GSM8K (n4/n8/n16/n32): 8/8 everywhere; n8 15/16; n16 31/32; n32 61-63/64 (preset and R0 +1 truncation each).
 - bfloat16 SSM (preset) vs float32 RadixArk, engine max: +23 % n4, +25 % n8, +29 % n16, +72 % n32. RadixArk vs RedHat R0 draft (both float32): within 5 % at every level.
 - Comparison with the cluster and the other models: 4n log and `SINGLE_CLUSTER_COMPARE.md`.
+- Cluster rerun 2026-10-19 (dual-rail, 4 NCCL channels, 4n log last section): the TP=4 profile is now x1.9-2.0 of this single node from n4 to n32 (n32 1109 vs 553), so the earlier "one node matches four from n8 on" no longer holds.

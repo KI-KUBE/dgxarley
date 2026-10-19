@@ -54,3 +54,4 @@ engine max tok/s:
 - 0 decode batches with `cuda graph: False` in both.
 - bfloat16 over float32 (25 vs 12 slots): +3 % n4, +10 % n8, +41 % n16, +78 % n32. bfloat16 does not change the accept length.
 - Comparison with the cluster and the other models: `SINGLE_CLUSTER_COMPARE.md`.
+- Cluster rerun 2026-10-19 (dual-rail, 4 NCCL channels, 4n MTPv2 log Run 9): the TP=4 profile is now x2.5-3.0 of this node at every level (n32 704 vs 236; before x2.0-2.1 at n16/n32).

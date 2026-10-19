@@ -143,3 +143,25 @@ engine max tok/s:
 - With 16 slots n32 is no faster than n16 (queue). The profile (bfloat16, 32 slots) leads from n16 on: n16 476 vs 351-430, n32 646 vs 354-396.
 - Day-to-day: engine max at n32 vs 2026-10-11 (before a power cycle of all Sparks): profile 646 vs 435, adaptive float32 396 vs 416, fixed 2/1/3 372 vs 435, no MTP 354 vs 329. Cause not investigated.
 - Comparison with the single node and the other models: `SINGLE_CLUSTER_COMPARE.md`.
+
+## Rerun with dual-rail and 4 NCCL channels (2026-10-19)
+
+All four configs re-run on 2026-10-19 with the method of the 2026-10-12 rerun (one rollout per config from a scratch copy of the repo with only the config's profile keys changed, idle check before each deploy, levels n1/n4/n8/n16/n32 with 8/32/64/128/256 questions, 20 s pause, max-tokens 8192, temperature 0, harness `sglang-gsm8k`, engine max from the head log). Changed since 2026-10-12: NCCL over both QSFP rails (`NCCL_IB_HCA` with both VFs) and `NCCL_MIN_NCHANNELS`/`NCCL_MAX_NCHANNELS` = 4 instead of the 16-channel default (now the role default, see `NCCL_DUALRAIL_QSFP_TEST.md`). Engine settings otherwise identical (checked in `server_args` per config). No power cycle before the run. n1 = single-stream tok/s of this run. The profile's n4-n32 come from the 4-channel run of 03:09-03:21 UTC in `NCCL_DUALRAIL_QSFP_TEST.md`, its n1 from 09:15 UTC.
+
+engine max tok/s (2026-10-12 in parentheses; n1 in parentheses from the 2026-10-10/11 sweeps):
+
+| config                                             | slots | bench (UTC)        | n1               | n4        | n8        | n16       | n32         | accept len (level medians) |
+|----------------------------------------------------|------:|--------------------|------------------|-----------|-----------|-----------|-------------|---------------------------:|
+| adaptive, bfloat16 SSM, max_running 32 (= profile) |    32 | 03:09-03:21, 09:15 | 83.5 (75.8)      | 254 (231) | 356 (331) | 504 (476) | 762 (646)   |                  2.96 mean |
+| adaptive, float32 SSM, max_running 16 (B)          |    16 | 09:26-09:41        | 77.7 (74.6)      | 235 (215) | 335 (302) | 434 (430) | 494 (396)   |                  3.01-3.20 |
+| fixed 2/1/3, float32 SSM, max_running 16 (A)       |    16 | 09:49-10:05        | 71.6 (62.8-68.6) | 217 (202) | 312 (306) | 438 (400) | 436 (372) ¹ |                  2.48-2.61 |
+| no MTP, float32 SSM, max_running 16                |    16 | 10:15-10:39        | 35.9 (34.6)      | 126 (124) | 207 (206) | 339 (351) | 336 (354)   |                          - |
+
+¹ A n32 repeated 13:01-13:08 UTC: 436, 256 of 256 POSTs, `#running-req` 16 with queue 16, 0 eager batches, GSM8K 249/256 with 3 truncations. The first n32 window (09:58-10:05 UTC) gave 421 with 310 POSTs instead of 256: another benchmark aimed at a different cluster hit this one by mistake from 10:01:40 to about 10:05:40 through an already bound port-forward. The repeat replaces that cell.
+
+- Checks: head log POSTs = questions in every level (A n32: the repeat), 0 decode batches with `cuda graph: False`. With 16 slots `#running-req` reached n up to n16 and 16 at n32 (queue 16-17); the profile ran 32 at n32.
+- GSM8K: n1 8/8 everywhere; n4 31/32; n8 62-63/64; n16 125-126/128; n32 249-253/256 with 1-3 truncations at 8192 tokens (249 = A repeat). Same range as 2026-10-12.
+- Against 2026-10-12 every 16-slot cell is within ±15 % except n32 for B (+25 %, 494 vs 396) and A (+17 %, 436 vs 372); the profile is +10 % n4, +8 % n8, +6 % n16, +18 % n32. Flash-Next profits far less than the dense Qwen3.8-27B in the same rerun (speculative configs up to x2.4) and the Nemotron profile (+35 % n16, +45 % n32); why is not measured.
+- With 16 slots n32 is now above n16 for B (494 vs 434, 2026-10-12: 396 vs 430); A (436 vs 438) and no MTP (336 vs 339) stay at or just below n16, as on 2026-10-12.
+- The profile (bfloat16, 32 slots) still leads from n16 on (504 vs 339-438, n32 762 vs 336-494).
+- Comparison with the single node and the other models: `SINGLE_CLUSTER_COMPARE.md`, section "Cluster rerun 2026-10-19".

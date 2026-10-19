@@ -80,3 +80,4 @@ engine max tok/s:
 - bfloat16 SSM over float32 S1: cache 76 (19 slots) +3 % n4, +27 % n8, +68 % n16, +49 % n32; cache 128 (32 slots) +21 %, +20 %, +42 %, +85 %.
 - KV pool: S1b 386k tokens (19 slots), S1c 164k tokens (32 slots); the extra mamba slots come out of the same static pool. Engine max S1c vs S1b: +18 % n4, -6 % n8, -15 % n16, +24 % n32.
 - Comparison with the cluster and the other models: `SINGLE_CLUSTER_COMPARE.md`.
+- Cluster rerun 2026-10-19 (dual-rail, 4 NCCL channels, 4n log last section): the TP=4 profile reaches 762 tok/s at n32 (2026-10-12: 646), x2.7 of this node's best n32 (285).

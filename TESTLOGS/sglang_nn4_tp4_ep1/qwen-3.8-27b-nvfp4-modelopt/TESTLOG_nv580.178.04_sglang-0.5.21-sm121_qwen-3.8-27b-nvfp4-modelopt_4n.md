@@ -59,6 +59,8 @@ Median accept len by `#running-req` (case 1): 1: 4.05, 4: 4.50, 8: 4.80, 16: 5.3
 
 ## Comparison vs single node (TP=1, 1n log)
 
+Numbers in this section and in "Decision" are from 2026-10-11/12 with the 16-channel NCCL default; the 2026-10-19 rerun with 4 channels (last section) changes most of them.
+
 n=1 from the sweep above; n>1 = engine max tok/s (highest head-log `gen throughput` per level) from the engine-log reruns of 2026-10-12 (this log and the 1n log). Same-config factor (4 nodes / 1 node):
 
 | Config                  | n=1                  | n=4               | n=8               | n=16              | n=32                |
@@ -102,3 +104,26 @@ engine max tok/s:
 - GSM8K (n4/n8/n16/n32): 15/16 everywhere; n8 31-32/32; n16 62/64; n32 122-125/128 with 2-5 truncations at 8192 tokens.
 - Head log POSTs = 240 of 240 expected, except g7 bf16 (241, one foreign request); 0 decode batches with `cuda graph: False`. `max_running_requests` 32 in every case.
 - Comparison with the single node: section above and `SINGLE_CLUSTER_COMPARE.md`.
+
+## Rerun with dual-rail and 4 NCCL channels (2026-10-19)
+
+All five configs re-run on 2026-10-19 with the same method as the 2026-10-12 rerun (one rollout per config from a scratch copy of the repo with only the config's profile keys changed, idle check before each deploy, levels n1/n4/n8/n16/n32 with 4/16/32/64/128 questions, 20 s pause, max-tokens 8192, temperature 0, harness `sglang-gsm8k`, engine max from the head log). Changed since 2026-10-12: NCCL over both QSFP rails (`NCCL_IB_HCA` with both VFs) and `NCCL_MIN_NCHANNELS`/`NCCL_MAX_NCHANNELS` = 4 instead of the 16-channel default (now the role default, see `NCCL_DUALRAIL_QSFP_TEST.md`). Engine settings otherwise identical (checked in `server_args` per config). No power cycle before the run. n1 = single-stream tok/s of this run.
+
+engine max tok/s (2026-10-12 in parentheses):
+
+| config                              | slots | bench (UTC) | n1                 | n4        | n8        | n16       | n32        | accept len (level medians) |
+|-------------------------------------|------:|-------------|--------------------|-----------|-----------|-----------|------------|---------------------------:|
+| DSpark g7, bfloat16 SSM (= profile) |    32 | 10:42-10:51 | 117.4 (96.0)       | 366 (292) | 576 (304) | 791 (330) | 1109 (517) |                  4.21-5.12 |
+| DSpark g7, float32 SSM              |    32 | 10:55-11:03 | 111.0 (93.2-103.8) | 326 (263) | 527 (309) | 668 (346) | 846 (504)  |                  4.16-4.91 |
+| DSpark g5 (draft 6), float32 SSM    |    32 | 11:07-11:15 | 99.5 (93.3)        | 308 (270) | 518 (331) | 650 (323) | 886 (437)  |                  3.75-4.28 |
+| MTP EAGLE 3/1/4, float32 SSM        |    32 | 11:19-11:30 | 72.7 (69.7)        | 257 (217) | 423 (344) | 610 (368) | 869 (399)  |                  2.90-3.21 |
+| none, float32 SSM                   |    32 | 11:34-11:50 | 37.3 (36.0)        | 133 (129) | 245 (235) | 408 (381) | 685 (559)  |                          - |
+
+- Checks: head log POSTs = questions in every level (240 per config), 0 decode batches with `cuda graph: False`, `#running-req` reached n in every level (31-32 at n32, queue at most 3). `max_running_requests` 32 in every case.
+- GSM8K (n1/n4/n8/n16/n32): 4/4 everywhere; n4 14-15/16; n8 30-31/32; n16 61-62/64; n32 120-124/128 with 1-4 truncations at 8192 tokens. Within 1-2 questions of 2026-10-12 (n4 15/16, n8 31-32/32, n16 62/64, n32 122-125/128); no accuracy effect visible at these counts.
+- Gain against 2026-10-12 (n4/n8/n16/n32): profile +25/+89/+140/+115 %, g7 float32 +24/+71/+93/+68 %, g5 +14/+56/+101/+103 %, MTP +18/+23/+66/+118 %, none +3/+4/+7/+23 %. The speculative configs gain far above the ~15 % day-to-day noise; without speculation only n32 is above it. A verify step pushes several tokens per request through each all-reduce, which presumably puts the messages into the range where the 16-channel default degrades (from 256 KB up in the microbenchmark); message sizes were not measured.
+- Speculation now pays at every level on TP=4: profile over none x3.1 n1, x2.75 n4, x2.35 n8, x1.94 n16, x1.62 n32 (2026-10-12: control faster from n16 on).
+- Ranking n4 to n16: profile > g7 float32 ≈ g5 > MTP > none. n32: profile 1109, then g5 886 / MTP 869 / g7 float32 846 within noise, none 685.
+- bfloat16 vs float32 SSM (g7): +12 % n4, +9 % n8, +18 % n16, +31 % n32 (2026-10-12: -5 to +11 %).
+- Factor 4 nodes / 1 node (g7 bfloat16, 1n values from the 1n log): x2.64 n1 (117.4 / 44.5), x1.95 n4 (366 / 188), x1.89 n8 (576 / 305), x1.87 n16 (791 / 424), x2.01 n32 (1109 / 553). The 2026-10-12 conclusion that one TP=1 node matches four from n8 on and is faster from n16 on no longer holds; the cluster is about twice as fast at every level. Without speculation x2.96 n1 to x2.67 n32.
+- Decision update: the profile (DSpark g7, bfloat16 SSM) stays and is now the fastest config at every level; the "concurrent workload -> TP=1 instance" recommendation above is obsolete.

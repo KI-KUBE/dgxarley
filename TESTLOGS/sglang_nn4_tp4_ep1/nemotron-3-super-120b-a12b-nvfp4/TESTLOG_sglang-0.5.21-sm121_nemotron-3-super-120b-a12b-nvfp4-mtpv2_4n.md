@@ -293,3 +293,23 @@ engine max tok/s:
 - Day-to-day: engine max at n32 vs 2026-10-11 (before a power cycle of all Sparks): 4/1/5 bf16 485 vs 493, 4/1/5 float32 432 vs 460, 3/1/4 412 vs 412, 5/1/6 404 vs 446.
 - "5/1/7" in Runs 3/4 ran as 5/1/6: with topk 1 SGLang rewrites draft tokens to steps+1.
 - Comparison with the single node and the other models: `SINGLE_CLUSTER_COMPARE.md`.
+
+## Run 9: rerun with dual-rail and 4 NCCL channels (2026-10-19)
+
+The four MTPv2 configs of Run 8 re-run on 2026-10-19 with the same method (one rollout per config from a scratch copy of the repo with only the config's profile keys changed, idle check before each deploy, levels n1/n4/n8/n16/n32 with 4/16/32/64/128 questions, 20 s pause, max-tokens 8192, temperature 0, harness `sglang-gsm8k`, engine max from the head log). Changed since Run 8: NCCL over both QSFP rails (`NCCL_IB_HCA` with both VFs) and `NCCL_MIN_NCHANNELS`/`NCCL_MAX_NCHANNELS` = 4 instead of the 16-channel default (now the role default, see `NCCL_DUALRAIL_QSFP_TEST.md`). Engine settings otherwise identical (checked in `server_args` per config). No power cycle before the run. n1 = single-stream tok/s of this run (Run 8 did not rerun n1; the value in parentheses is from Run 7, float32 configs from Run 4).
+
+engine max tok/s (Run 8 in parentheses):
+
+| config                          | slots | bench (UTC) | n1          | n4        | n8        | n16       | n32       | accept len (level medians) |
+|---------------------------------|------:|-------------|-------------|-----------|-----------|-----------|-----------|---------------------------:|
+| 4/1/5, bfloat16 SSM (= profile) |    32 | 11:55-12:01 | 83.8 (82.1) | 202 (211) | 307 (287) | 482 (358) | 704 (485) |                  4.08-4.14 |
+| 4/1/5, float32 SSM              |    32 | 12:09-12:16 | 84.5 (82.7) | 201 (193) | 290 (253) | 421 (327) | 613 (432) |                  4.02-4.15 |
+| 3/1/4, float32 SSM              |    32 | 12:22-12:29 | 79.2 (77.9) | 199 (195) | 278 (254) | 395 (355) | 581 (412) |                  3.45-3.52 |
+| 5/1/6, float32 SSM              |    32 | 12:37-12:44 | 84.5 (85.2) | 205 (192) | 304 (267) | 444 (299) | 599 (404) |                  4.40-4.60 |
+
+- Checks (all finished configs): head log POSTs = questions in every level (240 per config), 0 decode batches with `cuda graph: False`, `#running-req` reached n in every level (32 at n32, no queue). GSM8K profile 4/4, 15/16, 32/32, 63/64, 124/128, no truncation; 4/1/5 float32 4/4, 16/16, 32/32, 63/64, 125/128, 1 truncation; 3/1/4 float32 4/4, 16/16, 32/32, 64/64, 125/128; 5/1/6 float32 4/4, 16/16, 32/32, 62/64, 124/128.
+- Against Run 8 (n4/n8/n16/n32): profile -4/+7/+35/+45 %, 4/1/5 float32 +4/+15/+29/+42 %, 3/1/4 float32 +2/+9/+11/+41 %, 5/1/6 float32 +7/+14/+48/+48 %; n1 within 2 % of Run 4/7 for all four (5/1/6 -1 %). Both: within noise up to n8 (float32 n8 +15 % at the edge), a clear gain from n16 on, the same pattern as the Qwen3.8-27B TP=4 rerun (where the speculative configs gained up to x2.4).
+- n32 ranking: profile 704 > 4/1/5 float32 613 > 5/1/6 float32 599 ≈ 3/1/4 float32 581 (Run 8: 485 > 432 > 412 ≈ 404); the float32 configs are within noise of each other at n32. 5/1/6 has the highest accept len (4.4-4.6) and the best float32 n16 (444).
+- bfloat16 vs float32 SSM (4/1/5): 0 % n4, +6 % n8, +14 % n16, +15 % n32 (Run 8: +9 to +13 %); keep bfloat16.
+- Factor 4 nodes / 1 node (4/1/5 bfloat16 on both sides, 1n values from the spark5 log): x2.6 n1 (83.8 / 32.2), x2.5 n4 (202 / 81), x2.6 n8 (307 / 119), x2.7 n16 (482 / 178), x3.0 n32 (704 / 236); in Run 8 it fell to x2.0-2.1 at n16/n32.
+- Comparison with the other models: `SINGLE_CLUSTER_COMPARE.md`, section "Cluster rerun 2026-10-19".
