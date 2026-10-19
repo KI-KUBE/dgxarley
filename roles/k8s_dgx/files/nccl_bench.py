@@ -128,7 +128,7 @@ def main() -> None:
         if small:
             small_peak = max(r[4] for r in small)
             ratio = small_peak / peak_busbw if peak_busbw else 0.0
-            flag = "  <-- LOW: check NCCL port/channel spanning" if ratio < 0.4 else ""
+            flag = "  <-- LOW: check both rails in NCCL_IB_HCA / channels" if ratio < 0.4 else ""
             print(
                 f"RATIO: small(<= {SMALL_REGION_BYTES // 1024}KB) peak busbw {small_peak:.2f} GB/s "
                 f"= {ratio:.2f}x of large peak{flag}"

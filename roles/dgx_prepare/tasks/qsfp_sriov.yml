@@ -62,6 +62,7 @@
   ansible.builtin.command: "readlink -f /sys/class/net/{{ item.item.iface }}/device"
   register: _sriov_pf_dev
   changed_when: false
+  check_mode: false  # read-only; without it --check leaves the PCI empty and the later sysfs reads fail
   when: item.stat.exists
   loop: "{{ _sriov_sysfs.results }}"
   loop_control:
