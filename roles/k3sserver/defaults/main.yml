@@ -65,3 +65,14 @@ age_version: "1.3.2"
 # NOTE: keep the leading "v" (the tag is "v0.1.25"); it is part of the release
 # asset filename. The comparison against `rc --version` strips it.
 rustfs_rc_version_fallback: "v0.1.25"
+
+# k9s — Kubernetes TUI, installed on the k3s master only (tag: k9s).
+# Single static binary from the upstream GitHub release tarball
+# (k9s_Linux_<arch>.tar.gz), verified against the release's checksums.sha256.
+# `latest` resolves the newest release via the GitHub API at runtime (a failed
+# lookup keeps an already installed k9s and warns; github_api_token lifts the
+# anonymous rate limit). Pin a vX.Y.Z to make runs reproducible.
+k9s_enabled: true
+k9s_version: "latest"
+k9s_install_dir: /usr/local/bin
+k9s_github_repo: derailed/k9s

@@ -245,6 +245,14 @@
   tags:
     - sops_age
 
+- name: install k9s (Kubernetes TUI) on the k3s master
+  import_tasks: k9s.yml
+  tags:
+    - k9s
+  when:
+    - isk3smaster | default(false) | bool
+    - k9s_enabled | default(true) | bool
+
 - name: debug also non-master k3sservers
   debug:
     msg: "DONE ON: {{ inventory_hostname }}"

@@ -1,0 +1,130 @@
+---
+# Install k9s (Kubernetes TUI, https://github.com/derailed/k9s) on the k3s master.
+# Single static Go binary from the upstream GitHub release tarball
+# (k9s_Linux_<arch>.tar.gz), verified against the release's checksums.sha256.
+# Version-aware and idempotent: the binary is only (re)downloaded when it is
+# missing or its `k9s version --short` differs from the target version.
+# No shell completions, no config changes.
+
+# Version resolution is best-effort. With k9s_version: latest the release tag is
+# looked up on the GitHub API (anonymous = 60 req/h per source IP unless
+# github_api_token is set, see rustfs_client.yml). If that lookup fails and a k9s
+# is already installed, the installed one is kept and a warning is printed;
+# without an installed k9s the play fails (nothing to fall back to).
+- name: set k9s arch mapping
+  set_fact:
+    _k9s_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] }}"
+
+- name: check installed k9s version
+  command: "{{ k9s_install_dir }}/k9s version --short"
+  register: _k9s_current
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+# Output looks like "Version v0.50.9"; empty when k9s is missing.
+- name: set installed k9s version
+  set_fact:
+    _k9s_installed: "{{ (_k9s_current.stdout | default('')) | regex_search('Version\\s+(v[0-9][^\\s]*)', '\\1') | first | default('') }}"
+  when: _k9s_current.rc == 0
+
+- name: default installed k9s version to empty
+  set_fact:
+    _k9s_installed: ""
+  when: _k9s_current.rc != 0
+
+- name: fetch latest k9s release from GitHub
+  uri:
+    url: "https://api.github.com/repos/{{ k9s_github_repo }}/releases/latest"
+    return_content: true
+    headers: >-
+      {{ {'Accept': 'application/vnd.github+json'}
+         | combine({'Authorization': 'Bearer ' ~ _k9s_gh_token}
+                   if _k9s_gh_token | length > 0 else {}) }}
+  vars:
+    _k9s_gh_token: "{{ github_api_token | default('') | trim }}"
+  register: _k9s_release
+  delegate_to: localhost
+  become: false
+  check_mode: false
+  failed_when: false
+  when: k9s_version == 'latest'
+
+- name: set target k9s version
+  set_fact:
+    _k9s_target: >-
+      {%- if k9s_version != 'latest' -%}
+      v{{ k9s_version | regex_replace('^v', '') }}
+      {%- elif (_k9s_release.status | default(0)) == 200 -%}
+      {{ _k9s_release.json.tag_name }}
+      {%- else -%}
+      {{ _k9s_installed }}
+      {%- endif -%}
+
+- name: warn that the k9s release lookup failed, keeping the installed version
+  debug:
+    msg: >-
+      GitHub release lookup for {{ k9s_github_repo }} failed (HTTP
+      {{ _k9s_release.status | default('n/a') }}: {{ _k9s_release.msg | default('no response') }}).
+      Keeping the installed k9s {{ _k9s_installed }}. Set github_api_token to lift the
+      anonymous 60 req/h GitHub rate limit, or pin k9s_version.
+  when:
+    - k9s_version == 'latest'
+    - (_k9s_release.status | default(0)) != 200
+    - _k9s_installed | length > 0
+
+- name: fail if the k9s version cannot be resolved and none is installed
+  fail:
+    msg: >-
+      Cannot resolve the latest k9s release (HTTP {{ _k9s_release.status | default('n/a') }}:
+      {{ _k9s_release.msg | default('no response') }}) and no k9s is installed.
+      Retry later, set github_api_token, or pin k9s_version.
+  when: _k9s_target | length == 0
+
+- name: install k9s {{ _k9s_target }}
+  when: _k9s_installed != _k9s_target
+  block:
+    - name: create k9s temp dir
+      tempfile:
+        state: directory
+        prefix: k9s.
+      register: _k9s_tmp
+
+    - name: download k9s tarball (sha256 checked against the release checksums.sha256)
+      get_url:
+        url: "https://github.com/{{ k9s_github_repo }}/releases/download/{{ _k9s_target }}/k9s_Linux_{{ _k9s_arch }}.tar.gz"
+        dest: "{{ _k9s_tmp.path }}/k9s_Linux_{{ _k9s_arch }}.tar.gz"
+        checksum: "sha256:https://github.com/{{ k9s_github_repo }}/releases/download/{{ _k9s_target }}/checksums.sha256"
+        mode: "0644"
+
+    - name: extract the k9s binary only
+      unarchive:
+        src: "{{ _k9s_tmp.path }}/k9s_Linux_{{ _k9s_arch }}.tar.gz"
+        dest: "{{ _k9s_tmp.path }}"
+        remote_src: true
+        include:
+          - k9s
+        # upstream tarballs carry the CI runner's UID; do not keep it as root
+        extra_opts: ['--no-same-owner']
+
+    - name: install k9s binary
+      copy:
+        src: "{{ _k9s_tmp.path }}/k9s"
+        dest: "{{ k9s_install_dir }}/k9s"
+        remote_src: true
+        mode: "0755"
+        owner: root
+        group: root
+
+  always:
+    - name: clean up k9s temp dir
+      file:
+        path: "{{ _k9s_tmp.path }}"
+        state: absent
+      when: _k9s_tmp.path is defined
+
+- name: verify k9s version
+  command: "{{ k9s_install_dir }}/k9s version --short"
+  register: _k9s_verify
+  changed_when: false
+  failed_when: _k9s_verify.rc != 0 or _k9s_target not in _k9s_verify.stdout
