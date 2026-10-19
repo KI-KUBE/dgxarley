@@ -64,30 +64,34 @@
         out-interface={{ mikrotik_uplink_interface }} }
   changed_when: false
 
-# Each new rule goes on top, so the drops are listed first and end up below the accepts.
+# Drops are appended and listed first; each accept is placed right before its drop by id
+# (`place-before=([find comment=...]->0)`; a numeric place-before such as `=0` is not "top of the list" on RouterOS 7).
+# The anchor exists because the drop is ensured earlier in the same loop; a missing one fails the task.
 - name: Ensure uplink filter rules
   community.routeros.command:
     commands:
       - >-
         :if ([:len [/ip/firewall/filter/find comment="{{ item.comment }}"]] = 0)
-        do={ :do { /ip/firewall/filter/add {{ item.rule }}
-        comment="{{ item.comment }}" place-before=0 } on-error={
-        /ip/firewall/filter/add {{ item.rule }}
-        comment="{{ item.comment }}" } }
+        do={ /ip/firewall/filter/add {{ item.rule }}
+        comment="{{ item.comment }}"{% if item.anchor is defined %}
+        place-before=([/ip/firewall/filter/find comment="{{ item.anchor }}"]->0){% endif %} }
         else={ /ip/firewall/filter/set [find comment="{{ item.comment }}"]
         {{ item.rule }} }
   loop:
     - comment: "{{ mikrotik_uplink_comment }} input drop"
       rule: "chain=input action=drop in-interface={{ mikrotik_uplink_interface }}"
     - comment: "{{ mikrotik_uplink_comment }} input icmp"
+      anchor: "{{ mikrotik_uplink_comment }} input drop"
       rule: "chain=input action=accept protocol=icmp in-interface={{ mikrotik_uplink_interface }}"
     - comment: "{{ mikrotik_uplink_comment }} input established"
+      anchor: "{{ mikrotik_uplink_comment }} input drop"
       rule: >-
         chain=input action=accept connection-state=established,related,untracked
         in-interface={{ mikrotik_uplink_interface }}
     - comment: "{{ mikrotik_uplink_comment }} forward drop"
       rule: "chain=forward action=drop in-interface={{ mikrotik_uplink_interface }}"
     - comment: "{{ mikrotik_uplink_comment }} forward established"
+      anchor: "{{ mikrotik_uplink_comment }} forward drop"
       rule: >-
         chain=forward action=accept connection-state=established,related
         in-interface={{ mikrotik_uplink_interface }}
