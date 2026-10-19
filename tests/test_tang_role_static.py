@@ -182,3 +182,12 @@ def test_k3smaster_keeps_clevis_with_boot_keyfile() -> None:
     cv = yaml.safe_load((REPO / "host_vars" / "k3smaster" / "main" / "clevis.yml").read_text())
     assert cv["clevis_keyfile_enabled"] is True
     assert cv["clevis_keyfile_boot_enabled"] is True
+
+
+def test_clevis_removes_tang_helpers_without_tang_servers() -> None:
+    tasks = yaml.safe_load((REPO / "roles" / "clevis" / "tasks" / "main.yml").read_text())
+    task = next(t for t in tasks if t["name"] == "remove the tang helper scripts from a host without tang servers")
+    assert task["file"]["state"] == "absent"
+    assert set(task["loop"]) == {"setup_clevis_tang.sh", "tang_check_connection.sh"}
+    assert "clevis_tang_servers | length == 0" in task["when"]
+    assert "clevis" in task["tags"]
