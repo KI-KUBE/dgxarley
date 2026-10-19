@@ -2,7 +2,7 @@
 - name: Assert WireGuard gates
   ansible.builtin.assert:
     that:
-      - not (mikrotik_wireguard_enabled | default(false) and mikrotik_wireguard_teardown | default(false))
+      - not (mikrotik_wireguard_enabled | default(false) | bool and mikrotik_wireguard_teardown | default(false) | bool)
       - mikrotik_object_prefix is match('^[A-Za-z0-9_-]+$')
     fail_msg: "mikrotik_wireguard_enabled and mikrotik_wireguard_teardown are mutually exclusive; mikrotik_object_prefix allows only letters, digits, - and _"
     quiet: true
@@ -17,7 +17,7 @@
       - /interface/wireguard/peers/remove [find comment~"^{{ mikrotik_wireguard_comment }}"]
       - /interface/wireguard/remove [find comment~"^{{ mikrotik_wireguard_comment }}"]
   changed_when: false
-  when: mikrotik_wireguard_teardown | default(false)
+  when: mikrotik_wireguard_teardown | default(false) | bool
 
 - name: Disable hub WireGuard interface
   community.routeros.command:
@@ -27,11 +27,11 @@
         do={ /interface/wireguard/set [find comment="{{ mikrotik_wireguard_comment }}"] disabled=yes }
   changed_when: false
   when:
-    - not (mikrotik_wireguard_enabled | default(false))
-    - not (mikrotik_wireguard_teardown | default(false))
+    - not (mikrotik_wireguard_enabled | default(false) | bool)
+    - not (mikrotik_wireguard_teardown | default(false) | bool)
 
 - name: Configure hub WireGuard client
-  when: mikrotik_wireguard_enabled | default(false)
+  when: mikrotik_wireguard_enabled | default(false) | bool
   block:
     - name: Assert WireGuard parameters
       ansible.builtin.assert:
@@ -40,7 +40,7 @@
           - mikrotik_wireguard_hub_public_key | length > 0
           - mikrotik_wireguard_tunnel_address | length > 0
           - mikrotik_wireguard_ops_subnet | length > 0
-          - not (mikrotik_wireguard_forward_lan | default(false)) or mikrotik_wireguard_forward_lans | length > 0
+          - not (mikrotik_wireguard_forward_lan | default(false) | bool) or mikrotik_wireguard_forward_lans | length > 0
           - mikrotik_wireguard_forward_lans | reject('match', '^\\d+\\.\\d+\\.\\d+\\.\\d+/\\d+$') | list | length == 0
         fail_msg: "WireGuard: hub endpoint/key, tunnel address and ops subnet are required; forward_lan needs mikrotik_wireguard_forward_lans as IPv4 CIDRs"
         quiet: true
@@ -193,7 +193,7 @@
             place-before=([/ip/firewall/filter/find comment~"^{{ mikrotik_wireguard_comment }} forward drop"]->0)
       loop: "{{ mikrotik_wireguard_forward_lans }}"
       changed_when: false
-      when: mikrotik_wireguard_forward_lan | default(false)
+      when: mikrotik_wireguard_forward_lan | default(false) | bool
 
     - name: Ensure hub port forward rule
       community.routeros.command:
@@ -221,7 +221,7 @@
             comment="{{ mikrotik_wireguard_comment }}-fwd established"
             place-before=([/ip/firewall/filter/find comment~"^{{ mikrotik_wireguard_comment }} forward drop"]->0)
       changed_when: false
-      when: mikrotik_wireguard_forward_lan | default(false)
+      when: mikrotik_wireguard_forward_lan | default(false) | bool
 
     # Anchored placement should make this hold; it is still checked, because rules moved by hand stay where
     # they are (existing rules are only `set`, never moved).
@@ -269,5 +269,5 @@
         msg:
           - "hub peer public key: {{ mikrotik_wireguard_pubkey.stdout[0] | trim }}"
           - "tunnel address: {{ mikrotik_wireguard_tunnel_address }}"
-          - "hub peer LANs: {{ mikrotik_wireguard_forward_lans if mikrotik_wireguard_forward_lan | default(false) else [] }}"
+          - "hub peer LANs: {{ mikrotik_wireguard_forward_lans if mikrotik_wireguard_forward_lan | default(false) | bool else [] }}"
           - "hub tcp ports from the LAN: {{ mikrotik_wireguard_hub_tcp_ports }} (to {{ mikrotik_wireguard_hub_address }}, src-NATed)"
