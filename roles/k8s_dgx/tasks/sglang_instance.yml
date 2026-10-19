@@ -366,6 +366,8 @@
       NCCL_IB_HCA: "{{ sglang_nccl_env.NCCL_IB_HCA | default(omit) }}"
       NCCL_IB_GID_INDEX: "{{ sglang_nccl_env.NCCL_IB_GID_INDEX | default(omit) }}"
       NCCL_IB_MERGE_NICS: "{{ sglang_nccl_env.NCCL_IB_MERGE_NICS | default(omit) }}"
+      NCCL_MIN_NCHANNELS: "{{ sglang_nccl_env.NCCL_MIN_NCHANNELS | default(omit) }}"
+      NCCL_MAX_NCHANNELS: "{{ sglang_nccl_env.NCCL_MAX_NCHANNELS | default(omit) }}"
       NCCL_NET: "{{ sglang_nccl_env.NCCL_NET | default(omit) }}"
       NCCL_IB_DISABLE: "{{ sglang_nccl_env.NCCL_IB_DISABLE | default(omit) }}"
       # NCCL 2.30.4 NVLS regression: silent hang on high-expert MoE weight
