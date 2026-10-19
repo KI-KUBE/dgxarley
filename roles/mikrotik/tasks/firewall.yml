@@ -1,7 +1,7 @@
 ---
 # Runs after uplink.yml and wireguard.yml (main.yml), so both rules end up above their accept/drop rules: only
 # established/related connections are fasttracked, new ones still pass the uplink/hub rules below. Same comments as
-# kikube-ccc scripts/mikrotik_bootstrap.py, so rules it created are taken over. Each rule is moved above every static
+# the external bootstrap script, so rules it created are taken over. Each rule is moved above every static
 # rule (the dynamic fasttrack counter rule stays first) instead of `add place-before=0`, which silently falls back to
 # append; accept is listed first, so fasttrack ends up on top. A re-run repairs the order.
 - name: Ensure fasttrack filter rules on top
