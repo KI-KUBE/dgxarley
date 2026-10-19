@@ -32,7 +32,7 @@ network:
 {% endfor -%}
 {% endif -%}
 {% endif -%}
-{% set vlan_extra = (ovs_vlan_extra | default({}))[vlan.id] | default({}) %}
+{% set vlan_extra = (ovs_vlan_extra | default({})).get(vlan.id | string, (ovs_vlan_extra | default({})).get(vlan.id, {})) %}
 {% if vlan.routes is defined or vlan_extra.extra_routes is defined %}
       routes:
 {% if vlan.routes is defined %}

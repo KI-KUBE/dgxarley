@@ -21,6 +21,20 @@
   tags:
     - clevis
 
+# a stale setup_clevis_tang.sh would re-bind to the old tang list; config_clevis.yml redeploys both
+- name: remove the tang helper scripts from a host without tang servers
+  file:
+    path: "/root/{{ item }}"
+    state: absent
+  loop:
+    - setup_clevis_tang.sh
+    - tang_check_connection.sh
+  when:
+    - wantsclevis | default(false) | bool
+    - clevis_tang_servers | length == 0
+  tags:
+    - clevis
+
 - name: optional LUKS keyfile fallback (USB stick / key file on /boot)
   import_tasks: keyfile_fallback.yml
   tags:

@@ -22,7 +22,7 @@ ansible-playbook common.yml --tags clevis --check --diff
 1. Installs clevis packages (`clevis`, `clevis-luks`, `clevis-systemd` + `clevis-initramfs` on initramfs-tools, `clevis-dracut` on dracut)
 2. Auto-detects the LUKS partition from `/etc/crypttab` (supports UUID= format)
 3. Checks for existing clevis bindings (skips bind if already present)
-4. Verifies tang server connectivity, fetches advertisements, and creates clevis/tang SSS binding (threshold 2)
+4. Verifies tang server connectivity, fetches advertisements, and creates clevis/tang SSS binding (threshold `clevis_sss_threshold`)
 5. Configures initramfs networking: adds network driver to modules, sets `DEVICE=<hw_iface>` and `IP=:::::<hw_iface>:dhcp` (full kernel IP format — `IP=dhcp` alone is misinterpreted as interface name)
 6. Deploys `init-bottom/cleanup-netplan` script to remove stale `/run/netplan/*` before switch_root (prevents OVS interaction issues)
 7. Rebuilds initramfs (only when changes occurred)
@@ -33,7 +33,7 @@ ansible-playbook common.yml --tags clevis --check --diff
 
 **Tang teardown (`clevis_tang_teardown`, opt-in):** `ansible-playbook common.yml --tags clevis --limit <host> -e clevis_tang_teardown=true` unbinds every tang slot on a host that will not bind again (`wantsclevis: false` or an empty `clevis_tang_servers`, asserted), after the keyfile fallback ran, and refuses if no other keyslot would remain. Used for the only tang server of the cluster, which cannot unlock through its own keys.
 
-**Tang server list:** `clevis_tang_servers` is derived from the inventory in `group_vars/all/main/common.yml`: every enabled host with `providestang` except the client itself, `clevis_sss_threshold: 1`. An empty list skips the binding (debug message), the host then relies on the keyfile fallback.
+**Tang server list:** `clevis_tang_servers` is derived from the inventory in `group_vars/all/main/common.yml`: every enabled host with `providestang` except the client itself, `clevis_sss_threshold: 1`. An empty list skips the binding (debug message), the host then relies on the keyfile fallback. It also removes `/root/setup_clevis_tang.sh` and `/root/tang_check_connection.sh`, so a stale rebind script cannot re-bind the old tang list; they return once the list is non-empty.
 
 The existing LUKS passphrase remains valid as fallback. If tang servers are unreachable at boot, the normal password prompt appears.
 

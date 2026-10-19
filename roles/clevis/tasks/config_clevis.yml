@@ -42,8 +42,8 @@
 #   8. Verifies clevis hooks and network driver in the initrd (lsinitramfs / lsinitrd)
 #
 # Defaults (roles/clevis/defaults/main.yml):
-#   clevis_tang_servers: (list of tang server URLs — real values in vault)
-#   clevis_sss_threshold: 2
+#   clevis_tang_servers: (derived from providestang hosts in group_vars/all/main/common.yml)
+#   clevis_sss_threshold: 1
 #
 # wantsclevis_initramfs: false skips every initrd step on both generators (binding only).
 #
