@@ -247,11 +247,11 @@ Head `sglang-head-869849cdd7-lfd9t`, launch `--max-total-tokens 9437184`; only t
 
 Current profile (MTPv2 4/1/5, TP4/EP4, `--max-total-tokens` cap as in Run 5b), head `sglang-head-57cb9d8bb-d6t97`, redeployed with `ansible-playbook k8s_dgx.yml --tags sglang -e sglang_model=nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4`; ready 4.0 min after the rollout. Same GSM8K harness (temperature 0, max-tokens 8192), levels run back to back with a 20 s pause. n1 is the drift anchor against the 2026-10-08 sweep (case 02). n4/n8 throughput: Run 8.
 
-| level | questions | n1 tok/s | agg tok/s | accept (median) | correct/scored | p50 / max s |
-|-------|-----------|----------|-----------|-----------------|----------------|-------------|
-| n1    | 4         | 85.9 (10-08: 82.7, +3.9 %) | 81.6 | 4.10      | 4/4            | 4.7 / 5.6   |
-| n4    | 16        | -        | 166.1     | 4.10            | 15/16          | 8.9 / 21.7  |
-| n8    | 32        | -        | 241.7     | 4.13            | 31/32          | 10.6 / 30.5 |
+| level | questions | n1 tok/s                   | agg tok/s | accept (median) | correct/scored | p50 / max s |
+|-------|-----------|----------------------------|-----------|-----------------|----------------|-------------|
+| n1    | 4         | 85.9 (10-08: 82.7, +3.9 %) | 81.6      | 4.10            | 4/4            | 4.7 / 5.6   |
+| n4    | 16        | -                          | 166.1     | 4.10            | 15/16          | 8.9 / 21.7  |
+| n8    | 32        | -                          | 241.7     | 4.13            | 31/32          | 10.6 / 30.5 |
 
 - Accept len is the median over decode batches with `#running-req` equal to the level (8 to 10 samples per level, so indicative). 0 decode batches with `cuda graph: False` in any level window.
 - The single wrong answer at n4 and n8 is id 12 (pred 12, gt 13, `finish=stop`), which also flips between cases in the 10-08 sweep. No char runs, no failures other than that, no truncation, no restarts.
@@ -262,13 +262,13 @@ Current profile (MTPv2 4/1/5, TP4/EP4, `--max-total-tokens` cap as in Run 5b), h
 
 Profile now sets `mamba_ssm_dtype: "bfloat16"` (cache 160 slots, MTPv2 4/1/5, TP4/EP4), head `sglang-head-7569c95448-5z92v`, ready 3.5 min after the rollout (12:30 to 12:35 UTC). Levels and question counts as in the Run 4 sweep plus n4 (4/16/32/64/128), 20 s pause, max-tokens 8192, temperature 0. Cluster idle before the deploy; the head log has exactly 260 POSTs (16 probe + 244 bench), so no foreign traffic.
 
-| level | questions | n1 tok/s | agg tok/s | correct/scored |
-|-------|-----------|----------|-----------|----------------|
-| n1    | 4         | 82.1 (float32 82.7) | 77.8 | 4/4      |
-| n4    | 16        | -        | 158.4     | 16/16          |
-| n8    | 32        | -        | 229.2     | 31/32          |
-| n16   | 64        | -        | 219.4     | 63/64          |
-| n32   | 128       | -        | 340.0     | 124/128        |
+| level | questions | n1 tok/s            | agg tok/s | correct/scored |
+|-------|-----------|---------------------|-----------|----------------|
+| n1    | 4         | 82.1 (float32 82.7) | 77.8      | 4/4            |
+| n4    | 16        | -                   | 158.4     | 16/16          |
+| n8    | 32        | -                   | 229.2     | 31/32          |
+| n16   | 64        | -                   | 219.4     | 63/64          |
+| n32   | 128       | -                   | 340.0     | 124/128        |
 
 - Boot: `mamba_ssm_dtype` bfloat16, `max_running_requests` 32, `max_total_num_tokens` 23.27M, 15.45 GB free after capture (float32 15.5 GB). FP8 KV "no scaling factors" warning twice (target + draft), as before.
 - 32 running at n32, `#queue-req` max 2, 0 decode batches with `cuda graph: False` (the 187 such lines are all prefill batches), accept len mean 4.04 over 101 logged decode batches (sweep 4.02). Collapse probe 0/16, tool calls 4/4, no truncation, no errors.

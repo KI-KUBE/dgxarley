@@ -9,19 +9,19 @@
 
 ## Environment
 
-| Component | Value                                                                       |
-|-----------|-----------------------------------------------------------------------------|
-| GPU       | NVIDIA GB10 (SM121/Blackwell), 128 GB per node                              |
-| Driver    | 580.159 (580.159.03)                                                        |
-| Kernel    | 6.17.0-1018-nvidia (cluster baseline — mm:v0 internal CUDA/NCCL not captured) |
-| OS        | Ubuntu 24.04 LTS (aarch64)                                                  |
-| K3s       | v1.36.1+k3s1                                                                |
-| Nodes     | spark1, spark2, spark3, spark4 (1 GPU each)                                 |
-| Image     | `scitrera/dgx-spark-sglang-mm:v0` — the sparkarena-designated MULTIMODAL image (our xomoxcc base implements MiniMaxM2 only) |
+| Component | Value                                                                                                                                          |
+|-----------|------------------------------------------------------------------------------------------------------------------------------------------------|
+| GPU       | NVIDIA GB10 (SM121/Blackwell), 128 GB per node                                                                                                 |
+| Driver    | 580.159 (580.159.03)                                                                                                                           |
+| Kernel    | 6.17.0-1018-nvidia (cluster baseline — mm:v0 internal CUDA/NCCL not captured)                                                                  |
+| OS        | Ubuntu 24.04 LTS (aarch64)                                                                                                                     |
+| K3s       | v1.36.1+k3s1                                                                                                                                   |
+| Nodes     | spark1, spark2, spark3, spark4 (1 GPU each)                                                                                                    |
+| Image     | `scitrera/dgx-spark-sglang-mm:v0` — the sparkarena-designated MULTIMODAL image (our xomoxcc base implements MiniMaxM2 only)                    |
 | Digest    | `sha256:9a6e7d7cd5fbc716db1fedef5dd820db40d060fcb8d58885b19d4a95dbae6dff` (current pod, post-run; **rolling `v0` tag** — verify == run digest) |
-| Model     | `sparkarena/Minimax-M3-v0-NVFP4`                                            |
-| Transport | **RoCE** via SR-IOV VF, throughout                                          |
-| KV dtype  | `auto` (bf16) — fp8 KV is BROKEN on mm:v0 (MSA triton kernel has no fp8 `tl.dot` path; dies in CUDA-graph capture, verified 2026-06-17) |
+| Model     | `sparkarena/Minimax-M3-v0-NVFP4`                                                                                                               |
+| Transport | **RoCE** via SR-IOV VF, throughout                                                                                                             |
+| KV dtype  | `auto` (bf16) — fp8 KV is BROKEN on mm:v0 (MSA triton kernel has no fp8 `tl.dot` path; dies in CUDA-graph capture, verified 2026-06-17)        |
 
 Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/minimax-m3-v0-nvfp4/nv580.159_sglang-mm-v0_minimax-m3-v0-nvfp4_n4_ep1.yaml`
 Raw results: `results/sglang_nn4_tp4_ep1/minimax-m3-v0-nvfp4/mm-v0/`
@@ -66,20 +66,20 @@ Run window: 2026-06-17 15:48 UTC → 2026-06-18 ~09:20 UTC (12 cases; Block E 08
 
 All cases: fi-attn, piecewise CG, except where marked. MoE/FP4 = `flashinfer_cutlass` unless noted.
 
-| #  | ctx | mfs | MoE / FP4 / CG | n1 peak | n4 peak | n8 peak | **n16 peak** | **n16 agg** | n16 ok | Notes |
-|----|-----|-----|----------------|---------|---------|---------|--------------|-------------|--------|-------|
-| **12** | **512k** | **0.90** | — | 23.11 | 63.08 | 87.76 | **123.20** | **115.98** | **16/16** | 🏆 **WINNER** — full arch ceiling, fastest, clean everywhere |
-| 10 | 256k | 0.80 | — | 23.32 | 59.84 | 78.54 | 120.64 | 109.40 | 16/16 | n8 7/8 |
-| 11 | 256k | 0.90 | — | 20.61 | 57.36 | 74.62 | 113.76 | 109.23 | 16/16 | n8 7/8 |
-| 07 | 64k  | 0.70 | **fi_cudnn** FP4 | 21.25 | 60.76 | 88.80 | 112.05 | 107.37 | 15/16 | cuDNN-FP4 delta; 1 fail, high n16 TTFT 2.0 s |
-| 03 | 128k | 0.70 | — | 20.34 | 56.36 | 84.96 | 119.68 | 107.30 | 16/16 | best at mfs0.70 |
-| 06 | 64k  | 0.70 | **triton** MoE | 20.31 | 41.97 | 78.16 | 107.68 | 105.37 | 16/16 | triton serves M3; n4 3/4 |
-| 08 | 128k | 0.80 | — | 19.92 | 59.88 | 86.24 | 110.70 | 104.77 | 15/16 | |
-| 09 | 128k | 0.90 | — | 17.32 | 58.52 | 83.04 | 118.40 | 102.46 | 16/16 | |
-| 02 | 64k  | 0.70 | full-CG | 21.17 | 54.88 | 79.60 | 107.20 | 100.87 | 16/16 | best 64k config |
-| 01 | 64k  | 0.70 | piecewise (live) | 21.29 | 59.60 | 84.24 | 108.36 | 92.65 | 14/16 | live config; 2 fails @ n16 |
-| 04 | 128k | **0.60** | — | — | — | — | **CRASH** | — | — | `Not enough memory` — mfs0.60 starves KV (§6) |
-| 05 | 256k | **0.60** | — | — | — | — | **CRASH** | — | — | same starved-mfs crash (§6) |
+| #      | ctx      | mfs      | MoE / FP4 / CG   | n1 peak | n4 peak | n8 peak | **n16 peak** | **n16 agg** | n16 ok    | Notes                                                        |
+|--------|----------|----------|------------------|---------|---------|---------|--------------|-------------|-----------|--------------------------------------------------------------|
+| **12** | **512k** | **0.90** | —                | 23.11   | 63.08   | 87.76   | **123.20**   | **115.98**  | **16/16** | 🏆 **WINNER** — full arch ceiling, fastest, clean everywhere |
+| 10     | 256k     | 0.80     | —                | 23.32   | 59.84   | 78.54   | 120.64       | 109.40      | 16/16     | n8 7/8                                                       |
+| 11     | 256k     | 0.90     | —                | 20.61   | 57.36   | 74.62   | 113.76       | 109.23      | 16/16     | n8 7/8                                                       |
+| 07     | 64k      | 0.70     | **fi_cudnn** FP4 | 21.25   | 60.76   | 88.80   | 112.05       | 107.37      | 15/16     | cuDNN-FP4 delta; 1 fail, high n16 TTFT 2.0 s                 |
+| 03     | 128k     | 0.70     | —                | 20.34   | 56.36   | 84.96   | 119.68       | 107.30      | 16/16     | best at mfs0.70                                              |
+| 06     | 64k      | 0.70     | **triton** MoE   | 20.31   | 41.97   | 78.16   | 107.68       | 105.37      | 16/16     | triton serves M3; n4 3/4                                     |
+| 08     | 128k     | 0.80     | —                | 19.92   | 59.88   | 86.24   | 110.70       | 104.77      | 15/16     |                                                              |
+| 09     | 128k     | 0.90     | —                | 17.32   | 58.52   | 83.04   | 118.40       | 102.46      | 16/16     |                                                              |
+| 02     | 64k      | 0.70     | full-CG          | 21.17   | 54.88   | 79.60   | 107.20       | 100.87      | 16/16     | best 64k config                                              |
+| 01     | 64k      | 0.70     | piecewise (live) | 21.29   | 59.60   | 84.24   | 108.36       | 92.65       | 14/16     | live config; 2 fails @ n16                                   |
+| 04     | 128k     | **0.60** | —                | —       | —       | —       | **CRASH**    | —           | —         | `Not enough memory` — mfs0.60 starves KV (§6)                |
+| 05     | 256k     | **0.60** | —                | —       | —       | —       | **CRASH**    | —           | —         | same starved-mfs crash (§6)                                  |
 
 **n1 TTFT** (cold-server warmup, not steady-state): ranges 11–27 s across cases; at n≥4 all settle to **~0.7–2.0 s**. Winner case 12: n1 14.87 s → n16 1.13 s.
 
@@ -120,20 +120,20 @@ The original Block B intent — *"push context UP and mem_fraction_static DOWN t
 
 ## Completeness vs matrix definition (12 cases, all run)
 
-| Case | Block | Config | Result |
-|------|-------|--------|--------|
-| 01 | A | piecewise / ctx64k / mfs0.70 (LIVE) | ✅ agg 92.65, 14/16 |
-| 02 | A | full-CG / ctx64k / mfs0.70 | ✅ agg 100.87, 16/16 |
-| 03 | B | piecewise / ctx128k / mfs0.70 | ✅ agg 107.30, 16/16 |
-| 04 | B | piecewise / ctx128k / **mfs0.60** | ❌ startup crash — mfs too low (§6) |
-| 05 | B | piecewise / ctx256k / **mfs0.60** | ❌ startup crash — mfs too low (§6) |
-| 06 | C | **triton** MoE / ctx64k / mfs0.70 | ✅ agg 105.37, 16/16 (n4 3/4) |
-| 07 | D | **fi_cudnn** FP4 / ctx64k / mfs0.70 | ✅ agg 107.37, 15/16 |
-| 08 | E | piecewise / ctx128k / mfs0.80 | ✅ agg 104.77, 15/16 |
-| 09 | E | piecewise / ctx128k / mfs0.90 | ✅ agg 102.46, 16/16 |
-| 10 | E | piecewise / ctx256k / mfs0.80 | ✅ agg 109.40, 16/16 |
-| 11 | E | piecewise / ctx256k / mfs0.90 | ✅ agg 109.23, 16/16 |
-| **12** | E | piecewise / **ctx512k / mfs0.90** | 🏆 **agg 115.98, 16/16 — WINNER** |
+| Case   | Block | Config                              | Result                              |
+|--------|-------|-------------------------------------|-------------------------------------|
+| 01     | A     | piecewise / ctx64k / mfs0.70 (LIVE) | ✅ agg 92.65, 14/16                 |
+| 02     | A     | full-CG / ctx64k / mfs0.70          | ✅ agg 100.87, 16/16                |
+| 03     | B     | piecewise / ctx128k / mfs0.70       | ✅ agg 107.30, 16/16                |
+| 04     | B     | piecewise / ctx128k / **mfs0.60**   | ❌ startup crash — mfs too low (§6) |
+| 05     | B     | piecewise / ctx256k / **mfs0.60**   | ❌ startup crash — mfs too low (§6) |
+| 06     | C     | **triton** MoE / ctx64k / mfs0.70   | ✅ agg 105.37, 16/16 (n4 3/4)       |
+| 07     | D     | **fi_cudnn** FP4 / ctx64k / mfs0.70 | ✅ agg 107.37, 15/16                |
+| 08     | E     | piecewise / ctx128k / mfs0.80       | ✅ agg 104.77, 15/16                |
+| 09     | E     | piecewise / ctx128k / mfs0.90       | ✅ agg 102.46, 16/16                |
+| 10     | E     | piecewise / ctx256k / mfs0.80       | ✅ agg 109.40, 16/16                |
+| 11     | E     | piecewise / ctx256k / mfs0.90       | ✅ agg 109.23, 16/16                |
+| **12** | E     | piecewise / **ctx512k / mfs0.90**   | 🏆 **agg 115.98, 16/16 — WINNER**   |
 
 ---
 
@@ -146,12 +146,12 @@ The original Block B intent — *"push context UP and mem_fraction_static DOWN t
 
 ### Recommended profile change (pending explicit approval)
 
-| Key | Current (live/profile) | Recommended (matrix winner, case 12) |
-|-----|------------------------|--------------------------------------|
-| `context_length` | served at 65536 (profile pins 524288 as ceiling) | **524288** — it genuinely co-fits |
-| `mem_fraction_static` | `0.70` live / `0.80` profile | **`0.90`** |
-| `moe_runner_backend` | `flashinfer_cutlass` | unchanged ✅ |
-| `fp4_gemm_backend` | `flashinfer_cutlass` | unchanged ✅ (cuDNN no gain) |
-| `disable_piecewise_cuda_graph` | `false` | unchanged ✅ (piecewise) |
+| Key                            | Current (live/profile)                           | Recommended (matrix winner, case 12) |
+|--------------------------------|--------------------------------------------------|--------------------------------------|
+| `context_length`               | served at 65536 (profile pins 524288 as ceiling) | **524288** — it genuinely co-fits    |
+| `mem_fraction_static`          | `0.70` live / `0.80` profile                     | **`0.90`**                           |
+| `moe_runner_backend`           | `flashinfer_cutlass`                             | unchanged ✅                         |
+| `fp4_gemm_backend`             | `flashinfer_cutlass`                             | unchanged ✅ (cuDNN no gain)         |
+| `disable_piecewise_cuda_graph` | `false`                                          | unchanged ✅ (piecewise)             |
 
 > No profile change applied from this log — pending explicit approval. Caveat: case 12 is a single run; one confirmation pass at 512k/mfs0.90 before locking the profile is prudent. Note also the bench drives **text-only** short prompts — 512K co-fit is proven for the KV *pool allocation*, not yet stress-tested with genuinely long (>100K-token) inputs.

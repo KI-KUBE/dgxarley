@@ -56,13 +56,13 @@ At runtime SGLang detects `Gemma4AssistantForCausalLM` as drafter and **auto-pro
 
 **`speculative_num_draft_tokens` manual sweep** — SGLang requires `num_draft_tokens ≥ num_steps + 1` (each step contributes one draft token plus the final accepted-token slot). The cookbook's fixed `num_draft_tokens=6` only matches `num_steps=5`; for `num_steps ∈ {2,3,4,6}` we had to bump it per case (autoadjust didn't fire). The table reflects the actually-launched values.
 
-| #  | attn   | CG / pw | spec_num_steps | spec_draft_tokens | eagle_topk | Status | n=1 tok/s | n=4 peak  | n=8 peak    |
-|----|--------|---------|---------------:|------------------:|-----------:|--------|----------:|----------:|------------:|
-| 7  | triton | on / on | 2              | 3                 | 1          | ok     | 20.83     | 77.67     | (skipped)   |
-| 8  | triton | on / on | 3              | 4                 | 1          | ok     | 22.88     | 83.04     | 142.02      |
-| 9  | triton | on / on | 4              | 5                 | 1          | ok     | 22.09     | 86.24     | **153.24 ★**|
-| 10 | triton | on / on | 5              | 6                 | 1          | ok     | 23.40     | 88.27     | 149.73      |
-| 11 | triton | on / on | 6              | 7                 | 1          | ok     | **26.68 ★**| **91.41 ★**| 146.11    |
+| #   | attn   | CG / pw | spec_num_steps | spec_draft_tokens | eagle_topk | Status |   n=1 tok/s |    n=4 peak |     n=8 peak |
+|-----|--------|---------|---------------:|------------------:|-----------:|--------|------------:|------------:|-------------:|
+| 7   | triton | on / on |              2 |                 3 |          1 | ok     |       20.83 |       77.67 |    (skipped) |
+| 8   | triton | on / on |              3 |                 4 |          1 | ok     |       22.88 |       83.04 |       142.02 |
+| 9   | triton | on / on |              4 |                 5 |          1 | ok     |       22.09 |       86.24 | **153.24 ★** |
+| 10  | triton | on / on |              5 |                 6 |          1 | ok     |       23.40 |       88.27 |       149.73 |
+| 11  | triton | on / on |              6 |                 7 |          1 | ok     | **26.68 ★** | **91.41 ★** |       146.11 |
 
 **fi-attn (Cases 1–3) — 3× startup_crash, same FlashInfer dispatch-table miss as on 0.5.10.** Gemma-4's head_dim=512 global-attention kernel (`NUM_MMA_D_QK=NUM_MMA_D_VO=32` = 512/16; NOT "256+RoPE=64" — corrected 2026-06-04) hits `FlashInfer Internal Error: Invalid configuration` from `prefill.cuh:2978`. **TWO tuples are missing, not one** (both `NUM_MMA_Q=1`, head_dim=512): decode `NUM_MMA_KV=1 NUM_WARPS_Q=1 NUM_WARPS_KV=4` (CG-on, fires during capture → `startup_crash`) and prefill/extend `NUM_MMA_KV=2 NUM_WARPS_Q=4 NUM_WARPS_KV=1` (eager Case 02, fires on the first `forward_extend` — i.e. **prefill, not decode** as previously stated → `bench_crash`). FlashInfer 0.6.8.post1 + sgl-kernel 0.4.2 did not fix either gap; PR #2959 (0.6.11) added other head_dim=512 tuples but not these two. **Workaround: triton-attn (the profile default), as on 0.5.10.** Full analysis: `FLASHINFER_HEAD_DIM_512_UPSTREAM_BUG.md`.
 
@@ -113,10 +113,10 @@ The MTP cases mirror the Case 06 winner shape (triton-attn + CG on + piecewise o
 
 Result dir: `matrixtest/2026-05-13/results/sglang_nn4_tp4_ep1/gemma-4-31b-it/0.5.11/nv580.142_sglang-0.5.11_gemma-4-31b-it_4n_1pp_4tp_ep1_07_triton-attn_piecewise_mtp_steps-2/`.
 
-| n | peak (sum tok/s) | avg per-req tok/s | wall (s) | tokens out | finish |
-|--:|-----------------:|------------------:|---------:|-----------:|--------|
-| 1 | **20.83**        | 20.83             | 59.3     | 1 235      | stop   |
-| 4 | **77.67**        | 19.42 avg / 19.75 p50 | 82.95 | 5 441    | stop ×4|
+|   n | peak (sum tok/s) |     avg per-req tok/s | wall (s) | tokens out | finish  |
+|----:|-----------------:|----------------------:|---------:|-----------:|---------|
+|   1 |        **20.83** |                 20.83 |     59.3 |      1 235 | stop    |
+|   4 |        **77.67** | 19.42 avg / 19.75 p50 |    82.95 |      5 441 | stop ×4 |
 
 **Big MTP wins** vs Case 06 baseline (10.49 / 44.06):
 - n=1: **+98 %** (20.83 vs 10.49) — single-stream nearly doubles, exactly the decode-bound territory MTP exists for.
@@ -192,14 +192,14 @@ n=1 keeps climbing (+1.3 vs Test 09), n=4 keeps climbing (+2.0 vs Test 09), n=8 
 
 ### MTP-sweep summary
 
-| spec_num_steps | n=1   | Δ baseline | n=4   | Δ baseline | n=8    | Δ baseline |
-|---------------:|------:|-----------:|------:|-----------:|-------:|-----------:|
-| baseline (Case 06) | 10.49 | —     | 44.06 | —          | 85.34  | —          |
-| 2              | 20.83 | +99 %      | 77.67 | +76 %      | —      | —          |
-| 3              | 22.88 | +118 %     | 83.04 | +88 %      | 142.02 | +66 %      |
-| 4              | 22.09 | +110 %     | 86.24 | +96 %      | **153.24 ★** | **+80 %** |
-| 5              | 23.40 | +123 %     | 88.27 | +100 %     | 149.73 | +75 %      |
-| 6              | **26.68 ★** | **+154 %** | **91.41 ★** | **+108 %** | 146.11 | +71 %      |
+|     spec_num_steps |         n=1 | Δ baseline |         n=4 | Δ baseline |          n=8 | Δ baseline |
+|-------------------:|------------:|-----------:|------------:|-----------:|-------------:|-----------:|
+| baseline (Case 06) |       10.49 |          — |       44.06 |          — |        85.34 |          — |
+|                  2 |       20.83 |      +99 % |       77.67 |      +76 % |            — |          — |
+|                  3 |       22.88 |     +118 % |       83.04 |      +88 % |       142.02 |      +66 % |
+|                  4 |       22.09 |     +110 % |       86.24 |      +96 % | **153.24 ★** |  **+80 %** |
+|                  5 |       23.40 |     +123 % |       88.27 |     +100 % |       149.73 |      +75 % |
+|                  6 | **26.68 ★** | **+154 %** | **91.41 ★** | **+108 %** |       146.11 |      +71 % |
 
 **Sweet spots per concurrency:**
 - **n=1, n=4 → `num_steps=6`** (sweep max). Curve was still climbing — `num_steps=7` might push further; not in this sweep.

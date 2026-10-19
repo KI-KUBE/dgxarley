@@ -14,10 +14,10 @@ explicit steps in **Enabling** below. By design (user plugins are opt-in).
 
 ## Files
 
-| File | Purpose |
-|------|---------|
+| File          | Purpose                                                              |
+|---------------|----------------------------------------------------------------------|
 | `plugin.yaml` | Plugin manifest (`kind: backend`, `name: comfyui`, no required env). |
-| `__init__.py` | `ComfyUIImageGenProvider` + `register(ctx)` entry point. |
+| `__init__.py` | `ComfyUIImageGenProvider` + `register(ctx)` entry point.             |
 
 ## How it works
 

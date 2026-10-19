@@ -60,28 +60,28 @@ The arch class loads, but `flashinfer_cutlass` MoE on this *wrapper* REQUIRES th
 
 **Baseline = case 02:** `moe_runner=flashinfer_cutlass, attention=flashinfer, fp4_gemm=flashinfer_cutlass, reasoning=nemotron_3, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0.60, full-CG, cuda_graph_max_bs=32, context_length=262144, ep=1, tp=4`. Every other case = baseline with the **one bold Δ** shown.
 
-| #  | Block | axis    | Δ vs case-02 baseline                | Status   | n=1 tok/s | n=4 peak | n=8 peak | Output |
-|----|-------|---------|--------------------------------------|----------|-----------|----------|----------|--------|
-| 01 | A     | CG      | **no-CG (eager)** — BOOT LITMUS      | **ok**     | 44.5      | 168.0    | 328.6    | clean ✓ |
-| 02 | A     | CG      | — (baseline: full-CG)                | **ok 🏆**  | 90.1      | 268.1    | 437.9    | clean ✓ |
-| 03 | B     | parser  | reasoning_parser **deepseek-r1**     | **ok**     | 87.8      | 264.2    | 432.8    | clean ✓ |
-| 04 | C     | mem     | mem_fraction_static **0.75**         | **ok**     | 88.7      | 256.0    | 418.2    | clean ✓ |
-| 05 | C     | mem     | mem_fraction_static **0.80**         | **ok**     | 90.1      | 263.2    | 428.2    | clean ✓ |
-| 06 | D     | cgbs    | cuda_graph_max_bs **64**             | **ok**     | 85.3      | 267.1    | 435.0    | clean ✓ |
-| 07 | D     | cgbs    | cuda_graph_max_bs **128**            | **ok**     | 89.8      | 265.0    | 432.6    | clean ✓ |
-| 08 | E     | kv      | kv_cache_dtype **auto (bf16)**       | **ok**     | 90.5      | 263.4    | 424.5    | clean ✓ |
-| 09 | F     | fp4_gemm| fp4_gemm **flashinfer_cudnn** PROBE  | **ok⚠**    | 89.3      | 267.1    | 438.6    | **flag** ⚠ |
-| 10 | G     | context | context_length **524288** (2×) PROBE | **ok**     | 91.0      | 262.6    | 430.5    | clean ✓ |
-| 11 | H     | ep      | ep_size **4** PROBE                  | **crash S**| —         | —        | —        | (capture)|
-| 12 | I     | moe     | moe_runner **triton** PROBE          | **crash S**| —         | —        | —        | (assert) |
-| 13 | J     | piecewise | **piecewise CG** PROBE             | ok (n/a)   | 91.2      | 268.8    | 436.6    | clean ✓§ |
+| #   | Block | axis      | Δ vs case-02 baseline                | Status      | n=1 tok/s | n=4 peak | n=8 peak | Output     |
+|-----|-------|-----------|--------------------------------------|-------------|-----------|----------|----------|------------|
+| 01  | A     | CG        | **no-CG (eager)** — BOOT LITMUS      | **ok**      | 44.5      | 168.0    | 328.6    | clean ✓    |
+| 02  | A     | CG        | — (baseline: full-CG)                | **ok 🏆**   | 90.1      | 268.1    | 437.9    | clean ✓    |
+| 03  | B     | parser    | reasoning_parser **deepseek-r1**     | **ok**      | 87.8      | 264.2    | 432.8    | clean ✓    |
+| 04  | C     | mem       | mem_fraction_static **0.75**         | **ok**      | 88.7      | 256.0    | 418.2    | clean ✓    |
+| 05  | C     | mem       | mem_fraction_static **0.80**         | **ok**      | 90.1      | 263.2    | 428.2    | clean ✓    |
+| 06  | D     | cgbs      | cuda_graph_max_bs **64**             | **ok**      | 85.3      | 267.1    | 435.0    | clean ✓    |
+| 07  | D     | cgbs      | cuda_graph_max_bs **128**            | **ok**      | 89.8      | 265.0    | 432.6    | clean ✓    |
+| 08  | E     | kv        | kv_cache_dtype **auto (bf16)**       | **ok**      | 90.5      | 263.4    | 424.5    | clean ✓    |
+| 09  | F     | fp4_gemm  | fp4_gemm **flashinfer_cudnn** PROBE  | **ok⚠**     | 89.3      | 267.1    | 438.6    | **flag** ⚠ |
+| 10  | G     | context   | context_length **524288** (2×) PROBE | **ok**      | 91.0      | 262.6    | 430.5    | clean ✓    |
+| 11  | H     | ep        | ep_size **4** PROBE                  | **crash S** | —         | —        | —        | (capture)  |
+| 12  | I     | moe       | moe_runner **triton** PROBE          | **crash S** | —         | —        | —        | (assert)   |
+| 13  | J     | piecewise | **piecewise CG** PROBE               | ok (n/a)    | 91.2      | 268.8    | 436.6    | clean ✓§   |
 
 ### Column legend
 
-| Column | Description |
-|--------|-------------|
-| axis   | which open axis this case varies off the case-02 baseline |
-| Status | `UNTESTED` / `ok` / `crash S` (startup) / `crash B` (bench) / `timeout` |
+| Column | Description                                                                                                                       |
+|--------|-----------------------------------------------------------------------------------------------------------------------------------|
+| axis   | which open axis this case varies off the case-02 baseline                                                                         |
+| Status | `UNTESTED` / `ok` / `crash S` (startup) / `crash B` (bench) / `timeout`                                                           |
 | Output | quality verdict — read the answer text in `kikube-bench-*.log`, confirm `<think>` is split out, pattern-grep + TTR + tail-eyeball |
 
 ---
@@ -118,21 +118,21 @@ From running the model through the live `default` SGLang instance on 2026-06-25,
 
 ### All 13 cases
 
-| #  | Block · Δ                  | n=1 peak | n=4 peak | n=8 peak | n=16 peak | ok      | quality |
-|----|----------------------------|---------:|---------:|---------:|----------:|---------|---------|
-| 01 | A · no-CG (eager) LITMUS   |    44.5  |  168.0   |  328.6   |   610.7   | 1/4/8/16 | clean ✓ |
-| 02 | A · full-CG (baseline) 🏆  |  **90.1**| **268.1**| **437.9**| **660.8** | 1/4/8/16 | clean ✓ |
-| 03 | B · deepseek-r1 parser     |    87.8  |  264.2   |  432.8   |   670.9   | 1/4/8/16 | clean ✓ |
-| 04 | C · mem_fraction 0.75      |    88.7  |  256.0   |  418.2   |   644.6   | 1/4/8/16 | clean ✓ |
-| 05 | C · mem_fraction 0.80      |    90.1  |  263.2   |  428.2   |   654.6   | 1/4/8/16 | clean ✓ |
-| 06 | D · cuda_graph_max_bs 64   |    85.3  |  267.1   |  435.0   |   669.6   | 1/4/8/16 | clean ✓ |
-| 07 | D · cuda_graph_max_bs 128  |    89.8  |  265.0   |  432.6   |   661.3   | 1/4/8/16 | clean ✓ |
-| 08 | E · kv_cache bf16 (auto)   |    90.5  |  263.4   |  424.5   |   646.6   | 1/4/8/16 | clean ✓ |
-| 09 | F · fp4_gemm fi_cudnn PROBE|    89.3  |  267.1   |  438.6   |  628.2†   | 1/4/8/**15** | flag ⚠ |
-| 10 | G · context 524288 (2×)    |    91.0  |  262.6   |  430.5   |   665.4   | 1/4/8/16 | clean ✓‡ |
-| 11 | H · ep_size 4 PROBE        |    —     |   —      |   —      |    —      | **crash S** | — |
-| 12 | I · moe_runner triton PROBE|    —     |   —      |   —      |    —      | **crash S** | — |
-| 13 | J · piecewise CG PROBE §   |    91.2  |  268.8   |  436.6   |   654.4   | 1/4/8/16 | clean ✓ |
+| #   | Block · Δ                   | n=1 peak |  n=4 peak |  n=8 peak | n=16 peak | ok           | quality  |
+|-----|-----------------------------|---------:|----------:|----------:|----------:|--------------|----------|
+| 01  | A · no-CG (eager) LITMUS    |     44.5 |     168.0 |     328.6 |     610.7 | 1/4/8/16     | clean ✓  |
+| 02  | A · full-CG (baseline) 🏆   | **90.1** | **268.1** | **437.9** | **660.8** | 1/4/8/16     | clean ✓  |
+| 03  | B · deepseek-r1 parser      |     87.8 |     264.2 |     432.8 |     670.9 | 1/4/8/16     | clean ✓  |
+| 04  | C · mem_fraction 0.75       |     88.7 |     256.0 |     418.2 |     644.6 | 1/4/8/16     | clean ✓  |
+| 05  | C · mem_fraction 0.80       |     90.1 |     263.2 |     428.2 |     654.6 | 1/4/8/16     | clean ✓  |
+| 06  | D · cuda_graph_max_bs 64    |     85.3 |     267.1 |     435.0 |     669.6 | 1/4/8/16     | clean ✓  |
+| 07  | D · cuda_graph_max_bs 128   |     89.8 |     265.0 |     432.6 |     661.3 | 1/4/8/16     | clean ✓  |
+| 08  | E · kv_cache bf16 (auto)    |     90.5 |     263.4 |     424.5 |     646.6 | 1/4/8/16     | clean ✓  |
+| 09  | F · fp4_gemm fi_cudnn PROBE |     89.3 |     267.1 |     438.6 |    628.2† | 1/4/8/**15** | flag ⚠   |
+| 10  | G · context 524288 (2×)     |     91.0 |     262.6 |     430.5 |     665.4 | 1/4/8/16     | clean ✓‡ |
+| 11  | H · ep_size 4 PROBE         |        — |         — |         — |         — | **crash S**  | —        |
+| 12  | I · moe_runner triton PROBE |        — |         — |         — |         — | **crash S**  | —        |
+| 13  | J · piecewise CG PROBE §    |     91.2 |     268.8 |     436.6 |     654.4 | 1/4/8/16     | clean ✓  |
 
 `†` case-09 n16 drop is the 1 dropped (repetition-aborted) request, not a throughput regression. `‡` case-10 only proves the 2× extension boots+serves short prompts — long-context quality untested. `§` **case-13 did NOT actually exercise piecewise — and the plumbing is NOT the cause (verified from the case-13 head log).** The chain delivered `false` correctly: env `SGLANG_DISABLE_PIECEWISE_CUDA_GRAPH=false`, and the launch argv correctly OMITS `--disable-piecewise-cuda-graph`. Yet `server_args` still resolves `disable_piecewise_cuda_graph=True` — **SGLang itself forces it True for the NemotronH/Mamba hybrid arch** (the "…--disable-piecewise-cuda-graph is set" log line is misleading; the flag is not in the argv). So `disable_piecewise_cuda_graph: true` in the profile is effectively a no-op restating SGLang's own forced behavior; piecewise is simply unavailable for this model. The only lever would be `--enforce-piecewise-cuda-graph` (server_args `enforce_piecewise_cuda_graph`), which our launch doesn't wire and the hybrid path would likely reject anyway. Case 13 = effectively a re-run of case 02. **No plumbing fix needed.**
 

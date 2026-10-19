@@ -101,19 +101,19 @@ The main task file containing all logic. Read-only tasks use `check_mode: false`
 
 ## Tags
 
-| Tag | Scope |
-|---|---|
-| `clevis` | All clevis/tang tasks (incl. keyfile fallback) |
+| Tag              | Scope                                                       |
+|------------------|-------------------------------------------------------------|
+| `clevis`         | All clevis/tang tasks (incl. keyfile fallback)              |
 | `clevis_keyfile` | Keyfile fallback only (runs without reachable tang servers) |
 
 ## Host Variables
 
-| Variable | Description |
-|---|---|
-| `wantsclevis: true` | Enables the clevis role for this host |
-| `hw_iface` | Physical hardware NIC (used for initramfs networking) |
-| `clevis_luks_device_override` | Override auto-detected LUKS device (optional) |
-| `clevis_luks_passphrase` | LUKS passphrase for initial bind (pass via `-e`, required only on first run) |
+| Variable                      | Description                                                                  |
+|-------------------------------|------------------------------------------------------------------------------|
+| `wantsclevis: true`           | Enables the clevis role for this host                                        |
+| `hw_iface`                    | Physical hardware NIC (used for initramfs networking)                        |
+| `clevis_luks_device_override` | Override auto-detected LUKS device (optional)                                |
+| `clevis_luks_passphrase`      | LUKS passphrase for initial bind (pass via `-e`, required only on first run) |
 
 ## Defaults
 
@@ -138,10 +138,10 @@ The main task file containing all logic. Read-only tasks use `check_mode: false`
 
 ## Helper Scripts
 
-| Script | Description |
-|---|---|
-| `setup_clevis_tang.sh` | Standalone rebind script (templatized). Auto-detects UUID and network driver at runtime. Usage: `/root/setup_clevis_tang.sh [PASSPHRASE]` |
-| `tang_check_connection.sh` | Verifies tang server connectivity and clevis binding. Usage: `/root/tang_check_connection.sh <luks-device>` |
+| Script                        | Description                                                                                                                                         |
+|-------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
+| `setup_clevis_tang.sh`        | Standalone rebind script (templatized). Auto-detects UUID and network driver at runtime. Usage: `/root/setup_clevis_tang.sh [PASSPHRASE]`           |
+| `tang_check_connection.sh`    | Verifies tang server connectivity and clevis binding. Usage: `/root/tang_check_connection.sh <luks-device>`                                         |
 | `clevis_keyfile_write_usb.sh` | Copies the fallback key onto a labelled USB partition and verifies it unlocks the LUKS device. Usage: `/root/clevis_keyfile_write_usb.sh /dev/sdX1` |
 
 ## Clevis + OVS Interaction

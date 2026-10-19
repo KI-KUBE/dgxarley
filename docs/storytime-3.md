@@ -30,11 +30,11 @@ GPU utilization across all four DGX Sparks (top four panels) alongside real-time
 
 ### Results
 
-| Concurrency | Result | Throughput | TTFT | Tokens | Finish |
-|---|---|---|---|---|---|
-| n=1 | **success** | **5.64 tok/s** | 1.4s | 2891 (1644 think + 1472 content) | stop |
-| n=4 | crash | — | — | — | FlashInfer `merge_state` invalid argument |
-| n=8 | crash | — | — | — | same |
+| Concurrency | Result      | Throughput     | TTFT | Tokens                           | Finish                                    |
+|-------------|-------------|----------------|------|----------------------------------|-------------------------------------------|
+| n=1         | **success** | **5.64 tok/s** | 1.4s | 2891 (1644 think + 1472 content) | stop                                      |
+| n=4         | crash       | —              | —    | —                                | FlashInfer `merge_state` invalid argument |
+| n=8         | crash       | —              | —    | —                                | same                                      |
 
 Single-request works perfectly. Concurrent requests crash in FlashInfer's `merge_state` cascade kernel — a PP-specific bug where merging attention states from multiple prefill chunks fails on SM121.
 

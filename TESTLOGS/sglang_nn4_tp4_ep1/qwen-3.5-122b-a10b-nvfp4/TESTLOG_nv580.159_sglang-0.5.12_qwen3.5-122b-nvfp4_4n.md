@@ -47,29 +47,29 @@ Key structural points:
 
 All cases: `tp=4, pp=1, ep=1, nccl_transport=roce, quantization=modelopt_fp4, kv_cache_dtype=fp8_e4m3, cuda_graph_max_bs=32, fp4_gemm=flashinfer_cutlass` (except 13), MTP cases add `mem_fraction_static=0.75, mamba_scheduler_strategy=extra_buffer, SGLANG_ENABLE_SPEC_V2=1`. n=X = aggregate (sum per-request) tok/s at concurrency X.
 
-| #  | moe_runner | attn   | fp4_gemm   | cg  | mtp   | Status            | n=1  | n=4   | n=8   | n=16  |
-|----|------------|--------|------------|-----|-------|-------------------|------|-------|-------|-------|
-| 01 | triton     | fi     | fi_cutlass | on  | —     | ✅ OK (16/16)      | 34.3 | 112.6 | 176.0 | 259.8 |
-| 02 | triton     | fi     | fi_cutlass | off | —     | ✅ OK (16/16)      | 15.8 | 96.1  | 161.2 | 248.8 |
-| 03 | triton     | fi     | fi_cutlass | pw  | —     | ✅ OK (16/16)      | 30.7 | 110.1 | 169.8 | 254.6 |
-| 04 | triton     | triton | fi_cutlass | on  | —     | ✅ OK (16/16)      | 31.7 | 113.4 | 175.3 | 259.3 |
-| 05 | triton     | triton | fi_cutlass | off | —     | ✅ OK (16/16)      | 15.7 | 95.5  | 167.2 | 251.9 |
-| 06 | triton     | triton | fi_cutlass | pw  | —     | ✅ OK (16/16)      | 31.6 | 111.2 | 176.3 | 259.9 |
-| 07 | fi_cutlass | fi     | fi_cutlass | on  | —     | ✅ OK (16/16) †    | 33.8 | 117.7 | 183.7 | 266.5 |
-| 08 | fi_cutlass | fi     | fi_cutlass | off | —     | ✅ OK (16/16)      | 26.8 | 108.3 | 172.4 | 258.1 |
-| 09 | fi_cutlass | fi     | fi_cutlass | pw  | —     | ✅ OK (16/16)      | 34.6 | 117.9 | 180.9 | 269.0 |
-| 10 | fi_cutlass | triton | fi_cutlass | on  | —     | ✅ OK (16/16)      | 33.5 | 117.3 | 177.5 | 264.0 |
-| 11 | fi_cutlass | triton | fi_cutlass | off | —     | ✅ OK (16/16)      | 26.5 | 107.8 | 173.2 | 257.1 |
-| 12 | fi_cutlass | triton | fi_cutlass | pw  | —     | ✅ OK (16/16)      | 33.3 | 115.9 | 182.1 | 264.1 |
-| 13 | fi_cutlass | fi     | fi_cudnn   | on  | —     | ✅ OK (16/16) ⚠️   | 34.7 | 115.4 | 179.2 | 262.6 |
-| 14 | fi_trtllm  | fi     | fi_cutlass | on  | —     | 💥 CRASH (boot) ‡ | —    | —     | —     | —     |
-| 15 | fi_trtllm  | fi     | fi_cutlass | pw  | —     | 💥 CRASH (boot) ‡ | —    | —     | —     | —     |
-| 16 | fi_trtllm  | triton | fi_cutlass | on  | —     | 💥 CRASH (boot) ‡ | —    | —     | —     | —     |
-| 17 | fi_cutlass | triton | fi_cutlass | on  | s1/d2 | ✅ OK (16/16)      | 48.2 | 132.7 | 186.7 | 252.5 |
-| 18 | fi_cutlass | triton | fi_cutlass | on  | s3/d4 | ✅ OK (16/16) ★🏆  | 54.1 | 137.0 | 196.2 | 270.4 |
-| 19 | fi_cutlass | triton | fi_cutlass | on  | s5/d5 | ✅ OK (16/16)      | 50.0 | 116.3 | 175.5 | 249.0 |
-| 20 | fi_cutlass | triton | fi_cutlass | on  | s5/d7 | ✅ OK (16/16)      | 51.4 | 127.4 | 180.4 | 246.0 |
-| 21 | triton     | triton | fi_cutlass | on  | s3/d4 | ✅ OK (16/16)      | 44.0 | 134.4 | 192.9 | 261.9 |
+| #   | moe_runner | attn   | fp4_gemm   | cg  | mtp   | Status            | n=1  | n=4   | n=8   | n=16  |
+|-----|------------|--------|------------|-----|-------|-------------------|------|-------|-------|-------|
+| 01  | triton     | fi     | fi_cutlass | on  | —     | ✅ OK (16/16)     | 34.3 | 112.6 | 176.0 | 259.8 |
+| 02  | triton     | fi     | fi_cutlass | off | —     | ✅ OK (16/16)     | 15.8 | 96.1  | 161.2 | 248.8 |
+| 03  | triton     | fi     | fi_cutlass | pw  | —     | ✅ OK (16/16)     | 30.7 | 110.1 | 169.8 | 254.6 |
+| 04  | triton     | triton | fi_cutlass | on  | —     | ✅ OK (16/16)     | 31.7 | 113.4 | 175.3 | 259.3 |
+| 05  | triton     | triton | fi_cutlass | off | —     | ✅ OK (16/16)     | 15.7 | 95.5  | 167.2 | 251.9 |
+| 06  | triton     | triton | fi_cutlass | pw  | —     | ✅ OK (16/16)     | 31.6 | 111.2 | 176.3 | 259.9 |
+| 07  | fi_cutlass | fi     | fi_cutlass | on  | —     | ✅ OK (16/16) †   | 33.8 | 117.7 | 183.7 | 266.5 |
+| 08  | fi_cutlass | fi     | fi_cutlass | off | —     | ✅ OK (16/16)     | 26.8 | 108.3 | 172.4 | 258.1 |
+| 09  | fi_cutlass | fi     | fi_cutlass | pw  | —     | ✅ OK (16/16)     | 34.6 | 117.9 | 180.9 | 269.0 |
+| 10  | fi_cutlass | triton | fi_cutlass | on  | —     | ✅ OK (16/16)     | 33.5 | 117.3 | 177.5 | 264.0 |
+| 11  | fi_cutlass | triton | fi_cutlass | off | —     | ✅ OK (16/16)     | 26.5 | 107.8 | 173.2 | 257.1 |
+| 12  | fi_cutlass | triton | fi_cutlass | pw  | —     | ✅ OK (16/16)     | 33.3 | 115.9 | 182.1 | 264.1 |
+| 13  | fi_cutlass | fi     | fi_cudnn   | on  | —     | ✅ OK (16/16) ⚠️  | 34.7 | 115.4 | 179.2 | 262.6 |
+| 14  | fi_trtllm  | fi     | fi_cutlass | on  | —     | 💥 CRASH (boot) ‡ | —    | —     | —     | —     |
+| 15  | fi_trtllm  | fi     | fi_cutlass | pw  | —     | 💥 CRASH (boot) ‡ | —    | —     | —     | —     |
+| 16  | fi_trtllm  | triton | fi_cutlass | on  | —     | 💥 CRASH (boot) ‡ | —    | —     | —     | —     |
+| 17  | fi_cutlass | triton | fi_cutlass | on  | s1/d2 | ✅ OK (16/16)     | 48.2 | 132.7 | 186.7 | 252.5 |
+| 18  | fi_cutlass | triton | fi_cutlass | on  | s3/d4 | ✅ OK (16/16) ★🏆 | 54.1 | 137.0 | 196.2 | 270.4 |
+| 19  | fi_cutlass | triton | fi_cutlass | on  | s5/d5 | ✅ OK (16/16)     | 50.0 | 116.3 | 175.5 | 249.0 |
+| 20  | fi_cutlass | triton | fi_cutlass | on  | s5/d7 | ✅ OK (16/16)     | 51.4 | 127.4 | 180.4 | 246.0 |
+| 21  | triton     | triton | fi_cutlass | on  | s3/d4 | ✅ OK (16/16)     | 44.0 | 134.4 | 192.9 | 261.9 |
 
 - **cg**: `on` = full CUDA graphs; `off` = eager; `pw` = piecewise. **mtp**: NEXTN `steps/draft`, `—` = off.
 - **† Case 07** = the designated no-spec serving reference (fi_cutlass-MoE + fi-attn + full-CG).

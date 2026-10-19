@@ -2,15 +2,15 @@
 
 ## Environment
 
-| Component | Value |
-|-----------|-------|
-| GPU | NVIDIA GB10 (SM121/Blackwell), 128 GB per node |
-| Driver | 580.142 |
-| CUDA | 13.0 |
-| Kernel | 6.17.0-1014-nvidia |
-| OS | Ubuntu 24.04.4 LTS (aarch64) |
-| K3s | v1.35.3+k3s1 |
-| Nodes | spark1, spark2 (1 GPU each) |
+| Component | Value                                          |
+|-----------|------------------------------------------------|
+| GPU       | NVIDIA GB10 (SM121/Blackwell), 128 GB per node |
+| Driver    | 580.142                                        |
+| CUDA      | 13.0                                           |
+| Kernel    | 6.17.0-1014-nvidia                             |
+| OS        | Ubuntu 24.04.4 LTS (aarch64)                   |
+| K3s       | v1.35.3+k3s1                                   |
+| Nodes     | spark1, spark2 (1 GPU each)                    |
 
 ---
 

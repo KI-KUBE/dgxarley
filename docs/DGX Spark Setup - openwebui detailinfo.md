@@ -34,10 +34,10 @@ Wenn ein Nutzer ein Dokument direkt in einen Chat zieht, ist es **ausschließlic
 
 Unter **Workspace → Knowledge** können Dokumentensammlungen systematisch verwaltet werden:
 
-| Einstellung | Beschreibung |
-|---|---|
-| **Visibility (Sichtbarkeit)** | Jede Knowledge Base kann auf *Privat* gesetzt werden – nur der Ersteller hat Zugriff. |
-| **Gruppenbasierter Zugriff** | Admins erstellen Gruppen (z. B. „Team A") und erteilen Knowledge Bases gezielt Lese-/Schreibrechte für bestimmte Gruppen. |
+| Einstellung                   | Beschreibung                                                                                                              |
+|-------------------------------|---------------------------------------------------------------------------------------------------------------------------|
+| **Visibility (Sichtbarkeit)** | Jede Knowledge Base kann auf *Privat* gesetzt werden – nur der Ersteller hat Zugriff.                                     |
+| **Gruppenbasierter Zugriff**  | Admins erstellen Gruppen (z. B. „Team A") und erteilen Knowledge Bases gezielt Lese-/Schreibrechte für bestimmte Gruppen. |
 
 ### 1.3 RBAC-Konfiguration (Admin)
 
@@ -74,11 +74,11 @@ WEBUI_URL=<Basis-URL der Open-WebUI-Instanz>
 
 ### 2.2 Erweiterte SSO-Features
 
-| Variable | Funktion |
-|---|---|
-| `ENABLE_OAUTH_SIGNUP=true` | Automatisches Anlegen neuer Nutzer bei erster SSO-Anmeldung |
-| `ENABLE_LOGIN_FORM=false` | Klassisches Login-Formular ausblenden – nur SSO erlaubt |
-| `ENABLE_OAUTH_ROLE_MANAGEMENT=true` | Rollen/Gruppen direkt aus dem IdP-Token übernehmen |
+| Variable                            | Funktion                                                    |
+|-------------------------------------|-------------------------------------------------------------|
+| `ENABLE_OAUTH_SIGNUP=true`          | Automatisches Anlegen neuer Nutzer bei erster SSO-Anmeldung |
+| `ENABLE_LOGIN_FORM=false`           | Klassisches Login-Formular ausblenden – nur SSO erlaubt     |
+| `ENABLE_OAUTH_ROLE_MANAGEMENT=true` | Rollen/Gruppen direkt aus dem IdP-Token übernehmen          |
 
 Zusätzlich unterstützt Open WebUI **Trusted Headers** für den Betrieb hinter einem Authentifizierungs-Proxy (OAuth2-Proxy, Cloudflare Access etc.).
 
@@ -336,9 +336,9 @@ Das Modell antwortet mit einem strukturierten Tool-Call statt mit Text. Das aufr
 
 ## 9. Python-Bibliotheken im Überblick
 
-| Bibliothek | Zweck | Installation |
-|---|---|---|
-| `openai` | Chat, Streaming, RAG-Queries, Function Calling | `pip install openai` |
+| Bibliothek    | Zweck                                                                    | Installation                   |
+|---------------|--------------------------------------------------------------------------|--------------------------------|
+| `openai`      | Chat, Streaming, RAG-Queries, Function Calling                           | `pip install openai`           |
 | `owui-client` | Admin-Aufgaben, Datei-Upload, Knowledge-Base-Management, User-Verwaltung | `pip install openwebui-client` |
 
 > **Tipp:** Die Swagger-Dokumentation der eigenen Instanz ist unter `https://<domain>/docs` erreichbar und bildet die komplette API live ab.
@@ -537,10 +537,10 @@ Open WebUI hat eine eingebaute Embedding-Engine. In den Admin Settings → Docum
 
 Open WebUI vereint die drei zentralen Anforderungen unseres Setups in einer Plattform:
 
-| Anforderung | Open-WebUI-Lösung |
-|---|---|
-| **Authentifizierung & SSO** | Native OIDC/OAuth 2.0, Trusted Headers, automatische User-Provisionierung, Rollen aus IdP |
-| **Datentrennung & Berechtigungen** | RBAC mit Gruppen, private Knowledge Bases, API-Keys an User gebunden → volle Mandantenfähigkeit |
-| **API-gesteuerte Workflows** | OpenAI-kompatible API als universeller Endpoint; Pipelines als orchestrierbare Modelle; Filter, RAG, Web-Suche und Function Calling über denselben API-Call steuerbar |
+| Anforderung                        | Open-WebUI-Lösung                                                                                                                                                     |
+|------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Authentifizierung & SSO**        | Native OIDC/OAuth 2.0, Trusted Headers, automatische User-Provisionierung, Rollen aus IdP                                                                             |
+| **Datentrennung & Berechtigungen** | RBAC mit Gruppen, private Knowledge Bases, API-Keys an User gebunden → volle Mandantenfähigkeit                                                                       |
+| **API-gesteuerte Workflows**       | OpenAI-kompatible API als universeller Endpoint; Pipelines als orchestrierbare Modelle; Filter, RAG, Web-Suche und Function Calling über denselben API-Call steuerbar |
 
 Durch diese Architektur wird Open WebUI zum **zentralen Orchestrierungspunkt**: Die Weboberfläche dient als interaktiver Zugang für Endnutzer, während die API es ermöglicht, dieselben Funktionen – einschließlich aller Pipeline-Logik – in externe Systeme, Automatisierungen und eigene Frontends einzubinden.

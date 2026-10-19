@@ -34,7 +34,7 @@ Token-level stream inspection with per-chunk breakdown in a structured table. Co
 | `sglang-raw`          | Interactive SSE stream viewer with dual-panel Rich display (interpreted output + raw JSON chunks)                                                  |
 | `sglang-test`         | Direct SGLang client with sequential and parallel load testing (live Rich TUI)                                                                     |
 | `sglang-bench`        | Benchmark launcher for SGLang with persistent dataset caching and concurrency-sweep mode                                                           |
-| `sglang-gsm8k`        | GSM8K accuracy/throughput harness for reasoning models via the chat API (`fetch` / `run` / `analyze`), truncation counted separately              |
+| `sglang-gsm8k`        | GSM8K accuracy/throughput harness for reasoning models via the chat API (`fetch` / `run` / `analyze`), truncation counted separately               |
 | `openwebui-test`      | OpenWebUI / LLM client with preset management and streaming                                                                                        |
 | `ollama-test`         | Ollama API health, model, embedding, and chat completions tests                                                                                    |
 | `comfyui-test`        | ComfyUI integration tests for the local image-generation playground                                                                                |

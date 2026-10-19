@@ -86,70 +86,70 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 
 ### Block B — flashinfer_cutlass MoE (crashed on FP8) — Tests 13–24
 
-| #  | moe_runner | attention | fp4_gemm     | dis_cuda_graph | dis_piecewise | Status | n=1 tok/s | n=4 peak | n=8 peak |
-|----|------------|-----------|--------------|----------------|---------------|--------|-----------|----------|----------|
-| 13 | fi_cutlass | fi        | fi_cutlass   | false          | true          | **crash S** | — | — | — |
-| 14 | fi_cutlass | fi        | fi_cutlass   | true           | true          | **crash S** | — | — | — |
-| 15 | fi_cutlass | fi        | fi_cutlass   | false          | false         | **crash S** | — | — | — |
-| 16 | fi_cutlass | triton    | fi_cutlass   | false          | true          | **crash S** | — | — | — |
-| 17 | fi_cutlass | triton    | fi_cutlass   | true           | true          | **crash S** | — | — | — |
-| 18 | fi_cutlass | triton    | fi_cutlass   | false          | false         | **crash S** | — | — | — |
-| 19 | fi_cutlass | fi        | fi_cudnn     | false          | true          | **crash S** | — | — | — |
-| 20 | fi_cutlass | fi        | fi_cudnn     | true           | true          | **crash S** | — | — | — |
-| 21 | fi_cutlass | fi        | fi_cudnn     | false          | false         | **crash S** | — | — | — |
-| 22 | fi_cutlass | triton    | fi_cudnn     | false          | true          | **crash S** | — | — | — |
-| 23 | fi_cutlass | triton    | fi_cudnn     | true           | true          | **crash S** | — | — | — |
-| 24 | fi_cutlass | triton    | fi_cudnn     | false          | false         | **crash S** | — | — | — |
+| #   | moe_runner | attention | fp4_gemm   | dis_cuda_graph | dis_piecewise | Status      | n=1 tok/s | n=4 peak | n=8 peak |
+|-----|------------|-----------|------------|----------------|---------------|-------------|-----------|----------|----------|
+| 13  | fi_cutlass | fi        | fi_cutlass | false          | true          | **crash S** | —         | —        | —        |
+| 14  | fi_cutlass | fi        | fi_cutlass | true           | true          | **crash S** | —         | —        | —        |
+| 15  | fi_cutlass | fi        | fi_cutlass | false          | false         | **crash S** | —         | —        | —        |
+| 16  | fi_cutlass | triton    | fi_cutlass | false          | true          | **crash S** | —         | —        | —        |
+| 17  | fi_cutlass | triton    | fi_cutlass | true           | true          | **crash S** | —         | —        | —        |
+| 18  | fi_cutlass | triton    | fi_cutlass | false          | false         | **crash S** | —         | —        | —        |
+| 19  | fi_cutlass | fi        | fi_cudnn   | false          | true          | **crash S** | —         | —        | —        |
+| 20  | fi_cutlass | fi        | fi_cudnn   | true           | true          | **crash S** | —         | —        | —        |
+| 21  | fi_cutlass | fi        | fi_cudnn   | false          | false         | **crash S** | —         | —        | —        |
+| 22  | fi_cutlass | triton    | fi_cudnn   | false          | true          | **crash S** | —         | —        | —        |
+| 23  | fi_cutlass | triton    | fi_cudnn   | true           | true          | **crash S** | —         | —        | —        |
+| 24  | fi_cutlass | triton    | fi_cudnn   | false          | false         | **crash S** | —         | —        | —        |
 
 ### Block C — cutlass MoE (direct, was N/A on FP8) — Tests 25–36
 
-| #  | moe_runner | attention | fp4_gemm     | dis_cuda_graph | dis_piecewise | Status | n=1 tok/s | n=4 peak | n=8 peak |
-|----|------------|-----------|--------------|----------------|---------------|--------|-----------|----------|----------|
-| 25 | cutlass    | fi        | fi_cutlass   | false          | true          | **timeout** | — | — | — |
-| 26 | cutlass    | fi        | fi_cutlass   | true           | true          | ok          | 15.33 | 84.36  | 169.60 |
-| 27 | cutlass    | fi        | fi_cutlass   | false          | false         | ok          | 67.13 | 247.03 | 405.81 |
-| 28 | cutlass    | triton    | fi_cutlass   | false          | true          | ok          | 55.20 | 237.66 | 401.06 |
-| 29 | cutlass    | triton    | fi_cutlass   | true           | true          | ok          | 15.31 | 83.52  | 166.88 |
-| 30 | cutlass    | triton    | fi_cutlass   | false          | false         | ok          | 74.66 | 242.67 | 404.53 |
-| 31 | cutlass    | fi        | fi_cudnn     | false          | true          | **crash S** | — | — | — |
-| 32 | cutlass    | fi        | fi_cudnn     | true           | true          | **crash B** | — | — | — |
-| 33 | cutlass    | fi        | fi_cudnn     | false          | false         | **crash S** | — | — | — |
-| 34 | cutlass    | triton    | fi_cudnn     | false          | true          | **crash S** | — | — | — |
-| 35 | cutlass    | triton    | fi_cudnn     | true           | true          | **crash B** | — | — | — |
-| 36 | cutlass    | triton    | fi_cudnn     | false          | false         | **crash S** | — | — | — |
+| #   | moe_runner | attention | fp4_gemm   | dis_cuda_graph | dis_piecewise | Status      | n=1 tok/s | n=4 peak | n=8 peak |
+|-----|------------|-----------|------------|----------------|---------------|-------------|-----------|----------|----------|
+| 25  | cutlass    | fi        | fi_cutlass | false          | true          | **timeout** | —         | —        | —        |
+| 26  | cutlass    | fi        | fi_cutlass | true           | true          | ok          | 15.33     | 84.36    | 169.60   |
+| 27  | cutlass    | fi        | fi_cutlass | false          | false         | ok          | 67.13     | 247.03   | 405.81   |
+| 28  | cutlass    | triton    | fi_cutlass | false          | true          | ok          | 55.20     | 237.66   | 401.06   |
+| 29  | cutlass    | triton    | fi_cutlass | true           | true          | ok          | 15.31     | 83.52    | 166.88   |
+| 30  | cutlass    | triton    | fi_cutlass | false          | false         | ok          | 74.66     | 242.67   | 404.53   |
+| 31  | cutlass    | fi        | fi_cudnn   | false          | true          | **crash S** | —         | —        | —        |
+| 32  | cutlass    | fi        | fi_cudnn   | true           | true          | **crash B** | —         | —        | —        |
+| 33  | cutlass    | fi        | fi_cudnn   | false          | false         | **crash S** | —         | —        | —        |
+| 34  | cutlass    | triton    | fi_cudnn   | false          | true          | **crash S** | —         | —        | —        |
+| 35  | cutlass    | triton    | fi_cudnn   | true           | true          | **crash B** | —         | —        | —        |
+| 36  | cutlass    | triton    | fi_cudnn   | false          | false         | **crash S** | —         | —        | —        |
 
 ### Block D — flashinfer_cutedsl MoE (NVFP4-only design, was crash B on FP8) — Tests 37–42
 
-| #  | moe_runner | attention | fp4_gemm     | dis_cuda_graph | dis_piecewise | Status | n=1 tok/s | n=4 peak | n=8 peak |
-|----|------------|-----------|--------------|----------------|---------------|--------|-----------|----------|----------|
-| 37 | fi_cutedsl | fi        | fi_cutlass   | false          | true          | **crash S** | — | — | — |
-| 38 | fi_cutedsl | fi        | fi_cutlass   | true           | true          | **crash S** | — | — | — |
-| 39 | fi_cutedsl | fi        | fi_cutlass   | false          | false         | **crash S** | — | — | — |
-| 40 | fi_cutedsl | triton    | fi_cutlass   | false          | true          | **crash S** | — | — | — |
-| 41 | fi_cutedsl | triton    | fi_cutlass   | true           | true          | **crash S** | — | — | — |
-| 42 | fi_cutedsl | triton    | fi_cutlass   | false          | false         | **crash S** | — | — | — |
+| #   | moe_runner | attention | fp4_gemm   | dis_cuda_graph | dis_piecewise | Status      | n=1 tok/s | n=4 peak | n=8 peak |
+|-----|------------|-----------|------------|----------------|---------------|-------------|-----------|----------|----------|
+| 37  | fi_cutedsl | fi        | fi_cutlass | false          | true          | **crash S** | —         | —        | —        |
+| 38  | fi_cutedsl | fi        | fi_cutlass | true           | true          | **crash S** | —         | —        | —        |
+| 39  | fi_cutedsl | fi        | fi_cutlass | false          | false         | **crash S** | —         | —        | —        |
+| 40  | fi_cutedsl | triton    | fi_cutlass | false          | true          | **crash S** | —         | —        | —        |
+| 41  | fi_cutedsl | triton    | fi_cutlass | true           | true          | **crash S** | —         | —        | —        |
+| 42  | fi_cutedsl | triton    | fi_cutlass | false          | false         | **crash S** | —         | —        | —        |
 
 ### Block E — MTP (NEXTN) anchors + winner-shape num_steps sweep — Tests 43–48
 
-| #  | moe_runner | attention | fp4_gemm     | dis_cuda_graph | dis_piecewise | spec      | Status | n=1 tok/s | n=4 peak | n=8 peak |
-|----|------------|-----------|--------------|----------------|---------------|-----------|--------|-----------|----------|----------|
-| 43 | triton     | triton    | fi_cutlass   | false          | false         | NEXTN s=3 | ok          | 94.93 | 265.49 | 405.89     |
-| 44 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=3 | ok          | 78.20 | 274.03 | 423.71     |
-| 45 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=2 | **ok 🏆**   | 82.06 | 275.70 | **438.07** |
-| 46 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=3 | ok          | 78.42 | 247.59 | 387.42     |
-| 47 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=4 | ok          | 81.62 | 245.36 | 366.38     |
-| 48 | triton     | fi        | fi_cutlass   | false          | false         | NEXTN s=5 | ok          | 71.97 | 230.53 | 350.36     |
+| #   | moe_runner | attention | fp4_gemm   | dis_cuda_graph | dis_piecewise | spec      | Status    | n=1 tok/s | n=4 peak | n=8 peak   |
+|-----|------------|-----------|------------|----------------|---------------|-----------|-----------|-----------|----------|------------|
+| 43  | triton     | triton    | fi_cutlass | false          | false         | NEXTN s=3 | ok        | 94.93     | 265.49   | 405.89     |
+| 44  | triton     | fi        | fi_cutlass | false          | false         | NEXTN s=3 | ok        | 78.20     | 274.03   | 423.71     |
+| 45  | triton     | fi        | fi_cutlass | false          | false         | NEXTN s=2 | **ok 🏆** | 82.06     | 275.70   | **438.07** |
+| 46  | triton     | fi        | fi_cutlass | false          | false         | NEXTN s=3 | ok        | 78.42     | 247.59   | 387.42     |
+| 47  | triton     | fi        | fi_cutlass | false          | false         | NEXTN s=4 | ok        | 81.62     | 245.36   | 366.38     |
+| 48  | triton     | fi        | fi_cutlass | false          | false         | NEXTN s=5 | ok        | 71.97     | 230.53   | 350.36     |
 
 ### Block F — flashinfer_trtllm MoE (added post-initial-sweep) — Tests 49–54
 
-| #  | moe_runner | attention | fp4_gemm     | dis_cuda_graph | dis_piecewise | Status      | n=1 tok/s | n=4 peak | n=8 peak |
-|----|------------|-----------|--------------|----------------|---------------|-------------|-----------|----------|----------|
-| 49 | fi_trtllm  | fi        | fi_cutlass   | false          | true          | **crash S** | — | — | — |
-| 50 | fi_trtllm  | fi        | fi_cutlass   | true           | true          | **crash S** | — | — | — |
-| 51 | fi_trtllm  | fi        | fi_cutlass   | false          | false         | **crash S** | — | — | — |
-| 52 | fi_trtllm  | triton    | fi_cutlass   | false          | true          | **crash S** | — | — | — |
-| 53 | fi_trtllm  | triton    | fi_cutlass   | true           | true          | **crash S** | — | — | — |
-| 54 | fi_trtllm  | triton    | fi_cutlass   | false          | false         | **crash S** | — | — | — |
+| #   | moe_runner | attention | fp4_gemm   | dis_cuda_graph | dis_piecewise | Status      | n=1 tok/s | n=4 peak | n=8 peak |
+|-----|------------|-----------|------------|----------------|---------------|-------------|-----------|----------|----------|
+| 49  | fi_trtllm  | fi        | fi_cutlass | false          | true          | **crash S** | —         | —        | —        |
+| 50  | fi_trtllm  | fi        | fi_cutlass | true           | true          | **crash S** | —         | —        | —        |
+| 51  | fi_trtllm  | fi        | fi_cutlass | false          | false         | **crash S** | —         | —        | —        |
+| 52  | fi_trtllm  | triton    | fi_cutlass | false          | true          | **crash S** | —         | —        | —        |
+| 53  | fi_trtllm  | triton    | fi_cutlass | true           | true          | **crash S** | —         | —        | —        |
+| 54  | fi_trtllm  | triton    | fi_cutlass | false          | false         | **crash S** | —         | —        | —        |
 
 ### Block G — cuDNN-FP4 GEMM re-test (cuDNN-rebuilt image) — Test 55
 
@@ -159,14 +159,14 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 
 ### Column Legend
 
-| Column         | Description                                                                                                                    |
-|----------------|--------------------------------------------------------------------------------------------------------------------------------|
+| Column         | Description                                                                                                                                                      |
+|----------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | moe_runner     | `moe_runner_backend` — `triton`, `flashinfer_cutlass` (`fi_cutlass`), `cutlass` (direct), `flashinfer_cutedsl` (`fi_cutedsl`), `flashinfer_trtllm` (`fi_trtllm`) |
-| attention      | `attention_backend` — `fi` = FlashInfer, `triton` = Triton                                                                     |
-| fp4_gemm       | `fp4_gemm_backend` — `fi_cutlass` = `flashinfer_cutlass`, `fi_cudnn` = `flashinfer_cudnn`                                      |
-| dis_cuda_graph | `disable_cuda_graph` — true = eager, false = capture CUDA graphs                                                               |
-| dis_piecewise  | `disable_piecewise_cuda_graph` — true = fixed-BS graphs only, false = piecewise variable-length graphs                         |
-| spec           | speculative decoding — `NEXTN s=N` = MTP with `speculative_num_steps=N`, `eagle_topk=1`, `num_draft_tokens=N+1`                |
+| attention      | `attention_backend` — `fi` = FlashInfer, `triton` = Triton                                                                                                       |
+| fp4_gemm       | `fp4_gemm_backend` — `fi_cutlass` = `flashinfer_cutlass`, `fi_cudnn` = `flashinfer_cudnn`                                                                        |
+| dis_cuda_graph | `disable_cuda_graph` — true = eager, false = capture CUDA graphs                                                                                                 |
+| dis_piecewise  | `disable_piecewise_cuda_graph` — true = fixed-BS graphs only, false = piecewise variable-length graphs                                                           |
+| spec           | speculative decoding — `NEXTN s=N` = MTP with `speculative_num_steps=N`, `eagle_topk=1`, `num_draft_tokens=N+1`                                                  |
 
 ---
 
@@ -225,14 +225,14 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 
 ### Crash summary
 
-| Block | Cases | Status | Root cause |
-|-------|-------|--------|------------|
-| A (triton-MoE) × `fi_cudnn` FP4 GEMM | 07–12 | **6/6 crash** (4× S, 2× B) | `RuntimeError: cuDNN is not available` — Python `nvidia-cudnn-cu12` missing in image at run time. **Fixed after image rebuild** — see Test 55 |
-| B (`fi_cutlass`-MoE), both FP4 GEMMs | 13–24 | **12/12 crash** (all S) | `_handle_moe_kernel_config` whitelist: `Invalid quantization 'compressed-tensors'` (only `modelopt_*` / bf16 accepted) |
-| C (cutlass-direct MoE), `fi_cutlass` FP4 GEMM | 25 | timeout (head not ready in 900s) | CG-capture cold-start ~62 s/batch — 900 s startup deadline insufficient for `cutlass_moe_fp4` first-time autotune. Tests 27/30 with piecewise CG worked |
-| C (cutlass-direct MoE) × `fi_cudnn` FP4 GEMM | 31–36 | **6/6 crash** (4× S, 2× B) | Same cuDNN-missing as Block A's cuDNN cases |
-| D (`fi_cutedsl`-MoE) | 37–42 | **6/6 crash** (all S) | `_handle_moe_kernel_config` whitelist: `Invalid quantization 'compressed-tensors'` (only `modelopt_fp4` accepted — even tighter than B) |
-| F (`fi_trtllm`-MoE) | 49–54 | **6/6 crash** (all S) | trtllm-MoE GEMM picks `sm100f`-suffixed Blackwell-Datacenter kernel (`bmm_E2m1_..._sm100f`); we're on **SM121/GB10** (Blackwell-Consumer). Architecture mismatch in trtllm's kernel selector — likely upstream-unfixable until trtllm adds an SM121 codepath |
+| Block                                         | Cases | Status                           | Root cause                                                                                                                                                                                                                                                   |
+|-----------------------------------------------|-------|----------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| A (triton-MoE) × `fi_cudnn` FP4 GEMM          | 07–12 | **6/6 crash** (4× S, 2× B)       | `RuntimeError: cuDNN is not available` — Python `nvidia-cudnn-cu12` missing in image at run time. **Fixed after image rebuild** — see Test 55                                                                                                                |
+| B (`fi_cutlass`-MoE), both FP4 GEMMs          | 13–24 | **12/12 crash** (all S)          | `_handle_moe_kernel_config` whitelist: `Invalid quantization 'compressed-tensors'` (only `modelopt_*` / bf16 accepted)                                                                                                                                       |
+| C (cutlass-direct MoE), `fi_cutlass` FP4 GEMM | 25    | timeout (head not ready in 900s) | CG-capture cold-start ~62 s/batch — 900 s startup deadline insufficient for `cutlass_moe_fp4` first-time autotune. Tests 27/30 with piecewise CG worked                                                                                                      |
+| C (cutlass-direct MoE) × `fi_cudnn` FP4 GEMM  | 31–36 | **6/6 crash** (4× S, 2× B)       | Same cuDNN-missing as Block A's cuDNN cases                                                                                                                                                                                                                  |
+| D (`fi_cutedsl`-MoE)                          | 37–42 | **6/6 crash** (all S)            | `_handle_moe_kernel_config` whitelist: `Invalid quantization 'compressed-tensors'` (only `modelopt_fp4` accepted — even tighter than B)                                                                                                                      |
+| F (`fi_trtllm`-MoE)                           | 49–54 | **6/6 crash** (all S)            | trtllm-MoE GEMM picks `sm100f`-suffixed Blackwell-Datacenter kernel (`bmm_E2m1_..._sm100f`); we're on **SM121/GB10** (Blackwell-Consumer). Architecture mismatch in trtllm's kernel selector — likely upstream-unfixable until trtllm adds an SM121 codepath |
 
 ### Findings (so far)
 

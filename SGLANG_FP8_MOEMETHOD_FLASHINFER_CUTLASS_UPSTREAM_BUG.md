@@ -428,10 +428,10 @@ correct outcome of this bug is "remain on `triton`".
 PR #21872's own benchmark numbers also argue against pushing this on
 H100, in the CUDA-graph case that we (and most production setups) run:
 
-| Mode          | Triton | FlashInfer CUTLASS | Δ        |
-| ------------- | -----: | -----------------: | -------: |
-| No CUDA graph | 152    | 163                | **+7.4 %** |
-| CUDA graph    | 869    | 749                | **−13.8 %** |
+| Mode          | Triton | FlashInfer CUTLASS |           Δ |
+| ------------- | -----: | -----------------: | ----------: |
+| No CUDA graph |    152 |                163 |  **+7.4 %** |
+| CUDA graph    |    869 |                749 | **−13.8 %** |
 
 i.e. fi_cutlass FP8 only beats triton in eager mode, where overall
 throughput is so far below the CUDA-graph path that the relative gain

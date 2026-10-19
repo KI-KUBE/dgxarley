@@ -98,12 +98,12 @@ This is the config currently pinned in `roles/k8s_dgx/model_profiles/nvidia-qwen
 
 ### Top non-MTP configs by n=8 / n=16
 
-| Rank | #  | MoE        | Attn   | FP4      | CG  | n=8       | n=16      |
-|------|----|------------|--------|----------|-----|-----------|-----------|
-| 1    | 24 | fi_cutlass | triton | fi_cudnn | pw  | **107.4** | 148.7     |
-| 2    | 21 | fi_cutlass | fi     | fi_cudnn | pw  | 105.5     | **148.5** |
-| 3    | 15 | fi_cutlass | fi     | fi_cutlass | pw | 105.6    | 145.3     |
-| 4    | 18 | fi_cutlass | triton | fi_cutlass | pw | 104.2    | 147.7     |
+| Rank | #   | MoE        | Attn   | FP4        | CG  | n=8       | n=16      |
+|------|-----|------------|--------|------------|-----|-----------|-----------|
+| 1    | 24  | fi_cutlass | triton | fi_cudnn   | pw  | **107.4** | 148.7     |
+| 2    | 21  | fi_cutlass | fi     | fi_cudnn   | pw  | 105.5     | **148.5** |
+| 3    | 15  | fi_cutlass | fi     | fi_cutlass | pw  | 105.6     | 145.3     |
+| 4    | 18  | fi_cutlass | triton | fi_cutlass | pw  | 104.2     | 147.7     |
 
 ### Observations
 
@@ -116,11 +116,11 @@ This is the config currently pinned in `roles/k8s_dgx/model_profiles/nvidia-qwen
 
 ### Comparison with the 0.5.10 baseline (Test 38, cutlass-direct MoE, image 0.5.10)
 
-| Config                                              | n=1      | n=4      | n=8       | n=16      |
-|-----------------------------------------------------|----------|----------|-----------|-----------|
-| 0.5.10 Test 38 — cutlass-direct MoE + MTP s3/d4     | 40.0     | 84.3     | 110.9     | —         |
+| Config                                                | n=1      | n=4      | n=8       | n=16      |
+|-------------------------------------------------------|----------|----------|-----------|-----------|
+| 0.5.10 Test 38 — cutlass-direct MoE + MTP s3/d4       | 40.0     | 84.3     | 110.9     | —         |
 | **0.5.12-cudnn Test 29 — fi_cutlass MoE + MTP s3/d4** | **39.1** | **89.7** | **120.7** | **163.6** |
-| Δ                                                   | −2%      | +6%      | +9%       | new       |
+| Δ                                                     | −2%      | +6%      | +9%       | new       |
 
 The forced switch off the (now-removed) cutlass-direct MoE costs nothing: 0.5.12-cudnn `flashinfer_cutlass` **matches** the old n=1 (within noise) and **beats** it at n≥4. The earlier ad-hoc n=1=31.7 regression was the plain (non-cudnn) 0.5.12 image with `cuda_graph_max_bs=8`; on 0.5.12-cudnn with `cuda_graph_max_bs=16` + MTP s3/d4 the gap is gone.
 

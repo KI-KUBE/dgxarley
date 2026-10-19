@@ -49,20 +49,20 @@ through the standard triton/flashinfer_cutlass MoE path, which handles
 
 All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0.85, context_length=262144` unless noted. No `fp4_gemm_backend` (BF16 model). No `cutlass` MoE runner (requires FP4 tensors).
 
-| #  | nccl | moe_runner | attention | dis_cuda_graph | dis_piecewise | Status            | n=1 tok/s | n=4 peak | n=8 peak |
-|----|------|------------|-----------|----------------|---------------|-------------------|-----------|----------|----------|
-| 1  | roce | triton     | fi        | false          | true          | **startup_crash** | —         | —        | —        |
-| 2  | roce | triton     | fi        | true           | true          | **bench_crash**   | —         | —        | —        |
-| 3  | roce | triton     | fi        | false          | false         | **startup_crash** | —         | —        | —        |
-| 4  | roce | triton     | triton    | false          | true          | **STABLE**        | 40.1      | 114.8    | 163.9    |
-| 5  | roce | triton     | triton    | true           | true          | **STABLE**        | 20.5      | 104.9    | 159.8    |
-| 6  | roce | triton     | triton    | false          | false         | **STABLE ★**      | 39.8      | 114.6    | **180.5** |
-| 7  | roce | fi_cutlass | fi        | false          | true          | **startup_crash** | —         | —        | —        |
-| 8  | roce | fi_cutlass | fi        | true           | true          | **bench_crash**   | —         | —        | —        |
-| 9  | roce | fi_cutlass | fi        | false          | false         | **startup_crash** | —         | —        | —        |
-| 10 | roce | fi_cutlass | triton    | false          | true          | **STABLE**        | 39.7      | 109.4    | 174.1    |
-| 11 | roce | fi_cutlass | triton    | true           | true          | **STABLE**        | 25.6      | 112.2    | 158.4    |
-| 12 | roce | fi_cutlass | triton    | false          | false         | **STABLE**        | 40.2      | 110.8    | 172.4    |
+| #   | nccl | moe_runner | attention | dis_cuda_graph | dis_piecewise | Status            | n=1 tok/s | n=4 peak | n=8 peak  |
+|-----|------|------------|-----------|----------------|---------------|-------------------|-----------|----------|-----------|
+| 1   | roce | triton     | fi        | false          | true          | **startup_crash** | —         | —        | —         |
+| 2   | roce | triton     | fi        | true           | true          | **bench_crash**   | —         | —        | —         |
+| 3   | roce | triton     | fi        | false          | false         | **startup_crash** | —         | —        | —         |
+| 4   | roce | triton     | triton    | false          | true          | **STABLE**        | 40.1      | 114.8    | 163.9     |
+| 5   | roce | triton     | triton    | true           | true          | **STABLE**        | 20.5      | 104.9    | 159.8     |
+| 6   | roce | triton     | triton    | false          | false         | **STABLE ★**      | 39.8      | 114.6    | **180.5** |
+| 7   | roce | fi_cutlass | fi        | false          | true          | **startup_crash** | —         | —        | —         |
+| 8   | roce | fi_cutlass | fi        | true           | true          | **bench_crash**   | —         | —        | —         |
+| 9   | roce | fi_cutlass | fi        | false          | false         | **startup_crash** | —         | —        | —         |
+| 10  | roce | fi_cutlass | triton    | false          | true          | **STABLE**        | 39.7      | 109.4    | 174.1     |
+| 11  | roce | fi_cutlass | triton    | true           | true          | **STABLE**        | 25.6      | 112.2    | 158.4     |
+| 12  | roce | fi_cutlass | triton    | false          | false         | **STABLE**        | 40.2      | 110.8    | 172.4     |
 
 Tests 1, 2, 3, 7, 8, 9 use `attention_backend=flashinfer` — expected to crash with the FlashInfer `head_dim=512` dispatch bug (see Test 1 below). Tests 4–6, 10–12 use `attention_backend=triton` and should avoid it.
 
@@ -150,12 +150,12 @@ FlashInfer Internal Error: Invalid configuration :
 
 **6/12 STABLE, 6/12 crashed.** The split is clean: all `attention_backend=flashinfer` tests crash (FlashInfer `head_dim=512` dispatch bug), all `attention_backend=triton` tests pass.
 
-| Config axis | Result |
-|-------------|--------|
-| `attention_backend=flashinfer` | 0/6 STABLE — `head_dim=512` not in FlashInfer dispatch table |
-| `attention_backend=triton` | **6/6 STABLE** — all pass |
-| `moe_runner_backend=triton` vs `fi_cutlass` | Both work — triton MoE marginally faster at n=8 (180.5 vs 174.1 piecewise) |
-| CG on vs eager vs piecewise | Piecewise wins at n=8 (+10% over CG-on). CG-on ~2× faster than eager at n=1. |
+| Config axis                                 | Result                                                                       |
+|---------------------------------------------|------------------------------------------------------------------------------|
+| `attention_backend=flashinfer`              | 0/6 STABLE — `head_dim=512` not in FlashInfer dispatch table                 |
+| `attention_backend=triton`                  | **6/6 STABLE** — all pass                                                    |
+| `moe_runner_backend=triton` vs `fi_cutlass` | Both work — triton MoE marginally faster at n=8 (180.5 vs 174.1 piecewise)   |
+| CG on vs eager vs piecewise                 | Piecewise wins at n=8 (+10% over CG-on). CG-on ~2× faster than eager at n=1. |
 
 **Winner: Test 6** — triton MoE + triton attn + piecewise: **180.5 tok/s at n=8**, 39.8 at n=1.
 

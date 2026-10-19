@@ -181,15 +181,15 @@ used by `DeepseekV2ForCausalLM.load_weights`, deepseek_v2.py:2875):
 Full `n_routed_experts` audit of `deepseek_v2.py` @ v0.5.15; everything not
 listed in §3 falls into one of these buckets:
 
-| Anchor | What | Why untouched |
-|---|---|---|
-| 581-584 | tp_size > n_routed_experts guard | conservative with the max; TP=4 |
-| 638 | HashTopK num_experts | num_hash_layers=0 for GLM |
-| 793 | a2a/DeepEP TopK num_experts | DeepEP/mooncake backends only, EP=1 here |
-| 2437, 2465 | `_use_aiter_gfx95` zero-allocator sizing | AMD-only branch |
-| 2761-2772 | shared-experts-fusion allow-list | keeps fusion OFF, desired (§4) |
-| 2893 | `get_model_config_for_expert_location` num_logical_experts | EPLB/expert-distribution metadata; only consumed with eplb/expert-recording enabled, which we never run. If EPLB is ever wanted on an NU cut, this needs a per-layer story upstream, out of scope. |
-| `_is_layer_sparse` (2189-2193) | `n_routed_experts is not None` + first_k_dense_replace | boolean presence check only; the per-layer list's leading zeros agree with first_k_dense_replace=3 |
+| Anchor                         | What                                                       | Why untouched                                                                                                                                                                                      |
+|--------------------------------|------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 581-584                        | tp_size > n_routed_experts guard                           | conservative with the max; TP=4                                                                                                                                                                    |
+| 638                            | HashTopK num_experts                                       | num_hash_layers=0 for GLM                                                                                                                                                                          |
+| 793                            | a2a/DeepEP TopK num_experts                                | DeepEP/mooncake backends only, EP=1 here                                                                                                                                                           |
+| 2437, 2465                     | `_use_aiter_gfx95` zero-allocator sizing                   | AMD-only branch                                                                                                                                                                                    |
+| 2761-2772                      | shared-experts-fusion allow-list                           | keeps fusion OFF, desired (§4)                                                                                                                                                                     |
+| 2893                           | `get_model_config_for_expert_location` num_logical_experts | EPLB/expert-distribution metadata; only consumed with eplb/expert-recording enabled, which we never run. If EPLB is ever wanted on an NU cut, this needs a per-layer story upstream, out of scope. |
+| `_is_layer_sparse` (2189-2193) | `n_routed_experts is not None` + first_k_dense_replace     | boolean presence check only; the per-layer list's leading zeros agree with first_k_dense_replace=3                                                                                                 |
 
 `glm4_moe.py` scalar usages (376, 379, 417, 432, ...) belong to the
 `Glm4MoeForCausalLM` (non-DSA) path, not loaded for `GlmMoeDsaForCausalLM`:

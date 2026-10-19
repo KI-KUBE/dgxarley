@@ -88,15 +88,15 @@ A config that triggers the guard is **immediately disqualified** — no need to 
 
 ## Parameter Ranges & Semantics
 
-| Parameter | Range | Description |
-|-----------|-------|-------------|
-| temperature | 0.0–2.0 | Higher = more random. 0.6 is conservative. |
-| top_p | 0.0–1.0 | Nucleus sampling cutoff. 0.95 is typical. |
-| top_k | -1 (disabled), 1–100 | Hard cutoff. 20–40 typical for Qwen. |
-| min_p | 0.0–1.0 | Relative probability floor. 0.0 = disabled. |
-| presence_penalty | -2.0–2.0 | Additive, penalizes any token already seen. |
-| frequency_penalty | -2.0–2.0 | Additive, proportional to occurrence count. |
-| repetition_penalty | 0.0 or >=1.0 | Multiplicative (CTRL-style), 1.0 = neutral. 0.0 may be "disabled" in SGLang. |
+| Parameter          | Range                | Description                                                                  |
+|--------------------|----------------------|------------------------------------------------------------------------------|
+| temperature        | 0.0–2.0              | Higher = more random. 0.6 is conservative.                                   |
+| top_p              | 0.0–1.0              | Nucleus sampling cutoff. 0.95 is typical.                                    |
+| top_k              | -1 (disabled), 1–100 | Hard cutoff. 20–40 typical for Qwen.                                         |
+| min_p              | 0.0–1.0              | Relative probability floor. 0.0 = disabled.                                  |
+| presence_penalty   | -2.0–2.0             | Additive, penalizes any token already seen.                                  |
+| frequency_penalty  | -2.0–2.0             | Additive, proportional to occurrence count.                                  |
+| repetition_penalty | 0.0 or >=1.0         | Multiplicative (CTRL-style), 1.0 = neutral. 0.0 may be "disabled" in SGLang. |
 
 ## Current Baseline
 

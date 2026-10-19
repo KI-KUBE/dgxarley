@@ -12,12 +12,12 @@ Mit Phase 3 sind die bash-`if`-Gates zu `when=`-Gates geworden. Ein Lauf mit `ne
 exerziert davon **keinen einzigen**. Die Harness fährt deshalb vier Profile, und deren
 Referenzmengen unterscheiden sich messbar:
 
-| Profil | Env | berührte Dateien | deckt ab |
-|---|---|---|---|
-| `neutral` | `SGLANG_MODEL=neutral/none` | 26 | alle ungegateten (DSA, Phase-2-Set) |
-| `hy3` | Hy3-Modell + `SPECULATIVE_ENABLED=true` + hunyuan-Parser | 29 | `p64`, `p40`, `p41`, `p42` |
-| `glm5` | GLM-5-Modellname | 27 | `p13` |
-| `spec` | `SPECULATIVE_ENABLED=true` | 27 | `p42` ohne Hunyuan |
+| Profil    | Env                                                      | berührte Dateien | deckt ab                            |
+|-----------|----------------------------------------------------------|------------------|-------------------------------------|
+| `neutral` | `SGLANG_MODEL=neutral/none`                              | 26               | alle ungegateten (DSA, Phase-2-Set) |
+| `hy3`     | Hy3-Modell + `SPECULATIVE_ENABLED=true` + hunyuan-Parser | 29               | `p64`, `p40`, `p41`, `p42`          |
+| `glm5`    | GLM-5-Modellname                                         | 27               | `p13`                               |
+| `spec`    | `SPECULATIVE_ENABLED=true`                               | 27               | `p42` ohne Hunyuan                  |
 
 **Nicht abgedeckt: `p62` / `p63`** (Hunyuan tool/reasoning parser). Sie sind auf `0.5.15-sm121`
 **dauerhafte No-Ops**: das Image enthält PR #29920 bereits, der Guard greift, beide Seiten tun nichts.

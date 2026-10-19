@@ -81,15 +81,15 @@ keel-drift --drift-only --quiet   # only deviations, terse
 keel-drift --fix-command          # emit rollout-restart commands
 ```
 
-| Option                   | Env var                     | Description                                      |
-|--------------------------|-----------------------------|--------------------------------------------------|
-| `-n`, `--namespace NS`   | `KEEL_NAMESPACE`            | Only check this namespace                        |
-| `-c`, `--context CTX`    | `KEEL_CONTEXT`, `KUBE_CONTEXT` | kubeconfig context instead of the active one  |
-| `--drift-only`           | `KEEL_DRIFT_ONLY`           | Only show stale and unclear workloads            |
-| `--fix-command`          | `KEEL_FIX_COMMAND`          | Emit `kubectl rollout restart` commands (with `--context`, if given) |
-| `-q`, `--quiet`          | `KEEL_QUIET`                | Suppress the table, print the summary only       |
-| `-v`, `--verbose`        | `KEEL_VERBOSE`              | Log every workload and registry access (DEBUG)   |
-| `--no-local-credentials` | `KEEL_NO_LOCAL_CREDENTIALS` | Ignore the local Docker login, query anonymously |
+| Option                   | Env var                        | Description                                                          |
+|--------------------------|--------------------------------|----------------------------------------------------------------------|
+| `-n`, `--namespace NS`   | `KEEL_NAMESPACE`               | Only check this namespace                                            |
+| `-c`, `--context CTX`    | `KEEL_CONTEXT`, `KUBE_CONTEXT` | kubeconfig context instead of the active one                         |
+| `--drift-only`           | `KEEL_DRIFT_ONLY`              | Only show stale and unclear workloads                                |
+| `--fix-command`          | `KEEL_FIX_COMMAND`             | Emit `kubectl rollout restart` commands (with `--context`, if given) |
+| `-q`, `--quiet`          | `KEEL_QUIET`                   | Suppress the table, print the summary only                           |
+| `-v`, `--verbose`        | `KEEL_VERBOSE`                 | Log every workload and registry access (DEBUG)                       |
+| `--no-local-credentials` | `KEEL_NO_LOCAL_CREDENTIALS`    | Ignore the local Docker login, query anonymously                     |
 
 The table and the summary go to **stdout**, logging and the progress display to
 **stderr** — so the result can be piped while the diagnostics stay visible.
@@ -99,10 +99,10 @@ runs as a `Job`/`CronJob` inside the cluster.
 
 ### Exit codes
 
-| Code | Meaning                                                     |
-|------|-------------------------------------------------------------|
-| `0`  | Nothing stale (or no tracked workloads at all)              |
-| `1`  | At least one container is stale — usable as a pipeline gate |
+| Code | Meaning                                                                                          |
+|------|--------------------------------------------------------------------------------------------------|
+| `0`  | Nothing stale (or no tracked workloads at all)                                                   |
+| `1`  | At least one container is stale — usable as a pipeline gate                                      |
 | `2`  | Unusable `--context` (the available ones are listed), or no kubeconfig and no in-cluster context |
 
 ## pin_drift.py
@@ -180,22 +180,22 @@ pin-drift --context ht@dgxarley  # running versions from this context
 pin-drift --no-running           # repo against upstream only
 ```
 
-| Option               | Env var                  | Description                                   |
-|----------------------|--------------------------|-----------------------------------------------|
-| `-c`, `--config P`   | `PIN_DRIFT_CONFIG`       | Pin declarations (default: search upwards)    |
-| `-o`, `--only NAME`  | `PIN_DRIFT_ONLY`         | Check only this pin (repeatable)              |
-| `--updates-only`     | `PIN_DRIFT_UPDATES_ONLY` | Hide the pins that are current and rolled out |
-| `--context CTX`      | `PIN_DRIFT_CONTEXT`, `KUBE_CONTEXT` | kubeconfig context (default: active one) |
-| `--no-running`       | `PIN_DRIFT_NO_RUNNING`   | Do not query the cluster                      |
-| `-q`, `--quiet`      | `PIN_DRIFT_QUIET`        | Suppress the table, print the summary only    |
-| `-v`, `--verbose`    | `PIN_DRIFT_VERBOSE`      | DEBUG logging, third-party libraries included |
+| Option              | Env var                             | Description                                   |
+|---------------------|-------------------------------------|-----------------------------------------------|
+| `-c`, `--config P`  | `PIN_DRIFT_CONFIG`                  | Pin declarations (default: search upwards)    |
+| `-o`, `--only NAME` | `PIN_DRIFT_ONLY`                    | Check only this pin (repeatable)              |
+| `--updates-only`    | `PIN_DRIFT_UPDATES_ONLY`            | Hide the pins that are current and rolled out |
+| `--context CTX`     | `PIN_DRIFT_CONTEXT`, `KUBE_CONTEXT` | kubeconfig context (default: active one)      |
+| `--no-running`      | `PIN_DRIFT_NO_RUNNING`              | Do not query the cluster                      |
+| `-q`, `--quiet`     | `PIN_DRIFT_QUIET`                   | Suppress the table, print the summary only    |
+| `-v`, `--verbose`   | `PIN_DRIFT_VERBOSE`                 | DEBUG logging, third-party libraries included |
 
 ### Exit codes
 
-| Code | Meaning                                                          |
-|------|------------------------------------------------------------------|
-| `0`  | No update available (pins current or unclear)                    |
-| `1`  | At least one pin has a major/minor/patch update — pipeline gate  |
+| Code | Meaning                                                                                  |
+|------|------------------------------------------------------------------------------------------|
+| `0`  | No update available (pins current or unclear)                                            |
+| `1`  | At least one pin has a major/minor/patch update — pipeline gate                          |
 | `2`  | No usable `pin_drift.yml`, an unknown `--only` name, or an unusable explicit `--context` |
 
 ## drift.py

@@ -163,8 +163,8 @@ that can appear as a substring elsewhere in the file.
 
 | Build                          | Quant                                                       | Loads? | Result                  | Root cause                                                                                                            |
 |--------------------------------|-------------------------------------------------------------|--------|-------------------------|-----------------------------------------------------------------------------------------------------------------------|
-| **vroomfondel/Hy3-NVFP4-W4A4** | W4A4 (weight+**activation** FP4, has `input_scale`)         | ✅      | **garbage / NaN**       | backend-independent; activation-quantize + single FP4 GEMM both EXONERATED on GB10 (see Blocker B) — cause still open |
-| **kodelow/Hy3-NVFP4-W4A16**    | W4A16 (weight-only NVFP4, `tensor_group`, no `input_scale`) | ❌      | **crash at model load** | SGLang has **no weight-only-NVFP4-MoE scheme** — confirmed empirically 0/9, see below                                 |
+| **vroomfondel/Hy3-NVFP4-W4A4** | W4A4 (weight+**activation** FP4, has `input_scale`)         | ✅     | **garbage / NaN**       | backend-independent; activation-quantize + single FP4 GEMM both EXONERATED on GB10 (see Blocker B) — cause still open |
+| **kodelow/Hy3-NVFP4-W4A16**    | W4A16 (weight-only NVFP4, `tensor_group`, no `input_scale`) | ❌     | **crash at model load** | SGLang has **no weight-only-NVFP4-MoE scheme** — confirmed empirically 0/9, see below                                 |
 
 Both profiles live in `roles/k8s_dgx/model_profiles/`
 (`vroomfondel-hy3-nvfp4-w4a4.yml`, `kodelow-hy3-nvfp4-w4a16.yml`); both are listed in
@@ -353,12 +353,12 @@ non-NaN, non-degenerate scale factors and packed FP4 bytes.
 sgl-kernel wrapper (`sglang.jit_kernel.nvfp4.cutlass_scaled_fp4_mm`) against a BF16
 matmul reference, 4 shapes chosen to resemble Hy3's MoE GEMM dimensions:
 
-| shape (M×K×N) | tag | nan | inf | absmax(out) | absmax(ref) | mean_rel_err | corr |
-|---|---|---|---|---|---|---|---|
-| 128×2048×1536 | hy3 MoE-w1 | False | False | 11.125 | 11.149 | 0.135 | 0.9909 |
-| 128×1536×4096 | hy3 MoE-w2 | False | False | 10.000 | 10.173 | 0.134 | 0.9910 |
-| 64×4096×4096  | square 4k  | False | False | 15.125 | 15.181 | 0.134 | 0.9910 |
-| 256×2048×2048 | bigger M   | False | False | 11.312 | 11.301 | 0.134 | 0.9910 |
+| shape (M×K×N) | tag        | nan   | inf   | absmax(out) | absmax(ref) | mean_rel_err | corr   |
+|---------------|------------|-------|-------|-------------|-------------|--------------|--------|
+| 128×2048×1536 | hy3 MoE-w1 | False | False | 11.125      | 11.149      | 0.135        | 0.9909 |
+| 128×1536×4096 | hy3 MoE-w2 | False | False | 10.000      | 10.173      | 0.134        | 0.9910 |
+| 64×4096×4096  | square 4k  | False | False | 15.125      | 15.181      | 0.134        | 0.9910 |
+| 256×2048×2048 | bigger M   | False | False | 11.312      | 11.301      | 0.134        | 0.9910 |
 
 No NaN/Inf in any shape, output magnitude tracks the BF16 reference, and
 `mean_rel_err ≈ 13.5%` / `corr ≈ 0.99` is the expected lossy-but-correct signature of
@@ -612,15 +612,15 @@ Checked directly against the CUDA MoE scheme inventory in the `0.5.14-sm121` ima
 `sglang/srt/layers/quantization/modelslim/`). There is **no NVFP4-W4A8** (4-bit FP4
 weight + FP8 activation) fused-MoE kernel anywhere in SGLang. What exists:
 
-| Scheme | Weight | Activation | CUDA-usable on GB10? |
-|---|---|---|---|
-| `CompressedTensorsW4A4Nvfp4MoE` | FP4 | FP4 | yes (this is what we're debugging) |
-| `CompressedTensorsW4A4MxInt4MoE` | INT4 (mx) | — | **no** — hard-asserts `flashinfer_trtllm` backend, which is dead on sm121 (see Blocker B taxonomy) |
-| `NPUCompressedTensorsW4A8Int8DynamicMoE` | INT4 | INT8 | **no** — Ascend NPU only |
-| ModelSlim `ModelSlimW4A8Int8MoE` (`W4A8_DYNAMIC`) | INT4 | INT8 | **no** — Ascend NPU only |
-| `CompressedTensorsW8A8Fp8MoE` | FP8 | FP8 | yes |
-| `CompressedTensorsW8A8Int8MoE` | INT8 | INT8 | yes |
-| `CompressedTensorsWNA16{MoE,MarlinMoE,TritonMoE}` | INT4/INT8 group | 16-bit (weight-only) | yes |
+| Scheme                                            | Weight          | Activation           | CUDA-usable on GB10?                                                                               |
+|---------------------------------------------------|-----------------|----------------------|----------------------------------------------------------------------------------------------------|
+| `CompressedTensorsW4A4Nvfp4MoE`                   | FP4             | FP4                  | yes (this is what we're debugging)                                                                 |
+| `CompressedTensorsW4A4MxInt4MoE`                  | INT4 (mx)       | —                    | **no** — hard-asserts `flashinfer_trtllm` backend, which is dead on sm121 (see Blocker B taxonomy) |
+| `NPUCompressedTensorsW4A8Int8DynamicMoE`          | INT4            | INT8                 | **no** — Ascend NPU only                                                                           |
+| ModelSlim `ModelSlimW4A8Int8MoE` (`W4A8_DYNAMIC`) | INT4            | INT8                 | **no** — Ascend NPU only                                                                           |
+| `CompressedTensorsW8A8Fp8MoE`                     | FP8             | FP8                  | yes                                                                                                |
+| `CompressedTensorsW8A8Int8MoE`                    | INT8            | INT8                 | yes                                                                                                |
+| `CompressedTensorsWNA16{MoE,MarlinMoE,TritonMoE}` | INT4/INT8 group | 16-bit (weight-only) | yes                                                                                                |
 
 The only "W4A8" schemes in the codebase are **INT8-activation and Ascend-NPU-only** —
 irrelevant on a CUDA/GB10 box. So for Hy3 on GB10, the option space is:

@@ -204,12 +204,12 @@ die `keys.txt` am Default-Pfad wird beim Entschlüsseln automatisch gefunden.
 
 ### Wann welcher Weg
 
-| | Weg 1 (SSH direkt) | Weg 2 (`ssh-to-age`) |
-|---|---|---|
-| Extra-Tool | keins | `ssh-to-age` |
-| Recipient in `.sops.yaml` | `ssh-ed25519 AAAA…` | `age1…` |
-| Single source of truth | der SSH-Key selbst | umgerechneter age-Key |
-| Gut wenn | einfachster Start, SSH-Keys eh vorhanden | einheitliche `age1…`-Recipients (sops-nix, Mischbetrieb mit reinen age-Keys) |
+|                           | Weg 1 (SSH direkt)                       | Weg 2 (`ssh-to-age`)                                                         |
+|---------------------------|------------------------------------------|------------------------------------------------------------------------------|
+| Extra-Tool                | keins                                    | `ssh-to-age`                                                                 |
+| Recipient in `.sops.yaml` | `ssh-ed25519 AAAA…`                      | `age1…`                                                                      |
+| Single source of truth    | der SSH-Key selbst                       | umgerechneter age-Key                                                        |
+| Gut wenn                  | einfachster Start, SSH-Keys eh vorhanden | einheitliche `age1…`-Recipients (sops-nix, Mischbetrieb mit reinen age-Keys) |
 
 **Empfehlung:** Weg 1, außer du hast einen konkreten Grund für einheitliche
 `age1…`-Recipients.
@@ -453,14 +453,14 @@ sops rotate --in-place group_vars/prod/vault.yml
 
 ## 9. Fehlerbehebung
 
-| Symptom | Ursache / Fix |
-|---|---|
-| `no matching creation rules found` | Pfad matcht keine `creation_rule` in `.sops.yaml`. Regex prüfen. |
-| `failed to get the data key ... no identity matched` | Dein Public key steht nicht in der Datei. Von jemandem mit Zugang `sops updatekeys` laufen lassen. |
-| Ansible sieht Vars nicht | `community.sops` nicht installiert **oder** `vars_plugins_enabled` in `ansible.cfg` fehlt. |
-| sops findet Key nicht | `keys.txt` nicht unter `~/.config/sops/age/` oder `SOPS_AGE_KEY(_FILE)` nicht gesetzt. |
-| SSH-Key wird nicht akzeptiert | `SOPS_AGE_KEY_FILE` zeigt auf SSH-Key → falsch. `SOPS_AGE_SSH_PRIVATE_KEY_FILE` nutzen oder Key nach `~/.ssh/id_ed25519` legen. Nur ed25519/rsa unterstützt. |
-| CI: `age: no identity` | CI-Secret `SOPS_AGE_KEY` fehlt/leer oder Datei nicht `chmod 600`. |
+| Symptom                                              | Ursache / Fix                                                                                                                                                |
+|------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `no matching creation rules found`                   | Pfad matcht keine `creation_rule` in `.sops.yaml`. Regex prüfen.                                                                                             |
+| `failed to get the data key ... no identity matched` | Dein Public key steht nicht in der Datei. Von jemandem mit Zugang `sops updatekeys` laufen lassen.                                                           |
+| Ansible sieht Vars nicht                             | `community.sops` nicht installiert **oder** `vars_plugins_enabled` in `ansible.cfg` fehlt.                                                                   |
+| sops findet Key nicht                                | `keys.txt` nicht unter `~/.config/sops/age/` oder `SOPS_AGE_KEY(_FILE)` nicht gesetzt.                                                                       |
+| SSH-Key wird nicht akzeptiert                        | `SOPS_AGE_KEY_FILE` zeigt auf SSH-Key → falsch. `SOPS_AGE_SSH_PRIVATE_KEY_FILE` nutzen oder Key nach `~/.ssh/id_ed25519` legen. Nur ed25519/rsa unterstützt. |
+| CI: `age: no identity`                               | CI-Secret `SOPS_AGE_KEY` fehlt/leer oder Datei nicht `chmod 600`.                                                                                            |
 
 ---
 
@@ -482,13 +482,13 @@ ansible-playbook -i inventory/prod site.yml  # deploy (entschlüsselt automatisc
 Dieses Repo verschlüsselt Vault-Dateien heute mit **git-crypt** (siehe
 `.gitattributes`). Kurzer Vergleich, falls ein Umstieg zur Debatte steht:
 
-| | git-crypt | SOPS |
-|---|---|---|
-| Granularität | ganze Datei (binär im Git) | einzelne **Werte**, Keys bleiben lesbar |
-| Diff/Merge | Datei = Blob, kaum mergebar | zeilenweise diffbar (welcher Key sich ändert) |
-| Key-Backend | GPG / symmetrisch | age, GPG, KMS, Vault, … |
-| Zugriff granular | pro Repo | pro Datei-Regex + Key-Gruppen |
-| Ansible | Datei muss ausgecheckt entschlüsselt sein | `community.sops` entschlüsselt on-the-fly |
+|                  | git-crypt                                 | SOPS                                          |
+|------------------|-------------------------------------------|-----------------------------------------------|
+| Granularität     | ganze Datei (binär im Git)                | einzelne **Werte**, Keys bleiben lesbar       |
+| Diff/Merge       | Datei = Blob, kaum mergebar               | zeilenweise diffbar (welcher Key sich ändert) |
+| Key-Backend      | GPG / symmetrisch                         | age, GPG, KMS, Vault, …                       |
+| Zugriff granular | pro Repo                                  | pro Datei-Regex + Key-Gruppen                 |
+| Ansible          | Datei muss ausgecheckt entschlüsselt sein | `community.sops` entschlüsselt on-the-fly     |
 
 **Nicht beides gleichzeitig auf dieselben Dateien** anwenden. Ein Umstieg würde
 bedeuten: git-crypt-Filter für `vault.yml` entfernen, Dateien entschlüsseln,

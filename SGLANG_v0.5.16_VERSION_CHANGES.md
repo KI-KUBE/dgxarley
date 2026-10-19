@@ -20,14 +20,14 @@ The image has been on `xomoxcc/dgx-spark-sglang:0.5.16-sm121` since 2026-08-03 (
 
 ## 0. Status in the Repo
 
-| Item | State |
-|---|---|
-| Default image | `xomoxcc/dgx-spark-sglang:0.5.16-sm121` (`roles/k8s_dgx/defaults/main/sglang.yml:10`), bumped 2026-08-03 with `5371537` |
-| Recipe | `scripts/patches/sglang-0.5.16-sm121.recipe`, renamed 2026-08-02 from `-dev-` (the `-dev` tag stays frozen, it carries flashinfer 0.6.16rc3 and is the measurement baseline for p36/p37) |
-| flashinfer | 0.6.16 final (2026-07-31), two minors above SGLang's own 0.6.14 pin |
-| Acceptance gate | ✅ clean 2026-08-02, `scripts/verify_sglang_image.sh`, three scenarios (bare / GLM-5.2 / Hy3), 0 anchor drift |
-| GLM-5.2 serving block | lifted (p34 is v0.5.16-compatible, commit `d21f59e`) |
-| Active model | `vroomfondel/Qwen3.6-35B-A3B-NVFP4-MTP-ModelOpt` (GDN/linear attention, NEXTN MTP, uniform W4A4, fp8 KV) |
+| Item                  | State                                                                                                                                                                                    |
+|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Default image         | `xomoxcc/dgx-spark-sglang:0.5.16-sm121` (`roles/k8s_dgx/defaults/main/sglang.yml:10`), bumped 2026-08-03 with `5371537`                                                                  |
+| Recipe                | `scripts/patches/sglang-0.5.16-sm121.recipe`, renamed 2026-08-02 from `-dev-` (the `-dev` tag stays frozen, it carries flashinfer 0.6.16rc3 and is the measurement baseline for p36/p37) |
+| flashinfer            | 0.6.16 final (2026-07-31), two minors above SGLang's own 0.6.14 pin                                                                                                                      |
+| Acceptance gate       | ✅ clean 2026-08-02, `scripts/verify_sglang_image.sh`, three scenarios (bare / GLM-5.2 / Hy3), 0 anchor drift                                                                            |
+| GLM-5.2 serving block | lifted (p34 is v0.5.16-compatible, commit `d21f59e`)                                                                                                                                     |
+| Active model          | `vroomfondel/Qwen3.6-35B-A3B-NVFP4-MTP-ModelOpt` (GDN/linear attention, NEXTN MTP, uniform W4A4, fp8 KV)                                                                                 |
 
 ⚠️ **Scope of the gate:** it checks whether a patch still finds its anchor and whether the model registry imports. It does not execute a kernel and does not serve a token. Risks A, B, E and G from the recipe stay open until a real serving run.
 
@@ -101,14 +101,14 @@ Measured on 2026-07-28 against the built image (spark5/podman, all 39 patches ex
 
 33 of 39 ran clean, six drifted. **All six have been resolved since 2026-08-02, but not all six are still effective:**
 
-| Patch | What happened | Result |
-|---|---|---|
-| `p24_linear_nvfp4_scale` | anchor in `linear.py` gone (`weight_scale_2` / `nvfp4` no longer appear there at all) | **RE-TARGETED** (`f17cfda`), fix runs |
-| `p34_dsa_trtllm_sparse_sm120` | `model_runner_kv_cache_mixin.py` deleted, contents now in `srt/model_executor/pool_configurator.py`; second hunk in `forward_mla.py` needed a rebase | **RE-TARGETED** (`d21f59e`), fix runs. This is the live-proven GLM-5.2 DSA path, which is why the GLM-5.2 serving block is lifted |
-| `p26_cutlass_moe_zeroinit` | `cutlass_moe_fp4` no longer exists (#30448) | **SELF-GATED OFF** (`80c6cc3`), fix is moot |
-| `p28_modelopt_cutlass_params_ep` | `CutlassMoEParams` class gone entirely | **SELF-GATED OFF** (`fd8a937`). ⚠️ Open: where are the EP expert counts computed now? |
-| `p31_dsa_flashinfer_gather` | surrounding code moved (anchor rebase required) | **SELF-GATED** to `< 0.5.16` (`2d0c0e3`), fallback gather path |
-| `p33_dsa_fig_graph_split` | same | **SELF-GATED** like p31 (p31 through p33 are one path) |
+| Patch                            | What happened                                                                                                                                        | Result                                                                                                                            |
+|----------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| `p24_linear_nvfp4_scale`         | anchor in `linear.py` gone (`weight_scale_2` / `nvfp4` no longer appear there at all)                                                                | **RE-TARGETED** (`f17cfda`), fix runs                                                                                             |
+| `p34_dsa_trtllm_sparse_sm120`    | `model_runner_kv_cache_mixin.py` deleted, contents now in `srt/model_executor/pool_configurator.py`; second hunk in `forward_mla.py` needed a rebase | **RE-TARGETED** (`d21f59e`), fix runs. This is the live-proven GLM-5.2 DSA path, which is why the GLM-5.2 serving block is lifted |
+| `p26_cutlass_moe_zeroinit`       | `cutlass_moe_fp4` no longer exists (#30448)                                                                                                          | **SELF-GATED OFF** (`80c6cc3`), fix is moot                                                                                       |
+| `p28_modelopt_cutlass_params_ep` | `CutlassMoEParams` class gone entirely                                                                                                               | **SELF-GATED OFF** (`fd8a937`). ⚠️ Open: where are the EP expert counts computed now?                                             |
+| `p31_dsa_flashinfer_gather`      | surrounding code moved (anchor rebase required)                                                                                                      | **SELF-GATED** to `< 0.5.16` (`2d0c0e3`), fallback gather path                                                                    |
+| `p33_dsa_fig_graph_split`        | same                                                                                                                                                 | **SELF-GATED** like p31 (p31 through p33 are one path)                                                                            |
 
 Correction to the earlier static analysis: **p30 and p35 are fine.** Their supposedly missing targets (`torch_paged_mqa_logits.py`, `triton_paged_mqa_logits.py`) are files these patches **create**, not edit. Both report "created".
 
@@ -171,13 +171,13 @@ Accompanying: MTP index sharing under prefill CP (#30992), stabilization of GLM-
 
 ### 3.8 New models
 
-| Model | Type | Fits on 4×GB10? |
-|---|---|---|
+| Model                                                                      | Type           | Fits on 4×GB10?                                                                                                                                          |
+|----------------------------------------------------------------------------|----------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Inkling** (975B MoE, 1M ctx, SWA + full + Mamba2, NVFP4 MoE, native MTP) | autoregressive | No. 975B is out of reach even in NVFP4. Interesting only as an architecture reference: it mixes exactly the three attention types we keep wrestling with |
-| **LongCat 2.0 FP8** | autoregressive | Worth checking, depending on the parameter count |
-| **JetBrains Mellum v2** | autoregressive | Cookbook says "wip" |
-| **Pi0.5** | VLA | Not our workload |
-| **LongLive 2.0** | Diffusion | Not our workload |
+| **LongCat 2.0 FP8**                                                        | autoregressive | Worth checking, depending on the parameter count                                                                                                         |
+| **JetBrains Mellum v2**                                                    | autoregressive | Cookbook says "wip"                                                                                                                                      |
+| **Pi0.5**                                                                  | VLA            | Not our workload                                                                                                                                         |
+| **LongLive 2.0**                                                           | Diffusion      | Not our workload                                                                                                                                         |
 
 ---
 

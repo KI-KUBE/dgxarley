@@ -101,13 +101,13 @@ CAVEAT (from matrix preamble): SGLang cookbook recommends `--tp 2` for the 26B-A
 
 **`speculative_num_draft_tokens` manual sweep** — SGLang requires `num_draft_tokens ≥ num_steps + 1`. The cookbook's fixed `6` only matches `num_steps=5`; for `num_steps ∈ {2,3,4,6}` we bumped per case (autoadjust didn't fire). Table reflects the actually-configured values.
 
-| #  | moe    | attn   | CG / pw | spec_num_steps | spec_draft_tokens | eagle_topk | Status | n=1 tok/s | n=4 peak  | n=8 peak    |
-|----|--------|--------|---------|---------------:|------------------:|-----------:|--------|----------:|----------:|------------:|
-| 19 | triton | triton | on / on | 2              | 3                 | 1          | ok     | **56.94 ★**| 159.99   | 250.49      |
-| 20 | triton | triton | on / on | 3              | 4                 | 1          | ok     | 50.08     | **161.38 ★**| **263.16 ★**|
-| 21 | triton | triton | on / on | 4              | 5                 | 1          | ok     | 47.26     | 154.94    | 256.36      |
-| 22 | triton | triton | on / on | 5              | 6                 | 1          | ok     | 46.09     | 146.86    | 248.51      |
-| 23 | triton | triton | on / on | 6              | 7                 | 1          | ok     | 48.87     | 147.49    | 245.67      |
+| #   | moe    | attn   | CG / pw | spec_num_steps | spec_draft_tokens | eagle_topk | Status |   n=1 tok/s |     n=4 peak |     n=8 peak |
+|-----|--------|--------|---------|---------------:|------------------:|-----------:|--------|------------:|-------------:|-------------:|
+| 19  | triton | triton | on / on |              2 |                 3 |          1 | ok     | **56.94 ★** |       159.99 |       250.49 |
+| 20  | triton | triton | on / on |              3 |                 4 |          1 | ok     |       50.08 | **161.38 ★** | **263.16 ★** |
+| 21  | triton | triton | on / on |              4 |                 5 |          1 | ok     |       47.26 |       154.94 |       256.36 |
+| 22  | triton | triton | on / on |              5 |                 6 |          1 | ok     |       46.09 |       146.86 |       248.51 |
+| 23  | triton | triton | on / on |              6 |                 7 |          1 | ok     |       48.87 |       147.49 |       245.67 |
 
 ---
 
@@ -130,14 +130,14 @@ Result dir: `matrixtest/2026-05-11/results/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it
 
 ### Δ vs 0.5.10 baseline
 
-| #  | Config                                     | 0.5.10 (n=1 / n=4 / n=8) | 0.5.11 (n=1 / n=4 / n=8)    | Δ n=8       |
-|----|--------------------------------------------|--------------------------|-----------------------------|-------------|
-| 04 | triton MoE + triton attn + CG on + pw off  | 40.1 / 114.8 / 163.9     | 40.57 / 127.30 / 206.76     | **+26.1 %** |
-| 05 | triton MoE + triton attn + **eager**       | 20.5 / 104.9 / 159.8     | 23.42 / 122.16 / 203.17     | **+27.1 %** |
-| 06 | triton MoE + triton attn + CG on + **pw on** | 39.8 / 114.6 / 180.5   | 40.48 / 132.00 / 208.50     | **+15.5 %** |
-| 10 | fi_cutlass MoE + triton attn + CG on + pw off | 39.7 / 109.4 / 174.1  | 32.92 / 130.68 / 206.65     | **+18.7 %** |
-| 11 | fi_cutlass MoE + triton attn + **eager**   | 25.6 / 112.2 / 158.4     | 21.36 / 121.36 / 206.35     | **+30.3 %** |
-| 12 | fi_cutlass MoE + triton attn + CG on + **pw on** | 40.2 / 110.8 / 172.4 | 34.85 / 131.44 / **213.72** | **+23.9 %** |
+| #   | Config                                           | 0.5.10 (n=1 / n=4 / n=8) | 0.5.11 (n=1 / n=4 / n=8)    | Δ n=8       |
+|-----|--------------------------------------------------|--------------------------|-----------------------------|-------------|
+| 04  | triton MoE + triton attn + CG on + pw off        | 40.1 / 114.8 / 163.9     | 40.57 / 127.30 / 206.76     | **+26.1 %** |
+| 05  | triton MoE + triton attn + **eager**             | 20.5 / 104.9 / 159.8     | 23.42 / 122.16 / 203.17     | **+27.1 %** |
+| 06  | triton MoE + triton attn + CG on + **pw on**     | 39.8 / 114.6 / 180.5     | 40.48 / 132.00 / 208.50     | **+15.5 %** |
+| 10  | fi_cutlass MoE + triton attn + CG on + pw off    | 39.7 / 109.4 / 174.1     | 32.92 / 130.68 / 206.65     | **+18.7 %** |
+| 11  | fi_cutlass MoE + triton attn + **eager**         | 25.6 / 112.2 / 158.4     | 21.36 / 121.36 / 206.35     | **+30.3 %** |
+| 12  | fi_cutlass MoE + triton attn + CG on + **pw on** | 40.2 / 110.8 / 172.4     | 34.85 / 131.44 / **213.72** | **+23.9 %** |
 
 ### Findings
 
@@ -175,15 +175,15 @@ Triton MoE (Cases 4–6) is essentially equivalent and is the current profile de
 
 From `TESTLOG_nv580.142_sglang-0.5.10_gemma-4-26b-a4b-it_4n.md`:
 
-| #  | Config (moe_runner / attn / CG / piecewise) | n=1  | n=4   | n=8        | Note                  |
-|----|---------------------------------------------|-----:|------:|-----------:|-----------------------|
-| 04 | triton / triton / CG on / pw off            | 40.1 | 114.8 | 163.9      | stable                |
-| 05 | triton / triton / **eager**                 | 20.5 | 104.9 | 159.8      | stable                |
-| 06 | triton / triton / CG on / **pw on**         | 39.8 | 114.6 | **180.5 ★**| **0.5.10 winner**     |
-| 10 | fi_cutlass / triton / CG on / pw off        | 39.7 | 109.4 | 174.1      | stable                |
-| 11 | fi_cutlass / triton / **eager**             | 25.6 | 112.2 | 158.4      | stable                |
-| 12 | fi_cutlass / triton / CG on / **pw on**     | 40.2 | 110.8 | 172.4      | stable                |
-| 1–3, 7–9 | fi-attn (any MoE)                     | —    | —     | —          | startup/bench crash   |
+| #        | Config (moe_runner / attn / CG / piecewise) |  n=1 |   n=4 |         n=8 | Note                |
+|----------|---------------------------------------------|-----:|------:|------------:|---------------------|
+| 04       | triton / triton / CG on / pw off            | 40.1 | 114.8 |       163.9 | stable              |
+| 05       | triton / triton / **eager**                 | 20.5 | 104.9 |       159.8 | stable              |
+| 06       | triton / triton / CG on / **pw on**         | 39.8 | 114.6 | **180.5 ★** | **0.5.10 winner**   |
+| 10       | fi_cutlass / triton / CG on / pw off        | 39.7 | 109.4 |       174.1 | stable              |
+| 11       | fi_cutlass / triton / **eager**             | 25.6 | 112.2 |       158.4 | stable              |
+| 12       | fi_cutlass / triton / CG on / **pw on**     | 40.2 | 110.8 |       172.4 | stable              |
+| 1–3, 7–9 | fi-attn (any MoE)                           |    — |     — |           — | startup/bench crash |
 
 ---
 
@@ -191,14 +191,14 @@ From `TESTLOG_nv580.142_sglang-0.5.10_gemma-4-26b-a4b-it_4n.md`:
 
 Result dir: `matrixtest/2026-05-15/results/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it/0.5.11/`. The non-MTP baselines (Cases 4–6, 10–12) were re-run on 2026-05-15 alongside the MTP sweep and reproduce within ~5 tok/s at n=8 (Case 06: 208.31 vs prior 208.50; Case 12: 208.71 vs prior 213.72). Crashes A (fi-attn) and B (fi_cutedsl) reproduce exactly.
 
-| spec_num_steps | num_draft | n=1   | Δ baseline⁰ | n=4    | Δ baseline⁰ | n=8     | Δ baseline⁰ | mean accept_len | mean accept_rate |
-|---------------:|----------:|------:|------------:|-------:|------------:|--------:|------------:|----------------:|-----------------:|
-| baseline (Case 06, re-run) | — | 32.39 | —      | 132.67 | —           | 208.31  | —           | —               | —                |
-| 2              | 3         | **56.94 ★** | **+76 %** | 159.99 | +21 %  | 250.49  | +20 %       | 2.38 / 2        | 0.69             |
-| 3              | 4         | 50.08 | +55 %       | **161.38 ★** | **+22 %** | **263.16 ★** | **+26 %** | 2.65 / 3 | 0.55             |
-| 4              | 5         | 47.26 | +46 %       | 154.94 | +17 %       | 256.36  | +23 %       | 2.81 / 4        | 0.45             |
-| 5              | 6         | 46.09 | +42 %       | 146.86 | +11 %       | 248.51  | +19 %       | 2.97 / 5        | 0.40             |
-| 6              | 7         | 48.87 | +51 %       | 147.49 | +11 %       | 245.67  | +18 %       | 3.22 / 6        | 0.37             |
+|             spec_num_steps | num_draft |         n=1 | Δ baseline⁰ |          n=4 | Δ baseline⁰ |          n=8 | Δ baseline⁰ | mean accept_len | mean accept_rate |
+|---------------------------:|----------:|------------:|------------:|-------------:|------------:|-------------:|------------:|----------------:|-----------------:|
+| baseline (Case 06, re-run) |         — |       32.39 |           — |       132.67 |           — |       208.31 |           — |               — |                — |
+|                          2 |         3 | **56.94 ★** |   **+76 %** |       159.99 |       +21 % |       250.49 |       +20 % |        2.38 / 2 |             0.69 |
+|                          3 |         4 |       50.08 |       +55 % | **161.38 ★** |   **+22 %** | **263.16 ★** |   **+26 %** |        2.65 / 3 |             0.55 |
+|                          4 |         5 |       47.26 |       +46 % |       154.94 |       +17 % |       256.36 |       +23 % |        2.81 / 4 |             0.45 |
+|                          5 |         6 |       46.09 |       +42 % |       146.86 |       +11 % |       248.51 |       +19 % |        2.97 / 5 |             0.40 |
+|                          6 |         7 |       48.87 |       +51 % |       147.49 |       +11 % |       245.67 |       +18 % |        3.22 / 6 |             0.37 |
 
 ⁰ Baseline = Case 06 re-run on 2026-05-15 (32.39 / 132.67 / 208.31). The original 2026-05-12 baseline numbers (40.48 / 132.00 / 208.50) only differ at n=1 (single-stream is noisy on this model: Case 04 also dropped 40.57 → 37.20). At n=4 / n=8 the deltas are within run-to-run noise.
 

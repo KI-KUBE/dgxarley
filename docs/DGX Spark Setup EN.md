@@ -185,14 +185,14 @@ Before diving into the specific model choice, here is an overview of the common 
 
 ### Formats and Quantizations Supported by SGLang
 
-| Format | Quantization | VRAM vs. FP16 | Notes |
-|--------|-------------|----------------|-------|
-| safetensors (FP16/BF16) | none | 100% (baseline) | Standard, highest VRAM usage |
-| safetensors (FP8) | FP8 (W8A8) | ~50% | Virtually no quality loss, native Blackwell HW support |
-| AWQ | INT4 weights | ~25% | Good quality, older but proven method |
-| GPTQ | INT4/INT8 weights | ~25–50% | Similar to AWQ, widely used |
-| Marlin | INT4 optimized | ~25% | Faster kernels for GPTQ/AWQ on Ampere+ GPUs |
-| BitsAndBytes | INT4/INT8 | ~25–50% | On-the-fly quantization, slower than pre-quant |
+| Format                  | Quantization      | VRAM vs. FP16   | Notes                                                  |
+|-------------------------|-------------------|-----------------|--------------------------------------------------------|
+| safetensors (FP16/BF16) | none              | 100% (baseline) | Standard, highest VRAM usage                           |
+| safetensors (FP8)       | FP8 (W8A8)        | ~50%            | Virtually no quality loss, native Blackwell HW support |
+| AWQ                     | INT4 weights      | ~25%            | Good quality, older but proven method                  |
+| GPTQ                    | INT4/INT8 weights | ~25–50%         | Similar to AWQ, widely used                            |
+| Marlin                  | INT4 optimized    | ~25%            | Faster kernels for GPTQ/AWQ on Ampere+ GPUs            |
+| BitsAndBytes            | INT4/INT8         | ~25–50%         | On-the-fly quantization, slower than pre-quant         |
 
 ### DGX Spark Capacity (128 GB Unified GPU Memory per Node)
 
@@ -231,17 +231,17 @@ Qwen3-235B-A22B is a Mixture-of-Experts model with 235B total parameters but onl
 
 Since July 2025 there are two separate 2507 variants. Both exist as official FP8 quantizations on HuggingFace:
 
-|Property|**Instruct-2507-FP8**|**Thinking-2507-FP8**|
-|---|---|---|
-|Reasoning mode|No thinking — direct answer|Thinking **always on** (`<think>` tags)|
-|Recommended output length|16,384 tokens|32,768 tokens (much of it in the `<think>` block)|
-|Latency|Low — responds immediately|Higher — thinks visibly first|
-|Token consumption|Normal|~2-3× higher (reasoning tokens)|
-|AIME25 (math)|81.5|92.3|
-|Instruction following|Better|Good|
-|Tool calling / multilingual|Better|Good|
-|Native context|262K|262K|
-|Temperature (recommended)|0.7|0.6|
+| Property                    | **Instruct-2507-FP8**       | **Thinking-2507-FP8**                             |
+|-----------------------------|-----------------------------|---------------------------------------------------|
+| Reasoning mode              | No thinking — direct answer | Thinking **always on** (`<think>` tags)           |
+| Recommended output length   | 16,384 tokens               | 32,768 tokens (much of it in the `<think>` block) |
+| Latency                     | Low — responds immediately  | Higher — thinks visibly first                     |
+| Token consumption           | Normal                      | ~2-3× higher (reasoning tokens)                   |
+| AIME25 (math)               | 81.5                        | 92.3                                              |
+| Instruction following       | Better                      | Good                                              |
+| Tool calling / multilingual | Better                      | Good                                              |
+| Native context              | 262K                        | 262K                                              |
+| Temperature (recommended)   | 0.7                         | 0.6                                               |
 
 **Recommendation: Instruct-2507-FP8** for business analysis:
 - Business analysis requires text comprehension, structuring and critical evaluation — not a math olympiad
@@ -253,51 +253,51 @@ Since July 2025 there are two separate 2507 variants. Both exist as official FP8
 
 #### Architecture Parameters (from config.json)
 
-|Parameter|Value|
-|---|---|
-|`num_hidden_layers`|94|
-|`num_key_value_heads`|4 (GQA with 64 Q heads)|
-|`head_dim`|128|
-|`max_position_embeddings`|262,144 (256K native)|
-|Total parameters|235B (128 experts, 8 active)|
+| Parameter                 | Value                        |
+|---------------------------|------------------------------|
+| `num_hidden_layers`       | 94                           |
+| `num_key_value_heads`     | 4 (GQA with 64 Q heads)      |
+| `head_dim`                | 128                          |
+| `max_position_embeddings` | 262,144 (256K native)        |
+| Total parameters          | 235B (128 experts, 8 active) |
 
 #### Memory Budget on 2× DGX Spark
 
-|Item|GB|
-|---|---|
-|Total memory (2× 128 GB unified memory)|**256 GB**|
-|Model weights FP8 + scaling factors|**~237 GB**|
-|CUDA context + SGLang overhead + activations|**~5–7 GB**|
-|**Available for KV cache**|**~12–14 GB**|
+| Item                                         | GB            |
+|----------------------------------------------|---------------|
+| Total memory (2× 128 GB unified memory)      | **256 GB**    |
+| Model weights FP8 + scaling factors          | **~237 GB**   |
+| CUDA context + SGLang overhead + activations | **~5–7 GB**   |
+| **Available for KV cache**                   | **~12–14 GB** |
 
 #### KV Cache per Token
 
 Formula: `2 (K+V) × 94 layers × 4 KV heads × 128 dim × bytes/element`
 
-|KV cache data type|Bytes/element|**Per token**|
-|---|---|---|
-|BF16 (default)|2|**~188 KB**|
-|FP8 (`--kv-cache-dtype fp8_e5m2`)|1|**~94 KB**|
+| KV cache data type                | Bytes/element | **Per token** |
+|-----------------------------------|---------------|---------------|
+| BF16 (default)                    | 2             | **~188 KB**   |
+| FP8 (`--kv-cache-dtype fp8_e5m2`) | 1             | **~94 KB**    |
 
 #### Resulting Maximum Context Length (Single Request)
 
-|KV data type|Max. tokens (at ~13 GB KV budget)|Recommended `--context-length`|
-|---|---|---|
-|BF16 (default)|~70,000|**32,768 – 65,536**|
-|FP8 KV cache|~140,000|**65,536 – 131,072**|
+| KV data type   | Max. tokens (at ~13 GB KV budget) | Recommended `--context-length` |
+|----------------|-----------------------------------|--------------------------------|
+| BF16 (default) | ~70,000                           | **32,768 – 65,536**            |
+| FP8 KV cache   | ~140,000                          | **65,536 – 131,072**           |
 
 > **Note**: The model natively supports 262K context — the limitation comes exclusively from the available memory on 2× Spark with FP8 weights.
 
 #### What Does That Mean in Practice?
 
-|Use case|Token requirement (approx.)|Fits in 65K?|
-|---|---|---|
-|Normal chat conversation|4K–12K|✅|
-|Analysis with system prompt + reflection|8K–16K|✅|
-|A 30-50 page PDF|15K–25K|✅|
-|An 80-page report|40K–55K|✅|
-|Comparing multiple documents|30K–60K|✅|
-|An entire book (300+ pages)|150K+|❌ (→ use RAG)|
+| Use case                                 | Token requirement (approx.) | Fits in 65K?   |
+|------------------------------------------|-----------------------------|----------------|
+| Normal chat conversation                 | 4K–12K                      | ✅             |
+| Analysis with system prompt + reflection | 8K–16K                      | ✅             |
+| A 30-50 page PDF                         | 15K–25K                     | ✅             |
+| An 80-page report                        | 40K–55K                     | ✅             |
+| Comparing multiple documents             | 30K–60K                     | ✅             |
+| An entire book (300+ pages)              | 150K+                       | ❌ (→ use RAG) |
 
 #### SGLang KV Cache vs. Ollama: Dynamic Token Pool
 
@@ -327,19 +327,19 @@ Formula: `2 (K+V) × 94 layers × 4 KV heads × 128 dim × bytes/element`
 
 ### FP8 vs. Q4_K_XL: Which Quantization Format?
 
-| |**FP8 + SGLang (NCCL)** ⭐ Recommended|**Q4_K_XL + llama.cpp (RPC)**|
-|---|---|---|
-|**Model size**|~237 GB|~134 GB|
-|**Free memory for KV**|~12–14 GB|**~115 GB**|
-|**Max. context**|~70K (BF16 KV) / ~140K (FP8 KV)|**Full 262K**|
-|**Model quality**|⭐⭐⭐⭐⭐ Near BF16|⭐⭐⭐⭐ Slight loss at nuances|
-|**Decode speed**|**~25 t/s**|~12.5 t/s|
-|**With reflection pipeline (×2)**|500-token answer → ~40s|500-token answer → ~80s|
-|**Link type**|NCCL over QSFP (200 Gbps, µs latency)|TCP/IP over QSFP (more overhead)|
-|**Prefix caching**|✅ RadixAttention|❌ No|
-|**Continuous batching**|✅ Multiple requests in parallel|❌ Sequential|
-|**Stability**|Good (SGLang community images)|Very good (few breaking changes)|
-|**Engine**|SGLang|llama.cpp|
+|                                   | **FP8 + SGLang (NCCL)** ⭐ Recommended | **Q4_K_XL + llama.cpp (RPC)**    |
+|-----------------------------------|----------------------------------------|----------------------------------|
+| **Model size**                    | ~237 GB                                | ~134 GB                          |
+| **Free memory for KV**            | ~12–14 GB                              | **~115 GB**                      |
+| **Max. context**                  | ~70K (BF16 KV) / ~140K (FP8 KV)        | **Full 262K**                    |
+| **Model quality**                 | ⭐⭐⭐⭐⭐ Near BF16                   | ⭐⭐⭐⭐ Slight loss at nuances  |
+| **Decode speed**                  | **~25 t/s**                            | ~12.5 t/s                        |
+| **With reflection pipeline (×2)** | 500-token answer → ~40s                | 500-token answer → ~80s          |
+| **Link type**                     | NCCL over QSFP (200 Gbps, µs latency)  | TCP/IP over QSFP (more overhead) |
+| **Prefix caching**                | ✅ RadixAttention                      | ❌ No                            |
+| **Continuous batching**           | ✅ Multiple requests in parallel       | ❌ Sequential                    |
+| **Stability**                     | Good (SGLang community images)         | Very good (few breaking changes) |
+| **Engine**                        | SGLang                                 | llama.cpp                        |
 
 **Recommendation: FP8 + SGLang as primary setup.** Reasons:
 
@@ -362,11 +362,11 @@ Formula: `2 (K+V) × 94 layers × 4 KV heads × 128 dim × bytes/element`
 
 The implementation uses a configurable profile system in the Ansible defaults. Per model, `context_length`, `kv_cache_dtype`, `mem_fraction_static`, `reasoning_parser`, `tool_call_parser` and optionally `info_url` are defined:
 
-| Model | Context | KV cache | mem_fraction | Parser |
-|---|---|---|---|---|
-| **Qwen3.5-35B-A3B** (currently active) | 262144 | fp8_e5m2 | 0.50 | qwen3 / qwen3_coder |
-| Qwen3-235B-A22B-Instruct-2507-FP8 | 65536 | fp8_e5m2 | 0.90 | qwen3 |
-| Qwen3-Coder-30B-A3B-Instruct | 262144 | fp8_e5m2 | 0.70 | — / qwen3_coder |
+| Model                                  | Context | KV cache | mem_fraction | Parser              |
+|----------------------------------------|---------|----------|--------------|---------------------|
+| **Qwen3.5-35B-A3B** (currently active) | 262144  | fp8_e5m2 | 0.50         | qwen3 / qwen3_coder |
+| Qwen3-235B-A22B-Instruct-2507-FP8      | 65536   | fp8_e5m2 | 0.90         | qwen3               |
+| Qwen3-Coder-30B-A3B-Instruct           | 262144  | fp8_e5m2 | 0.70         | — / qwen3_coder     |
 
 Model changes are made by changing `sglang_model` in the Ansible defaults and re-running `ansible-playbook k8s_dgx.yml --tags sglang`.
 
@@ -376,12 +376,12 @@ Model changes are made by changing `sglang_model` in the Ansible defaults and re
 
 ### Current State on DGX Spark (SM121, Feb 28, 2026)
 
-|Engine|Single-node|Multi-node (2× Spark)|MoE support|Stability|
-|---|---|---|---|---|
-|**SGLang** (Community Docker)|✅ Very good|✅ NCCL-based, works|✅ Good, kernel tuning needed|**Good**|
-|**llama.cpp**|✅ Very stable|✅ Via RPC (TCP/IP, no NCCL)|✅ GGUF quantization|**Very good**|
-|**vLLM** (Community Docker)|✅ Works with `--enforce-eager`|⚠️ Basically possible but unstable|✅ but slow|**Poor**|
-|**TensorRT-LLM**|⚠️ SM121 kernels partly missing|⚠️ Similar problems|⚠️ Limited|Low|
+| Engine                        | Single-node                     | Multi-node (2× Spark)              | MoE support                   | Stability     |
+|-------------------------------|---------------------------------|------------------------------------|-------------------------------|---------------|
+| **SGLang** (Community Docker) | ✅ Very good                    | ✅ NCCL-based, works               | ✅ Good, kernel tuning needed | **Good**      |
+| **llama.cpp**                 | ✅ Very stable                  | ✅ Via RPC (TCP/IP, no NCCL)       | ✅ GGUF quantization          | **Very good** |
+| **vLLM** (Community Docker)   | ✅ Works with `--enforce-eager` | ⚠️ Basically possible but unstable | ✅ but slow                   | **Poor**      |
+| **TensorRT-LLM**              | ⚠️ SM121 kernels partly missing | ⚠️ Similar problems                | ⚠️ Limited                    | Low           |
 
 ### Why SGLang?
 
@@ -393,15 +393,15 @@ Confirmed by community benchmarks: dbsci tested and published NCCL-based distrib
 
 **2. Hard Benchmark Numbers (Qwen3-Coder-Next, 4× Spark, SGLang 0.5.8)**
 
-|Prompt length|Prefill (t/s)|Decode (t/s)|
-|---|---|---|
-|512 tokens|~2,600|~52|
-|2,048 tokens|~4,630|~51|
-|8,192 tokens|~7,230|~46|
-|16,384 tokens|~6,990|~42|
-|32,768 tokens|~6,150|~37|
-|65,535 tokens|~5,010|~29|
-|131,072 tokens|~3,625|~20|
+| Prompt length  | Prefill (t/s) | Decode (t/s) |
+|----------------|---------------|--------------|
+| 512 tokens     | ~2,600        | ~52          |
+| 2,048 tokens   | ~4,630        | ~51          |
+| 8,192 tokens   | ~7,230        | ~46          |
+| 16,384 tokens  | ~6,990        | ~42          |
+| 32,768 tokens  | ~6,150        | ~37          |
+| 65,535 tokens  | ~5,010        | ~29          |
+| 131,072 tokens | ~3,625        | ~20          |
 
 These values were measured on 4 nodes. On your 2-node setup, decode speeds are roughly comparable (decode does not scale linearly with nodes for MoE models), prefill will be slower.
 
@@ -419,12 +419,12 @@ While vLLM suffers from constant breaking changes and users report massive regre
 
 ### Available SGLang Images for DGX Spark
 
-|Image|SGLang|CUDA|NCCL|Transformers|Note|
-|---|---|---|---|---|---|
-|`scitrera/dgx-spark-sglang:0.5.8-t4`|0.5.8|13.1.1|2.29.3-1|4.57.6|For older models|
-|`scitrera/dgx-spark-sglang:0.5.8-t5`|0.5.8|13.1.1|2.29.3-1|5.1.0|For models without GDN attention|
-|`scitrera/dgx-spark-sglang:0.5.9-t5`|0.5.9|13.1.1|2.29.3-1|5.1.0|**Recommended** — for new models (Qwen3.5, GLM-4.7 etc.), `--attention-backend triton` for GDN|
-|NVIDIA NGC SGLang (26.01)|Official|13.x|Official|Official|Multi-node support documented|
+| Image                                | SGLang   | CUDA   | NCCL     | Transformers | Note                                                                                           |
+|--------------------------------------|----------|--------|----------|--------------|------------------------------------------------------------------------------------------------|
+| `scitrera/dgx-spark-sglang:0.5.8-t4` | 0.5.8    | 13.1.1 | 2.29.3-1 | 4.57.6       | For older models                                                                               |
+| `scitrera/dgx-spark-sglang:0.5.8-t5` | 0.5.8    | 13.1.1 | 2.29.3-1 | 5.1.0        | For models without GDN attention                                                               |
+| `scitrera/dgx-spark-sglang:0.5.9-t5` | 0.5.9    | 13.1.1 | 2.29.3-1 | 5.1.0        | **Recommended** — for new models (Qwen3.5, GLM-4.7 etc.), `--attention-backend triton` for GDN |
+| NVIDIA NGC SGLang (26.01)            | Official | 13.x   | Official | Official     | Multi-node support documented                                                                  |
 
 ### Concrete Multi-Node Start (2× Spark)
 
@@ -679,14 +679,14 @@ Advantage: Absolutely stable, no breaking changes. Disadvantage: TCP/IP instead 
 
 ### Memory Impact on DGX Spark
 
-| | **Spark 1 (Head)** | **Spark 2 (Worker)** |
-|---|---|---|
-| **Qwen3-235B-FP8** | ~118.5 GB | ~118.5 GB |
-| **Ollama bge-m3** | ~1.2 GB | — |
-| **docling-serve** | — | ~1–2 GB (episodic) |
-| **Total** | **~119.7 GB** | **~120.5 GB** (during PDF processing) |
-| **Remaining (KV cache)** | ~8.3 GB | ~7.5 GB |
-| **Effective context length** | **~57K tokens** | (worker follows head) |
+|                              | **Spark 1 (Head)** | **Spark 2 (Worker)**                  |
+|------------------------------|--------------------|---------------------------------------|
+| **Qwen3-235B-FP8**           | ~118.5 GB          | ~118.5 GB                             |
+| **Ollama bge-m3**            | ~1.2 GB            | —                                     |
+| **docling-serve**            | —                  | ~1–2 GB (episodic)                    |
+| **Total**                    | **~119.7 GB**      | **~120.5 GB** (during PDF processing) |
+| **Remaining (KV cache)**     | ~8.3 GB            | ~7.5 GB                               |
+| **Effective context length** | **~57K tokens**    | (worker follows head)                 |
 
 > [!info] Why this works
 > DGX Spark has **128 GB unified memory** (no separate VRAM). Ollama, Docling and SGLang share the same memory pool. The additional services together occupy ~2–3 GB (<2.5%) — the impact on LLM context length is moderate (65K → ~57K tokens). Docling also only stresses memory episodically during PDF uploads, not permanently.
@@ -935,12 +935,12 @@ spec:
 
 **3. Memory impact on Spark 2:**
 
-| | Value |
-|---|---|
-| Qwen3-235B-FP8 (worker share) | ~118.5 GB |
-| Docling layout models (GPU) | ~1–2 GB |
-| **Total Spark 2** | **~120.5 GB** of 128 GB |
-| Remaining for KV cache (worker) | ~6.8 GB |
+|                                 | Value                   |
+|---------------------------------|-------------------------|
+| Qwen3-235B-FP8 (worker share)   | ~118.5 GB               |
+| Docling layout models (GPU)     | ~1–2 GB                 |
+| **Total Spark 2**               | **~120.5 GB** of 128 GB |
+| Remaining for KV cache (worker) | ~6.8 GB                 |
 
 > [!warning] Docling is episodic
 > The layout models are only loaded and processed during PDF uploads. At idle, Docling only occupies the base container (~500 MB). The full GPU memory is only claimed during active document processing — **not permanently like SGLang or Ollama**.
@@ -1118,10 +1118,10 @@ spark-2   Ready    <none>                 10d   v1.36.1+k3s1
 
 SGLang pods require direct access to the QSFP112 interface for NCCL/RDMA, but should also be reachable via K3s service DNS. This is solved via [Multus CNI](https://github.com/k8snetworking/multus-cni) — each SGLang pod gets **two network interfaces**:
 
-| Interface | Network | Purpose |
-|---|---|---|
-| `eth0` | Flannel Overlay (K3s default) | ClusterIP, service DNS, API traffic from Open WebUI |
-| `net1` | QSFP112 direct (`host-device`) | NCCL/RDMA for tensor-parallel between the Sparks |
+| Interface | Network                        | Purpose                                             |
+|-----------|--------------------------------|-----------------------------------------------------|
+| `eth0`    | Flannel Overlay (K3s default)  | ClusterIP, service DNS, API traffic from Open WebUI |
+| `net1`    | QSFP112 direct (`host-device`) | NCCL/RDMA for tensor-parallel between the Sparks    |
 
 Advantages over `hostNetwork: true`:
 - ✅ SGLang is reachable via K3s service DNS (`sglang-head.default.svc.cluster.local:8000`)

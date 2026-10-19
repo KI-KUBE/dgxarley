@@ -63,16 +63,16 @@ Matrix re-shaped: original 6 cases plus 2 MTP cases (NEXTN, with
 `mamba_scheduler_strategy=extra_buffer` + `enable_spec_v2=true` to avoid
 the spec-v2-radix-cache crash). All 8 ran post-patch, **8/8 STABLE**.
 
-| #  | nccl | attention | dis_cuda_graph | dis_piecewise | spec  | Status     | n=1 tok/s | n=4 peak | n=8 peak  |
-|----|------|-----------|----------------|---------------|-------|------------|-----------|----------|-----------|
-| 1  | roce | fi        | false          | true          | —     | **STABLE** | 21.9      | 84.2     | 157.4     |
-| 2  | roce | fi        | true           | true          | —     | **STABLE** | 17.1      | 78.3     | 147.8     |
-| 3  | roce | fi        | false          | false         | —     | **STABLE** | **22.0**  | 84.3     | 158.6     |
-| 4  | roce | triton    | false          | true          | —     | **STABLE**§| 16.3      | 63.1§    | 148.7     |
-| 5  | roce | triton    | true           | true          | —     | **STABLE** | 18.8      | 77.9     | 143.3     |
-| 6  | roce | triton    | false          | false         | —     | **STABLE** | 21.6      | 84.0     | 157.9     |
-| 7  | roce | fi        | false          | true          | NEXTN | **STABLE** | **44.4**  | 146.4    | 238.8     |
-| 8  | roce | triton    | false          | true          | NEXTN | **STABLE ★**| 36.6     | **152.6**| **239.4** |
+| #   | nccl | attention | dis_cuda_graph | dis_piecewise | spec  | Status       | n=1 tok/s | n=4 peak  | n=8 peak  |
+|-----|------|-----------|----------------|---------------|-------|--------------|-----------|-----------|-----------|
+| 1   | roce | fi        | false          | true          | —     | **STABLE**   | 21.9      | 84.2      | 157.4     |
+| 2   | roce | fi        | true           | true          | —     | **STABLE**   | 17.1      | 78.3      | 147.8     |
+| 3   | roce | fi        | false          | false         | —     | **STABLE**   | **22.0**  | 84.3      | 158.6     |
+| 4   | roce | triton    | false          | true          | —     | **STABLE**§  | 16.3      | 63.1§     | 148.7     |
+| 5   | roce | triton    | true           | true          | —     | **STABLE**   | 18.8      | 77.9      | 143.3     |
+| 6   | roce | triton    | false          | false         | —     | **STABLE**   | 21.6      | 84.0      | 157.9     |
+| 7   | roce | fi        | false          | true          | NEXTN | **STABLE**   | **44.4**  | 146.4     | 238.8     |
+| 8   | roce | triton    | false          | true          | NEXTN | **STABLE ★** | 36.6      | **152.6** | **239.4** |
 
 § Test 4 had 3/4 successful at n=4 (one transient repetition); n=1 and n=8
 clean. Treated as a flake — re-running would likely give 4/4. Earlier
@@ -81,12 +81,12 @@ gave 4/4 ok).
 
 ### Column Legend
 
-| Column         | Description |
-|----------------|-------------|
-| nccl           | `nccl_transport` — NCCL inter-node transport (`roce` = RDMA via SR-IOV VF) |
-| attention      | `attention_backend` — attention kernel (`fi` = FlashInfer, `triton` = Triton) |
-| dis_cuda_graph | `disable_cuda_graph` — true = eager, false = capture CUDA graphs |
-| dis_piecewise  | `disable_piecewise_cuda_graph` — true = only fixed-BS graphs, false = piecewise variable-length graphs |
+| Column         | Description                                                                                                                                                                                                                     |
+|----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| nccl           | `nccl_transport` — NCCL inter-node transport (`roce` = RDMA via SR-IOV VF)                                                                                                                                                      |
+| attention      | `attention_backend` — attention kernel (`fi` = FlashInfer, `triton` = Triton)                                                                                                                                                   |
+| dis_cuda_graph | `disable_cuda_graph` — true = eager, false = capture CUDA graphs                                                                                                                                                                |
+| dis_piecewise  | `disable_piecewise_cuda_graph` — true = only fixed-BS graphs, false = piecewise variable-length graphs                                                                                                                          |
 | spec           | speculative decoding (`NEXTN` = MTP via `--speculative-algo NEXTN --speculative-num-steps 3 --speculative-eagle-topk 1 --speculative-num-draft-tokens 4`, plus `mamba_scheduler_strategy=extra_buffer` + `enable_spec_v2=true`) |
 
 ---
@@ -195,21 +195,21 @@ disaster.
 
 For context vs other dense models on this cluster:
 
-| Model | Quant | Peak n=8 | vs 27B-FP8 |
-|-------|-------|---------:|-----------:|
-| Qwen3.6-27B-FP8 (this) | FP8 block-128 | **157.4–158.6** | 1.0× |
-| Gemma-4 31B-it          | BF16          | 70.6  | 2.24× faster |
-| Qwen3.5-122B-A10B-FP8 (MoE 10B active) | FP8 | ~120 | 1.32× faster |
+| Model                                  | Quant         |        Peak n=8 |   vs 27B-FP8 |
+|----------------------------------------|---------------|----------------:|-------------:|
+| Qwen3.6-27B-FP8 (this)                 | FP8 block-128 | **157.4–158.6** |         1.0× |
+| Gemma-4 31B-it                         | BF16          |            70.6 | 2.24× faster |
+| Qwen3.5-122B-A10B-FP8 (MoE 10B active) | FP8           |            ~120 | 1.32× faster |
 
 27B FP8 is the fastest dense model we've measured.
 
 **Tests 7–8 — MTP / NEXTN (huge win):**
 
-| Test | shape                          | n=1   | n=4   | n=8       | n=8 TTFT |
-|------|--------------------------------|------:|------:|----------:|---------:|
-| 7    | fi-attn + CG + MTP             | 44.4  | 146.4 | 238.8     | 1.11s    |
-| **8**| **triton-attn + CG + MTP** ★   | 36.6  | 152.6 | **239.4** | 0.94s    |
-| 1 (no MTP, prior) | fi + CG + no-pw   | 21.9  | 84.2  | 157.4     | 0.74s    |
+| Test              | shape                        |  n=1 |   n=4 |       n=8 | n=8 TTFT |
+|-------------------|------------------------------|-----:|------:|----------:|---------:|
+| 7                 | fi-attn + CG + MTP           | 44.4 | 146.4 |     238.8 |    1.11s |
+| **8**             | **triton-attn + CG + MTP** ★ | 36.6 | 152.6 | **239.4** |    0.94s |
+| 1 (no MTP, prior) | fi + CG + no-pw              | 21.9 |  84.2 |     157.4 |    0.74s |
 
 - **MTP gain over best non-MTP (Test 3 baseline):** **+102% n=1** (44.4 vs 22.0),
   **+74% n=4** (146.4 vs 84.3), **+52% n=8** (239.4 vs 158.6). Same gradient

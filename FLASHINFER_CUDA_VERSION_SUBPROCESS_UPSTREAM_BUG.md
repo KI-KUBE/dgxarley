@@ -580,14 +580,14 @@ Background:
 
 Before the patch, with `xomoxcc/dgx-spark-sglang:0.5.10-cudnn`:
 
-| # | MoE | Attn | FP4 | Pcw | Outcome (pre-patch) |
-|---|-----|------|-----|-----|---------------------|
-| 9  | triton     | fi     | fi_cudnn | ✓ | startup_crash (this bug) |
-| 12 | triton     | triton | fi_cudnn | ✓ | startup_crash (this bug) |
-| 21 | fi_cutlass | fi     | fi_cudnn | ✓ | startup_crash (this bug + fi_cutlass MoE EP=1) |
-| 24 | fi_cutlass | triton | fi_cudnn | ✓ | startup_crash (this bug + fi_cutlass MoE EP=1) |
-| 33 | cutlass    | fi     | fi_cudnn | ✓ | startup_crash (this bug) |
-| 36 | cutlass    | triton | fi_cudnn | ✓ | startup_crash (this bug) |
+| #   | MoE        | Attn   | FP4      | Pcw | Outcome (pre-patch)                            |
+|-----|------------|--------|----------|-----|------------------------------------------------|
+| 9   | triton     | fi     | fi_cudnn | ✓   | startup_crash (this bug)                       |
+| 12  | triton     | triton | fi_cudnn | ✓   | startup_crash (this bug)                       |
+| 21  | fi_cutlass | fi     | fi_cudnn | ✓   | startup_crash (this bug + fi_cutlass MoE EP=1) |
+| 24  | fi_cutlass | triton | fi_cudnn | ✓   | startup_crash (this bug + fi_cutlass MoE EP=1) |
+| 33  | cutlass    | fi     | fi_cudnn | ✓   | startup_crash (this bug)                       |
+| 36  | cutlass    | triton | fi_cudnn | ✓   | startup_crash (this bug)                       |
 
 Post-patch expectation: tests 9, 12, 33, 36 should become STABLE (they only
 had this bug blocking them); tests 21 and 24 should continue to crash for the
@@ -652,12 +652,12 @@ attribute access on the *return value* of `get_fp4_quantization_module(...)`)
 Four distinct unpatched failures sit stacked inside `fp4_quantize`, each
 reachable only after fixing the prior one. Chronological order as discovered:
 
-| # | Location | Dynamo verdict | Root cause |
-|---|----------|----------------|------------|
-| 2a | `flashinfer/jit/core.py:261 is_aot → pathlib.Path.exists → os.stat` | `Attempted to call function marked as skipped: posix.stat` (gb0007) | `posix.stat` is a C builtin, not traceable by dynamo |
-| 2b | `flashinfer/quantization/fp4_quantization.py:222 fp4_quantize_sm100 → module.fp4_quantize(...)` | `Unsupported method call: Function.__call__` (gb0156) | The `module.fp4_quantize` returned by the JIT-built backend is a `torch.autograd.Function` subclass; dynamo cannot trace its `__call__` dispatch |
-| 2c | `flashinfer/quantization/fp4_quantization.py:700 fp4_quantize` wrapped with `@torch.compiler.disable` | `Skip calling torch.compiler.disable()d function` (gb0098) | sglang's `PiecewiseCudaGraphRunner.warmup_compile` treats disabled calls as a hard error rather than a graph break |
-| 2d | same, wrapped with `torch.compiler.allow_in_graph(fp4_quantize)` | `Dynamo failed to run FX node with fake tensors: call_function <function fp4_quantize>(FakeTensor(...), Parameter(FakeTensor(...)))` | `allow_in_graph` requires a meta/fake-kernel implementation so dynamo can propagate shapes/dtypes; `fp4_quantize` has none and cannot run on FakeTensors |
+| #   | Location                                                                                              | Dynamo verdict                                                                                                                       | Root cause                                                                                                                                               |
+|-----|-------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 2a  | `flashinfer/jit/core.py:261 is_aot → pathlib.Path.exists → os.stat`                                   | `Attempted to call function marked as skipped: posix.stat` (gb0007)                                                                  | `posix.stat` is a C builtin, not traceable by dynamo                                                                                                     |
+| 2b  | `flashinfer/quantization/fp4_quantization.py:222 fp4_quantize_sm100 → module.fp4_quantize(...)`       | `Unsupported method call: Function.__call__` (gb0156)                                                                                | The `module.fp4_quantize` returned by the JIT-built backend is a `torch.autograd.Function` subclass; dynamo cannot trace its `__call__` dispatch         |
+| 2c  | `flashinfer/quantization/fp4_quantization.py:700 fp4_quantize` wrapped with `@torch.compiler.disable` | `Skip calling torch.compiler.disable()d function` (gb0098)                                                                           | sglang's `PiecewiseCudaGraphRunner.warmup_compile` treats disabled calls as a hard error rather than a graph break                                       |
+| 2d  | same, wrapped with `torch.compiler.allow_in_graph(fp4_quantize)`                                      | `Dynamo failed to run FX node with fake tensors: call_function <function fp4_quantize>(FakeTensor(...), Parameter(FakeTensor(...)))` | `allow_in_graph` requires a meta/fake-kernel implementation so dynamo can propagate shapes/dtypes; `fp4_quantize` has none and cannot run on FakeTensors |
 
 ### Attempt log
 

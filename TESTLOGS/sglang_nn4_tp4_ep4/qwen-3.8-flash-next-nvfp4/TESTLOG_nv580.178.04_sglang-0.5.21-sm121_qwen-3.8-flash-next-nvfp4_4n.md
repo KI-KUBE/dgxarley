@@ -2,15 +2,15 @@
 
 ## Environment
 
-| Component | Value |
-|-----------|-------|
-| GPU | NVIDIA GB10 (SM121), 128 GB unified per node, driver 580.178.04 (head node `nvidia-smi`), kernel 7.0.0-1019-nvidia |
-| Nodes | 4x DGX Spark: node1 (head/rank0), node2, node3, node4 (1 GB10 each) |
-| Image | `xomoxcc/dgx-spark-sglang:0.5.21-sm121` (pinned in profile) |
-| Model | `nvidia/Qwen3.8-Flash-Next-NVFP4` (quant `modelopt_mixed`, MIXED_PRECISION; FP8 in-checkpoint MTP head) |
-| Transport | RoCE via SR-IOV VF |
-| Parallel | tp=4, pp=1, ep=4; `moe_runner_backend: flashinfer_cutlass`, MTP draft MoE `triton` |
-| Date | 2026-10-10 |
+| Component | Value                                                                                                              |
+|-----------|--------------------------------------------------------------------------------------------------------------------|
+| GPU       | NVIDIA GB10 (SM121), 128 GB unified per node, driver 580.178.04 (head node `nvidia-smi`), kernel 7.0.0-1019-nvidia |
+| Nodes     | 4x DGX Spark: node1 (head/rank0), node2, node3, node4 (1 GB10 each)                                                |
+| Image     | `xomoxcc/dgx-spark-sglang:0.5.21-sm121` (pinned in profile)                                                        |
+| Model     | `nvidia/Qwen3.8-Flash-Next-NVFP4` (quant `modelopt_mixed`, MIXED_PRECISION; FP8 in-checkpoint MTP head)            |
+| Transport | RoCE via SR-IOV VF                                                                                                 |
+| Parallel  | tp=4, pp=1, ep=4; `moe_runner_backend: flashinfer_cutlass`, MTP draft MoE `triton`                                 |
+| Date      | 2026-10-10                                                                                                         |
 
 Profile: `roles/k8s_dgx/model_profiles/nvidia-qwen3.8-flash-next-nvfp4.yml`. Predecessor measurement (0.5.20-sm121, 2026-09-23, MTP 3/1/4): see the table in the profile header.
 Cluster context: the Nemotron-3-Super default and the Nano-Omni vision instance were replaced by this model (`enable_vision_model: false`, `_sglang_default_instance: {}`); LiteLLM redeployed with `litellm_vision_alias_fallback_to_base: true`. No other instance shared the GPUs during the runs.
@@ -27,15 +27,15 @@ The deploy of case 01 first failed in `Tear down disabled gated SGLang companion
 
 ## Matrix
 
-| # | Delta | Status | n=1 tok/s | GSM8K correct (n=1/4/8/16 levels) | mean accept len | probe collapses |
-|---|-------|--------|----------:|-----------------------------------|----------------:|----------------:|
-| 01 | profile as is, MTP EAGLE steps 3 / topk 1 / draft 4 | ok | 67.9 | 4/4, 8/8, 15/16, 31/32 | 3.01 | 0/16 |
-| 02 | `speculative_enabled: false` (control) | ok | 34.6 | 4/4, 8/8, 15/16, 31/32 | n/a | 0/16 |
-| 03 | MTP steps 2 / draft 3 | ok | 61.9 | 4/4, 8/8, 15/16, 31/32 | 2.53 | 0/16 |
-| 04 | MTP steps 1 / draft 2 | ok | 57.4 | 4/4, 8/8, 15/16, 31/32 | 1.85 | not run |
-| 05 | `speculative_adaptive: true` (3/1/4 start, existing candidate config) | ok | 71.9 | 4/4, 8/8, 15/16, 31/32 | 3.07 | 0/16 |
-| 06 | tree drafting: steps 2 / topk 2 / draft 4 | BOOT FAIL | - | - | - | - |
-| 03t | case 03 config (shipped), bench at `--temperature 1.0` | ok | 63.5 | 4/4, 8/8, 15/16, 31/32 | 2.34 | not run |
+| #   | Delta                                                                 | Status    | n=1 tok/s | GSM8K correct (n=1/4/8/16 levels) | mean accept len | probe collapses |
+|-----|-----------------------------------------------------------------------|-----------|----------:|-----------------------------------|----------------:|----------------:|
+| 01  | profile as is, MTP EAGLE steps 3 / topk 1 / draft 4                   | ok        |      67.9 | 4/4, 8/8, 15/16, 31/32            |            3.01 |            0/16 |
+| 02  | `speculative_enabled: false` (control)                                | ok        |      34.6 | 4/4, 8/8, 15/16, 31/32            |             n/a |            0/16 |
+| 03  | MTP steps 2 / draft 3                                                 | ok        |      61.9 | 4/4, 8/8, 15/16, 31/32            |            2.53 |            0/16 |
+| 04  | MTP steps 1 / draft 2                                                 | ok        |      57.4 | 4/4, 8/8, 15/16, 31/32            |            1.85 |         not run |
+| 05  | `speculative_adaptive: true` (3/1/4 start, existing candidate config) | ok        |      71.9 | 4/4, 8/8, 15/16, 31/32            |            3.07 |            0/16 |
+| 06  | tree drafting: steps 2 / topk 2 / draft 4                             | BOOT FAIL |         - | -                                 |               - |               - |
+| 03t | case 03 config (shipped), bench at `--temperature 1.0`                | ok        |      63.5 | 4/4, 8/8, 15/16, 31/32            |            2.34 |         not run |
 
 Quality in every ok case: one wrong answer at the n=8 level and one at the n=16 level (the same in all cases, including MTP off and temperature 1.0), `char_runs` empty and `odd_nonascii` empty in all analyze outputs, no failed requests other than those wrong answers. No `cuda graph: False` decode batches in any case. No WARNING/ERROR/Traceback lines in the head logs of cases 01 to 05 (grep over the post-boot log for `WARNING|ERROR|Traceback|illegal|no scaling`). 03t used temperature 1.0 without top_p (`sglang-gsm8k run` has no top_p flag).
 
@@ -81,22 +81,22 @@ From inside the litellm pod via `http://localhost:4000/v1/chat/completions` with
 
 ### Results (n=1 tok/s; aggregate tok/s)
 
-| Level | A rep 1 | A rep 2 | A rep 3 (after redeploy) | B rep 1 | B rep 2 |
-|-------|---------|---------|--------------------------|---------|---------|
-| n=1 single stream | 68.6 | 62.8 | not run | 73.3 | 74.6 |
-| n=1 aggregate  | 56.3 | 53.9 | not run | 69.5 | 70.3 |
-| n=4 aggregate  | 114.4 | 79.8 | not run | 181.2 | 187.1 |
-| n=8 aggregate  | 172.7 | 124.5 | 236.5 | 245.2 | 214.1 |
-| n=16 aggregate | 165.3 | 160.1 | 219.5 | 235.3 | 238.3 |
+| Level             | A rep 1 | A rep 2 | A rep 3 (after redeploy) | B rep 1 | B rep 2 |
+|-------------------|---------|---------|--------------------------|---------|---------|
+| n=1 single stream | 68.6    | 62.8    | not run                  | 73.3    | 74.6    |
+| n=1 aggregate     | 56.3    | 53.9    | not run                  | 69.5    | 70.3    |
+| n=4 aggregate     | 114.4   | 79.8    | not run                  | 181.2   | 187.1   |
+| n=8 aggregate     | 172.7   | 124.5   | 236.5                    | 245.2   | 214.1   |
+| n=16 aggregate    | 165.3   | 160.1   | 219.5                    | 235.3   | 238.3   |
 
 Per-request median tok/s (A r1 / r2 / r3 ; B r1 / r2):
 
-| Level | A | B |
-|-------|---|---|
-| n=1  | 61.5 / 49.3 / - | 70.0 / 71.1 |
-| n=4  | 34.3 / 34.5 / - | 47.1 / 49.4 |
-| n=8  | 21.6 / 20.8 / 30.9 | 33.2 / 33.7 |
-| n=16 | 12.3 / 12.0 / 21.7 | 21.5 / 23.1 |
+| Level | A                  | B           |
+|-------|--------------------|-------------|
+| n=1   | 61.5 / 49.3 / -    | 70.0 / 71.1 |
+| n=4   | 34.3 / 34.5 / -    | 47.1 / 49.4 |
+| n=8   | 21.6 / 20.8 / 30.9 | 33.2 / 33.7 |
+| n=16  | 12.3 / 12.0 / 21.7 | 21.5 / 23.1 |
 
 Level wall time (s), A r1 / r2 / r3 ; B r1 / r2: n=1 43.8 / 44.0 / - ; 37.9 / 36.1. n=4 138.7 / 211.8 / - ; 55.5 / 54.4. n=8 124.3 / 204.7 / 83.1 ; 85.7 / 104.1. n=16 423.8 / 471.9 / 272.4 ; 254.4 / 259.9.
 
@@ -106,10 +106,10 @@ Drift: A rep 3 (after the redeploy) is faster than A reps 1 and 2 at the same le
 
 ### Accept length and adaptive behaviour
 
-| Case | mean accept len | per `#running-req` bucket |
-|------|----------------:|---------------------------|
-| A rep 1 / 2 / 3 | 2.52 / 2.51 / 2.54 | 2.45 to 2.73 |
-| B rep 1 / 2 | 3.10 / 3.08 | 2.85 to 3.28 (n=16 bucket 3.17 / 3.20) |
+| Case            |    mean accept len | per `#running-req` bucket              |
+|-----------------|-------------------:|----------------------------------------|
+| A rep 1 / 2 / 3 | 2.52 / 2.51 / 2.54 | 2.45 to 2.73                           |
+| B rep 1 / 2     |        3.10 / 3.08 | 2.85 to 3.28 (n=16 bucket 3.17 / 3.20) |
 
 - `cuda graph: False` decode batches: 0 in every rep. WARNING/ERROR/Traceback/illegal lines in the bench windows: 0.
 - B switches in the bench windows: rep 1 15x 3->2 and 16x 2->3; rep 2 17x 3->2 and 17x 2->3. No switch involving step 1 was logged. The log line (`Adaptive spec params updated: steps X -> Y (ema_accept_len=...)`) carries no tier or batch size, so per-tier counts and steps used per batch size are not available. Accept len 3.1 (A: 2.5) at every batch size indicates B ran mostly 3 steps, including at n=8/16 (tier "8"), which the old config could not do.

@@ -33,13 +33,13 @@ All are read from `config.yaml` `platforms.email.extra.*` (not env), rendered by
 `roles/k8s_infra/templates/hermes/hermes_config.yaml.j2` from `hermes_users[*].email.*` in
 `group_vars/all/vault/hermes.yml`. An empty string opts out of that stage for that user.
 
-| Key                | dgxarley default | Effect                                                                           |
-|--------------------|------------------|----------------------------------------------------------------------------------|
-| `working_folder`   | `Hermes_Working` | INBOX → Working at fetch. `""` → INBOX → Done directly.                          |
-| `done_folder`      | `Hermes_Done`    | → Done after `handle_message()`. `""` → no moves at all (INBOX + `\Seen`).       |
-| `sent_folder`      | `Sent`           | IMAP APPEND (`\Seen`) after each successful SMTP send. `""` → SMTP only.         |
-| `process_existing` | `true`           | Process the pre-existing UNSEEN backlog on first poll (upstream PR default: `false`). |
-| `quote_original`   | `hermes.email.quote_original_default` | Quote the received mail below the first successful reply to it. |
+| Key                | dgxarley default                      | Effect                                                                                |
+|--------------------|---------------------------------------|---------------------------------------------------------------------------------------|
+| `working_folder`   | `Hermes_Working`                      | INBOX → Working at fetch. `""` → INBOX → Done directly.                               |
+| `done_folder`      | `Hermes_Done`                         | → Done after `handle_message()`. `""` → no moves at all (INBOX + `\Seen`).            |
+| `sent_folder`      | `Sent`                                | IMAP APPEND (`\Seen`) after each successful SMTP send. `""` → SMTP only.              |
+| `process_existing` | `true`                                | Process the pre-existing UNSEEN backlog on first poll (upstream PR default: `false`). |
+| `quote_original`   | `hermes.email.quote_original_default` | Quote the received mail below the first successful reply to it.                       |
 
 ### Folder lifecycle
 
@@ -71,12 +71,12 @@ support both extensions).
 Opened against `NousResearch/hermes-agent:main` from the fork `vroomfondel/hermes-agent`, one
 feature per PR so they can merge independently. All still **open** (no merge yet).
 
-| PR | Branch | Adds |
-|----|--------|------|
-| [#28697](https://github.com/NousResearch/hermes-agent/pull/28697) | `feat/email-sent-folder` | `platforms.email.sent_folder`, `_imap_append_to_sent()`, APPEND in the adapter senders and `_standalone_send` |
-| [#28699](https://github.com/NousResearch/hermes-agent/pull/28699) | `feat/email-process-existing` | `platforms.email.process_existing`, gating the startup pre-fill (default keeps upstream behaviour) |
-| [#28702](https://github.com/NousResearch/hermes-agent/pull/28702) | `feat/email-folder-lifecycle` | `working_folder` + `done_folder`, `_ensure_folder` / `_imap_move` / `_search_message_id` / `_finalize_message`, `try/finally` around dispatch |
-| [#113192](https://github.com/NousResearch/hermes-agent/pull/113192) | `feat/email-quote-original` | `quote_original` (`[PATCH-11]`), incl. the `sender_granted` gate for pair/decline senders |
+| PR                                                                  | Branch                        | Adds                                                                                                                                          |
+|---------------------------------------------------------------------|-------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| [#28697](https://github.com/NousResearch/hermes-agent/pull/28697)   | `feat/email-sent-folder`      | `platforms.email.sent_folder`, `_imap_append_to_sent()`, APPEND in the adapter senders and `_standalone_send`                                 |
+| [#28699](https://github.com/NousResearch/hermes-agent/pull/28699)   | `feat/email-process-existing` | `platforms.email.process_existing`, gating the startup pre-fill (default keeps upstream behaviour)                                            |
+| [#28702](https://github.com/NousResearch/hermes-agent/pull/28702)   | `feat/email-folder-lifecycle` | `working_folder` + `done_folder`, `_ensure_folder` / `_imap_move` / `_search_message_id` / `_finalize_message`, `try/finally` around dispatch |
+| [#113192](https://github.com/NousResearch/hermes-agent/pull/113192) | `feat/email-quote-original`   | `quote_original` (`[PATCH-11]`), incl. the `sender_granted` gate for pair/decline senders                                                     |
 
 The PRs drift into `CONFLICTING`/`DIRTY` whenever upstream refactors the adapter; they are
 then rebased onto `main` and pushed `--force-with-lease`.

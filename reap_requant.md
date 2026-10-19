@@ -30,13 +30,13 @@ Live SGLang profiling of the decode step (head, 22 steps, ~131 ms kernel
 time/token) with the cluster's DSA runtime patches (native SM120 sparse attention
 + Triton indexer) already applied:
 
-| ms/token | share | what |
-|---|---|---|
-| ~59 | ~45% | cuBLAS **BF16 GEMV** (166 µs × ~3.25/layer) + fused-a-gemm + lm_head |
-| ~12 | ~10% | small BF16 wmma GEMMs (kv_b / indexer projections) |
-| ~27 | ~21% | NVFP4 MoE (grouped cutlass) |
-| ~10 | ~8%  | NCCL AllReduce (TP4) |
-| ~3  | ~2.5% | sparse attention |
+| ms/token | share | what                                                                 |
+|----------|-------|----------------------------------------------------------------------|
+| ~59      | ~45%  | cuBLAS **BF16 GEMV** (166 µs × ~3.25/layer) + fused-a-gemm + lm_head |
+| ~12      | ~10%  | small BF16 wmma GEMMs (kv_b / indexer projections)                   |
+| ~27      | ~21%  | NVFP4 MoE (grouped cutlass)                                          |
+| ~10      | ~8%   | NCCL AllReduce (TP4)                                                 |
+| ~3       | ~2.5% | sparse attention                                                     |
 
 The **unquantized BF16 MLA projections are the decode floor** (~71 ms/token, pure
 weight bandwidth at bs=1). Of those, `o_proj` and `q_b_proj` carry the bulk of the
@@ -127,9 +127,9 @@ Per-rank TP4 shapes, BF16-cuBLAS vs. the served NVFP4 path (offline FP4 weight +
 dynamic activation FP4 + `cutlass_scaled_fp4_mm`, timing including activation
 quant):
 
-| shape | bs=1 | bs=8 | bs=32 |
-|---|---|---|---|
-| `o_proj` (out 6144, in 4096) | **5.58×** | 3.15× | 3.86× |
+| shape                          | bs=1      | bs=8  | bs=32 |
+|--------------------------------|-----------|-------|-------|
+| `o_proj` (out 6144, in 4096)   | **5.58×** | 3.15× | 3.86× |
 | `q_b_proj` (out 4096, in 2048) | **2.89×** | 0.91× | 1.22× |
 
 Both bs=1 (the memory-bound decode floor) clear the ≥2.5× gate → **GO**. `q_b_proj`
@@ -167,10 +167,10 @@ repetition-detector (n-gram-flood / suffix-loop / stagnation), 250 open-ended
 prompts × 3 sampling conditions, monitoring both the answer and the thinking
 stream — **0 errors across 750 generations**:
 
-| sampling | loop rate | detected as | where |
-|---|---|---|---|
-| raw (no guardrails) | **2.8%** (7/250) | n-gram flood | thinking |
-| `min_p=0.05`, `rep_pen=1.05` | **0.4%** (1/250) | suffix loop | thinking |
+| sampling                     | loop rate        | detected as  | where    |
+|------------------------------|------------------|--------------|----------|
+| raw (no guardrails)          | **2.8%** (7/250) | n-gram flood | thinking |
+| `min_p=0.05`, `rep_pen=1.05` | **0.4%** (1/250) | suffix loop  | thinking |
 | `min_p=0.05`, `rep_pen=1.10` | **0.8%** (2/250) | n-gram flood | thinking |
 
 Even at raw sampling the rate is low, and `recommended_sampling` drives it to

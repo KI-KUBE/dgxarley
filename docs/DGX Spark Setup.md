@@ -185,14 +185,14 @@ Bevor es um die konkrete Modellwahl geht, ein Überblick über die gängigen For
 
 ### Von SGLang unterstützte Formate und Quantisierungen
 
-| Format | Quantisierung | VRAM vs. FP16 | Bemerkung |
-|--------|--------------|----------------|-----------|
-| safetensors (FP16/BF16) | keine | 100% (Baseline) | Standard, höchster VRAM-Bedarf |
-| safetensors (FP8) | FP8 (W8A8) | ~50% | Quasi kein Qualitätsverlust, native Blackwell-HW-Unterstützung |
-| AWQ | INT4 weights | ~25% | Gute Qualität, ältere aber bewährte Methode |
-| GPTQ | INT4/INT8 weights | ~25-50% | Ähnlich AWQ, weitverbreitet |
-| Marlin | INT4 optimiert | ~25% | Schnellere Kernel für GPTQ/AWQ auf Ampere+ GPUs |
-| BitsAndBytes | INT4/INT8 | ~25-50% | On-the-fly-Quantisierung, langsamer als Pre-Quant |
+| Format                  | Quantisierung     | VRAM vs. FP16   | Bemerkung                                                      |
+|-------------------------|-------------------|-----------------|----------------------------------------------------------------|
+| safetensors (FP16/BF16) | keine             | 100% (Baseline) | Standard, höchster VRAM-Bedarf                                 |
+| safetensors (FP8)       | FP8 (W8A8)        | ~50%            | Quasi kein Qualitätsverlust, native Blackwell-HW-Unterstützung |
+| AWQ                     | INT4 weights      | ~25%            | Gute Qualität, ältere aber bewährte Methode                    |
+| GPTQ                    | INT4/INT8 weights | ~25-50%         | Ähnlich AWQ, weitverbreitet                                    |
+| Marlin                  | INT4 optimiert    | ~25%            | Schnellere Kernel für GPTQ/AWQ auf Ampere+ GPUs                |
+| BitsAndBytes            | INT4/INT8         | ~25-50%         | On-the-fly-Quantisierung, langsamer als Pre-Quant              |
 
 ### Kapazität der DGX Sparks (128 GB unified GPU Memory pro Node)
 
@@ -231,17 +231,17 @@ Qwen3-235B-A22B ist ein Mixture-of-Experts-Modell mit 235B Gesamtparametern, abe
 
 Seit Juli 2025 gibt es zwei getrennte 2507-Varianten. Beide existieren als offizielle FP8-Quantisierung auf HuggingFace:
 
-|Eigenschaft|**Instruct-2507-FP8**|**Thinking-2507-FP8**|
-|---|---|---|
-|Reasoning-Modus|Kein Thinking — direkte Antwort|Thinking **immer an** (`<think>`-Tags)|
-|Empfohlene Output-Länge|16.384 Token|32.768 Token (viel davon im `<think>`-Block)|
-|Latenz|Niedrig — antwortet sofort|Höher — denkt erst sichtbar nach|
-|Token-Verbrauch|Normal|~2-3× höher (Reasoning-Tokens)|
-|AIME25 (Mathe)|81.5|92.3|
-|Instruction Following|Besser|Gut|
-|Tool-Calling / Multilingual|Besser|Gut|
-|Nativer Kontext|262K|262K|
-|Temperature (empfohlen)|0.7|0.6|
+| Eigenschaft                 | **Instruct-2507-FP8**           | **Thinking-2507-FP8**                        |
+|-----------------------------|---------------------------------|----------------------------------------------|
+| Reasoning-Modus             | Kein Thinking — direkte Antwort | Thinking **immer an** (`<think>`-Tags)       |
+| Empfohlene Output-Länge     | 16.384 Token                    | 32.768 Token (viel davon im `<think>`-Block) |
+| Latenz                      | Niedrig — antwortet sofort      | Höher — denkt erst sichtbar nach             |
+| Token-Verbrauch             | Normal                          | ~2-3× höher (Reasoning-Tokens)               |
+| AIME25 (Mathe)              | 81.5                            | 92.3                                         |
+| Instruction Following       | Besser                          | Gut                                          |
+| Tool-Calling / Multilingual | Besser                          | Gut                                          |
+| Nativer Kontext             | 262K                            | 262K                                         |
+| Temperature (empfohlen)     | 0.7                             | 0.6                                          |
 
 **Empfehlung: Instruct-2507-FP8** für Business-Analyse:
 - Business-Analyse braucht Textverständnis, Strukturierung und kritische Bewertung — keine Mathe-Olympiade
@@ -253,51 +253,51 @@ Seit Juli 2025 gibt es zwei getrennte 2507-Varianten. Beide existieren als offiz
 
 #### Architektur-Parameter (aus config.json)
 
-|Parameter|Wert|
-|---|---|
-|`num_hidden_layers`|94|
-|`num_key_value_heads`|4 (GQA mit 64 Q-Heads)|
-|`head_dim`|128|
-|`max_position_embeddings`|262.144 (256K nativ)|
-|Gesamtparameter|235B (128 Experts, 8 aktiv)|
+| Parameter                 | Wert                        |
+|---------------------------|-----------------------------|
+| `num_hidden_layers`       | 94                          |
+| `num_key_value_heads`     | 4 (GQA mit 64 Q-Heads)      |
+| `head_dim`                | 128                         |
+| `max_position_embeddings` | 262.144 (256K nativ)        |
+| Gesamtparameter           | 235B (128 Experts, 8 aktiv) |
 
 #### Speicherbudget auf 2× DGX Spark
 
-|Posten|GB|
-|---|---|
-|Gesamtspeicher (2× 128 GB Unified Memory)|**256 GB**|
-|Modellgewichte FP8 + Scaling-Faktoren|**~237 GB**|
-|CUDA-Kontext + SGLang-Overhead + Aktivierungen|**~5–7 GB**|
-|**Verfügbar für KV-Cache**|**~12–14 GB**|
+| Posten                                         | GB            |
+|------------------------------------------------|---------------|
+| Gesamtspeicher (2× 128 GB Unified Memory)      | **256 GB**    |
+| Modellgewichte FP8 + Scaling-Faktoren          | **~237 GB**   |
+| CUDA-Kontext + SGLang-Overhead + Aktivierungen | **~5–7 GB**   |
+| **Verfügbar für KV-Cache**                     | **~12–14 GB** |
 
 #### KV-Cache pro Token
 
 Formel: `2 (K+V) × 94 Layers × 4 KV-Heads × 128 Dim × Bytes/Element`
 
-|KV-Cache Datentyp|Bytes/Element|**Pro Token**|
-|---|---|---|
-|BF16 (Standard)|2|**~188 KB**|
-|FP8 (`--kv-cache-dtype fp8_e5m2`)|1|**~94 KB**|
+| KV-Cache Datentyp                 | Bytes/Element | **Pro Token** |
+|-----------------------------------|---------------|---------------|
+| BF16 (Standard)                   | 2             | **~188 KB**   |
+| FP8 (`--kv-cache-dtype fp8_e5m2`) | 1             | **~94 KB**    |
 
 #### Resultierende maximale Kontextlänge (Single Request)
 
-|KV-Datentyp|Max. Tokens (bei ~13 GB KV-Budget)|Empfohlene `--context-length`|
-|---|---|---|
-|BF16 (default)|~70.000|**32.768 – 65.536**|
-|FP8 KV-Cache|~140.000|**65.536 – 131.072**|
+| KV-Datentyp    | Max. Tokens (bei ~13 GB KV-Budget) | Empfohlene `--context-length` |
+|----------------|------------------------------------|-------------------------------|
+| BF16 (default) | ~70.000                            | **32.768 – 65.536**           |
+| FP8 KV-Cache   | ~140.000                           | **65.536 – 131.072**          |
 
 > **Hinweis**: Das Modell unterstützt nativ 262K Kontext — die Limitierung kommt ausschließlich vom verfügbaren Speicher auf 2× Spark bei FP8-Weights.
 
 #### Was bedeutet das in der Praxis?
 
-|Anwendung|Tokenbedarf (ca.)|Passt in 65K?|
-|---|---|---|
-|Normale Chat-Konversation|4K–12K|✅|
-|Analyse mit System-Prompt + Reflexion|8K–16K|✅|
-|Ein 30-50-Seiten-PDF|15K–25K|✅|
-|Ein 80-Seiten-Bericht|40K–55K|✅|
-|Mehrere Dokumente vergleichen|30K–60K|✅|
-|Ein ganzes Buch (300+ Seiten)|150K+|❌ (→ RAG nutzen)|
+| Anwendung                             | Tokenbedarf (ca.) | Passt in 65K?     |
+|---------------------------------------|-------------------|-------------------|
+| Normale Chat-Konversation             | 4K–12K            | ✅                |
+| Analyse mit System-Prompt + Reflexion | 8K–16K            | ✅                |
+| Ein 30-50-Seiten-PDF                  | 15K–25K           | ✅                |
+| Ein 80-Seiten-Bericht                 | 40K–55K           | ✅                |
+| Mehrere Dokumente vergleichen         | 30K–60K           | ✅                |
+| Ein ganzes Buch (300+ Seiten)         | 150K+             | ❌ (→ RAG nutzen) |
 
 #### SGLang KV-Cache vs. Ollama: Dynamischer Token-Pool
 
@@ -327,19 +327,19 @@ Formel: `2 (K+V) × 94 Layers × 4 KV-Heads × 128 Dim × Bytes/Element`
 
 ### FP8 vs. Q4_K_XL: Welches Quantisierungsformat?
 
-| |**FP8 + SGLang (NCCL)** ⭐ Empfohlen|**Q4_K_XL + llama.cpp (RPC)**|
-|---|---|---|
-|**Modellgröße**|~237 GB|~134 GB|
-|**Freier Speicher für KV**|~12–14 GB|**~115 GB**|
-|**Max. Kontext**|~70K (BF16-KV) / ~140K (FP8-KV)|**Volle 262K**|
-|**Modellqualität**|⭐⭐⭐⭐⭐ Nahezu BF16|⭐⭐⭐⭐ Leichter Verlust bei Nuancen|
-|**Decode-Speed**|**~25 t/s**|~12,5 t/s|
-|**Mit Reflexions-Pipeline (×2)**|500-Token-Antwort → ~40s|500-Token-Antwort → ~80s|
-|**Link-Typ**|NCCL über QSFP (200 Gbps, µs-Latenz)|TCP/IP über QSFP (mehr Overhead)|
-|**Prefix Caching**|✅ RadixAttention|❌ Nein|
-|**Continuous Batching**|✅ Mehrere Anfragen parallel|❌ Sequentiell|
-|**Stabilität**|Gut (SGLang Community-Images)|Sehr gut (kaum Breaking Changes)|
-|**Engine**|SGLang|llama.cpp|
+|                                  | **FP8 + SGLang (NCCL)** ⭐ Empfohlen | **Q4_K_XL + llama.cpp (RPC)**         |
+|----------------------------------|--------------------------------------|---------------------------------------|
+| **Modellgröße**                  | ~237 GB                              | ~134 GB                               |
+| **Freier Speicher für KV**       | ~12–14 GB                            | **~115 GB**                           |
+| **Max. Kontext**                 | ~70K (BF16-KV) / ~140K (FP8-KV)      | **Volle 262K**                        |
+| **Modellqualität**               | ⭐⭐⭐⭐⭐ Nahezu BF16               | ⭐⭐⭐⭐ Leichter Verlust bei Nuancen |
+| **Decode-Speed**                 | **~25 t/s**                          | ~12,5 t/s                             |
+| **Mit Reflexions-Pipeline (×2)** | 500-Token-Antwort → ~40s             | 500-Token-Antwort → ~80s              |
+| **Link-Typ**                     | NCCL über QSFP (200 Gbps, µs-Latenz) | TCP/IP über QSFP (mehr Overhead)      |
+| **Prefix Caching**               | ✅ RadixAttention                    | ❌ Nein                               |
+| **Continuous Batching**          | ✅ Mehrere Anfragen parallel         | ❌ Sequentiell                        |
+| **Stabilität**                   | Gut (SGLang Community-Images)        | Sehr gut (kaum Breaking Changes)      |
+| **Engine**                       | SGLang                               | llama.cpp                             |
 
 **Empfehlung: FP8 + SGLang als Primär-Setup.** Gründe:
 
@@ -362,11 +362,11 @@ Formel: `2 (K+V) × 94 Layers × 4 KV-Heads × 128 Dim × Bytes/Element`
 
 Die Implementierung nutzt ein konfigurierbares Profil-System in den Ansible-Defaults. Pro Modell werden `context_length`, `kv_cache_dtype`, `mem_fraction_static`, `reasoning_parser`, `tool_call_parser` und optional `info_url` definiert:
 
-| Modell | Kontext | KV-Cache | mem_fraction | Parser |
-|---|---|---|---|---|
-| **Qwen3.5-35B-A3B** (aktuell aktiv) | 262144 | fp8_e5m2 | 0.50 | qwen3 / qwen3_coder |
-| Qwen3-235B-A22B-Instruct-2507-FP8 | 65536 | fp8_e5m2 | 0.90 | qwen3 |
-| Qwen3-Coder-30B-A3B-Instruct | 262144 | fp8_e5m2 | 0.70 | — / qwen3_coder |
+| Modell                              | Kontext | KV-Cache | mem_fraction | Parser              |
+|-------------------------------------|---------|----------|--------------|---------------------|
+| **Qwen3.5-35B-A3B** (aktuell aktiv) | 262144  | fp8_e5m2 | 0.50         | qwen3 / qwen3_coder |
+| Qwen3-235B-A22B-Instruct-2507-FP8   | 65536   | fp8_e5m2 | 0.90         | qwen3               |
+| Qwen3-Coder-30B-A3B-Instruct        | 262144  | fp8_e5m2 | 0.70         | — / qwen3_coder     |
 
 Modellwechsel erfolgt durch Ändern von `sglang_model` in den Ansible-Defaults und Re-Run von `ansible-playbook k8s_dgx.yml --tags sglang`.
 
@@ -376,12 +376,12 @@ Modellwechsel erfolgt durch Ändern von `sglang_model` in den Ansible-Defaults u
 
 ### Aktuelle Lage auf DGX Spark (SM121, 28. Feb 2026)
 
-|Engine|Single-Node|Multi-Node (2× Spark)|MoE-Support|Stabilität|
-|---|---|---|---|---|
-|**SGLang** (Community Docker)|✅ Sehr gut|✅ NCCL-basiert, funktioniert|✅ Gut, Kernel-Tuning nötig|**Gut**|
-|**llama.cpp**|✅ Sehr stabil|✅ Via RPC (TCP/IP, kein NCCL)|✅ GGUF-Quantisierung|**Sehr gut**|
-|**vLLM** (Community Docker)|✅ Funktioniert mit `--enforce-eager`|⚠️ Grundsätzlich möglich, aber instabil|✅ aber langsam|**Schlecht**|
-|**TensorRT-LLM**|⚠️ SM121-Kernel fehlen teils|⚠️ Ähnliche Probleme|⚠️ Eingeschränkt|Gering|
+| Engine                        | Single-Node                           | Multi-Node (2× Spark)                   | MoE-Support                 | Stabilität   |
+|-------------------------------|---------------------------------------|-----------------------------------------|-----------------------------|--------------|
+| **SGLang** (Community Docker) | ✅ Sehr gut                           | ✅ NCCL-basiert, funktioniert           | ✅ Gut, Kernel-Tuning nötig | **Gut**      |
+| **llama.cpp**                 | ✅ Sehr stabil                        | ✅ Via RPC (TCP/IP, kein NCCL)          | ✅ GGUF-Quantisierung       | **Sehr gut** |
+| **vLLM** (Community Docker)   | ✅ Funktioniert mit `--enforce-eager` | ⚠️ Grundsätzlich möglich, aber instabil | ✅ aber langsam             | **Schlecht** |
+| **TensorRT-LLM**              | ⚠️ SM121-Kernel fehlen teils          | ⚠️ Ähnliche Probleme                    | ⚠️ Eingeschränkt            | Gering       |
 
 ### Warum SGLang?
 
@@ -393,15 +393,15 @@ Bestätigt durch Community-Benchmarks: dbsci hat am 15. Februar 2026 NCCL-basier
 
 **2. Harte Benchmark-Zahlen (Qwen3-Coder-Next, 4× Spark, SGLang 0.5.8)**
 
-|Prompt-Länge|Prefill (t/s)|Decode (t/s)|
-|---|---|---|
-|512 Token|~2.600|~52|
-|2.048 Token|~4.630|~51|
-|8.192 Token|~7.230|~46|
-|16.384 Token|~6.990|~42|
-|32.768 Token|~6.150|~37|
-|65.535 Token|~5.010|~29|
-|131.072 Token|~3.625|~20|
+| Prompt-Länge  | Prefill (t/s) | Decode (t/s) |
+|---------------|---------------|--------------|
+| 512 Token     | ~2.600        | ~52          |
+| 2.048 Token   | ~4.630        | ~51          |
+| 8.192 Token   | ~7.230        | ~46          |
+| 16.384 Token  | ~6.990        | ~42          |
+| 32.768 Token  | ~6.150        | ~37          |
+| 65.535 Token  | ~5.010        | ~29          |
+| 131.072 Token | ~3.625        | ~20          |
 
 Diese Werte sind auf 4 Nodes gemessen. Auf deinem 2-Node-Setup sind die Decode-Speeds grob vergleichbar (Decode skaliert bei MoE-Modellen nicht linear mit Nodes), Prefill wird langsamer sein.
 
@@ -419,12 +419,12 @@ Während vLLM unter ständigen Breaking Changes leidet und Nutzer noch Ende Febr
 
 ### Verfügbare SGLang-Images für DGX Spark
 
-|Image|SGLang|CUDA|NCCL|Transformers|Hinweis|
-|---|---|---|---|---|---|
-|`scitrera/dgx-spark-sglang:0.5.8-t4`|0.5.8|13.1.1|2.29.3-1|4.57.6|Für ältere Modelle|
-|`scitrera/dgx-spark-sglang:0.5.8-t5`|0.5.8|13.1.1|2.29.3-1|5.1.0|Für Modelle ohne GDN-Attention|
-|`scitrera/dgx-spark-sglang:0.5.9-t5`|0.5.9|13.1.1|2.29.3-1|5.1.0|**Empfohlen** — für neue Modelle (Qwen3.5, GLM-4.7 etc.), `--attention-backend triton` für GDN|
-|NVIDIA NGC SGLang (26.01)|Offiziell|13.x|Offiziell|Offiziell|Multi-Node-Support dokumentiert|
+| Image                                | SGLang    | CUDA   | NCCL      | Transformers | Hinweis                                                                                        |
+|--------------------------------------|-----------|--------|-----------|--------------|------------------------------------------------------------------------------------------------|
+| `scitrera/dgx-spark-sglang:0.5.8-t4` | 0.5.8     | 13.1.1 | 2.29.3-1  | 4.57.6       | Für ältere Modelle                                                                             |
+| `scitrera/dgx-spark-sglang:0.5.8-t5` | 0.5.8     | 13.1.1 | 2.29.3-1  | 5.1.0        | Für Modelle ohne GDN-Attention                                                                 |
+| `scitrera/dgx-spark-sglang:0.5.9-t5` | 0.5.9     | 13.1.1 | 2.29.3-1  | 5.1.0        | **Empfohlen** — für neue Modelle (Qwen3.5, GLM-4.7 etc.), `--attention-backend triton` für GDN |
+| NVIDIA NGC SGLang (26.01)            | Offiziell | 13.x   | Offiziell | Offiziell    | Multi-Node-Support dokumentiert                                                                |
 
 ### Konkreter Multi-Node-Start (2× Spark)
 
@@ -679,14 +679,14 @@ Vorteil: Absolut stabil, keine Breaking Changes. Nachteil: TCP/IP statt NCCL (h�
 
 ### Speicher-Impact auf DGX Spark
 
-| | **Spark 1 (Head)** | **Spark 2 (Worker)** |
-|---|---|---|
-| **Qwen3-235B-FP8** | ~118,5 GB | ~118,5 GB |
-| **Ollama bge-m3** | ~1,2 GB | — |
-| **docling-serve** | — | ~1–2 GB (episodisch) |
-| **Summe** | **~119,7 GB** | **~120,5 GB** (bei PDF-Verarbeitung) |
-| **Verbleibend (KV-Cache)** | ~8,3 GB | ~7,5 GB |
-| **Effektive Kontextlänge** | **~57K Token** | (Worker folgt Head) |
+|                            | **Spark 1 (Head)** | **Spark 2 (Worker)**                 |
+|----------------------------|--------------------|--------------------------------------|
+| **Qwen3-235B-FP8**         | ~118,5 GB          | ~118,5 GB                            |
+| **Ollama bge-m3**          | ~1,2 GB            | —                                    |
+| **docling-serve**          | —                  | ~1–2 GB (episodisch)                 |
+| **Summe**                  | **~119,7 GB**      | **~120,5 GB** (bei PDF-Verarbeitung) |
+| **Verbleibend (KV-Cache)** | ~8,3 GB            | ~7,5 GB                              |
+| **Effektive Kontextlänge** | **~57K Token**     | (Worker folgt Head)                  |
 
 > [!info] Warum das funktioniert
 > DGX Spark hat **128 GB Unified Memory** (kein separates VRAM). Ollama, Docling und SGLang teilen sich denselben Speicherpool. Die Zusatz-Services belegen zusammen ~2–3 GB (<2,5%) — der Einfluss auf die LLM-Kontextlänge ist moderat (65K → ~57K Token). Docling belastet den Speicher zudem nur episodisch bei PDF-Uploads, nicht dauerhaft.
@@ -935,12 +935,12 @@ spec:
 
 **3. Speicher-Impact auf Spark 2:**
 
-| | Wert |
-|---|---|
-| Qwen3-235B-FP8 (Worker-Anteil) | ~118,5 GB |
-| Docling Layout-Modelle (GPU) | ~1–2 GB |
-| **Summe Spark 2** | **~120,5 GB** von 128 GB |
-| Verbleibend für KV-Cache (Worker) | ~6,8 GB |
+|                                   | Wert                     |
+|-----------------------------------|--------------------------|
+| Qwen3-235B-FP8 (Worker-Anteil)    | ~118,5 GB                |
+| Docling Layout-Modelle (GPU)      | ~1–2 GB                  |
+| **Summe Spark 2**                 | **~120,5 GB** von 128 GB |
+| Verbleibend für KV-Cache (Worker) | ~6,8 GB                  |
 
 > [!warning] Docling ist episodisch
 > Die Layout-Modelle werden nur bei PDF-Uploads geladen und verarbeiten. Im Idle belegt Docling nur den Basis-Container (~500 MB). Der volle GPU-Speicher wird nur bei aktiver Dokumentverarbeitung beansprucht — **nicht dauerhaft wie SGLang oder Ollama**.
@@ -1118,10 +1118,10 @@ spark-2   Ready    <none>                 10d   v1.36.1+k3s1
 
 SGLang-Pods benötigen direkten Zugriff auf das QSFP112-Interface für NCCL/RDMA, aber sollen gleichzeitig über den K3s-Service-DNS erreichbar sein. Das wird über [Multus CNI](https://github.com/k8snetworking/multus-cni) gelöst — jeder SGLang-Pod bekommt **zwei Netzwerk-Interfaces**:
 
-| Interface | Netzwerk | Zweck |
-|---|---|---|
-| `eth0` | Flannel Overlay (K3s-Standard) | ClusterIP, Service-DNS, API-Traffic von Open WebUI |
-| `net1` | QSFP112 direkt (`host-device`) | NCCL/RDMA für Tensor-Parallel zwischen den Sparks |
+| Interface | Netzwerk                       | Zweck                                              |
+|-----------|--------------------------------|----------------------------------------------------|
+| `eth0`    | Flannel Overlay (K3s-Standard) | ClusterIP, Service-DNS, API-Traffic von Open WebUI |
+| `net1`    | QSFP112 direkt (`host-device`) | NCCL/RDMA für Tensor-Parallel zwischen den Sparks  |
 
 Vorteile gegenüber `hostNetwork: true`:
 - ✅ SGLang ist über K3s-Service-DNS erreichbar (`sglang-head.default.svc.cluster.local:8000`)

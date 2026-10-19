@@ -44,12 +44,12 @@ Two completely different HTTP client code paths:
 
 ### Code references (litellm source)
 
-| File | Line | Issue |
-|------|------|-------|
-| `litellm/main.py` | ~5314 | `ollama_aembeddings()` called without `ssl_verify` |
-| `litellm/llms/ollama/completion/handler.py` | embedding fn | Uses `litellm.module_level_aclient` singleton |
-| `litellm/_lazy_imports.py` | `_lazy_import_http_handlers` | Creates `HTTPHandler(timeout=...)` without `ssl_verify` |
-| `litellm/llms/custom_httpx/http_handler.py` | `HTTPHandler.__init__` | `ssl_verify=None` → `get_ssl_configuration(None)` → SSL enabled |
+| File                                        | Line                         | Issue                                                           |
+|---------------------------------------------|------------------------------|-----------------------------------------------------------------|
+| `litellm/main.py`                           | ~5314                        | `ollama_aembeddings()` called without `ssl_verify`              |
+| `litellm/llms/ollama/completion/handler.py` | embedding fn                 | Uses `litellm.module_level_aclient` singleton                   |
+| `litellm/_lazy_imports.py`                  | `_lazy_import_http_handlers` | Creates `HTTPHandler(timeout=...)` without `ssl_verify`         |
+| `litellm/llms/custom_httpx/http_handler.py` | `HTTPHandler.__init__`       | `ssl_verify=None` → `get_ssl_configuration(None)` → SSL enabled |
 
 The source even contains: `[TODO]: migrate embeddings to a base handler as well.`
 — that migration would fix this bug as a side effect.

@@ -34,9 +34,9 @@ When a user drags a document directly into a chat, it is **accessible only to th
 
 Under **Workspace → Knowledge**, document collections can be managed systematically:
 
-| Setting | Description |
-|---|---|
-| **Visibility** | Each knowledge base can be set to *Private* — only the creator has access. |
+| Setting                | Description                                                                                                              |
+|------------------------|--------------------------------------------------------------------------------------------------------------------------|
+| **Visibility**         | Each knowledge base can be set to *Private* — only the creator has access.                                               |
 | **Group-based access** | Admins create groups (e.g., "Team A") and grant specific read/write permissions on knowledge bases to particular groups. |
 
 ### 1.3 RBAC Configuration (Admin)
@@ -74,11 +74,11 @@ WEBUI_URL=<Base URL of the Open WebUI instance>
 
 ### 2.2 Advanced SSO Features
 
-| Variable | Function |
-|---|---|
-| `ENABLE_OAUTH_SIGNUP=true` | Automatically create new users on first SSO login |
-| `ENABLE_LOGIN_FORM=false` | Hide the classic login form — only SSO allowed |
-| `ENABLE_OAUTH_ROLE_MANAGEMENT=true` | Adopt roles/groups directly from the IdP token |
+| Variable                            | Function                                          |
+|-------------------------------------|---------------------------------------------------|
+| `ENABLE_OAUTH_SIGNUP=true`          | Automatically create new users on first SSO login |
+| `ENABLE_LOGIN_FORM=false`           | Hide the classic login form — only SSO allowed    |
+| `ENABLE_OAUTH_ROLE_MANAGEMENT=true` | Adopt roles/groups directly from the IdP token    |
 
 Additionally, Open WebUI supports **Trusted Headers** for operation behind an authentication proxy (OAuth2-Proxy, Cloudflare Access, etc.).
 
@@ -336,9 +336,9 @@ The model responds with a structured tool call instead of text. The calling scri
 
 ## 9. Python Libraries Overview
 
-| Library | Purpose | Installation |
-|---|---|---|
-| `openai` | Chat, streaming, RAG queries, function calling | `pip install openai` |
+| Library       | Purpose                                                              | Installation                   |
+|---------------|----------------------------------------------------------------------|--------------------------------|
+| `openai`      | Chat, streaming, RAG queries, function calling                       | `pip install openai`           |
 | `owui-client` | Admin tasks, file upload, knowledge base management, user management | `pip install openwebui-client` |
 
 > **Tip:** The Swagger documentation of your own instance is available at `https://<domain>/docs` and reflects the complete live API.
@@ -537,10 +537,10 @@ Open WebUI has a built-in embedding engine. In Admin Settings → Documents, you
 
 Open WebUI combines the three central requirements of our setup in a single platform:
 
-| Requirement | Open WebUI Solution |
-|---|---|
-| **Authentication & SSO** | Native OIDC/OAuth 2.0, trusted headers, automatic user provisioning, roles from IdP |
-| **Data isolation & permissions** | RBAC with groups, private knowledge bases, API keys bound to users → full multi-tenancy |
-| **API-driven workflows** | OpenAI-compatible API as a universal endpoint; pipelines as orchestrable models; filters, RAG, web search, and function calling controllable via the same API call |
+| Requirement                      | Open WebUI Solution                                                                                                                                                |
+|----------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Authentication & SSO**         | Native OIDC/OAuth 2.0, trusted headers, automatic user provisioning, roles from IdP                                                                                |
+| **Data isolation & permissions** | RBAC with groups, private knowledge bases, API keys bound to users → full multi-tenancy                                                                            |
+| **API-driven workflows**         | OpenAI-compatible API as a universal endpoint; pipelines as orchestrable models; filters, RAG, web search, and function calling controllable via the same API call |
 
 Through this architecture, Open WebUI becomes the **central orchestration point**: the web interface serves as an interactive access point for end users, while the API makes it possible to integrate the same functionality — including all pipeline logic — into external systems, automations, and custom frontends.

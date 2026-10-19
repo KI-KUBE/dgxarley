@@ -8,12 +8,12 @@ This document covers all pitfalls discovered during deployment and their fixes.
 
 ## Hardware Context
 
-| | DGX Spark (GB10) | B200 (Datacenter) |
-|---|---|---|
-| SM version | 121 (`sm_121a`) | 100 (`sm_100a`) |
-| GPU memory | 128 GB LPDDR5x (unified with CPU) | 192 GB HBM3e |
-| `nvidia-smi` memory reporting | **"Not Supported"** | Normal |
-| `torch.cuda.mem_get_info()` | Works (~121.6 GB visible) | Works |
+|                               | DGX Spark (GB10)                  | B200 (Datacenter) |
+|-------------------------------|-----------------------------------|-------------------|
+| SM version                    | 121 (`sm_121a`)                   | 100 (`sm_100a`)   |
+| GPU memory                    | 128 GB LPDDR5x (unified with CPU) | 192 GB HBM3e      |
+| `nvidia-smi` memory reporting | **"Not Supported"**               | Normal            |
+| `torch.cuda.mem_get_info()`   | Works (~121.6 GB visible)         | Works             |
 
 **Key difference**: `nvidia-smi` cannot report memory usage on GB10. SGLang falls back to `torch.cuda.mem_get_info()` with this warning:
 ```

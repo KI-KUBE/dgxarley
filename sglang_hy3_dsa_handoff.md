@@ -53,14 +53,14 @@ roles/k8s_dgx/files/sglang_patches/
 Alle **ungegatet** (`when=True`) — sie sind inert, weil die gepatchten Dispatch-Zweige nur bei
 `attention_backend=dsa` erreicht werden.
 
-| Datei | Ziel(e) | Was |
-|---|---|---|
-| `p30_dsa_torch_backend.py` (567 Z.) | `dsa/paged_mqa_logits_backend.py`, `server_args.py`, **legt `dsa/torch_paged_mqa_logits.py` neu an**, `dsa_backend.py`, `dsa/dsa_indexer.py` | torch-Fallback für den Indexer (DeepGEMM `get_paged_mqa_logits` asserted auf SM121 hart) |
-| `p31_dsa_flashinfer_gather.py` (300 Z.) | `server_args.py` + `dsa_backend.py` | `dsa_decode_backend=flashinfer_gather`: top-2048 KV gathern + dense fa2 drüber (FALLBACK, s.u.) |
-| `p32_dsa_flashinfer_gather_prefill.py` (116 Z.) | `dsa_backend.py` | dieselbe Impl für prefill/extend (**design-kaputt**, nur Historie) |
-| `p33_dsa_fig_graph_split.py` (329 Z.) | `dsa_backend.py` | cuda-graph plan/run-split für p31 (`plan()` ist nicht graph-recordbar) |
-| `p34_dsa_trtllm_sparse_sm120.py` | `model_runner_kv_cache_mixin.py` + `dsa_backend.py` + `forward_mla.py` | **der AKTIVE Pfad**: routet `dsa_*_backend=trtllm` auf flashinfers NATIVE SM120/121-Sparse-MLA (Decode UND Prefill; `backend="auto"` + 656-packed-Pool + `kv_scale_format="arbitrary_fp32"` + Rope bleibt upstream/bf16-Query) |
-| `p35_dsa_indexer_triton_logits.py` | **legt `dsa/triton_paged_mqa_logits.py` neu an** + editiert p30s `torch_paged_mqa_logits.py` | Triton-fused Indexer-Logits (61×; Early-Exit auf echter Seq unter statischem Graph-Grid). Kill-Switch: `SGLANG_DSA_INDEXER_TRITON=0` |
+| Datei                                           | Ziel(e)                                                                                                                                      | Was                                                                                                                                                                                                                            |
+|-------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `p30_dsa_torch_backend.py` (567 Z.)             | `dsa/paged_mqa_logits_backend.py`, `server_args.py`, **legt `dsa/torch_paged_mqa_logits.py` neu an**, `dsa_backend.py`, `dsa/dsa_indexer.py` | torch-Fallback für den Indexer (DeepGEMM `get_paged_mqa_logits` asserted auf SM121 hart)                                                                                                                                       |
+| `p31_dsa_flashinfer_gather.py` (300 Z.)         | `server_args.py` + `dsa_backend.py`                                                                                                          | `dsa_decode_backend=flashinfer_gather`: top-2048 KV gathern + dense fa2 drüber (FALLBACK, s.u.)                                                                                                                                |
+| `p32_dsa_flashinfer_gather_prefill.py` (116 Z.) | `dsa_backend.py`                                                                                                                             | dieselbe Impl für prefill/extend (**design-kaputt**, nur Historie)                                                                                                                                                             |
+| `p33_dsa_fig_graph_split.py` (329 Z.)           | `dsa_backend.py`                                                                                                                             | cuda-graph plan/run-split für p31 (`plan()` ist nicht graph-recordbar)                                                                                                                                                         |
+| `p34_dsa_trtllm_sparse_sm120.py`                | `model_runner_kv_cache_mixin.py` + `dsa_backend.py` + `forward_mla.py`                                                                       | **der AKTIVE Pfad**: routet `dsa_*_backend=trtllm` auf flashinfers NATIVE SM120/121-Sparse-MLA (Decode UND Prefill; `backend="auto"` + 656-packed-Pool + `kv_scale_format="arbitrary_fp32"` + Rope bleibt upstream/bf16-Query) |
+| `p35_dsa_indexer_triton_logits.py`              | **legt `dsa/triton_paged_mqa_logits.py` neu an** + editiert p30s `torch_paged_mqa_logits.py`                                                 | Triton-fused Indexer-Logits (61×; Early-Exit auf echter Seq unter statischem Graph-Grid). Kill-Switch: `SGLANG_DSA_INDEXER_TRITON=0`                                                                                           |
 
 **Sechs Patches, Reihenfolge p30 → p31 → p32 → p33 → p34 → p35.** Die `pNN`-Nummern
 kodieren das. Nicht umbenennen. p34s Edits liegen in Regionen, die p30-p33 nicht
@@ -125,14 +125,14 @@ Aktives Profil: `roles/k8s_dgx/model_profiles/0xsero-glm-5.2-reap-504b-v2.yml`
 
 ## 3. Das Hy3-Set
 
-| Datei | Ziel | Gate | Status |
-|---|---|---|---|
-| `p64_hunyuan_shared_experts.py` | `models/hunyuan_v3.py` | Hy3/Hunyuan **oder** `TOOL_CALL_PARSER==hunyuan` **oder** `REASONING_PARSER==hunyuan` | **LEBT**, patcht heute |
-| `p62_hunyuan_tool_parser.py` | `function_call/hunyuan_detector.py` | s.o. | **TOTER NO-OP** auf diesem Image |
-| `p63_hunyuan_reasoning_parser.py` | `parser/reasoning_parser.py` | s.o. | **TOTER NO-OP** auf diesem Image |
-| `p40_hy3_nextn_bf16.py` | `models/hunyuan_v3_nextn.py` | Hy3/Hunyuan **und** `SPECULATIVE_ENABLED==true` | feuert nur mit MTP |
-| `p41_hy3_nextn_finalnorm.py` | `models/hunyuan_v3_nextn.py` | s.o. | s.o., läuft NACH p40 (gleiche Datei!) |
-| `p42_dsnextn_mixed_mtp.py` | `models/deepseek_nextn.py` | `SPECULATIVE_ENABLED==true` | betrifft GLM/DeepSeek-MTP, nicht Hy3 |
+| Datei                             | Ziel                                | Gate                                                                                  | Status                                |
+|-----------------------------------|-------------------------------------|---------------------------------------------------------------------------------------|---------------------------------------|
+| `p64_hunyuan_shared_experts.py`   | `models/hunyuan_v3.py`              | Hy3/Hunyuan **oder** `TOOL_CALL_PARSER==hunyuan` **oder** `REASONING_PARSER==hunyuan` | **LEBT**, patcht heute                |
+| `p62_hunyuan_tool_parser.py`      | `function_call/hunyuan_detector.py` | s.o.                                                                                  | **TOTER NO-OP** auf diesem Image      |
+| `p63_hunyuan_reasoning_parser.py` | `parser/reasoning_parser.py`        | s.o.                                                                                  | **TOTER NO-OP** auf diesem Image      |
+| `p40_hy3_nextn_bf16.py`           | `models/hunyuan_v3_nextn.py`        | Hy3/Hunyuan **und** `SPECULATIVE_ENABLED==true`                                       | feuert nur mit MTP                    |
+| `p41_hy3_nextn_finalnorm.py`      | `models/hunyuan_v3_nextn.py`        | s.o.                                                                                  | s.o., läuft NACH p40 (gleiche Datei!) |
+| `p42_dsnextn_mixed_mtp.py`        | `models/deepseek_nextn.py`          | `SPECULATIVE_ENABLED==true`                                                           | betrifft GLM/DeepSeek-MTP, nicht Hy3  |
 
 **`p62`/`p63` sind auf `0.5.15-sm121` dauerhaft wirkungslos**: das Image enthält PR #29920 bereits
 (`resolve_hunyuan_tokens` ist nativ drin), der Guard greift, sie tun nichts. Ihr eigener
@@ -157,12 +157,12 @@ Die Patch-Phase fasst **nicht nur `sglang/`** an, sondern auch `flashinfer` (3 D
 `models/deepseek_v3/configuration_deepseek_v3.py`). Wer nur `sglang/` snapshotet, übersieht ein
 Viertel der Wirkung.
 
-| Profil | Env | berührte Dateien (Refactor-Snapshot) |
-|---|---|---|
-| `neutral` | `SGLANG_MODEL=neutral/none` | 26 (alle ungegateten, inkl. **DSA**) |
-| `hy3` | Hy3 + `SPECULATIVE_ENABLED=true` + hunyuan-Parser | 29 |
-| `glm5` | GLM-5-Modellname | 27 |
-| `spec` | `SPECULATIVE_ENABLED=true` | 27 |
+| Profil    | Env                                               | berührte Dateien (Refactor-Snapshot) |
+|-----------|---------------------------------------------------|--------------------------------------|
+| `neutral` | `SGLANG_MODEL=neutral/none`                       | 26 (alle ungegateten, inkl. **DSA**) |
+| `hy3`     | Hy3 + `SPECULATIVE_ENABLED=true` + hunyuan-Parser | 29                                   |
+| `glm5`    | GLM-5-Modellname                                  | 27                                   |
+| `spec`    | `SPECULATIVE_ENABLED=true`                        | 27                                   |
 
 Snapshot vom Refactor-Abschluss (36 Patches). Seit `p34` (ungegatet) kommt in JEDEM
 Profil `model_runner_kv_cache_mixin.py` dazu (+1; `dsa_backend.py` war schon drin).

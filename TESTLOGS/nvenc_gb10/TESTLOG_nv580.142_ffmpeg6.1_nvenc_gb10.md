@@ -45,20 +45,20 @@ which lists H.264, H.265 (incl. 4:2:2), VP8, VP9, AV1.
 
 ## Results
 
-| Codec | Preset | Resolution | Wall (s) | Encode fps | Speedup vs realtime | Output size |
-|-------|--------|-----------|---------:|-----------:|--------------------:|------------:|
-| h264_nvenc | p1 | 1920×1080@60 | 0.872 |  **688** | 11.5× | 10.5 MB |
-| h264_nvenc | p4 | 1920×1080@60 | 1.263 |  **475** |  7.9× | 10.8 MB |
-| hevc_nvenc | p1 | 1920×1080@60 | 0.772 |  **777** | 13.0× | 10.4 MB |
-| hevc_nvenc | p4 | 1920×1080@60 | 1.422 |  **422** |  7.0× | 10.9 MB |
-| av1_nvenc  | p1 | 1920×1080@60 | 0.916 |  **655** | 10.9× | 10.6 MB |
-| av1_nvenc  | p4 | 1920×1080@60 | 1.332 |  **450** |  7.5× | 10.6 MB |
-| h264_nvenc | p1 | 3840×2160@60 | 2.435 |  **246** |  4.1× | 11.1 MB |
-| h264_nvenc | p4 | 3840×2160@60 | 4.325 |  **139** |  2.3× | 11.2 MB |
-| hevc_nvenc | p1 | 3840×2160@60 | 2.149 |  **279** |  4.7× | 10.7 MB |
-| hevc_nvenc | p4 | 3840×2160@60 | 4.638 |  **129** |  2.2× | 11.4 MB |
-| av1_nvenc  | p1 | 3840×2160@60 | 2.761 |  **217** |  3.6× | 11.3 MB |
-| av1_nvenc  | p4 | 3840×2160@60 | 4.678 |  **128** |  2.1× | 11.2 MB |
+| Codec      | Preset | Resolution   | Wall (s) | Encode fps | Speedup vs realtime | Output size |
+|------------|--------|--------------|---------:|-----------:|--------------------:|------------:|
+| h264_nvenc | p1     | 1920×1080@60 |    0.872 |    **688** |               11.5× |     10.5 MB |
+| h264_nvenc | p4     | 1920×1080@60 |    1.263 |    **475** |                7.9× |     10.8 MB |
+| hevc_nvenc | p1     | 1920×1080@60 |    0.772 |    **777** |               13.0× |     10.4 MB |
+| hevc_nvenc | p4     | 1920×1080@60 |    1.422 |    **422** |                7.0× |     10.9 MB |
+| av1_nvenc  | p1     | 1920×1080@60 |    0.916 |    **655** |               10.9× |     10.6 MB |
+| av1_nvenc  | p4     | 1920×1080@60 |    1.332 |    **450** |                7.5× |     10.6 MB |
+| h264_nvenc | p1     | 3840×2160@60 |    2.435 |    **246** |                4.1× |     11.1 MB |
+| h264_nvenc | p4     | 3840×2160@60 |    4.325 |    **139** |                2.3× |     11.2 MB |
+| hevc_nvenc | p1     | 3840×2160@60 |    2.149 |    **279** |                4.7× |     10.7 MB |
+| hevc_nvenc | p4     | 3840×2160@60 |    4.638 |    **129** |                2.2× |     11.4 MB |
+| av1_nvenc  | p1     | 3840×2160@60 |    2.761 |    **217** |                3.6× |     11.3 MB |
+| av1_nvenc  | p4     | 3840×2160@60 |    4.678 |    **128** |                2.1× |     11.2 MB |
 
 Output sizes are uniform (~8 Mbps × 10 s ≈ 10 MB) — CBR target hit on all codecs.
 
@@ -148,10 +148,10 @@ per-stream fps and aggregate.
 
 | N streams | per-stream fps | aggregate fps | wall (s) | per-stream vs realtime |
 |----------:|---------------:|--------------:|---------:|-----------------------:|
-| 1 |  519 |  519 |  2.31 |  8.7× |
-| 2 |  266 |  532 |  4.51 |  4.4× |
-| 4 |  133 |  532 |  9.02 |  2.2× |
-| 8 |   65 |  523 | 18.34 |  1.09× |
+|         1 |            519 |           519 |     2.31 |                   8.7× |
+|         2 |            266 |           532 |     4.51 |                   4.4× |
+|         4 |            133 |           532 |     9.02 |                   2.2× |
+|         8 |             65 |           523 |    18.34 |                  1.09× |
 
 **Findings:**
 - **NVENC saturates immediately** — aggregate throughput plateaus at **~520–530 fps**
@@ -167,14 +167,14 @@ per-stream fps and aggregate.
 Pre-generated 1.78 GB raw YUV420p file (1080p60, 10 s, 600 frames), encoded directly
 to remove `lavfi testsrc2` CPU overhead.
 
-| Codec | Preset | Wall lavfi (s) | Wall raw (s) | fps lavfi | fps raw | Δ |
-|-------|--------|--------------:|-------------:|----------:|--------:|---:|
-| h264_nvenc | p1 | 0.872 | 0.819 | 688 | **733** | +6% |
-| h264_nvenc | p4 | 1.263 | 1.278 | 475 | 469 | ~0 |
-| hevc_nvenc | p1 | 0.772 | 0.750 | 777 | **800** | +3% |
-| hevc_nvenc | p4 | 1.422 | 1.446 | 422 | 415 | ~0 |
-| av1_nvenc  | p1 | 0.916 | 0.947 | 655 | 634 | ~0 |
-| av1_nvenc  | p4 | 1.332 | 1.334 | 450 | 450 |  0 |
+| Codec      | Preset | Wall lavfi (s) | Wall raw (s) | fps lavfi | fps raw |   Δ |
+|------------|--------|---------------:|-------------:|----------:|--------:|----:|
+| h264_nvenc | p1     |          0.872 |        0.819 |       688 | **733** | +6% |
+| h264_nvenc | p4     |          1.263 |        1.278 |       475 |     469 |  ~0 |
+| hevc_nvenc | p1     |          0.772 |        0.750 |       777 | **800** | +3% |
+| hevc_nvenc | p4     |          1.422 |        1.446 |       422 |     415 |  ~0 |
+| av1_nvenc  | p1     |          0.916 |        0.947 |       655 |     634 |  ~0 |
+| av1_nvenc  | p4     |          1.332 |        1.334 |       450 |     450 |   0 |
 
 **Finding:** at 1080p, lavfi overhead is **negligible** (≤6% on the fastest preset,
 zero everywhere else). The original lavfi-based numbers in the main table are
@@ -186,12 +186,12 @@ because raw 4K60 10 s ≈ 6 GB exceeds the test pod's emptyDir.
 60 s synthetic h264 source (3 600 frames), 1080p60, transcode to `h264_nvenc` p4 8 Mbps.
 Four pipelines compared:
 
-| Mode | Decoder | Frame transit | Wall (s) | fps | utime (s) | Δ utime |
-|------|---------|---------------|---------:|----:|----------:|---------:|
-| `cpu_dec_libx264`     | CPU      | sysmem        | 3.98 | **904** | (very high — multi-core) | baseline |
-| `cpu_dec_nvenc`       | CPU h264 | sysmem        | 6.38 | 565 | 13.78 |  ref |
-| `nvdec_sysmem_nvenc`  | NVDEC    | GPU→host→GPU  | 6.70 | 538 |  1.92 | **−86%** |
-| `nvdec_cuda_nvenc`    | NVDEC    | GPU-resident  | 6.21 | **580** |  0.95 | **−93%** |
+| Mode                 | Decoder  | Frame transit | Wall (s) |     fps |                utime (s) |  Δ utime |
+|----------------------|----------|---------------|---------:|--------:|-------------------------:|---------:|
+| `cpu_dec_libx264`    | CPU      | sysmem        |     3.98 | **904** | (very high — multi-core) | baseline |
+| `cpu_dec_nvenc`      | CPU h264 | sysmem        |     6.38 |     565 |                    13.78 |      ref |
+| `nvdec_sysmem_nvenc` | NVDEC    | GPU→host→GPU  |     6.70 |     538 |                     1.92 | **−86%** |
+| `nvdec_cuda_nvenc`   | NVDEC    | GPU-resident  |     6.21 | **580** |                     0.95 | **−93%** |
 
 **Findings:**
 - **NVDEC works on GB10.** Full GPU pipeline (`-hwaccel cuda -hwaccel_output_format cuda`)

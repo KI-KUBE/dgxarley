@@ -47,11 +47,11 @@ cutlass::gemm::KernelPtrArrayTmaWarpSpecializedPingpong>::CollectiveOp;
 
 `StageCountAutoCarveout` + `Pingpong` schedule double-buffers the tiles and requests exactly **102400 bytes (100 KiB)** of shared memory at kernel launch, **1 KiB over** the 101376-byte (99 KiB) device budget on any SM12x Blackwell. See [CUTLASS#3144](https://github.com/NVIDIA/cutlass/issues/3144) for the full root cause — including the verbatim failure (`102400 bytes required but device supports 101376`) and NVIDIA maintainer @depaulmillz's correction on which SM versions actually have 228 KiB. (Issue closed 2026-05-11 as completed; fix in CUTLASS 4.5.0.)
 
-| GPU | SM Version | Shared Memory per Block |
-|-----|-----------|------------------------|
-| B200/B100 (datacenter) | SM100 | **228 KiB** |
-| RTX 5090, RTX PRO 6000 Blackwell (consumer/workstation) | SM120 | **99 KiB** |
-| **DGX Spark GB10** | **SM121** | **99 KiB** |
+| GPU                                                     | SM Version | Shared Memory per Block |
+|---------------------------------------------------------|------------|-------------------------|
+| B200/B100 (datacenter)                                  | SM100      | **228 KiB**             |
+| RTX 5090, RTX PRO 6000 Blackwell (consumer/workstation) | SM120      | **99 KiB**              |
+| **DGX Spark GB10**                                      | **SM121**  | **99 KiB**              |
 
 **Key correction:** both SM120 and SM121 share the same 99 KiB budget — only SM100 (B200) has 228 KiB. The "228 KiB on Blackwell" figure that circulates in some documentation refers to SM100 specifically, not SM12x. This means the bug is **not SM121-specific**; it affects every SM120/SM121 device that tries to run the current SGLang NVFP4 MoE path. Upstream SGLang presumably tested on SM100 (B200) where the extra 129 KiB absorbs the 1 KiB overshoot; on any SM12x hardware the kernel launch triggers a device-side assert. All subsequent CUDA calls (including the `cudaMallocAsync` near line 78) return `cudaErrorAssert` (sticky error).
 
@@ -61,12 +61,12 @@ cutlass::gemm::KernelPtrArrayTmaWarpSpecializedPingpong>::CollectiveOp;
 
 Comparison of `scitrera/cuda-containers` recipes:
 
-| Aspect | rc0 recipe | 0.5.10 recipe |
-|--------|-----------|---------------|
-| Base image | `nvcr.io/nvidia/pytorch:26.02-py3` | `scitrera/dgx-spark-pytorch-dev:2.11.0-v1-cu132` |
-| FlashInfer version | unset (bundled with SGLang, likely 0.6.5/0.6.6) | `0.6.7.post3` (explicit pin) |
-| sgl-kernel ref | v0.5.10rc0 | v0.5.10 |
-| Transformers | unset | `5.5.0` |
+| Aspect             | rc0 recipe                                      | 0.5.10 recipe                                    |
+|--------------------|-------------------------------------------------|--------------------------------------------------|
+| Base image         | `nvcr.io/nvidia/pytorch:26.02-py3`              | `scitrera/dgx-spark-pytorch-dev:2.11.0-v1-cu132` |
+| FlashInfer version | unset (bundled with SGLang, likely 0.6.5/0.6.6) | `0.6.7.post3` (explicit pin)                     |
+| sgl-kernel ref     | v0.5.10rc0                                      | v0.5.10                                          |
+| Transformers       | unset                                           | `5.5.0`                                          |
 
 **Revised (2026-04-10):** FlashInfer 0.6.7 (released 2026-03-25) introduced two SM121-targeted fixes that were NOT in 0.6.5/0.6.6 which rc0 likely bundled:
 1. **CUTLASS 4.4.2 bump** ([flashinfer#2798](https://github.com/flashinfer-ai/flashinfer/pull/2798)) — fixes TMA descriptor OOB address generation mode that caused non-deterministic crashes in `tma_warp_specialized_generic_moe_gemm_kernelLauncher<Sm120, fp4>`. Directly addresses [flashinfer#2776](https://github.com/flashinfer-ai/flashinfer/issues/2776).
@@ -83,11 +83,11 @@ Both fixes are present in `0.6.7.post3`, the version shipped in `scitrera/dgx-sp
 - **Eager variants:** server stays alive but inference returns 0 tokens (infer_error)
 
 **Coverage of the failure:**
-| Model | Version | `fi_cudnn` tests | Outcome |
-|-------|---------|------------------|---------|
-| Qwen3-235B-A22B-NVFP4 | v0.5.10 | 18/18 | all startup_crash (tests 7–12, 19–24, 31–36) |
-| GLM-4.7-NVFP4 | v0.5.10 | tests 20, 23 | infer_error (0 tokens) — rc0 WINNER (test 23: 8.06/21.94/30.01 tok/s) now produces 0 output |
-| Qwen3.5-397B-A17B-NVFP4 | v0.5.10 | confirmed | same pattern |
+| Model                   | Version | `fi_cudnn` tests | Outcome                                                                                     |
+|-------------------------|---------|------------------|---------------------------------------------------------------------------------------------|
+| Qwen3-235B-A22B-NVFP4   | v0.5.10 | 18/18            | all startup_crash (tests 7–12, 19–24, 31–36)                                                |
+| GLM-4.7-NVFP4           | v0.5.10 | tests 20, 23     | infer_error (0 tokens) — rc0 WINNER (test 23: 8.06/21.94/30.01 tok/s) now produces 0 output |
+| Qwen3.5-397B-A17B-NVFP4 | v0.5.10 | confirmed        | same pattern                                                                                |
 
 **Regression vs rc0:** The GLM-4.7 rc0 winner (test 23: `fi_cutlass` MoE + `triton` attn + **`fi_cudnn` fp4** + eager → 8.06/21.94/30.01 tok/s) was the single known-stable n=8 config for GLM-4.7. On v0.5.10 this config produces 0 tokens. Both GLM-4.7 test 20 and test 23 use `fi_cudnn` fp4_gemm — confirming the regression is isolated to the `flashinfer_cudnn` FP4 GEMM backend, not attention or MoE runner.
 
@@ -99,10 +99,10 @@ Both fixes are present in `0.6.7.post3`, the version shipped in `scitrera/dgx-sp
 
 Within the working `fi_cutlass` MoE + `fi_cutlass` fp4 family on SM121, the piecewise CUDA graph variants consistently crash at startup while fixed-BS and eager variants run:
 
-| Model | Tests (piecewise ON) | Outcome |
-|-------|---------------------|---------|
-| Qwen3-235B-A22B-NVFP4 | 15, 18 | startup_crash |
-| Qwen3-235B-A22B-NVFP4 | 13, 14, 16, 17 (non-piecewise) | STABLE |
+| Model                 | Tests (piecewise ON)           | Outcome       |
+|-----------------------|--------------------------------|---------------|
+| Qwen3-235B-A22B-NVFP4 | 15, 18                         | startup_crash |
+| Qwen3-235B-A22B-NVFP4 | 13, 14, 16, 17 (non-piecewise) | STABLE        |
 
 **Implication:** Piecewise graph capture (`disable_piecewise_cuda_graph: false`) is incompatible with the SM121 FlashInfer CUTLASS MoE path. Must set `disable_piecewise_cuda_graph: true` (fixed-BS graphs) or `disable_cuda_graph: true` (eager).
 

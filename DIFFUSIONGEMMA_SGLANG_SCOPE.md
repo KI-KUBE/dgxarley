@@ -68,11 +68,11 @@ status is otherwise UNCHANGED: **build + boot are still pending**, and the
 
 ## 0. Why it doesn't work today (PR status, verified 2026-06-19)
 
-| PR | Content | Status |
-|----|---------|--------|
-| [#27824](https://github.com/sgl-project/sglang/pull/27824) | Mintlify cookbook **docs** | **MERGED 2026-06-10** (docs landed before the code) |
-| [#27823](https://github.com/sgl-project/sglang/pull/27823) | Runtime/model **code** (1st attempt) | **CLOSED unmerged 2026-06-11** |
-| [#28054](https://github.com/sgl-project/sglang/pull/28054) | Runtime/model **code** (reopened) | **OPEN** against `main`, not merged |
+| PR                                                         | Content                              | Status                                              |
+|------------------------------------------------------------|--------------------------------------|-----------------------------------------------------|
+| [#27824](https://github.com/sgl-project/sglang/pull/27824) | Mintlify cookbook **docs**           | **MERGED 2026-06-10** (docs landed before the code) |
+| [#27823](https://github.com/sgl-project/sglang/pull/27823) | Runtime/model **code** (1st attempt) | **CLOSED unmerged 2026-06-11**                      |
+| [#28054](https://github.com/sgl-project/sglang/pull/28054) | Runtime/model **code** (reopened)    | **OPEN** against `main`, not merged                 |
 
 So the [cookbook page](https://docs.sglang.io/cookbook/autoregressive/Google/DiffusionGemma)
 exists, but the code (`models/gemma4_diffusion.py`, the
@@ -193,12 +193,12 @@ New dLLM knobs needed that the autoregressive schema doesn't know:
 
 ## 4. Effort estimate (rough)
 
-| Block | Effort | Blocker |
-|-------|--------|---------|
-| Image bake (A) | low — established patch mechanism | PR drift, Dockerfile-region merge |
-| Launch path (B) | **medium-high** — new decode path, probes, HAProxy, MN | OPEN QUESTION `launch_server` vs `sglang serve` |
-| Profile schema (C) | low | — |
-| NVFP4 (D) | unknown — may not run | upstream BF16 only |
+| Block              | Effort                                                 | Blocker                                         |
+|--------------------|--------------------------------------------------------|-------------------------------------------------|
+| Image bake (A)     | low — established patch mechanism                      | PR drift, Dockerfile-region merge               |
+| Launch path (B)    | **medium-high** — new decode path, probes, HAProxy, MN | OPEN QUESTION `launch_server` vs `sglang serve` |
+| Profile schema (C) | low                                                    | —                                               |
+| NVFP4 (D)          | unknown — may not run                                  | upstream BF16 only                              |
 
 **Overall assessment:** feasible, but no quick win. The launch path (B) is the
 actual work; everything else is routine. As long as #28054 isn't merged,

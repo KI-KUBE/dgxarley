@@ -2,20 +2,20 @@
 
 ## Environment
 
-| Component | Value                                                                       |
-|-----------|-----------------------------------------------------------------------------|
-| GPU       | NVIDIA GB10 (SM121/Blackwell-Consumer), 128 GB per node                     |
-| Driver    | 580.159                                                                     |
-| CUDA      | 13.2 host / 13.0 image (PR #21498)                                          |
-| Kernel    | 6.17.0-1018-nvidia                                                          |
-| OS        | Ubuntu 24.04 LTS (aarch64)                                                  |
-| K3s       | v1.35.3+k3s1                                                                |
-| Nodes     | spark1, spark2, spark3, spark4 (1 GPU each)                                 |
+| Component | Value                                                                                                                  |
+|-----------|------------------------------------------------------------------------------------------------------------------------|
+| GPU       | NVIDIA GB10 (SM121/Blackwell-Consumer), 128 GB per node                                                                |
+| Driver    | 580.159                                                                                                                |
+| CUDA      | 13.2 host / 13.0 image (PR #21498)                                                                                     |
+| Kernel    | 6.17.0-1018-nvidia                                                                                                     |
+| OS        | Ubuntu 24.04 LTS (aarch64)                                                                                             |
+| K3s       | v1.35.3+k3s1                                                                                                           |
+| Nodes     | spark1, spark2, spark3, spark4 (1 GPU each)                                                                            |
 | Image     | `scitrera/dgx-spark-sglang:0.5.12` (Block A/C–F) / `xomoxcc/dgx-spark-sglang:0.5.12-cudnn` (Block B per-case override) |
-| Model     | `mmangkad/Qwen3.6-27B-NVFP4` (**modelopt_fp4** quantization)                |
-| NCCL      | 2.29.7+cuda13.2 (dgxspark-3node-ring)                                       |
-| Transport | **RoCE** via SR-IOV VF                                                      |
-| AllReduce | Legacy (both `SGLANG_USE_JIT_ALL_REDUCE=0` + `SGLANG_OPT_..._V2=0`)         |
+| Model     | `mmangkad/Qwen3.6-27B-NVFP4` (**modelopt_fp4** quantization)                                                           |
+| NCCL      | 2.29.7+cuda13.2 (dgxspark-3node-ring)                                                                                  |
+| Transport | **RoCE** via SR-IOV VF                                                                                                 |
+| AllReduce | Legacy (both `SGLANG_USE_JIT_ALL_REDUCE=0` + `SGLANG_OPT_..._V2=0`)                                                    |
 
 Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/qwen-3.6-27b-nvfp4/nv580.159_sglang-0.5.12_qwen-3.6-27b-nvfp4_n4_ep1.yaml`
 
@@ -111,10 +111,10 @@ Same shape as Test 16 (num_steps=3, topk=1), drafts ∈ {6, 8}. FP8 sibling foun
 
 Same shape as Test 16 (num_steps=3, drafts=4), topk ∈ {2, 4}. FP8 sibling found topk=1 best (topk=2/4 monotonically worse @ n=8); re-tested in case FP4 verification cost changes the per-candidate trade-off.
 
-| #  | num_steps | drafts | topk | Status | n=1 tok/s | n=4 peak | n=8 peak |
-|----|-----------|--------|------|--------|----------:|---------:|---------:|
-| 21 | 3         | 4      | 2    | **ok 🏆** | 44.10 |   148.06 | **256.23** |
-| 22 | 3         | 4      | 4    | **crash B** | 45.52 |    —   |        — |
+| #   | num_steps | drafts | topk | Status      | n=1 tok/s | n=4 peak |   n=8 peak |
+|-----|-----------|--------|------|-------------|----------:|---------:|-----------:|
+| 21  | 3         | 4      | 2    | **ok 🏆**   |     44.10 |   148.06 | **256.23** |
+| 22  | 3         | 4      | 4    | **crash B** |     45.52 |        — |          — |
 
 ### Column Legend
 
@@ -142,14 +142,14 @@ Same shape as Test 16 (num_steps=3, drafts=4), topk ∈ {2, 4}. FP8 sibling foun
 
 ### Headline numbers
 
-| Block | Best case | n=8 peak | Notes                                                                       |
-|-------|-----------|---------:|-----------------------------------------------------------------------------|
-| A (fi_cutlass-fp4, no-MTP) | Test 03 (fi + piecewise) | 176.80 | Best no-MTP baseline                                          |
-| B (fi_cudnn-fp4, no-MTP)   | Test 10 (triton + CG)    | 170.64 | **−3.5 % vs Block A** — cuDNN-FP4 consistently slower (confirms 35B finding) |
-| C (MTP anchors)            | Test 14 (triton-attn)    | 234.89 | +32.9 % over no-MTP best — MTP delivers                                     |
-| D (num_steps sweep)        | Test 15 (s=2)            | 244.90 | s=2 ≈ s=3 ≈ s=4 (≤ 1 % spread); s=5 drops 3.6 %                            |
-| E (drafts sweep)           | Test 20 (drafts=8)       | 251.40 | drafts=6/8 essentially tied, +3.7 % over drafts=4 baseline (Test 16)        |
-| F (topk sweep)             | **Test 21 (topk=2)**     | **256.23 🏆** | **+5.7 % over the FP8-shape MTP baseline** — new local winner shape       |
+| Block                      | Best case                |      n=8 peak | Notes                                                                        |
+|----------------------------|--------------------------|--------------:|------------------------------------------------------------------------------|
+| A (fi_cutlass-fp4, no-MTP) | Test 03 (fi + piecewise) |        176.80 | Best no-MTP baseline                                                         |
+| B (fi_cudnn-fp4, no-MTP)   | Test 10 (triton + CG)    |        170.64 | **−3.5 % vs Block A** — cuDNN-FP4 consistently slower (confirms 35B finding) |
+| C (MTP anchors)            | Test 14 (triton-attn)    |        234.89 | +32.9 % over no-MTP best — MTP delivers                                      |
+| D (num_steps sweep)        | Test 15 (s=2)            |        244.90 | s=2 ≈ s=3 ≈ s=4 (≤ 1 % spread); s=5 drops 3.6 %                              |
+| E (drafts sweep)           | Test 20 (drafts=8)       |        251.40 | drafts=6/8 essentially tied, +3.7 % over drafts=4 baseline (Test 16)         |
+| F (topk sweep)             | **Test 21 (topk=2)**     | **256.23 🏆** | **+5.7 % over the FP8-shape MTP baseline** — new local winner shape          |
 
 ### Per-block findings
 

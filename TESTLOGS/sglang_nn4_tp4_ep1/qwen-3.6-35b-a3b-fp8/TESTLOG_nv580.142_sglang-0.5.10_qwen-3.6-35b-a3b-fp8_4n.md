@@ -92,14 +92,14 @@ All tests use: `tp=4, pp=1, ep=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, 
 
 ### Column Legend
 
-| Column         | Description |
-|----------------|-------------|
-| nccl           | `nccl_transport` — NCCL inter-node transport (`roce` = RDMA via SR-IOV VF) |
-| moe_runner     | `moe_runner_backend` — `triton` or `flashinfer_cutlass` (`fi_cutlass`) |
-| attention      | `attention_backend` — attention kernel (`fi` = FlashInfer, `triton` = Triton) |
-| dis_cuda_graph | `disable_cuda_graph` — true = eager, false = capture CUDA graphs |
+| Column         | Description                                                                                            |
+|----------------|--------------------------------------------------------------------------------------------------------|
+| nccl           | `nccl_transport` — NCCL inter-node transport (`roce` = RDMA via SR-IOV VF)                             |
+| moe_runner     | `moe_runner_backend` — `triton` or `flashinfer_cutlass` (`fi_cutlass`)                                 |
+| attention      | `attention_backend` — attention kernel (`fi` = FlashInfer, `triton` = Triton)                          |
+| dis_cuda_graph | `disable_cuda_graph` — true = eager, false = capture CUDA graphs                                       |
 | dis_piecewise  | `disable_piecewise_cuda_graph` — true = only fixed-BS graphs, false = piecewise variable-length graphs |
-| spec           | speculative decoding (`NEXTN` = MTP, num_steps=3, eagle_topk=1, num_draft_tokens=4) |
+| spec           | speculative decoding (`NEXTN` = MTP, num_steps=3, eagle_topk=1, num_draft_tokens=4)                    |
 
 ---
 
@@ -113,14 +113,14 @@ variants fail at startup with the same root cause regardless of MoE runner.
 
 ### Tests 1–6 — triton MoE (all STABLE)
 
-| Config | n=1 | n=4 | n=8 | n=1 TTFT |
-|--------|----:|----:|----:|---------:|
-| **Test 6** (triton attn, piecewise) | **69.0** | 212.0 | **345.8** | 0.48s |
-| Test 1 (fi attn, CG on)             | 68.6     | **214.7** | 344.1 | **1.16s¹** |
-| Test 4 (triton attn, CG on)         | 69.0     | 213.3 | 343.2 | 0.56s |
-| Test 3 (fi attn, piecewise)         | 62.4     | 210.4 | 336.3 | 1.79s |
-| Test 2 (fi attn, eager)             | 21.0     | 102.7 | 207.0 | 11.86s |
-| Test 5 (triton attn, eager)         | 20.5     | 105.1 | 205.5 | 14.55s |
+| Config                              |      n=1 |       n=4 |       n=8 |   n=1 TTFT |
+|-------------------------------------|---------:|----------:|----------:|-----------:|
+| **Test 6** (triton attn, piecewise) | **69.0** |     212.0 | **345.8** |      0.48s |
+| Test 1 (fi attn, CG on)             |     68.6 | **214.7** |     344.1 | **1.16s¹** |
+| Test 4 (triton attn, CG on)         |     69.0 |     213.3 |     343.2 |      0.56s |
+| Test 3 (fi attn, piecewise)         |     62.4 |     210.4 |     336.3 |      1.79s |
+| Test 2 (fi attn, eager)             |     21.0 |     102.7 |     207.0 |     11.86s |
+| Test 5 (triton attn, eager)         |     20.5 |     105.1 |     205.5 |     14.55s |
 
 ¹ first request of the day; warmup-cost noise.
 
@@ -206,11 +206,11 @@ Server args confirm the fix is wired: `mamba_scheduler_strategy='extra_buffer'`,
 `speculative_algorithm='EAGLE'` (SGLang's internal name for NEXTN under
 spec_v2). No startup crash.
 
-| Test | moe_runner | attn   | spec  | n=1   | n=4   | n=8       | n=8 TTFT |
-|------|------------|--------|-------|------:|------:|----------:|---------:|
-| 13   | triton     | triton | NEXTN | **104.2** | 277.8 | **410.7** | **0.74s** |
-| 14   | triton     | fi     | NEXTN | 85.8  | **284.3** | 409.9 | 0.97s    |
-| 6 (no MTP, prior run) | triton | triton | —     | 69.0  | 212.0 | 345.8 | —        |
+| Test                  | moe_runner | attn   | spec  |       n=1 |       n=4 |       n=8 |  n=8 TTFT |
+|-----------------------|------------|--------|-------|----------:|----------:|----------:|----------:|
+| 13                    | triton     | triton | NEXTN | **104.2** |     277.8 | **410.7** | **0.74s** |
+| 14                    | triton     | fi     | NEXTN |      85.8 | **284.3** |     409.9 |     0.97s |
+| 6 (no MTP, prior run) | triton     | triton | —     |      69.0 |     212.0 |     345.8 |         — |
 
 - **MTP delivers a massive boost over the no-MTP winner (Test 6):**
   **+51% at n=1** (104.2 vs 69.0), **+31% at n=4** (277.8 vs 212.0),

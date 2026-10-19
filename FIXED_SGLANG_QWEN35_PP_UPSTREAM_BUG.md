@@ -4,11 +4,11 @@
 
 **Fixed upstream** as of 2026-04-06 (re-verified 2026-04-16: all three PRs still merged, our v0.5.10 image includes them; re-verified 2026-05-31: all three predate v0.5.10 and are in the current default image `0.5.14-sm121` — no monkey-patch was ever needed; re-verified 2026-06-30: all three PRs still merged, present in `xomoxcc/dgx-spark-sglang:0.5.14-sm121`, status unchanged; re-verified 2026-07-28: all three PRs still merged, current default image is now `xomoxcc/dgx-spark-sglang:0.5.15.post1-sm121` (bumped 2026-07-24), fixes still present, no regression found). Three PRs fixed three cascading bugs:
 
-| PR | What it fixed | Merged | In v0.5.10 |
-|----|--------------|--------|-----------|
-| [#19670](https://github.com/sgl-project/sglang/pull/19670) | Initial PP support for Qwen3.5 (broken: `make_layers()` missing `pp_rank`/`pp_size`) | 2026-03-07 | Yes |
-| [#21070](https://github.com/sgl-project/sglang/pull/21070) | Fixed `make_layers()` + fused expert `params_dict` guard | 2026-03-21 | Yes |
-| [#21448](https://github.com/sgl-project/sglang/pull/21448) | Fixed non-fused expert path + Mamba/SSM cache PP sharding + VLM `start_layer`/`end_layer` | 2026-03-30 | Yes |
+| PR                                                         | What it fixed                                                                             | Merged     | In v0.5.10 |
+|------------------------------------------------------------|-------------------------------------------------------------------------------------------|------------|------------|
+| [#19670](https://github.com/sgl-project/sglang/pull/19670) | Initial PP support for Qwen3.5 (broken: `make_layers()` missing `pp_rank`/`pp_size`)      | 2026-03-07 | Yes        |
+| [#21070](https://github.com/sgl-project/sglang/pull/21070) | Fixed `make_layers()` + fused expert `params_dict` guard                                  | 2026-03-21 | Yes        |
+| [#21448](https://github.com/sgl-project/sglang/pull/21448) | Fixed non-fused expert path + Mamba/SSM cache PP sharding + VLM `start_layer`/`end_layer` | 2026-03-30 | Yes        |
 
 Related issues: [#19500](https://github.com/sgl-project/sglang/issues/19500) (initial report), [#21184](https://github.com/sgl-project/sglang/issues/21184), [#21185](https://github.com/sgl-project/sglang/issues/21185). Superseded alternative: [PR #21217](https://github.com/sgl-project/sglang/pull/21217) (closed without merge 2026-06-10, not needed).
 

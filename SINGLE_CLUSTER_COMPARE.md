@@ -39,6 +39,28 @@ SGLang 0.5.21-sm121, GSM8K via chat API (`sglang-gsm8k`), temperature 0. Bold = 
 ⁵ Range of reps 1/2 of the 2026-10-10 sweep.
 ⁶ Listed as "5/1/7" before 2026-10-11: with topk 1 SGLang rewrites draft tokens to steps+1, so it always ran 5/1/6.
 
+## Cluster rerun 2026-10-19 (dual-rail, 4 NCCL channels)
+
+Same method as 2026-10-12, but NCCL over both QSFP rails and `NCCL_MIN_NCHANNELS`/`NCCL_MAX_NCHANNELS` = 4 (was 16 by default), see `NCCL_DUALRAIL_QSFP_TEST.md`. No power cycle before the run. n=1 = single-stream tok/s of this run (4 questions, Flash-Next 8). In progress; "pending" cells are not measured yet. Last column: n=32 against the 2026-10-12 cell above.
+
+| Model                                 | Setup            | Spec config                              | Slots |     n=1 |     n=4 |     n=8 |    n=16 |    n=32 | n=32 vs 10-12 |
+|---------------------------------------|------------------|------------------------------------------|------:|--------:|--------:|--------:|--------:|--------:|--------------:|
+| **Qwen3.8-Flash-Next** (nvidia NVFP4) | 4 nodes, TP4 EP4 | MTP adaptive, bfloat16 SSM (= profile)   |    32 |    83.5 |     254 |     356 |     504 |     762 |         +18 % |
+|                                       | 4 nodes, TP4 EP4 | MTP adaptive, float32 SSM                |       | pending | pending | pending | pending | pending |               |
+|                                       | 4 nodes, TP4 EP4 | MTP 2/1/3 fixed, float32 SSM             |       | pending | pending | pending | pending | pending |               |
+|                                       | 4 nodes, TP4 EP4 | none, float32 SSM                        |       | pending | pending | pending | pending | pending |               |
+| **Qwen3.8-27B** (NVFP4)               | 4 nodes, TP4     | DSpark gamma 7, bfloat16 SSM (= profile) |       | pending | pending | pending | pending | pending |               |
+|                                       | 4 nodes, TP4     | DSpark gamma 7, float32 SSM              |       | pending | pending | pending | pending | pending |               |
+|                                       | 4 nodes, TP4     | DSpark gamma 5, float32 SSM              |       | pending | pending | pending | pending | pending |               |
+|                                       | 4 nodes, TP4     | MTP 3/1/4, float32 SSM                   |       | pending | pending | pending | pending | pending |               |
+|                                       | 4 nodes, TP4     | none, float32 SSM                        |       | pending | pending | pending | pending | pending |               |
+| **Nemotron-3-Super-120B** (NVFP4)     | 4 nodes, TP4 EP4 | MTPv2 4/1/5, bfloat16 SSM (= profile)    |       | pending | pending | pending | pending | pending |               |
+|                                       | 4 nodes, TP4 EP4 | MTPv2 4/1/5, float32 SSM                 |       | pending | pending | pending | pending | pending |               |
+|                                       | 4 nodes, TP4 EP4 | MTPv2 3/1/4, float32 SSM                 |       | pending | pending | pending | pending | pending |               |
+|                                       | 4 nodes, TP4 EP4 | MTPv2 5/1/6, float32 SSM                 |       | pending | pending | pending | pending | pending |               |
+
+Flash-Next profile n=4 to n=32: run of 2026-10-19 03:09-03:21 UTC (`NCCL_DUALRAIL_QSFP_TEST.md`).
+
 ## Method (2026-10-12)
 
 - All n>1 cells measured on 2026-10-12 after a power cycle of all Sparks. Single node: spark5, `scripts/run_standalone.sh` with the preset of the row plus env overrides and `--decode-log-interval 10`, server in the foreground of a tmux session. Cluster: one rollout per config with only that config's profile keys changed, cluster idle-checked before each deploy, default profile redeployed afterwards.

@@ -14,19 +14,19 @@ Ansible role for deploying and configuring a K3s Kubernetes cluster with master/
 
 These are typically set in `group_vars/k3sserver.yml` or `host_vars/`:
 
-| Variable | Description |
-|---|---|
-| `k3smasterip` | IP address of the K3s master node |
-| `nfsmasterip` | IP address of the NFS server for shared storage |
-| `cluster_cidr` | Pod network CIDR (e.g., `10.42.0.0/16`) |
-| `service_cidr` | Service network CIDR (e.g., `10.43.0.0/16`) |
+| Variable       | Description                                     |
+|----------------|-------------------------------------------------|
+| `k3smasterip`  | IP address of the K3s master node               |
+| `nfsmasterip`  | IP address of the NFS server for shared storage |
+| `cluster_cidr` | Pod network CIDR (e.g., `10.42.0.0/16`)         |
+| `service_cidr` | Service network CIDR (e.g., `10.43.0.0/16`)     |
 
 ### Host Variables
 
-| Variable | Description |
-|---|---|
+| Variable            | Description                             |
+|---------------------|-----------------------------------------|
 | `isk3smaster: true` | Designates the K3s master (server) node |
-| `isnfsmaster: true` | Host provides NFS storage |
+| `isnfsmaster: true` | Host provides NFS storage               |
 
 ## Task Files
 
@@ -81,13 +81,13 @@ Installation is idempotent: scripts only run if the k3s service does not already
 
 Configures HAProxy on the master node as a TCP proxy in front of Traefik. All frontends use PROXY protocol v2 to preserve client IPs.
 
-| Frontend | Port | Backend Port | Purpose |
-|---|---|---|---|
-| HTTP | 80 | 8181 | Web traffic to Traefik |
-| HTTPS | 443 | 4430 | TLS traffic to Traefik |
-| MQTT | 1883 | 1882 | Mosquitto unencrypted |
-| MQTT TLS | 8883 | 8882 | Mosquitto TLS |
-| Stats | 8123 | -- | Admin UI (localhost only) |
+| Frontend | Port | Backend Port | Purpose                   |
+|----------|------|--------------|---------------------------|
+| HTTP     | 80   | 8181         | Web traffic to Traefik    |
+| HTTPS    | 443  | 4430         | TLS traffic to Traefik    |
+| MQTT     | 1883 | 1882         | Mosquitto unencrypted     |
+| MQTT TLS | 8883 | 8882         | Mosquitto TLS             |
+| Stats    | 8123 | --           | Admin UI (localhost only) |
 
 The stats interface is accessible via SSH tunnel:
 ```bash
@@ -102,13 +102,13 @@ Configures rsyslog on all nodes to receive remote pod logs over UDP/TCP port 514
 
 Deploys maintenance scripts and cron jobs on the master node (excluding `carneades` cluster).
 
-| Schedule | Script / Command | Purpose |
-|---|---|---|
-| Daily 17:00 | `crictl rmi --prune` | Prune unused container images |
+| Schedule    | Script / Command      | Purpose                                           |
+|-------------|-----------------------|---------------------------------------------------|
+| Daily 17:00 | `crictl rmi --prune`  | Prune unused container images                     |
 | Daily 22:00 | `dumpclusterstate.sh` | Backup cluster state and SQLite DB to RustFS (S3) |
-| Daily 11:30 | `updatemosquittos.sh` | Sync Mosquitto TLS certs to relay instances |
-| Daily 13:30 | `updatepiholetls.sh` | Sync Pi-hole TLS certs to relay instances |
-| Sat 16:30 | `wakeonlan` | Wake `revo` machine |
+| Daily 11:30 | `updatemosquittos.sh` | Sync Mosquitto TLS certs to relay instances       |
+| Daily 13:30 | `updatepiholetls.sh`  | Sync Pi-hole TLS certs to relay instances         |
+| Sat 16:30   | `wakeonlan`           | Wake `revo` machine                               |
 
 ## K3s Configuration
 
@@ -128,24 +128,24 @@ Agent nodes set `node-ip`, `node-external-ip`, and the same `kube-proxy-arg: nod
 
 These YAML files are placed in `/var/lib/rancher/k3s/server/manifests/` where K3s auto-deploys them as HelmChartConfig resources.
 
-| File | Component | Key Settings |
-|---|---|---|
-| `traefik-extend.yaml` | Traefik ingress | 2 replicas with pod anti-affinity pinned to peekaboos, PROXY protocol on web/websecure/MQTT ports, fixed NodePorts, `/ping` health endpoint on `traefik` entryPoint (NodePort 30808), JSON access logs, dashboard enabled |
-| `metrics-server-extend.yaml` | Metrics Server | Resource limits (50m-1000m CPU, 64-256Mi memory) |
-| `local-path-provisioner-extend.yaml` | Local Path Provisioner | Resource limits (50m-200m CPU, 64-256Mi memory) |
-| `coredns-extend.yaml` | CoreDNS | Resource limits (100m-300m CPU, 70-170Mi memory) |
+| File                                 | Component              | Key Settings                                                                                                                                                                                                              |
+|--------------------------------------|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `traefik-extend.yaml`                | Traefik ingress        | 2 replicas with pod anti-affinity pinned to peekaboos, PROXY protocol on web/websecure/MQTT ports, fixed NodePorts, `/ping` health endpoint on `traefik` entryPoint (NodePort 30808), JSON access logs, dashboard enabled |
+| `metrics-server-extend.yaml`         | Metrics Server         | Resource limits (50m-1000m CPU, 64-256Mi memory)                                                                                                                                                                          |
+| `local-path-provisioner-extend.yaml` | Local Path Provisioner | Resource limits (50m-200m CPU, 64-256Mi memory)                                                                                                                                                                           |
+| `coredns-extend.yaml`                | CoreDNS                | Resource limits (100m-300m CPU, 70-170Mi memory)                                                                                                                                                                          |
 
 ### Traefik Port Mapping
 
 Traefik listens on non-standard ports because HAProxy handles the standard ports. Each port has a fixed NodePort for use by peekaboo HAProxy instances (see edgeservices role). A `/ping` health endpoint is enabled on the default `traefik` entryPoint (8080, NodePort 30808) for keepalived tracking — this port has no PROXY protocol, so plain `curl` health checks work directly.
 
-| Standard Port | Traefik Port | NodePort | Protocol |
-|---|---|---|---|
-| -- (ping/API) | 8080 | 30808 | HTTP (no PROXY protocol) |
-| 80 (via HAProxy) | 8181 | 30080 | HTTP + PROXY protocol |
-| 443 (via HAProxy) | 4430 | 30443 | HTTPS + PROXY protocol |
-| 1883 (via HAProxy) | 1882 | 31882 | MQTT + PROXY protocol |
-| 8883 (via HAProxy) | 8882 | 38882 | MQTT TLS + PROXY protocol |
+| Standard Port      | Traefik Port | NodePort | Protocol                  |
+|--------------------|--------------|----------|---------------------------|
+| -- (ping/API)      | 8080         | 30808    | HTTP (no PROXY protocol)  |
+| 80 (via HAProxy)   | 8181         | 30080    | HTTP + PROXY protocol     |
+| 443 (via HAProxy)  | 4430         | 30443    | HTTPS + PROXY protocol    |
+| 1883 (via HAProxy) | 1882         | 31882    | MQTT + PROXY protocol     |
+| 8883 (via HAProxy) | 8882         | 38882    | MQTT TLS + PROXY protocol |
 
 NodePorts are restricted to localhost via `kube-proxy-arg: nodeport-addresses=127.0.0.0/8` (both master and agent nodes), so they are not reachable from LAN IPs. LoadBalancer and ClusterIP access is unaffected.
 
@@ -169,23 +169,23 @@ Syncs Pi-hole TLS certificates from the K8s Pi-hole TLS secret to external relay
 
 ## Tags
 
-| Tag | Scope |
-|---|---|
-| `installbasicpackages` | Package installation only |
-| `k3sinstall` | K3s server/agent installation |
-| `crontab` | Cron job setup |
-| `haproxy` | HAProxy configuration (master only) |
-| `rsyslog` | Rsyslog configuration |
+| Tag                    | Scope                               |
+|------------------------|-------------------------------------|
+| `installbasicpackages` | Package installation only           |
+| `k3sinstall`           | K3s server/agent installation       |
+| `crontab`              | Cron job setup                      |
+| `haproxy`              | HAProxy configuration (master only) |
+| `rsyslog`              | Rsyslog configuration               |
 
 ## Handlers
 
-| Handler | Action |
-|---|---|
-| `restart knxd` | Restarts KNX daemon |
-| `stop knxd and disable` | Stops and disables KNX daemon |
-| `restart rsyslog` | Restarts rsyslog service |
-| `restart haproxy` | Restarts HAProxy service |
-| `sysctl reload` | Reloads sysctl settings (`sysctl -p`) |
+| Handler                 | Action                                |
+|-------------------------|---------------------------------------|
+| `restart knxd`          | Restarts KNX daemon                   |
+| `stop knxd and disable` | Stops and disables KNX daemon         |
+| `restart rsyslog`       | Restarts rsyslog service              |
+| `restart haproxy`       | Restarts HAProxy service              |
+| `sysctl reload`         | Reloads sysctl settings (`sysctl -p`) |
 
 ## Playbook Usage
 

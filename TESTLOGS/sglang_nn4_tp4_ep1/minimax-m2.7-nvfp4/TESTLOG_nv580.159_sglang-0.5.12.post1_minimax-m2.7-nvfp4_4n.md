@@ -2,21 +2,21 @@
 
 ## Environment
 
-| Component | Value                                                                       |
-|-----------|-----------------------------------------------------------------------------|
-| GPU       | NVIDIA GB10 (SM121/Blackwell), 128 GB per node                              |
-| Driver    | 580.159                                                                     |
-| CUDA      | 13.2 (image base `cu132`)                                                   |
-| Kernel    | 6.17.0-1018-nvidia                                                          |
-| OS        | Ubuntu 24.04 LTS (aarch64)                                                  |
-| K3s       | v1.36.1+k3s1                                                                |
-| Nodes     | spark1, spark2, spark3, spark4 (1 GPU each)                                 |
-| Image     | `xomoxcc/dgx-spark-sglang:0.5.12.post1-sm121`                              |
-| Model     | `nvidia/MiniMax-M2.7-NVFP4`                                                 |
-| NCCL      | 2.30.4+cuda13.2 (NVIDIA upstream — see note below)                          |
-| Transport | **RoCE** via SR-IOV VF, throughout                                          |
+| Component | Value                                                                            |
+|-----------|----------------------------------------------------------------------------------|
+| GPU       | NVIDIA GB10 (SM121/Blackwell), 128 GB per node                                   |
+| Driver    | 580.159                                                                          |
+| CUDA      | 13.2 (image base `cu132`)                                                        |
+| Kernel    | 6.17.0-1018-nvidia                                                               |
+| OS        | Ubuntu 24.04 LTS (aarch64)                                                       |
+| K3s       | v1.36.1+k3s1                                                                     |
+| Nodes     | spark1, spark2, spark3, spark4 (1 GPU each)                                      |
+| Image     | `xomoxcc/dgx-spark-sglang:0.5.12.post1-sm121`                                    |
+| Model     | `nvidia/MiniMax-M2.7-NVFP4`                                                      |
+| NCCL      | 2.30.4+cuda13.2 (NVIDIA upstream — see note below)                               |
+| Transport | **RoCE** via SR-IOV VF, throughout                                               |
 | AllReduce | Legacy (`SGLANG_USE_JIT_ALL_REDUCE=0` + `SGLANG_OPT_USE_CUSTOM_ALL_REDUCE_V2=0`) |
-| NVLS      | `enable_nccl_nvls=False` (SGLang default for this shape)                    |
+| NVLS      | `enable_nccl_nvls=False` (SGLang default for this shape)                         |
 
 Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/minimax-m2.7-nvfp4/nv580.159_sglang-0.5.12.post1_minimax-m2.7-nvfp4_n4_ep1.yaml`
 Raw results: `matrixtest/2026-06-01/results/sglang_nn4_tp4_ep1/minimax-m2.7-nvfp4/0.5.12.post1/`
@@ -50,35 +50,35 @@ Raw results: `matrixtest/2026-06-01/results/sglang_nn4_tp4_ep1/minimax-m2.7-nvfp
 
 ## Results — throughput (peak Σ per-req tok/s)
 
-| #  | MoE | Attn | FP4 | CG | n1 | n4 | **n8 peak** | n8 agg | n8 ok | Notes |
-|----|-----|------|-----|----|----|----|-------------|--------|-------|-------|
-| 01 | fi_cutlass | fi | fi_cutlass | no-CG  | 25.21 | 90.72 | **138.88** | 123.90 | 8/8 | harness winner (top n8 agg), but n1 TTFT 11.9 s ⚠️ |
-| 07 | fi_cutlass | **triton** | fi_cutlass | piecewise | 35.01 | 95.84 | **138.48** | 120.67 | 8/8 | PROBE — triton-attn competitive |
-| 02 | fi_cutlass | fi | fi_cutlass | **piecewise** | 35.87 | 92.28 | **136.00** | 121.57 | 8/8 | **best all-rounder** (see below) |
-| 06 | triton | fi | fi_cutlass | full-CG | 33.72 | 90.88 | 135.68 | 113.54 | 8/8 | |
-| 04 | triton | fi | fi_cutlass | no-CG  | 15.40 | 84.20 | 135.36 | 106.01 | 8/8 | n1 TTFT **67.4 s** ⚠️⚠️ |
-| 05 | triton | fi | fi_cutlass | piecewise | 33.95 | 87.92 | 134.88 | 113.69 | 8/8 | |
-| 08 | triton | **triton** | fi_cutlass | piecewise | 33.35 | 90.08 | 132.56 | 119.75 | 8/8 | PROBE |
-| 10 | triton | fi | **fi_cudnn** | piecewise | 34.14 | 88.64 | 130.96 | 121.78 | 8/8 | cuDNN-FP4 delta |
-| 03 | fi_cutlass | fi | fi_cutlass | full-CG | 36.33 | 95.76 | 125.09 | 107.23 | **7/8** | 1 fail @ n8 |
-| 09 | fi_cutlass | fi | **fi_cudnn** | piecewise | 35.83 | 96.48 | 123.62 | 103.49 | **7/8** | cuDNN-FP4 delta, 1 fail @ n8 |
-| 13 | fi_cutlass | fi | fi_cutlass | piecewise + **NEXTN** | 24.54 | 64.32 | 84.49 | 71.37 | 7/8 | spec balanced — net loss |
-| 14 | fi_cutlass | fi | fi_cutlass | piecewise + **NEXTN** | 21.17 | 52.52 | 70.56 | 57.96 | 7/8 | spec low-latency — net loss |
-| 11 | **flashinfer_trtllm** | fi | fi_cutlass | piecewise | — | — | **CRASH** | — | — | startup_crash (PROBE) |
-| 12 | **cutlass** (direct) | fi | fi_cutlass | piecewise | — | — | **CRASH** | — | — | startup_crash (PROBE) |
+| #   | MoE                   | Attn       | FP4          | CG                    | n1    | n4    | **n8 peak** | n8 agg | n8 ok   | Notes                                              |
+|-----|-----------------------|------------|--------------|-----------------------|-------|-------|-------------|--------|---------|----------------------------------------------------|
+| 01  | fi_cutlass            | fi         | fi_cutlass   | no-CG                 | 25.21 | 90.72 | **138.88**  | 123.90 | 8/8     | harness winner (top n8 agg), but n1 TTFT 11.9 s ⚠️ |
+| 07  | fi_cutlass            | **triton** | fi_cutlass   | piecewise             | 35.01 | 95.84 | **138.48**  | 120.67 | 8/8     | PROBE — triton-attn competitive                    |
+| 02  | fi_cutlass            | fi         | fi_cutlass   | **piecewise**         | 35.87 | 92.28 | **136.00**  | 121.57 | 8/8     | **best all-rounder** (see below)                   |
+| 06  | triton                | fi         | fi_cutlass   | full-CG               | 33.72 | 90.88 | 135.68      | 113.54 | 8/8     |                                                    |
+| 04  | triton                | fi         | fi_cutlass   | no-CG                 | 15.40 | 84.20 | 135.36      | 106.01 | 8/8     | n1 TTFT **67.4 s** ⚠️⚠️                            |
+| 05  | triton                | fi         | fi_cutlass   | piecewise             | 33.95 | 87.92 | 134.88      | 113.69 | 8/8     |                                                    |
+| 08  | triton                | **triton** | fi_cutlass   | piecewise             | 33.35 | 90.08 | 132.56      | 119.75 | 8/8     | PROBE                                              |
+| 10  | triton                | fi         | **fi_cudnn** | piecewise             | 34.14 | 88.64 | 130.96      | 121.78 | 8/8     | cuDNN-FP4 delta                                    |
+| 03  | fi_cutlass            | fi         | fi_cutlass   | full-CG               | 36.33 | 95.76 | 125.09      | 107.23 | **7/8** | 1 fail @ n8                                        |
+| 09  | fi_cutlass            | fi         | **fi_cudnn** | piecewise             | 35.83 | 96.48 | 123.62      | 103.49 | **7/8** | cuDNN-FP4 delta, 1 fail @ n8                       |
+| 13  | fi_cutlass            | fi         | fi_cutlass   | piecewise + **NEXTN** | 24.54 | 64.32 | 84.49       | 71.37  | 7/8     | spec balanced — net loss                           |
+| 14  | fi_cutlass            | fi         | fi_cutlass   | piecewise + **NEXTN** | 21.17 | 52.52 | 70.56       | 57.96  | 7/8     | spec low-latency — net loss                        |
+| 11  | **flashinfer_trtllm** | fi         | fi_cutlass   | piecewise             | —     | —     | **CRASH**   | —      | —       | startup_crash (PROBE)                              |
+| 12  | **cutlass** (direct)  | fi         | fi_cutlass   | piecewise             | —     | —     | **CRASH**   | —      | —       | startup_crash (PROBE)                              |
 
 ## Results — single-stream latency (n=1)
 
-| #  | shape | n1 tok/s | avg TTFT (s) | verdict |
-|----|-------|----------|--------------|---------|
-| 03 | fi_cutlass / full-CG       | 36.33 | 0.38 | best n1 tps + TTFT (but 1 fail @ n8) |
-| 02 | fi_cutlass / piecewise     | 35.87 | 0.42 | top-tier, stable 8/8 everywhere |
-| 09 | fi_cutlass / cuDNN / piecewise | 35.83 | 0.40 | (1 fail @ n8) |
-| 07 | fi_cutlass / triton-attn / piecewise | 35.01 | 0.41 | |
-| 06 | triton / full-CG           | 33.72 | 0.45 | |
-| 05 | triton / piecewise         | 33.95 | 0.42 | |
-| 01 | fi_cutlass / **no-CG**      | 25.21 | **11.94** | eager cold-start penalty ⚠️ |
-| 04 | triton / **no-CG**          | 15.40 | **67.38** | eager + triton-MoE cold-start ⚠️⚠️ |
+| #   | shape                                | n1 tok/s | avg TTFT (s) | verdict                              |
+|-----|--------------------------------------|----------|--------------|--------------------------------------|
+| 03  | fi_cutlass / full-CG                 | 36.33    | 0.38         | best n1 tps + TTFT (but 1 fail @ n8) |
+| 02  | fi_cutlass / piecewise               | 35.87    | 0.42         | top-tier, stable 8/8 everywhere      |
+| 09  | fi_cutlass / cuDNN / piecewise       | 35.83    | 0.40         | (1 fail @ n8)                        |
+| 07  | fi_cutlass / triton-attn / piecewise | 35.01    | 0.41         |                                      |
+| 06  | triton / full-CG                     | 33.72    | 0.45         |                                      |
+| 05  | triton / piecewise                   | 33.95    | 0.42         |                                      |
+| 01  | fi_cutlass / **no-CG**               | 25.21    | **11.94**    | eager cold-start penalty ⚠️          |
+| 04  | triton / **no-CG**                   | 15.40    | **67.38**    | eager + triton-MoE cold-start ⚠️⚠️   |
 
 ---
 
@@ -116,14 +116,14 @@ Both crashed head + all 3 workers (1 restart each) and were correctly classified
 
 This means the current `nvidia-minimax-m2.7-nvfp4.yml` profile — which still carries the **PP=4-inherited** `moe_runner_backend: triton` + `disable_cuda_graph: true` + `disable_piecewise_cuda_graph: true` — should change to:
 
-| Key | Current (PP=4 inherited) | Recommended (TP=4 matrix) |
-|-----|--------------------------|---------------------------|
-| `moe_runner_backend` | `triton` | `flashinfer_cutlass` |
-| `disable_cuda_graph` | `true` (eager) | `false` |
-| `disable_piecewise_cuda_graph` | `true` | `false` |
-| `attention_backend` | `flashinfer` | `flashinfer` (unchanged) |
-| `fp4_gemm_backend` | `flashinfer_cutlass` | `flashinfer_cutlass` (unchanged) |
-| `speculative_enabled` | `false` | `false` (confirmed — spec is a net loss) |
+| Key                            | Current (PP=4 inherited) | Recommended (TP=4 matrix)                |
+|--------------------------------|--------------------------|------------------------------------------|
+| `moe_runner_backend`           | `triton`                 | `flashinfer_cutlass`                     |
+| `disable_cuda_graph`           | `true` (eager)           | `false`                                  |
+| `disable_piecewise_cuda_graph` | `true`                   | `false`                                  |
+| `attention_backend`            | `flashinfer`             | `flashinfer` (unchanged)                 |
+| `fp4_gemm_backend`             | `flashinfer_cutlass`     | `flashinfer_cutlass` (unchanged)         |
+| `speculative_enabled`          | `false`                  | `false` (confirmed — spec is a net loss) |
 
 The profile's own header already anticipated this ("switch this to flashinfer_cutlass if Block A wins") — Block A won.
 

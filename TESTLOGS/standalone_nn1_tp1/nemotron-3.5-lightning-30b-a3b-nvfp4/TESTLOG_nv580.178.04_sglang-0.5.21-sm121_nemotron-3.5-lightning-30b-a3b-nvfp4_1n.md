@@ -2,17 +2,17 @@
 
 ## Environment
 
-| Component | Value                                                                                   |
-|-----------|-----------------------------------------------------------------------------------------|
-| GPU       | NVIDIA GB10 (SM121), 128 GB unified, driver 580.178.04                                  |
-| Node      | 1x DGX Spark (standalone podman host, not a cluster node)                                         |
-| Image     | `xomoxcc/dgx-spark-sglang:0.5.21-sm121` (digest `sha256:4ab12e77ff98…`)                 |
-| Model     | `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4` (snapshot `bee7596`)               |
-| Draft     | `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4-DSpark` (Qwen3DSparkModel, 967M)    |
+| Component | Value                                                                                                  |
+|-----------|--------------------------------------------------------------------------------------------------------|
+| GPU       | NVIDIA GB10 (SM121), 128 GB unified, driver 580.178.04                                                 |
+| Node      | 1x DGX Spark (standalone podman host, not a cluster node)                                              |
+| Image     | `xomoxcc/dgx-spark-sglang:0.5.21-sm121` (digest `sha256:4ab12e77ff98…`)                                |
+| Model     | `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4` (snapshot `bee7596`)                              |
+| Draft     | `nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-NVFP4-DSpark` (Qwen3DSparkModel, 967M)                   |
 | Launcher  | `scripts/run_standalone.sh` `PRESET=nemotron35_lightning`, patches `vroomfondel/dgxarley@e9bbf67` (47) |
-| Parallel  | tp=1, pp=1, ep=1                                                                        |
-| HF cache  | local NVMe (`/root/.cache/huggingface`), no network filesystem                           |
-| Date      | 2026-10-10                                                                              |
+| Parallel  | tp=1, pp=1, ep=1                                                                                       |
+| HF cache  | local NVMe (`/root/.cache/huggingface`), no network filesystem                                         |
+| Date      | 2026-10-10                                                                                             |
 
 Profile: `roles/k8s_dgx/model_profiles/nvidia-nvidia-nemotron-3.5-lightning-30b-a3b-nvfp4.yml` (the cluster profile runs tp_size 4; this log is single-GPU only).
 Predecessor: none (first contact).
@@ -48,14 +48,14 @@ Aggregate tok/s (total_tokens / wall), n=1/4/8/16: A 71/107/139/225, B 134/192/2
 
 ## Quality checks
 
-| Check                           | All cases                                         |
-|---------------------------------|---------------------------------------------------|
-| GSM8K correct                   | 298/300 (both misses are id 12, see above)        |
-| Same-char runs (harness)        | none                                              |
-| Odd non-ASCII (harness)         | none                                              |
-| Truncations                     | 1 (B, id 12)                                      |
-| `reasoning_content` populated   | yes (nemotron_3 parser splits cleanly)            |
-| Eager decode batches            | 0 in A-E (bs 16); 00 ran n=8/16 partly eager (bs 4) |
+| Check                         | All cases                                           |
+|-------------------------------|-----------------------------------------------------|
+| GSM8K correct                 | 298/300 (both misses are id 12, see above)          |
+| Same-char runs (harness)      | none                                                |
+| Odd non-ASCII (harness)       | none                                                |
+| Truncations                   | 1 (B, id 12)                                        |
+| `reasoning_content` populated | yes (nemotron_3 parser splits cleanly)              |
+| Eager decode batches          | 0 in A-E (bs 16); 00 ran n=8/16 partly eager (bs 4) |
 
 Manual smoke test on 00: 4 parallel free-form prompts (code, story, German history, calculus) coherent; the German prompt was answered in English (model behaviour, not setup). float16 SSM state with speculation showed no corruption at this sample size (the qwen38 preset forces float32 for its own spec path; not needed here).
 

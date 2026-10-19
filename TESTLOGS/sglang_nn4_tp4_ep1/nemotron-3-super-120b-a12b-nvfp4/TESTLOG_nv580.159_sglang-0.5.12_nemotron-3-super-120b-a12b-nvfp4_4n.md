@@ -70,10 +70,10 @@ CG variant encoding:
 
 ### Block A — CUDA-graph variant (fi_cutlass MoE, fi_cutlass-fp4, ctx262k) — Cases 01–02
 
-| #  | moe_runner | fp4_gemm   | CG variant | ctx   | Status | n=1 tok/s | n=4 peak | n=8 peak | n=8 ok | Output |
-|----|------------|------------|------------|-------|--------|----------:|---------:|---------:|--------|--------|
-| 01 | fi_cutlass | fi_cutlass | no-CG (eager) | 262k | ok   | 22.10 | 80.97 | 125.57 | 8/8 | clean ✓ |
-| 02 | fi_cutlass | fi_cutlass | full-CG    | 262k  | ok⁺  | 29.49 | 87.36 | 118.39 | 7/8 | **flag** ⚠ |
+| #   | moe_runner | fp4_gemm   | CG variant    | ctx  | Status | n=1 tok/s | n=4 peak | n=8 peak | n=8 ok | Output     |
+|-----|------------|------------|---------------|------|--------|----------:|---------:|---------:|--------|------------|
+| 01  | fi_cutlass | fi_cutlass | no-CG (eager) | 262k | ok     |     22.10 |    80.97 |   125.57 | 8/8    | clean ✓    |
+| 02  | fi_cutlass | fi_cutlass | full-CG       | 262k | ok⁺    |     29.49 |    87.36 |   118.39 | 7/8    | **flag** ⚠ |
 
 ### Block B — context scaling (fi_cutlass MoE, fi_cutlass-fp4, full-CG) — Cases 02–04
 

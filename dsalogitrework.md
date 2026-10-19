@@ -511,12 +511,12 @@ torch.AcceleratorError: CUDA error: an illegal memory access was encountered
 intermediate** (`gathered_fp8.to(torch.float32)`) = **4.7 MB per query token**
 (2048 * 576 * 4 B).
 
-| case | num_tokens_q | fp32 intermediate |
-|---|---|---|
-| decode (bs<=32) | <=32 | ~75 MB - fine, this is why decode works |
-| smoke prefill (bs=1, #new-token 64) | 64 | ~0.3 GB - worked |
-| GSM8K 2-shot x8 concurrent | ~2400 | **~11.3 GB** (avail was ~11 GB) -> crash |
-| chunked_prefill_size cap | 8192 | **~38 GB** |
+| case                                | num_tokens_q | fp32 intermediate                        |
+|-------------------------------------|--------------|------------------------------------------|
+| decode (bs<=32)                     | <=32         | ~75 MB - fine, this is why decode works  |
+| smoke prefill (bs=1, #new-token 64) | 64           | ~0.3 GB - worked                         |
+| GSM8K 2-shot x8 concurrent          | ~2400        | **~11.3 GB** (avail was ~11 GB) -> crash |
+| chunked_prefill_size cap            | 8192         | **~38 GB**                               |
 
 **Decode's `num_tokens_q` is the batch size (1 query token per request). Prefill's is
 EVERY extend token in the batch.** That is the asymmetry the "reuse unchanged" claim
@@ -600,15 +600,15 @@ PREFILL stays design-broken per PART 3).
 
 ## GPU verification (spark5 podman, GB10, real quantize_k_cache, torch reference)
 
-| case | numerics | time |
-|---|---|---|
-| decode bs=4 topk=2048 | max\|diff\| 0.008 | 0.072 ms/call (gather: 0.26 ms) |
-| decode bs=32 | ok | 0.236 ms/call |
-| decode seq_lens>topk (sglang's UNCLIPPED cache_seqlens) | PASS, kernel clamps | - |
-| seq_lens=None / heavy -1 padding | PASS | - |
-| prefill 2400 extend tokens (the GSM8K conc-8 killer) | max\|diff\| 0.016 | 14.4 ms/layer |
-| prefill 8192 (chunked_prefill_size) | ok | 48.5 ms/layer |
-| cuda-graph capture+replay | finite, works DIRECTLY | 0.239 ms/replay |
+| case                                                    | numerics               | time                            |
+|---------------------------------------------------------|------------------------|---------------------------------|
+| decode bs=4 topk=2048                                   | max\|diff\| 0.008      | 0.072 ms/call (gather: 0.26 ms) |
+| decode bs=32                                            | ok                     | 0.236 ms/call                   |
+| decode seq_lens>topk (sglang's UNCLIPPED cache_seqlens) | PASS, kernel clamps    | -                               |
+| seq_lens=None / heavy -1 padding                        | PASS                   | -                               |
+| prefill 2400 extend tokens (the GSM8K conc-8 killer)    | max\|diff\| 0.016      | 14.4 ms/layer                   |
+| prefill 8192 (chunked_prefill_size)                     | ok                     | 48.5 ms/layer                   |
+| cuda-graph capture+replay                               | finite, works DIRECTLY | 0.239 ms/replay                 |
 
 The seq_lens subtlety: the sparse entry interprets a `[num_tokens]`-shaped
 seq_lens as ACTIVE top-k length per token (a `[batch]`-shaped one is ignored ->
@@ -643,16 +643,16 @@ all correct.
 
 **Deploy 2 (SUCCESS, the current state):**
 
-| milestone | result |
-|---|---|
-| boot | clean, 0 restarts, 0 ANCHOR-DRIFT, all 37 patches applied |
-| weight load | 1056 s, avail 26.57 GB |
-| KV alloc | 131072 tokens, 7.51 GB, fp8 packed (656 B) |
-| decode graph capture (deploy-1 crash point) | 18.02 s, bs 1..32, avail 11.55 GB after |
-| smoke | coherent ("Paris. The city is located on the banks of the Seine...") |
-| decode | **8.4 tok/s, cuda graph: True** (= gather path; indexer-bound as predicted) |
-| prefill, the gather-killer shape | **7 seqs / 2240 tokens @ 873 tok/s input** (gather: 1-5 tok/s + OOM) |
-| GSM8K 2-shot n=20 conc 8 (the crash repro) | **17/20 = 85%, 0 errors, 0 restarts, 420.7 s total** |
+| milestone                                   | result                                                                      |
+|---------------------------------------------|-----------------------------------------------------------------------------|
+| boot                                        | clean, 0 restarts, 0 ANCHOR-DRIFT, all 37 patches applied                   |
+| weight load                                 | 1056 s, avail 26.57 GB                                                      |
+| KV alloc                                    | 131072 tokens, 7.51 GB, fp8 packed (656 B)                                  |
+| decode graph capture (deploy-1 crash point) | 18.02 s, bs 1..32, avail 11.55 GB after                                     |
+| smoke                                       | coherent ("Paris. The city is located on the banks of the Seine...")        |
+| decode                                      | **8.4 tok/s, cuda graph: True** (= gather path; indexer-bound as predicted) |
+| prefill, the gather-killer shape            | **7 seqs / 2240 tokens @ 873 tok/s input** (gather: 1-5 tok/s + OOM)        |
+| GSM8K 2-shot n=20 conc 8 (the crash repro)  | **17/20 = 85%, 0 errors, 0 restarts, 420.7 s total**                        |
 
 ## NEXT: the indexer is now the only decode lever (plan, user-approved 2026-07-16)
 
@@ -729,13 +729,13 @@ server_args.
 **The REAL floor (torch profiler, live head, 22 decode steps, 88% GPU-busy,
 ~131 ms kernel time/token):**
 
-| ms/token | share | what |
-|---|---|---|
-| ~59 | ~45% | cuBLAS **bf16 GEMV** (166 us x ~3.25/layer) + dsv3_fused_a_gemm + lm_head: the UNQUANTIZED bf16 MLA projections (modelopt kept attention dense) - pure weight-bandwidth at bs=1 |
-| ~27 | ~21% | cutlass grouped GEMM: the NVFP4 MoE |
-| ~12 | ~10% | small bf16 wmma GEMMs (kv_b / indexer projections) |
-| ~10 | ~8%  | NCCL AllReduce (61 us x 2/layer, TP4) |
-| ~3  | ~2.5%| sparse_mla_decode_dsv3_2 (the p34 attention - as predicted, tiny) |
+| ms/token | share | what                                                                                                                                                                            |
+|----------|-------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| ~59      | ~45%  | cuBLAS **bf16 GEMV** (166 us x ~3.25/layer) + dsv3_fused_a_gemm + lm_head: the UNQUANTIZED bf16 MLA projections (modelopt kept attention dense) - pure weight-bandwidth at bs=1 |
+| ~27      | ~21%  | cutlass grouped GEMM: the NVFP4 MoE                                                                                                                                             |
+| ~12      | ~10%  | small bf16 wmma GEMMs (kv_b / indexer projections)                                                                                                                              |
+| ~10      | ~8%   | NCCL AllReduce (61 us x 2/layer, TP4)                                                                                                                                           |
+| ~3       | ~2.5% | sparse_mla_decode_dsv3_2 (the p34 attention - as predicted, tiny)                                                                                                               |
 
 **Correctness regression PASSED:** GSM8K 2-shot n=20 conc 8 with the Triton
 kernel in the decode graph: **18/20 = 90%, 0 errors, 0 restarts, 342 s** (p34
@@ -788,12 +788,12 @@ graph captures passed -- target verify 25.4 s (deploy-1's crash point), draft
 decode 18.7 s, draft extend 2.0 s; 9.76 GB avail after capture (the draft-memory
 watch item resolved: plenty).
 
-| metric | base (p34/p35) | MTP |
-|---|---|---|
-| decode single-stream | 8.4 tok/s | **11.7-12.4 tok/s (+45%)** |
-| accept len / rate | - | ~2.1 tokens/step / 0.29-0.45 |
+| metric                   | base (p34/p35)           | MTP                               |
+|--------------------------|--------------------------|-----------------------------------|
+| decode single-stream     | 8.4 tok/s                | **11.7-12.4 tok/s (+45%)**        |
+| accept len / rate        | -                        | ~2.1 tokens/step / 0.29-0.45      |
 | GSM8K 2-shot n=20 conc 8 | 85% / 90%, 421 s / 342 s | **85%, 179.5 s (~2x end-to-end)** |
-| errors / restarts | 0/0 | 0/0 |
+| errors / restarts        | 0/0                      | 0/0                               |
 
 The full stack for this: p42 (NVFP4 NextN load) + p34 (verify through the native
 sparse kernel via the decode impl) + p30 Phase 2 (indexer next_n>=2 pass-through)

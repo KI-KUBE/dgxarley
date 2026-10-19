@@ -4,16 +4,16 @@
 
 ## Environment
 
-| Component            | Value                                                                                          |
-|----------------------|------------------------------------------------------------------------------------------------|
-| GPU                  | NVIDIA GB10 (SM121), 4 nodes (spark1 head, spark2-4 workers), driver 580.178.04                |
-| Image                | `xomoxcc/dgx-spark-sglang:0.5.21-sm121`                                                        |
-| Model                | `vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt` (uniform W4A4 NVFP4, FP8 KV)                          |
-| Drafts               | `RadixArk/Qwen3.8-27B-DSpark` (block 7); built-in MTP head (driven as EAGLE)                   |
-| Parallelism          | TP=4, PP=1, EP=1, `nccl_transport: roce`                                                       |
-| Profile args         | `--mem-fraction-static 0.6 --context-length 262144 --kv-cache-dtype fp8_e4m3 --attention-backend flashinfer --fp4-gemm-backend flashinfer_cutlass --max-running-requests 32 --cuda-graph-max-bs-decode 32 --mamba-radix-cache-strategy extra_buffer` (no `--mamba-ssm-dtype`, i.e. default; no `SGLANG_RAGGED_VERIFY_MODE`) |
-| Deploy               | `ansible-playbook k8s_dgx.yml --tags sglang -e sglang_model=vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt`, profile edited per case, restored byte-identical afterwards |
-| Date                 | 2026-10-11                                                                                     |
+| Component    | Value                                                                                                                                                                                                                                                                                                                       |
+|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| GPU          | NVIDIA GB10 (SM121), 4 nodes (spark1 head, spark2-4 workers), driver 580.178.04                                                                                                                                                                                                                                             |
+| Image        | `xomoxcc/dgx-spark-sglang:0.5.21-sm121`                                                                                                                                                                                                                                                                                     |
+| Model        | `vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt` (uniform W4A4 NVFP4, FP8 KV)                                                                                                                                                                                                                                                       |
+| Drafts       | `RadixArk/Qwen3.8-27B-DSpark` (block 7); built-in MTP head (driven as EAGLE)                                                                                                                                                                                                                                                |
+| Parallelism  | TP=4, PP=1, EP=1, `nccl_transport: roce`                                                                                                                                                                                                                                                                                    |
+| Profile args | `--mem-fraction-static 0.6 --context-length 262144 --kv-cache-dtype fp8_e4m3 --attention-backend flashinfer --fp4-gemm-backend flashinfer_cutlass --max-running-requests 32 --cuda-graph-max-bs-decode 32 --mamba-radix-cache-strategy extra_buffer` (no `--mamba-ssm-dtype`, i.e. default; no `SGLANG_RAGGED_VERIFY_MODE`) |
+| Deploy       | `ansible-playbook k8s_dgx.yml --tags sglang -e sglang_model=vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt`, profile edited per case, restored byte-identical afterwards                                                                                                                                                            |
+| Date         | 2026-10-11                                                                                                                                                                                                                                                                                                                  |
 
 Single-node reference: `TESTLOGS/standalone_nn1_tp1/qwen-3.8-27b-nvfp4-modelopt/TESTLOG_nv580.178.04_sglang-0.5.21-sm121_qwen-3.8-27b-nvfp4-modelopt_1n.md` (same image, TP=1).
 
@@ -35,13 +35,13 @@ Differences to the single-node method (keep in mind when comparing): question co
 
 GSM8K correct (n=1 / 4 / 8 / 16 / 32 questions 4/16/32/64/128):
 
-| #  | n=1 | n=4   | n=8   | n=16  | n=32    | truncated at 8192 (all levels) |
-|----|----:|------:|------:|------:|--------:|-------------------------------:|
-| 1  | 4/4 | 15/16 | 31/32 | 62/64 | 122/128 | 3 |
-| 2  | 4/4 | 15/16 | 31/32 | 62/64 | 122/128 | 3 |
-| 3  | 4/4 | 15/16 | 30/32 | 62/64 | 123/128 | 5 |
-| 4  | 4/4 | 15/16 | 30/32 | 62/64 | 123/128 | 4 |
-| 5  | 4/4 | 15/16 | 30/32 | 62/64 | 123/128 | 1 |
+| #   | n=1 |   n=4 |   n=8 |  n=16 |    n=32 | truncated at 8192 (all levels) |
+|-----|----:|------:|------:|------:|--------:|-------------------------------:|
+| 1   | 4/4 | 15/16 | 31/32 | 62/64 | 122/128 |                              3 |
+| 2   | 4/4 | 15/16 | 31/32 | 62/64 | 122/128 |                              3 |
+| 3   | 4/4 | 15/16 | 30/32 | 62/64 | 123/128 |                              5 |
+| 4   | 4/4 | 15/16 | 30/32 | 62/64 | 123/128 |                              4 |
+| 5   | 4/4 | 15/16 | 30/32 | 62/64 | 123/128 |                              1 |
 
 Every run is "n=N ok" (no request failures, no empty responses, no char runs, no odd non-ASCII). Accuracy is the same within 1 question across cases, including the control; the few misses are truncations (runaway reasoning at the 8192 cap) plus a couple of wrong answers present without speculation as well.
 

@@ -81,17 +81,17 @@ RuntimeError: Task error: Unable to parse string as hex hash value
 
 ## Affected versions
 
-| Component | Version | Source |
-|---|---|---|
-| `hf_xet` | `1.5.1` | image `xomoxcc/dgx-spark-sglang:0.5.14-sm121` — **broken** |
-| `hf_xet` | `1.5.2rc0` | image `xomoxcc/dgx-spark-sglang:0.5.15-sm121` — **broken** |
-| `hf_xet` | `1.5.2` (stable, released 2026-07-16) | **confirmed still broken** — reported on `xet-core#895` 2026-07-23 (not yet tested in-cluster) |
-| `huggingface_hub` | `1.23.0` | both images |
-| `huggingface_hub` | `1.24.0` (released 2026-07-17) | **confirmed still broken** alongside `hf_xet 1.5.2` — same `xet-core#895` report, 2026-07-23 |
-| `hf_xet` | `1.5.3.dev0` (diagnostic pre-release, 2026-07-24) | released by maintainer `@seanses` on `xet-core#895`, embeds the failing hash value in the error message, not a fix. Confirmed still broken by two independent reporters, 2026-07-25 and 2026-07-27 |
-| `huggingface_hub` | `1.25.0` (released 2026-07-27) | **confirmed still broken**, tested alongside `hf_xet 1.5.3.dev0` in the same `xet-core#895` thread, 2026-07-27 |
-| `huggingface_hub` | `1.25.1` (released 2026-07-27) | **confirmed still broken**, same test combination (huggingface_hub 1.25.1 plus hf_xet 1.5.3.dev0), reported on `xet-core#895`, 2026-07-27 |
-| `huggingface_hub` | `1.26.0` (released 2026-07-30) | **contains the fix** (PR #4595, verified an ancestor of the v1.26.0 tag via compare API) — **not yet verified in-cluster** |
+| Component         | Version                                           | Source                                                                                                                                                                                             |
+|-------------------|---------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `hf_xet`          | `1.5.1`                                           | image `xomoxcc/dgx-spark-sglang:0.5.14-sm121` — **broken**                                                                                                                                         |
+| `hf_xet`          | `1.5.2rc0`                                        | image `xomoxcc/dgx-spark-sglang:0.5.15-sm121` — **broken**                                                                                                                                         |
+| `hf_xet`          | `1.5.2` (stable, released 2026-07-16)             | **confirmed still broken** — reported on `xet-core#895` 2026-07-23 (not yet tested in-cluster)                                                                                                     |
+| `huggingface_hub` | `1.23.0`                                          | both images                                                                                                                                                                                        |
+| `huggingface_hub` | `1.24.0` (released 2026-07-17)                    | **confirmed still broken** alongside `hf_xet 1.5.2` — same `xet-core#895` report, 2026-07-23                                                                                                       |
+| `hf_xet`          | `1.5.3.dev0` (diagnostic pre-release, 2026-07-24) | released by maintainer `@seanses` on `xet-core#895`, embeds the failing hash value in the error message, not a fix. Confirmed still broken by two independent reporters, 2026-07-25 and 2026-07-27 |
+| `huggingface_hub` | `1.25.0` (released 2026-07-27)                    | **confirmed still broken**, tested alongside `hf_xet 1.5.3.dev0` in the same `xet-core#895` thread, 2026-07-27                                                                                     |
+| `huggingface_hub` | `1.25.1` (released 2026-07-27)                    | **confirmed still broken**, same test combination (huggingface_hub 1.25.1 plus hf_xet 1.5.3.dev0), reported on `xet-core#895`, 2026-07-27                                                          |
+| `huggingface_hub` | `1.26.0` (released 2026-07-30)                    | **contains the fix** (PR #4595, verified an ancestor of the v1.26.0 tag via compare API) — **not yet verified in-cluster**                                                                         |
 
 Neither `hf_xet` nor `huggingface_hub` is pinned in the SGLang build recipes
 (`scripts/patches/sglang-0.5.1{4,5}-sm121.recipe`), so a rebuild pulls whatever pip
@@ -127,10 +127,10 @@ took the per-file HEAD path.
 The distinguishing variable is the **huggingface_hub download code path**, not the
 data, the version, the cache, concurrency, disk, or the CAS service:
 
-| Call | Result |
-|---|---|
-| `hf_hub_download(repo, filename=<shard>)` | ✅ reliably OK (shard1: 2/2, ~46s each) |
-| `snapshot_download(repo, allow_patterns=[<shard>])` (what the Job uses) | ❌ always `hex hash` crash |
+| Call                                                                    | Result                                  |
+|-------------------------------------------------------------------------|-----------------------------------------|
+| `hf_hub_download(repo, filename=<shard>)`                               | ✅ reliably OK (shard1: 2/2, ~46s each) |
+| `snapshot_download(repo, allow_patterns=[<shard>])` (what the Job uses) | ❌ always `hex hash` crash              |
 
 Both download the **same file** over the **same Xet CAS**, same clean cache, same
 `hf_xet`. `snapshot_download` drives `hf_xet`'s new **session-based** download-group

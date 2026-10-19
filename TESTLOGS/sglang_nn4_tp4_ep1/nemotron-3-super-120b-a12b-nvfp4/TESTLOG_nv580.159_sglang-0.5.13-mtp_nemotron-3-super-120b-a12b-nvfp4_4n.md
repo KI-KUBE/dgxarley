@@ -10,21 +10,21 @@
 
 ## Environment
 
-| Component | Value                                                                                   |
-|-----------|-----------------------------------------------------------------------------------------|
-| GPU       | NVIDIA GB10 (SM121/Blackwell), 128 GB per node                                          |
-| Driver    | 580.159.03  *(verified on spark1–4, 2026-06-16 — matches the `nv580.159` filename label)* |
-| CUDA      | 13.0.3 host toolkit (`/usr/local/cuda-13.0`); nvidia-smi reports max CUDA 13.0          |
-| Kernel    | 6.17.0-1021-nvidia (aarch64)                                                            |
-| OS        | Ubuntu 24.04.4 LTS (aarch64)                                                            |
-| K3s       | v1.36.1+k3s1                                                                            |
+| Component | Value                                                                                                        |
+|-----------|--------------------------------------------------------------------------------------------------------------|
+| GPU       | NVIDIA GB10 (SM121/Blackwell), 128 GB per node                                                               |
+| Driver    | 580.159.03  *(verified on spark1–4, 2026-06-16 — matches the `nv580.159` filename label)*                    |
+| CUDA      | 13.0.3 host toolkit (`/usr/local/cuda-13.0`); nvidia-smi reports max CUDA 13.0                               |
+| Kernel    | 6.17.0-1021-nvidia (aarch64)                                                                                 |
+| OS        | Ubuntu 24.04.4 LTS (aarch64)                                                                                 |
+| K3s       | v1.36.1+k3s1                                                                                                 |
 | Nodes     | spark1 (head), spark2, spark3, spark4 (workers) — GB10, 1 GPU each; control-plane = elite800 (amd64, no GPU) |
-| Image     | `xomoxcc/dgx-spark-sglang:0.5.13-dev-nemotronh-mtp-sm121` — **dedicated NemotronH-MTP** |
-| Model     | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4`                                        |
-| Arch      | `NemotronHForCausalLM` (`model_type=nemotron_h`) — Mamba2 + MoE + attn hybrid           |
-| Quant     | `modelopt_mixed` / `MIXED_PRECISION` (expert FFN FP4 g16, attn/latent/MTP/emb FP8/BF16) |
-| NCCL      | **2.30.4** *(from the boot log of the actual run — note: the image on-node previously carried 2.30.7)* |
-| Transport | **RoCE** via SR-IOV VF                                                                  |
+| Image     | `xomoxcc/dgx-spark-sglang:0.5.13-dev-nemotronh-mtp-sm121` — **dedicated NemotronH-MTP**                      |
+| Model     | `nvidia/NVIDIA-Nemotron-3-Super-120B-A12B-NVFP4`                                                             |
+| Arch      | `NemotronHForCausalLM` (`model_type=nemotron_h`) — Mamba2 + MoE + attn hybrid                                |
+| Quant     | `modelopt_mixed` / `MIXED_PRECISION` (expert FFN FP4 g16, attn/latent/MTP/emb FP8/BF16)                      |
+| NCCL      | **2.30.4** *(from the boot log of the actual run — note: the image on-node previously carried 2.30.7)*       |
+| Transport | **RoCE** via SR-IOV VF                                                                                       |
 
 Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/nemotron-3-super-120b-a12b-nvfp4/nv580.159_sglang-0.5.13-mtp_nemotron-3-super-120b-a12b-nvfp4_n4_ep1.yaml`
 Results: `matrixtest/2026-06-16/results/sglang_nn4_tp4_ep1/nemotron-3-super-120b-a12b-nvfp4/0.5.13-mtp/`
@@ -106,41 +106,41 @@ CG variant encoding:
 
 ### Block A — NO-SPEC boot litmus + CG (fi_cutlass MoE, fi_cutlass-fp4, ctx262k) — Cases 01–02
 
-| #  | spec | CG variant     | ctx  | Status | n=1 tok/s | n=4 peak | n=8 peak | n=8 ok | Output |
-|----|------|----------------|------|--------|----------:|---------:|---------:|--------|--------|
-| 01 | off  | no-CG (eager)  | 262k | ✅ OK  | 23.15     | 85.6     | 140.4    | 8/0    | coherent |
-| 02 | off  | full-CG        | 262k | ✅ OK  | 31.67     | 95.0     | 146.3    | 8/0    | coherent |
+| #   | spec | CG variant    | ctx  | Status | n=1 tok/s | n=4 peak | n=8 peak | n=8 ok | Output   |
+|-----|------|---------------|------|--------|----------:|---------:|---------:|--------|----------|
+| 01  | off  | no-CG (eager) | 262k | ✅ OK  |     23.15 |     85.6 |    140.4 | 8/0    | coherent |
+| 02  | off  | full-CG       | 262k | ✅ OK  |     31.67 |     95.0 |    146.3 | 8/0    | coherent |
 
 - Eager (01) is ~27% slower at n=1 than full-CG (02). Full-CG is the no-spec serving baseline
   and the MTP denominator.
 
 ### Block B — NO-SPEC context scaling (fi_cutlass MoE, full-CG) — Cases 03–04
 
-| #  | spec | ctx     | json_override                         | Status | n=1 tok/s | n=8 peak | n=8 ok | Output |
-|----|------|---------|---------------------------------------|--------|----------:|---------:|--------|--------|
-| 03 | off  | 524288  | `{"max_position_embeddings":524288}`  | ✅ OK  | 30.22     | 145.8    | 8/0    | coherent |
-| 04 | off  | 1048576 | `{"max_position_embeddings":1048576}` | ✅ OK  | 31.58     | 146.1    | 8/0    | coherent |
+| #   | spec | ctx     | json_override                         | Status | n=1 tok/s | n=8 peak | n=8 ok | Output   |
+|-----|------|---------|---------------------------------------|--------|----------:|---------:|--------|----------|
+| 03  | off  | 524288  | `{"max_position_embeddings":524288}`  | ✅ OK  |     30.22 |    145.8 | 8/0    | coherent |
+| 04  | off  | 1048576 | `{"max_position_embeddings":1048576}` | ✅ OK  |     31.58 |    146.1 | 8/0    | coherent |
 
 - Context scaling is ~free (NoPE + 80/88 Mamba layers → KV barely grows): 262k/524k/1M all
   land at ~146 n=8 peak. Confirms the 0.5.12 finding on the new image.
 
 ### Block C — NO-SPEC fp4_gemm delta (fi_cutlass MoE, full-CG, ctx262k) — Case 05
 
-| #  | fp4_gemm | Status            | Note |
-|----|----------|-------------------|------|
-| 05 | fi_cudnn | ❌ startup_crash | `RuntimeError: cuDNN is not available` (`flashinfer/gemm/gemm_base.py` `_check_cudnn_availability`). The dev image does NOT ship `nvidia-cudnn-cu12` either — same gap as 0.5.12. |
+| #   | fp4_gemm | Status           | Note                                                                                                                                                                              |
+|-----|----------|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 05  | fi_cudnn | ❌ startup_crash | `RuntimeError: cuDNN is not available` (`flashinfer/gemm/gemm_base.py` `_check_cudnn_availability`). The dev image does NOT ship `nvidia-cudnn-cu12` either — same gap as 0.5.12. |
 
 ### Block D — NO-SPEC MoE runner PROBE (full-CG, ctx262k) — Case 06
 
-| #  | moe_runner | Status            | Note |
-|----|------------|-------------------|------|
-| 06 | triton     | ❌ startup_crash | `AssertionError: mismatch in expected n` (`cutlass_moe.py:428 cutlass_moe_fp4`). The triton flag is ignored on the NVFP4 modelopt path → always dispatches `cutlass_moe_fp4` → LatentMoE/512-expert shape trips the assert. Same crash as 0.5.12. |
+| #   | moe_runner | Status           | Note                                                                                                                                                                                                                                              |
+|-----|------------|------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 06  | triton     | ❌ startup_crash | `AssertionError: mismatch in expected n` (`cutlass_moe.py:428 cutlass_moe_fp4`). The triton flag is ignored on the NVFP4 modelopt path → always dispatches `cutlass_moe_fp4` → LatentMoE/512-expert shape trips the assert. Same crash as 0.5.12. |
 
 ### Block E — NO-SPEC piecewise-CG PROBE (fi_cutlass MoE, ctx262k) — Case 07
 
-| #  | CG variant | Status | n=1 tok/s | n=8 peak | n=8 ok | Output |
-|----|------------|--------|----------:|---------:|--------|--------|
-| 07 | piecewise  | ✅ OK  | 30.69     | 147.8    | 8/0    | coherent |
+| #   | CG variant | Status | n=1 tok/s | n=8 peak | n=8 ok | Output   |
+|-----|------------|--------|----------:|---------:|--------|----------|
+| 07  | piecewise  | ✅ OK  |     30.69 |    147.8 | 8/0    | coherent |
 
 - Piecewise boots and is marginally the fastest no-spec at n=8 (147.8 vs 146.3 full-CG) — but
   within run-to-run noise, and the card sets `--disable-piecewise-cuda-graph`. Kept off.
@@ -150,12 +150,12 @@ CG variant encoding:
 > Speedup read against Block-A Case 02 (no-spec, same image, n=1 31.67 / n=8 peak 146.3).
 > **accept_len > 1 met on all (R3 PASS).** accept_len = mean over the decode log.
 
-| #  | steps | draft | Status | accept_len | n=1 tok/s | n=1 vs 02 | n=8 peak | n=8 vs 02 | n=8 ok | NaN? | Output |
-|----|------:|------:|--------|-----------:|----------:|----------:|---------:|----------:|--------|------|--------|
-| 08 | 1     | 2     | ✅ OK  | 1.81       | 49.15     | 1.55×     | 183.0    | 1.25×     | 8/0    | no   | coherent |
-| 09 | 3     | 4     | 🏆 **WIN** | 2.67   | **53.99** | **1.70×** | **199.7** | **1.37×** | 8/0    | no   | coherent |
-| 10 | 5     | 5     | ⚠️ OK  | 2.97       | 51.50     | 1.63×     | 152.7    | 1.04×     | 7/1    | no   | 1 repetition (req 2) |
-| 11 | 5     | 7     | ✅ OK  | 2.93       | 53.21     | 1.68×     | 175.1    | 1.20×     | 8/0    | no   | coherent |
+| #   | steps | draft | Status     | accept_len | n=1 tok/s | n=1 vs 02 |  n=8 peak | n=8 vs 02 | n=8 ok | NaN? | Output               |
+|-----|------:|------:|------------|-----------:|----------:|----------:|----------:|----------:|--------|------|----------------------|
+| 08  |     1 |     2 | ✅ OK      |       1.81 |     49.15 |     1.55× |     183.0 |     1.25× | 8/0    | no   | coherent             |
+| 09  |     3 |     4 | 🏆 **WIN** |       2.67 | **53.99** | **1.70×** | **199.7** | **1.37×** | 8/0    | no   | coherent             |
+| 10  |     5 |     5 | ⚠️ OK      |       2.97 |     51.50 |     1.63× |     152.7 |     1.04× | 7/1    | no   | 1 repetition (req 2) |
+| 11  |     5 |     7 | ✅ OK      |       2.93 |     53.21 |     1.68× |     175.1 |     1.20× | 8/0    | no   | coherent             |
 
 - **09 (3/4) is the overall winner** — fastest at BOTH n=1 (53.99) and n=8 (199.7), 8/8 clean.
 - **10 = the NVIDIA cookbook 5/5 recipe LOSES here:** higher accept_len (2.97) does NOT
@@ -166,11 +166,11 @@ CG variant encoding:
 
 ### Block G — MTP serving-context + robustness PROBES (cookbook 5/5) — Cases 12–14
 
-| #  | variant                          | ctx    | Status | accept_len | n=1 tok/s | n=8 peak | n=8 ok | Output |
-|----|----------------------------------|--------|--------|-----------:|----------:|---------:|--------|--------|
-| 12 | serving memory                   | 524288 | ✅ OK  | 2.83       | 45.50     | 180.7    | 8/0    | coherent |
-| 13 | `mamba_scheduler_strategy=extra_buffer` | 262144 | ⚠️ OK | 3.07 | (n1 fail) | 176.6    | 8/0    | n=1 repetition |
-| 14 | `enable_spec_v2=true`            | 262144 | ✅ OK  | 2.95       | 52.84     | 177.3    | 8/0    | coherent |
+| #   | variant                                 | ctx    | Status | accept_len | n=1 tok/s | n=8 peak | n=8 ok | Output         |
+|-----|-----------------------------------------|--------|--------|-----------:|----------:|---------:|--------|----------------|
+| 12  | serving memory                          | 524288 | ✅ OK  |       2.83 |     45.50 |    180.7 | 8/0    | coherent       |
+| 13  | `mamba_scheduler_strategy=extra_buffer` | 262144 | ⚠️ OK  |       3.07 | (n1 fail) |    176.6 | 8/0    | n=1 repetition |
+| 14  | `enable_spec_v2=true`                   | 262144 | ✅ OK  |       2.95 |     52.84 |    177.3 | 8/0    | coherent       |
 
 - **12 — MTP + 512K KV co-fit: PASS.** 5/5 draft buffers + 524k KV boot and serve (180.7 n=8,
   8/8). n=1 is lower (45.5) at long context, but the bigger serving context is viable with MTP.
@@ -186,9 +186,9 @@ CG variant encoding:
 
 | Column     | Description                                                                                                     |
 |------------|-----------------------------------------------------------------------------------------------------------------|
-| spec       | `speculative_enabled` — off (no-spec baseline) / EAGLE MTP                                                       |
-| accept_len | mean accepted draft tokens per step (decode log) — **> 1 = MTP paying off; ≈ 1 = loader bug (R3)**               |
-| n=1 vs 02  | single-stream speedup vs the no-spec Case 02 on this image (the MTP denominator)                                 |
+| spec       | `speculative_enabled` — off (no-spec baseline) / EAGLE MTP                                                      |
+| accept_len | mean accepted draft tokens per step (decode log) — **> 1 = MTP paying off; ≈ 1 = loader bug (R3)**              |
+| n=1 vs 02  | single-stream speedup vs the no-spec Case 02 on this image (the MTP denominator)                                |
 | n=N peak   | **peak** throughput = Σ per-request tok/s over the *successful* requests (NOT aggregate total_tokens/wall_time) |
 | NaN? (R2)  | did the NVFP4 MTP target-logits path emit NaN at boot/decode? (`yes` = the #27828 gap)                          |
 
@@ -200,20 +200,20 @@ All booting cases ran 8 concurrent requests, 3072 max output tokens, default sam
 Finish reasons are `length` (hit cap) / `stop` (natural EOS); `repetition` = harness
 repetition-detector trip (counted as failed).
 
-| #  | n=8 peak | n=8 agg | avg_ttft | ok/fail | finish reasons | notes |
-|----|---------:|--------:|---------:|---------|----------------|-------|
-| 01 | 140.4 | 139.3 | 0.67 | 8/0 | length/stop | eager baseline |
-| 02 | 146.3 | 130.0 | 0.77 | 8/0 | length/stop | no-spec serving baseline |
-| 03 | 145.8 | 137.2 | 1.48 | 8/0 | length/stop | ctx524k |
-| 04 | 146.1 | 146.1 | 0.70 | 8/0 | length/stop | ctx1M |
-| 07 | 147.8 | 133.0 | 0.76 | 8/0 | length/stop | piecewise (fastest no-spec, within noise) |
-| 08 | 183.0 | 173.3 | 1.48 | 8/0 | length/stop | MTP 1/2 |
-| 09 | **199.7** | 182.4 | 0.93 | 8/0 | length/stop | **WINNER** MTP 3/4 |
-| 10 | 152.7 | 143.2 | 1.12 | 7/1 | length/stop + 1 repetition | cookbook 5/5 — degraded |
-| 11 | 175.1 | 159.3 | 1.37 | 8/0 | length/stop | MTP 5/7 |
-| 12 | 180.7 | 162.1 | 1.55 | 8/0 | length/stop | MTP 5/5 @ ctx524k |
-| 13 | 176.6 | 159.6 | 0.93 | 8/0 | length/stop | extra_buffer (n=1 separately failed) |
-| 14 | 177.3 | 156.7 | 1.46 | 8/0 | length/stop | spec-v2 |
+| #   |  n=8 peak | n=8 agg | avg_ttft | ok/fail | finish reasons             | notes                                     |
+|-----|----------:|--------:|---------:|---------|----------------------------|-------------------------------------------|
+| 01  |     140.4 |   139.3 |     0.67 | 8/0     | length/stop                | eager baseline                            |
+| 02  |     146.3 |   130.0 |     0.77 | 8/0     | length/stop                | no-spec serving baseline                  |
+| 03  |     145.8 |   137.2 |     1.48 | 8/0     | length/stop                | ctx524k                                   |
+| 04  |     146.1 |   146.1 |     0.70 | 8/0     | length/stop                | ctx1M                                     |
+| 07  |     147.8 |   133.0 |     0.76 | 8/0     | length/stop                | piecewise (fastest no-spec, within noise) |
+| 08  |     183.0 |   173.3 |     1.48 | 8/0     | length/stop                | MTP 1/2                                   |
+| 09  | **199.7** |   182.4 |     0.93 | 8/0     | length/stop                | **WINNER** MTP 3/4                        |
+| 10  |     152.7 |   143.2 |     1.12 | 7/1     | length/stop + 1 repetition | cookbook 5/5 — degraded                   |
+| 11  |     175.1 |   159.3 |     1.37 | 8/0     | length/stop                | MTP 5/7                                   |
+| 12  |     180.7 |   162.1 |     1.55 | 8/0     | length/stop                | MTP 5/5 @ ctx524k                         |
+| 13  |     176.6 |   159.6 |     0.93 | 8/0     | length/stop                | extra_buffer (n=1 separately failed)      |
+| 14  |     177.3 |   156.7 |     1.46 | 8/0     | length/stop                | spec-v2                                   |
 
 Output spot-check (winner Case 09, req 1): coherent long-form technical prose, natural `stop`
 at 3008 tokens, no looping/degeneration.

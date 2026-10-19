@@ -2,19 +2,19 @@
 
 ## Environment
 
-| Component | Value |
-|-----------|-------|
-| GPU | NVIDIA GB10 (SM121/Blackwell), 128 GB per node |
-| Driver | 580.142 |
-| CUDA | 13.2 |
-| Kernel | 6.19.11-custom |
-| OS | Ubuntu 24.04 LTS (aarch64) |
-| K3s | v1.35.3+k3s1 |
-| Nodes | spark1, spark2, spark3, spark4 (1 GPU each) |
-| Image | `xomoxcc/dgx-spark-sglang:main-gemma4-sm121` |
-| Model | `google/gemma-4-31B-it` |
-| NCCL | 2.29.7+cuda13.2 (dgxspark-3node-ring) |
-| Transport | **RoCE** via SR-IOV VF |
+| Component | Value                                          |
+|-----------|------------------------------------------------|
+| GPU       | NVIDIA GB10 (SM121/Blackwell), 128 GB per node |
+| Driver    | 580.142                                        |
+| CUDA      | 13.2                                           |
+| Kernel    | 6.19.11-custom                                 |
+| OS        | Ubuntu 24.04 LTS (aarch64)                     |
+| K3s       | v1.35.3+k3s1                                   |
+| Nodes     | spark1, spark2, spark3, spark4 (1 GPU each)    |
+| Image     | `xomoxcc/dgx-spark-sglang:main-gemma4-sm121`   |
+| Model     | `google/gemma-4-31B-it`                        |
+| NCCL      | 2.29.7+cuda13.2 (dgxspark-3node-ring)          |
+| Transport | **RoCE** via SR-IOV VF                         |
 
 Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/gemma-4-31b-it/nv580.142_sglang-0.5.10_gemma-4-31b-it_n4_ep1.yaml`
 
@@ -57,25 +57,25 @@ was cut). See `SGLANG_GEMMA4_UPSTREAM_BUG.md`.
 
 All tests use: `tp=4, pp=1, nccl_transport=roce, kv_cache_dtype=fp8_e4m3, mem_fraction_static=0.85, context_length=262144` unless noted. No MoE, no FP4.
 
-| # | nccl | attention | dis_cuda_graph | dis_piecewise | Status | n=1 tok/s | n=4 peak | n=8 peak |
-|---|------|-----------|----------------|---------------|--------|-----------|----------|----------|
-| 1 | roce | fi | false | true | **startup_crash** | — | — | — |
-| 2 | roce | fi | true | true | **bench_crash** | — | — | — |
-| 3 | roce | fi | false | false | **startup_crash** | — | — | — |
-| 4 | roce | triton | false | true | **STABLE** | 10.8 | 40.8 | 66.3 |
-| 5 | roce | triton | true | true | **STABLE** | 9.6 | 37.2 | 66.7 |
-| 6 | roce | triton | false | false | **STABLE ★** | 10.6 | 36.8 | **70.6** |
+| #   | nccl | attention | dis_cuda_graph | dis_piecewise | Status            | n=1 tok/s | n=4 peak | n=8 peak |
+|-----|------|-----------|----------------|---------------|-------------------|-----------|----------|----------|
+| 1   | roce | fi        | false          | true          | **startup_crash** | —         | —        | —        |
+| 2   | roce | fi        | true           | true          | **bench_crash**   | —         | —        | —        |
+| 3   | roce | fi        | false          | false         | **startup_crash** | —         | —        | —        |
+| 4   | roce | triton    | false          | true          | **STABLE**        | 10.8      | 40.8     | 66.3     |
+| 5   | roce | triton    | true           | true          | **STABLE**        | 9.6       | 37.2     | 66.7     |
+| 6   | roce | triton    | false          | false         | **STABLE ★**      | 10.6      | 36.8     | **70.6** |
 
 Tests 1–3 use `attention_backend=flashinfer` — expected to crash (FlashInfer `head_dim=512` dispatch bug). Tests 4–6 use `attention_backend=triton` and should work.
 
 ### Column Legend
 
-| Column | Description |
-|--------|-------------|
-| nccl | `nccl_transport` — NCCL inter-node transport (`roce` = RDMA/RoCE via SR-IOV VF) |
-| attention | `attention_backend` — attention kernel (`fi` = FlashInfer, `triton` = Triton) |
-| dis_cuda_graph | `disable_cuda_graph` — true = eager mode, false = capture CUDA graphs |
-| dis_piecewise | `disable_piecewise_cuda_graph` — true = only fixed-BS graphs, false = piecewise variable-length graphs |
+| Column         | Description                                                                                            |
+|----------------|--------------------------------------------------------------------------------------------------------|
+| nccl           | `nccl_transport` — NCCL inter-node transport (`roce` = RDMA/RoCE via SR-IOV VF)                        |
+| attention      | `attention_backend` — attention kernel (`fi` = FlashInfer, `triton` = Triton)                          |
+| dis_cuda_graph | `disable_cuda_graph` — true = eager mode, false = capture CUDA graphs                                  |
+| dis_piecewise  | `disable_piecewise_cuda_graph` — true = only fixed-BS graphs, false = piecewise variable-length graphs |
 
 ---
 
@@ -110,11 +110,11 @@ Tests 1–3 use `attention_backend=flashinfer` — expected to crash (FlashInfer
 
 **3/6 STABLE, 3/6 crashed.** Clean split: all `flashinfer` tests crash, all `triton` tests pass.
 
-| Config | n=1 | n=4 | n=8 | n=1 TTFT |
-|--------|----:|----:|----:|--------:|
-| Test 4 (CG on) | **10.8** | **40.8** | 66.3 | **0.48s** |
-| Test 5 (eager) | 9.6 | 37.2 | 66.7 | 11.42s |
-| **Test 6 (piecewise)** | 10.6 | 36.8 | **70.6** | 1.97s |
+| Config                 |      n=1 |      n=4 |      n=8 |  n=1 TTFT |
+|------------------------|---------:|---------:|---------:|----------:|
+| Test 4 (CG on)         | **10.8** | **40.8** |     66.3 | **0.48s** |
+| Test 5 (eager)         |      9.6 |     37.2 |     66.7 |    11.42s |
+| **Test 6 (piecewise)** |     10.6 |     36.8 | **70.6** |     1.97s |
 
 **Winner: Test 6** — piecewise at 70.6 tok/s n=8. CG-on (Test 4) is better for interactive workloads (best n=1 TTFT at 0.48s, best n=4 at 40.8).
 

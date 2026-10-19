@@ -15,15 +15,15 @@ All patches referenced below live in [`scripts/patches/`](scripts/patches/); the
 
 ## Setup
 
-| Item | Value |
-|---|---|
-| Hardware | 4× DGX Spark (ASUS Ascent GX10), 120 GB unified memory / node |
-| Arch | sm_121 (GB10, Grace ARM64) |
-| Interconnect | QSFP56-200G, RoCE v2 (NCCL over SR-IOV VFs) |
-| Engine | SGLang v0.5.14, custom image `xomoxcc/dgx-spark-sglang:0.5.14-sm121` |
-| Model | `nvidia/DeepSeek-V4-Flash-NVFP4` (MIXED_PRECISION: NVFP4 routed experts, block-FP8 base, MTP head unquantized) |
-| Serving config | TP=4, EP=4, context 262 144, CUDA-graph on (`max_bs=32`), EAGLE-MTP |
-| Orchestration | K3s cluster (SGLang head on spark1, workers on spark2-4) |
+| Item           | Value                                                                                                          |
+|----------------|----------------------------------------------------------------------------------------------------------------|
+| Hardware       | 4× DGX Spark (ASUS Ascent GX10), 120 GB unified memory / node                                                  |
+| Arch           | sm_121 (GB10, Grace ARM64)                                                                                     |
+| Interconnect   | QSFP56-200G, RoCE v2 (NCCL over SR-IOV VFs)                                                                    |
+| Engine         | SGLang v0.5.14, custom image `xomoxcc/dgx-spark-sglang:0.5.14-sm121`                                           |
+| Model          | `nvidia/DeepSeek-V4-Flash-NVFP4` (MIXED_PRECISION: NVFP4 routed experts, block-FP8 base, MTP head unquantized) |
+| Serving config | TP=4, EP=4, context 262 144, CUDA-graph on (`max_bs=32`), EAGLE-MTP                                            |
+| Orchestration  | K3s cluster (SGLang head on spark1, workers on spark2-4)                                                       |
 
 The base image is the `sgl-kernel` SM121 build from `scitrera/cuda-containers`; the model-serving patches are layered on top. The model is a direct HuggingFace pull; `hf_quant_config.json` uses `MIXED_PRECISION` with NVFP4 on all `layers.*.ffn.experts` and block-FP8 on the base — identical layout to `nvidia/DeepSeek-V4-Pro-NVFP4`.
 
@@ -122,10 +122,10 @@ The patch is [`scripts/patches/sglang-tilelang-018-indexer-compat.patch`](script
 
 **Throughput impact:**
 
-| Config | n=1 | 12 concurrent |
-|---|---|---|
-| Torch fallback (no TileLang) | ~13.5 tok/s | ~18 tok/s (flat ceiling) |
-| TileLang indexer (patched) | **~18.7 tok/s** | **~42 tok/s** (~2.3x, scales with load) |
+| Config                       | n=1             | 12 concurrent                           |
+|------------------------------|-----------------|-----------------------------------------|
+| Torch fallback (no TileLang) | ~13.5 tok/s     | ~18 tok/s (flat ceiling)                |
+| TileLang indexer (patched)   | **~18.7 tok/s** | **~42 tok/s** (~2.3x, scales with load) |
 
 MTP accept length ~1.8 tokens/step. The model's nextn head is unquantized (FP16/BF16), so MTP runs without the NVFP4 path and adds minimal overhead.
 
@@ -141,11 +141,11 @@ SGLANG_TOPK_TRANSFORM_512_TORCH=0
 
 Re-measured with **unique prompts per context** (distinct topic + nonce → no shared prefix → no radix-cache contamination) and `ignore_eos`:
 
-| Context (prompt tokens) | TTFT (cold prefill) | Decode |
-|---|---|---|
-| 20,057 | 145 s | 9.7 tok/s |
-| 38,456 | 290 s | 9.9 tok/s |
-| 73,655 | 622 s | 10.2 tok/s |
+| Context (prompt tokens) | TTFT (cold prefill) | Decode     |
+|-------------------------|---------------------|------------|
+| 20,057                  | 145 s               | 9.7 tok/s  |
+| 38,456                  | 290 s               | 9.9 tok/s  |
+| 73,655                  | 622 s               | 10.2 tok/s |
 
 Two findings:
 - **Decode is essentially flat at ~10 tok/s from 20K → 74K context** — no progressive cliff. It's a single step down from the ~18.7 tok/s short-context rate, then stable.
@@ -157,14 +157,14 @@ Two findings:
 
 For reference, [jasl9187's thread](https://forums.developer.nvidia.com/t/deepseek-v4-flash-on-2-nodes/368916) covers the vLLM+FP8 approach on 2× DGX Spark (TP=2):
 
-| Metric | vLLM FP8, 2× GB10, TP=2 | SGLang NVFP4, 4× GB10, TP=4 |
-|---|---|---|
-| n=1 decode | ~21 tok/s | ~18.7 tok/s |
-| 4-concurrent | ~42 tok/s | ~42 tok/s @ 12-conc |
-| Long-context decode | ~16-17 tok/s @ 64K | ~10 tok/s (20-74K, flat) |
-| CUDA graph stable? | No (sm12.x instability → `--enforce-eager`, ~4× penalty) | Yes (max_bs=32) |
-| Quant | FP8 (sgl-project/FP8 checkpoint) | NVFP4 (nvidia official) |
-| MTP | Not reported | EAGLE-MTP, ~1.8 accept |
+| Metric              | vLLM FP8, 2× GB10, TP=2                                  | SGLang NVFP4, 4× GB10, TP=4 |
+|---------------------|----------------------------------------------------------|-----------------------------|
+| n=1 decode          | ~21 tok/s                                                | ~18.7 tok/s                 |
+| 4-concurrent        | ~42 tok/s                                                | ~42 tok/s @ 12-conc         |
+| Long-context decode | ~16-17 tok/s @ 64K                                       | ~10 tok/s (20-74K, flat)    |
+| CUDA graph stable?  | No (sm12.x instability → `--enforce-eager`, ~4× penalty) | Yes (max_bs=32)             |
+| Quant               | FP8 (sgl-project/FP8 checkpoint)                         | NVFP4 (nvidia official)     |
+| MTP                 | Not reported                                             | EAGLE-MTP, ~1.8 accept      |
 
 These are not apples-to-apples (different topology, different quantization, different number of nodes). This setup uses 2× the hardware, so the per-node throughput efficiency is lower. The vLLM path is simpler to get running on GB10 (no SM121-specific patches). The SGLang path gives stable CUDA-graph across high concurrency and the NVFP4 quant may have a quality advantage at long context.
 

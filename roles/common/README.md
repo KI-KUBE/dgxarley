@@ -104,58 +104,58 @@ ansible-playbook common.yml --tags netplan
 
 ## Host variables
 
-| Variable | Type | Purpose |
-|---|---|---|
-| `wantsnetplan` | bool | Enable netplan networking |
-| `isnfsmaster` | bool | Install NFS kernel server |
-| `hw_iface` | string | Physical hardware NIC |
-| `hw_iface2` | string | Secondary hardware NIC (optional) |
-| `hw_iface2_address` | string | Secondary interface IP/CIDR (optional) |
-| `default_route_iface` | string | Routable interface (computed from OVS/hw_iface, can be overridden) |
-| `wantsopenvswitch` | bool | Enable Open vSwitch bridge networking (optional) |
-| `ovs_bridge_iface` | string | Physical NIC for OVS bridge port (required if `wantsopenvswitch`) |
-| `ovs_bridge_name` | string | OVS bridge name (required if `wantsopenvswitch`) |
-| `ovs_vlans` | list(dict) | VLAN definitions; one must have `primary: true`, at most one may have `untagged: true` or `native: true` (required if `wantsopenvswitch`) |
-| `wifi_iface` | string | WiFi interface name (optional) |
-| `wifi_access_points` | list(dict) | WiFi access points `{ssid, password}` for netplan (optional) |
-| `mailname` | string | Hostname for Postfix |
-| `fail2ban_recipient` | string | Email for fail2ban alerts |
-| `fail2ban_sendermail` | string | Sender email for fail2ban |
-| `fail2ban_ignoreips` | list | IPs exempt from fail2ban (optional) |
-| `localnets` | list(dict) | Local network CIDRs for iptables |
-| `localnets_k3sserver` | list(dict) | K3s-specific local networks (optional) |
-| `iswireguardhost` | bool | Host runs WireGuard (optional) |
-| `geoblock` | list | Country codes to geo-block (optional) |
-| `geoallow` | list | Country codes to geo-allow (optional) |
-| `blacklist_simpledrm` | bool | Blacklist simpledrm kernel module for Intel iGPU card0 (optional) |
-| `wantspodman` | bool | Install and configure Podman (optional) |
-| `wantsclevis` | bool | Enable clevis/tang NBDE auto-decryption (optional) |
-| `clevis_luks_device_override` | string | Override auto-detected LUKS device (optional) |
+| Variable                      | Type       | Purpose                                                                                                                                   |
+|-------------------------------|------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| `wantsnetplan`                | bool       | Enable netplan networking                                                                                                                 |
+| `isnfsmaster`                 | bool       | Install NFS kernel server                                                                                                                 |
+| `hw_iface`                    | string     | Physical hardware NIC                                                                                                                     |
+| `hw_iface2`                   | string     | Secondary hardware NIC (optional)                                                                                                         |
+| `hw_iface2_address`           | string     | Secondary interface IP/CIDR (optional)                                                                                                    |
+| `default_route_iface`         | string     | Routable interface (computed from OVS/hw_iface, can be overridden)                                                                        |
+| `wantsopenvswitch`            | bool       | Enable Open vSwitch bridge networking (optional)                                                                                          |
+| `ovs_bridge_iface`            | string     | Physical NIC for OVS bridge port (required if `wantsopenvswitch`)                                                                         |
+| `ovs_bridge_name`             | string     | OVS bridge name (required if `wantsopenvswitch`)                                                                                          |
+| `ovs_vlans`                   | list(dict) | VLAN definitions; one must have `primary: true`, at most one may have `untagged: true` or `native: true` (required if `wantsopenvswitch`) |
+| `wifi_iface`                  | string     | WiFi interface name (optional)                                                                                                            |
+| `wifi_access_points`          | list(dict) | WiFi access points `{ssid, password}` for netplan (optional)                                                                              |
+| `mailname`                    | string     | Hostname for Postfix                                                                                                                      |
+| `fail2ban_recipient`          | string     | Email for fail2ban alerts                                                                                                                 |
+| `fail2ban_sendermail`         | string     | Sender email for fail2ban                                                                                                                 |
+| `fail2ban_ignoreips`          | list       | IPs exempt from fail2ban (optional)                                                                                                       |
+| `localnets`                   | list(dict) | Local network CIDRs for iptables                                                                                                          |
+| `localnets_k3sserver`         | list(dict) | K3s-specific local networks (optional)                                                                                                    |
+| `iswireguardhost`             | bool       | Host runs WireGuard (optional)                                                                                                            |
+| `geoblock`                    | list       | Country codes to geo-block (optional)                                                                                                     |
+| `geoallow`                    | list       | Country codes to geo-allow (optional)                                                                                                     |
+| `blacklist_simpledrm`         | bool       | Blacklist simpledrm kernel module for Intel iGPU card0 (optional)                                                                         |
+| `wantspodman`                 | bool       | Install and configure Podman (optional)                                                                                                   |
+| `wantsclevis`                 | bool       | Enable clevis/tang NBDE auto-decryption (optional)                                                                                        |
+| `clevis_luks_device_override` | string     | Override auto-detected LUKS device (optional)                                                                                             |
 
 ## Defaults
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `postfix_relayhost` | `[mail.example.com]` | Outgoing mail relay |
-| `deinstall_apparmor` | `false` | Remove AppArmor on cloud/DNS servers |
-| `smartd_mail_recipients` | `root,admin@example.com` | smartd alert recipients |
-| `iptables_xosrc_ips` | `[]` | External trusted source IPs for iptables |
-| `iptables_lifeline_ips` | `[]` | Lifeline IPs (always allowed) |
-| `iptables_k3s_external_ips` | `[]` | External IPs allowed to reach K3s ports |
-| `iptables_static_dns_ips` | `[]` | Static DNS server source IPs for iptables |
-| `dyndns_hostname` | `dyn.example.com` | DynDNS hostname for ipset updates |
-| `wifi_access_points` | `[]` | WiFi access points for netplan (real values in vault) |
-| `clevis_tang_servers` | `["http://tang.example.com", "http://tang2.example.com:9090"]` | Tang server URLs for NBDE (real values in vault) |
-| `clevis_sss_threshold` | `2` | SSS threshold (number of tang servers needed) |
+| Variable                    | Default                                                        | Purpose                                               |
+|-----------------------------|----------------------------------------------------------------|-------------------------------------------------------|
+| `postfix_relayhost`         | `[mail.example.com]`                                           | Outgoing mail relay                                   |
+| `deinstall_apparmor`        | `false`                                                        | Remove AppArmor on cloud/DNS servers                  |
+| `smartd_mail_recipients`    | `root,admin@example.com`                                       | smartd alert recipients                               |
+| `iptables_xosrc_ips`        | `[]`                                                           | External trusted source IPs for iptables              |
+| `iptables_lifeline_ips`     | `[]`                                                           | Lifeline IPs (always allowed)                         |
+| `iptables_k3s_external_ips` | `[]`                                                           | External IPs allowed to reach K3s ports               |
+| `iptables_static_dns_ips`   | `[]`                                                           | Static DNS server source IPs for iptables             |
+| `dyndns_hostname`           | `dyn.example.com`                                              | DynDNS hostname for ipset updates                     |
+| `wifi_access_points`        | `[]`                                                           | WiFi access points for netplan (real values in vault) |
+| `clevis_tang_servers`       | `["http://tang.example.com", "http://tang2.example.com:9090"]` | Tang server URLs for NBDE (real values in vault)      |
+| `clevis_sss_threshold`      | `2`                                                            | SSS threshold (number of tang servers needed)         |
 
 ## Group-specific behavior
 
-| Group | Behavior |
-|---|---|
-| `hetzner`, `hetznercloudnew` | Avahi disabled, optional AppArmor removal |
-| `dnsserver` | Avahi disabled, DNS-specific iptables rules |
-| `k3sserver` | K3s ports (6443, 6720) in firewall, async iptables at boot, `ip_nonlocal_bind=1` sysctl |
-| `krennstor101` | SSH config and copyfiles skipped, special cron jobs |
+| Group                        | Behavior                                                                                |
+|------------------------------|-----------------------------------------------------------------------------------------|
+| `hetzner`, `hetznercloudnew` | Avahi disabled, optional AppArmor removal                                               |
+| `dnsserver`                  | Avahi disabled, DNS-specific iptables rules                                             |
+| `k3sserver`                  | K3s ports (6443, 6720) in firewall, async iptables at boot, `ip_nonlocal_bind=1` sysctl |
+| `krennstor101`               | SSH config and copyfiles skipped, special cron jobs                                     |
 
 ## Tags
 

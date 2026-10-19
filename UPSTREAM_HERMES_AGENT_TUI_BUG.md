@@ -99,9 +99,9 @@
 
 ## Affected Versions
 
-| Version | Status |
-|---|---|
-| v2026.4.30 (v0.12.0) | Confirmed broken |
+| Version                               | Status            |
+|---------------------------------------|-------------------|
+| v2026.4.30 (v0.12.0)                  | Confirmed broken  |
 | Earlier releases (npm 9 in toolchain) | Presumed affected |
 
 npm 9 introduced a changed hidden-lock-file schema (`"peer"` key omission)

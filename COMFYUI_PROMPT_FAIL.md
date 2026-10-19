@@ -94,10 +94,10 @@ is conditioning-driven.
 }
 ```
 
-| Label | Positive prompt | Seed |
-|---|---|---|
-| A | `a vibrant red apple on a wooden table, professional photo, sharp focus` | 12345 |
-| B | `a glossy blue cube on a marble surface, professional photo, sharp focus` | 12345 |
+| Label | Positive prompt                                                           | Seed  |
+|-------|---------------------------------------------------------------------------|-------|
+| A     | `a vibrant red apple on a wooden table, professional photo, sharp focus`  | 12345 |
+| B     | `a glossy blue cube on a marble surface, professional photo, sharp focus` | 12345 |
 
 Driver: `/tmp/sage-test/run.py` (cluster) and `/tmp/sage-test/run_flux.py`
 (Flux variant). PNGs are saved to `/tmp/sage-test/<mode>_<label>.png`.
@@ -113,10 +113,10 @@ the SDXL UNet cross-attention.
 Removed the flag from the launch ConfigMap, restarted the pod, re-ran
 the A/B test:
 
-| Run | A (red apple) | B (blue cube) | bytes |
-|---|---|---|---|
-| with-sage | designer loft, stone wall, chandelier | wooden tiki, ivy wall | 1.68 / 1.96 MB |
-| without-sage | photo of two men in T-shirts | photo of a man at a conference table | 1.56 / 1.42 MB |
+| Run          | A (red apple)                         | B (blue cube)                        | bytes          |
+|--------------|---------------------------------------|--------------------------------------|----------------|
+| with-sage    | designer loft, stone wall, chandelier | wooden tiki, ivy wall                | 1.68 / 1.96 MB |
+| without-sage | photo of two men in T-shirts          | photo of a man at a conference table | 1.56 / 1.42 MB |
 
 **Both runs ignore the prompt.** Sage has a strong stylistic effect but
 is not the source of the desync. Restored launch args, sage re-enabled.
@@ -134,9 +134,9 @@ If the bug were SDXL-specific (e.g. broken CLIP-G), Flux should be fine.
 Same A/B test against `flux1-schnell-fp8.safetensors`, 4 steps, cfg=1.0,
 euler/simple:
 
-| Prompt | Output |
-|---|---|
-| A (red apple) | hand-written-looking card with pseudo-English text "P-bIT WIMG" |
+| Prompt        | Output                                                              |
+|---------------|---------------------------------------------------------------------|
+| A (red apple) | hand-written-looking card with pseudo-English text "P-bIT WIMG"     |
 | B (blue cube) | hand-written-looking card with pseudo-English text "PHERIS WILKINE" |
 
 Cross-model bug confirmed. Flux is text-on-image–trained and falls back
@@ -153,13 +153,13 @@ Bypassed ComfyUI entirely. Loaded `openai/clip-vit-large-patch14` via
 `transformers.CLIPTextModel` on CPU and GPU, encoded both prompts,
 compared embeddings:
 
-| Mode | norm | mean\|Δcpu\| | max\|Δcpu\| | ‖A−B‖ vs CPU ref (215.671) |
-|---|---|---|---|---|
-| cpu_fp32 (reference) | 295.8 | 0 | 0 | 215.671 |
-| gpu_fp32 (1st pass) | 248.6 | 1.02 | **27.4** | 215.7 — but Δcpu massive |
-| gpu_fp32 (2nd pass) | NaN | NaN | NaN | NaN |
-| gpu_fp16 | NaN | NaN | NaN | NaN |
-| gpu_bf16 | NaN | NaN | NaN | NaN |
+| Mode                 | norm  | mean\|Δcpu\| | max\|Δcpu\| | ‖A−B‖ vs CPU ref (215.671) |
+|----------------------|-------|--------------|-------------|----------------------------|
+| cpu_fp32 (reference) | 295.8 | 0            | 0           | 215.671                    |
+| gpu_fp32 (1st pass)  | 248.6 | 1.02         | **27.4**    | 215.7 — but Δcpu massive   |
+| gpu_fp32 (2nd pass)  | NaN   | NaN          | NaN         | NaN                        |
+| gpu_fp16             | NaN   | NaN          | NaN         | NaN                        |
+| gpu_bf16             | NaN   | NaN          | NaN         | NaN                        |
 
 GPU encoder produces NaN in fp16/bf16 (the dtype actually used by
 ComfyUI), and even fp32 only sometimes returns numbers — but with
@@ -179,17 +179,17 @@ controlled via `attn_implementation=` on the model and
 `torch.nn.attention.sdpa_kernel([...])` as the kernel selector. CPU
 fp32 reference: `‖A−B‖ = 215.671`.
 
-| attn_impl | dtype | sdpa-backend | ‖A−B‖ | max\|Δcpu\| | Verdict |
-|---|---|---|---|---|---|
-| eager | fp32 | — | 215.7 | 0.0001 | OK |
-| eager | fp16 | — | 216.0 | 0.26 | OK |
-| eager | bf16 | — | 214.5 | 1.55 | OK (bf16 noise) |
-| sdpa | fp32 | **MATH** | 215.7 | 0.0001 | OK |
-| sdpa | fp32 | **EFFICIENT** | **128.0** | **25.9** | **broken** |
-| sdpa | fp32 | FLASH | — | — | no sm121 SASS |
-| sdpa | bf16 | **MATH** | 214.8 | 1.55 | OK |
-| sdpa | bf16 | **EFFICIENT** | **101.2** | **25.6** | **broken** |
-| sdpa | bf16 | FLASH | — | — | no sm121 SASS |
+| attn_impl | dtype | sdpa-backend  | ‖A−B‖     | max\|Δcpu\| | Verdict         |
+|-----------|-------|---------------|-----------|-------------|-----------------|
+| eager     | fp32  | —             | 215.7     | 0.0001      | OK              |
+| eager     | fp16  | —             | 216.0     | 0.26        | OK              |
+| eager     | bf16  | —             | 214.5     | 1.55        | OK (bf16 noise) |
+| sdpa      | fp32  | **MATH**      | 215.7     | 0.0001      | OK              |
+| sdpa      | fp32  | **EFFICIENT** | **128.0** | **25.9**    | **broken**      |
+| sdpa      | fp32  | FLASH         | —         | —           | no sm121 SASS   |
+| sdpa      | bf16  | **MATH**      | 214.8     | 1.55        | OK              |
+| sdpa      | bf16  | **EFFICIENT** | **101.2** | **25.6**    | **broken**      |
+| sdpa      | bf16  | FLASH         | —         | —           | no sm121 SASS   |
 
 Single-cause finding: `aten::_efficient_attention_forward` on sm121.
 MATH and eager backends both reproduce CPU-grade output. FLASH has no
@@ -316,33 +316,33 @@ confirms:
 Re-ran both reproducers against the new pod (same seed=12345, same
 prompts, no other changes):
 
-| Run | A (red apple) | B (blue cube) |
-|---|---|---|
-| pre-fix with-sage | designer loft / stone wall | wooden tiki / ivy |
-| pre-fix without-sage | two men in T-shirts | man at conference table |
-| pre-fix Flux-schnell | hand-written card "P-bIT WIMG" | hand-written card "PHERIS WILKINE" |
-| **post-fix SDXL** | **glossy red apple on wooden table** | **glossy blue cube on marble** |
-| **post-fix Flux-schnell** | **red apple on wooden surface** | **blue glossy cube on marble** |
+| Run                       | A (red apple)                        | B (blue cube)                      |
+|---------------------------|--------------------------------------|------------------------------------|
+| pre-fix with-sage         | designer loft / stone wall           | wooden tiki / ivy                  |
+| pre-fix without-sage      | two men in T-shirts                  | man at conference table            |
+| pre-fix Flux-schnell      | hand-written card "P-bIT WIMG"       | hand-written card "PHERIS WILKINE" |
+| **post-fix SDXL**         | **glossy red apple on wooden table** | **glossy blue cube on marble**     |
+| **post-fix Flux-schnell** | **red apple on wooden surface**      | **blue glossy cube on marble**     |
 
 Wall-clock (warm pod, single Spark GPU under time-slicing):
 
-| Workflow | First run (cold) | Warm |
-|---|---|---|
-| SDXL 25 steps 1024×1024 | 39.8 s | 10.7 s |
-| Flux-schnell 4 steps 1024×1024 | 72.1 s | 7.6 s |
+| Workflow                       | First run (cold) | Warm   |
+|--------------------------------|------------------|--------|
+| SDXL 25 steps 1024×1024        | 39.8 s           | 10.7 s |
+| Flux-schnell 4 steps 1024×1024 | 72.1 s           | 7.6 s  |
 
 No measurable performance penalty.
 
 ## Related Files
 
-| Path | Role |
-|---|---|
-| `roles/k8s_dgx/templates/comfyui_launch.sh.j2` §4c | Shim writer + `PYTHONPATH` export at launch |
-| `COMFYUI_SM121_PATCHES.md` | xformers cutlass/FA3 patches — separate concern, complementary fix |
-| `COMFYUI_ARM64_SM121.md` | Image build guide |
-| `/tmp/sage-test/run.py` | SDXL A/B reproducer (workstation) |
-| `/tmp/sage-test/run_flux.py` | Flux-schnell A/B reproducer (workstation) |
-| `/tmp/sage-test/post-fix-{sdxl,flux}_*.png` | Verified-good output samples |
+| Path                                               | Role                                                               |
+|----------------------------------------------------|--------------------------------------------------------------------|
+| `roles/k8s_dgx/templates/comfyui_launch.sh.j2` §4c | Shim writer + `PYTHONPATH` export at launch                        |
+| `COMFYUI_SM121_PATCHES.md`                         | xformers cutlass/FA3 patches — separate concern, complementary fix |
+| `COMFYUI_ARM64_SM121.md`                           | Image build guide                                                  |
+| `/tmp/sage-test/run.py`                            | SDXL A/B reproducer (workstation)                                  |
+| `/tmp/sage-test/run_flux.py`                       | Flux-schnell A/B reproducer (workstation)                          |
+| `/tmp/sage-test/post-fix-{sdxl,flux}_*.png`        | Verified-good output samples                                       |
 
 ## Future Maintenance
 

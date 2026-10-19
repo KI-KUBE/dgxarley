@@ -6,11 +6,11 @@ Model: **KCEVE KVM1001A** (10-port KVM switch, also sold under the MLEEDA brand)
 
 The KVM has a **3-pin RS232 screw terminal block** on the rear panel labeled:
 
-| Pin | Function |
-|-----|----------|
-| **RX** | Receive |
-| **GND** | Ground |
-| **TX** | Transmit |
+| Pin     | Function |
+|---------|----------|
+| **RX**  | Receive  |
+| **GND** | Ground   |
+| **TX**  | Transmit |
 
 ## Adapter
 
@@ -25,11 +25,11 @@ DIP switches must be set to **RS232** mode (not RS485).
 
 > **Warning: The labeling on both devices is misleading.** The KVM labels its screw terminal `RX GND TX`, and the adapter labels its pins `B-RXD A+TXD GND`. The intuitive "match the names" wiring (TX→TXD, RX→RXD) looks correct but is actually **straight-through, which is wrong** for two DTE devices. You must **cross TX↔RX** (null-modem style). The fact that both sides label from their own perspective without any indication that crossing is required cost us an hour of debugging.
 
-| KVM Terminal | Wire | Adapter Pin |
-|--------------|------|-------------|
-| **TX** | yellow | **B-RXD** (Receive) |
-| **GND** | black | **GND** |
-| **RX** | green | **A+TXD** (Transmit) |
+| KVM Terminal | Wire   | Adapter Pin          |
+|--------------|--------|----------------------|
+| **TX**       | yellow | **B-RXD** (Receive)  |
+| **GND**      | black  | **GND**              |
+| **RX**       | green  | **A+TXD** (Transmit) |
 
 ## Serial Settings
 
@@ -49,18 +49,18 @@ ASCII commands terminated with ``\r`` (carriage return). Fire-and-forget — the
 
 Format: `X<channel>,1$`
 
-| Channel | Command | Action |
-|---------|---------|--------|
-| `1` | `X1,1$` | Switch to PC 1 |
-| `2` | `X2,1$` | Switch to PC 2 |
-| `3` | `X3,1$` | Switch to PC 3 |
-| `4` | `X4,1$` | Switch to PC 4 |
-| `5` | `X5,1$` | Switch to PC 5 |
-| `6` | `X6,1$` | Switch to PC 6 |
-| `7` | `X7,1$` | Switch to PC 7 |
-| `8` | `X8,1$` | Switch to PC 8 |
-| `9` | `X9,1$` | Switch to PC 9 |
-| `A` | `XA,1$` | Switch to PC 10 |
+| Channel | Command | Action          |
+|---------|---------|-----------------|
+| `1`     | `X1,1$` | Switch to PC 1  |
+| `2`     | `X2,1$` | Switch to PC 2  |
+| `3`     | `X3,1$` | Switch to PC 3  |
+| `4`     | `X4,1$` | Switch to PC 4  |
+| `5`     | `X5,1$` | Switch to PC 5  |
+| `6`     | `X6,1$` | Switch to PC 6  |
+| `7`     | `X7,1$` | Switch to PC 7  |
+| `8`     | `X8,1$` | Switch to PC 8  |
+| `9`     | `X9,1$` | Switch to PC 9  |
+| `A`     | `XA,1$` | Switch to PC 10 |
 
 ### Response (when present)
 

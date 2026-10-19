@@ -725,12 +725,12 @@ DeepSeek-V4 (`fp8_paged_mqa_logits_torch_sm120`, PR #24692), but the generic
 
 ## Local mapping
 
-| local | upstream file |
-|---|---|
-| p30 enum/server_args edits | `dsa/paged_mqa_logits_backend.py`, `server_args.py` |
-| p30 new file | `sglang/srt/layers/attention/dsa/torch_paged_mqa_logits.py` |
-| p30 dsa_backend/dsa_indexer edits | `dsa_backend.py`, `dsa/dsa_indexer.py` |
-| p35 new file + dispatch | `sglang/srt/layers/attention/dsa/triton_paged_mqa_logits.py` + the torch module |
+| local                             | upstream file                                                                   |
+|-----------------------------------|---------------------------------------------------------------------------------|
+| p30 enum/server_args edits        | `dsa/paged_mqa_logits_backend.py`, `server_args.py`                             |
+| p30 new file                      | `sglang/srt/layers/attention/dsa/torch_paged_mqa_logits.py`                     |
+| p30 dsa_backend/dsa_indexer edits | `dsa_backend.py`, `dsa/dsa_indexer.py`                                          |
+| p35 new file + dispatch           | `sglang/srt/layers/attention/dsa/triton_paged_mqa_logits.py` + the torch module |
 
 Full local chronology: `dsalogitrework.md` (PART 1 = port plan, PHASE 2, p35
 LIVE RESULT, MTP LIVE RESULT).

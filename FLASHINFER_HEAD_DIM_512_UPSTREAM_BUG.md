@@ -338,13 +338,13 @@ prefill/extend tuple (`NUM_MMA_KV=2, NUM_WARPS_Q=4, NUM_WARPS_KV=1`).
 
 **BUT it is not in any release we can ship today:**
 
-| Channel | Has #3576? |
-|---|---|
-| flashinfer **0.6.12** stable (our recipe override pin) | ❌ |
-| **0.6.13rc1** (2026-06-10) | ❌ |
-| Nightly **v0.6.13-20260615** and later (built off `main` post-merge) | ✅ |
-| **v0.6.13rc2** (2026-06-17, GitHub "Latest") | ✅ (tagged after 2026-06-15 merge) |
-| **0.6.13 stable** (released 2026-06-24) | ✅ (includes rc2 content) |
+| Channel                                                              | Has #3576?                         |
+|----------------------------------------------------------------------|------------------------------------|
+| flashinfer **0.6.12** stable (our recipe override pin)               | ❌                                 |
+| **0.6.13rc1** (2026-06-10)                                           | ❌                                 |
+| Nightly **v0.6.13-20260615** and later (built off `main` post-merge) | ✅                                 |
+| **v0.6.13rc2** (2026-06-17, GitHub "Latest")                         | ✅ (tagged after 2026-06-15 merge) |
+| **0.6.13 stable** (released 2026-06-24)                              | ✅ (includes rc2 content)          |
 
 Our deployed images are further back still — the `0.5.12` image pins
 flashinfer **0.6.11.post1**, and the BF16 Gemma profiles run on
@@ -466,14 +466,14 @@ a different `prefill.cuh` line (2978 instead of 2615).
 Concrete results from the 2026-05-11 sweep (18 cases,
 `results/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it/0.5.11/`):
 
-| Backend combo | Result |
-|---|---:|
-| `triton`-MoE + `flashinfer`-attn (Tests 01–03, all 3 CG variants) | 3× `startup_crash` |
-| `triton`-MoE + `triton`-attn (Tests 04–06) | 3× outcome=13 ✓ |
-| `fi_cutlass`-MoE + `flashinfer`-attn (Tests 07–09) | 2× `startup_crash`, 1× `bench_crash` |
-| `fi_cutlass`-MoE + `triton`-attn (Tests 10–12) | 3× outcome=13 ✓ |
-| `fi_cutedsl`-MoE + `flashinfer`-attn (Tests 13–15) | 3× `startup_crash` |
-| `fi_cutedsl`-MoE + `triton`-attn (Tests 16–18) | 3× `startup_crash` |
+| Backend combo                                                     |                               Result |
+|-------------------------------------------------------------------|-------------------------------------:|
+| `triton`-MoE + `flashinfer`-attn (Tests 01–03, all 3 CG variants) |                   3× `startup_crash` |
+| `triton`-MoE + `triton`-attn (Tests 04–06)                        |                      3× outcome=13 ✓ |
+| `fi_cutlass`-MoE + `flashinfer`-attn (Tests 07–09)                | 2× `startup_crash`, 1× `bench_crash` |
+| `fi_cutlass`-MoE + `triton`-attn (Tests 10–12)                    |                      3× outcome=13 ✓ |
+| `fi_cutedsl`-MoE + `flashinfer`-attn (Tests 13–15)                |                   3× `startup_crash` |
+| `fi_cutedsl`-MoE + `triton`-attn (Tests 16–18)                    |                   3× `startup_crash` |
 
 **Summary**: every `attention_backend: flashinfer` case fails. Every
 `attention_backend: triton` case (with `triton`-MoE or `fi_cutlass`-MoE)
@@ -520,9 +520,9 @@ Re-verified 2026-06-04 from the raw head-pod logs of the 2026-05-11/15
 0.5.11 sweep (`results/.../gemma-4-26b-a4b-it/0.5.11/` and
 `.../gemma-4-31b-it/`):
 
-| Path | Missing tuple | Fires when |
-|---|---|---|
-| **`forward_decode`** | `NUM_MMA_Q=1 NUM_MMA_KV=1 NUM_WARPS_Q=1 NUM_WARPS_KV=4` | CUDA-graph **capture** (CG-on) → `startup_crash` |
+| Path                           | Missing tuple                                           | Fires when                                                          |
+|--------------------------------|---------------------------------------------------------|---------------------------------------------------------------------|
+| **`forward_decode`**           | `NUM_MMA_Q=1 NUM_MMA_KV=1 NUM_WARPS_Q=1 NUM_WARPS_KV=4` | CUDA-graph **capture** (CG-on) → `startup_crash`                    |
 | **`forward_extend`** (prefill) | `NUM_MMA_Q=1 NUM_MMA_KV=2 NUM_WARPS_Q=4 NUM_WARPS_KV=1` | **first forward** in eager / `--disable-cuda-graph` → `bench_crash` |
 
 ```
@@ -650,10 +650,10 @@ calling `get_num_mma_q`/`get_num_warps_q`/`get_num_warps_kv`, lines 72–90).
 (`DISPATCH_CTA_TILE_Q`, `utils.cuh:113`):
 
 | `CTA_TILE_Q` | `NUM_MMA_Q` (>64→2) | `NUM_WARPS_Q` (>16→4) | `NUM_WARPS_KV` (=4/wq) |
-|---|---|---|---|
-| 16  | 1 | 1 | 4 |
-| 64  | 1 | 4 | 1 |
-| 128 | 2 | 4 | 1 |
+|--------------|---------------------|-----------------------|------------------------|
+| 16           | 1                   | 1                     | 4                      |
+| 64           | 1                   | 4                     | 1                      |
+| 128          | 2                   | 4                     | 1                      |
 
 Our two crash tuples map **exactly**:
 - **decode** (query-len 1 → `CTA_TILE_Q=16`): `NUM_MMA_Q=1 NUM_WARPS_Q=1 NUM_WARPS_KV=4`
@@ -724,12 +724,12 @@ FlashInfer gains `head_dim=512` support.
 
 ## Upstream PRs
 
-| Repo                     | PR                                                               | Title                                                                                                                                                       | Status                                                                                                                                                                                       |
-|--------------------------|------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| flashinfer-ai/flashinfer | [#2959](https://github.com/flashinfer-ai/flashinfer/pull/2959)   | [Fmha] Add head_dim=512 support for trtllm attention kernels                                                                                                | **merged 2026-04-22** (in v0.6.10rc1 / v0.6.10 / v0.6.10.post1 / v0.6.11), but **incomplete** — covers neither the decode tuple `(NUM_MMA_KV=1, NUM_WARPS_Q=1, NUM_WARPS_KV=4)` nor the prefill/extend tuple `(NUM_MMA_KV=2, NUM_WARPS_Q=4, NUM_WARPS_KV=1)` (both `NUM_MMA_Q=1, head_dim=512`) |
-| sgl-project/sglang       | [#22079](https://github.com/sgl-project/sglang/pull/22079)       | [nvidia] Gemma4 nvfp4 fix                                                                                                                                   | **merged** (2026-04-10)                                                                                                                                                                      |
-| flashinfer-ai/flashinfer | [#3297](https://github.com/flashinfer-ai/flashinfer/issues/3297) | [Bug] head_dim=512 dispatch gap on SM121 (Gemma-4 global attention) — NUM_MMA_Q=1 NUM_MMA_KV=1 NUM_WARPS_Q=1 NUM_WARPS_KV=4 not instantiated after PR #2959 | **CLOSED as Done 2026-06-15** (filed 2026-05-12; closed by the merge of PR #3576). History: third-party repro 2026-06-03, our root-cause analysis 2026-06-04, maintainer @bkryu confirmation 2026-06-09 noting PR #2959 covers only trtllm kernels, @bkryu announcing PR #3576 2026-06-11. |
-| flashinfer-ai/flashinfer | [#3576](https://github.com/flashinfer-ai/flashinfer/pull/3576)   | feat(attention): head_dim=512 support for attention prefill & decode for Gemma 4 on SM120/121 | **MERGED into `main` 2026-06-15** by @bkryu (filed 2026-06-11T05:32Z). Scope: adds head_dim=512 to the `backend='fa2'` path for `BatchDecodeWithPagedKVCacheWrapper`, `BatchPrefillWithPagedKVCacheWrapper`, `BatchPrefillWithRaggedKVCacheWrapper` — prefill + decode; Q=bfloat16, KV=bfloat16 or fp8_e4m3; explicitly targets SM12x (RTX PRO 6000, DGX Spark / GB10); restricts the old persistent kernel to head_dim≤256 and adds new tile configs for hd=512. Benchmarks on DGX Spark/GB10 (SM121): prefill hd512 34.6 TFLOP/s @ s_qo=8192; decode KV-bandwidth-bound. Files: `include/flashinfer/attention/prefill.cuh`, `persistent.cuh`, `utils.cuh`, jinja kernel instantiations, `flashinfer/aot.py`, `test_fp8_prefill.py`, `test_batch_decode_kernels.py`. **Absent from v0.6.12 / v0.6.13rc1; first appeared in nightly `v0.6.13-20260615`, then v0.6.13rc2 (2026-06-17), and is now in flashinfer 0.6.13 STABLE (released 2026-06-24). Workaround remains required until our image's flashinfer pin is bumped to ≥ 0.6.13rc2 — see the Follow-up section at the top.** |
+| Repo                     | PR                                                               | Title                                                                                                                                                       | Status                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+|--------------------------|------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| flashinfer-ai/flashinfer | [#2959](https://github.com/flashinfer-ai/flashinfer/pull/2959)   | [Fmha] Add head_dim=512 support for trtllm attention kernels                                                                                                | **merged 2026-04-22** (in v0.6.10rc1 / v0.6.10 / v0.6.10.post1 / v0.6.11), but **incomplete** — covers neither the decode tuple `(NUM_MMA_KV=1, NUM_WARPS_Q=1, NUM_WARPS_KV=4)` nor the prefill/extend tuple `(NUM_MMA_KV=2, NUM_WARPS_Q=4, NUM_WARPS_KV=1)` (both `NUM_MMA_Q=1, head_dim=512`)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| sgl-project/sglang       | [#22079](https://github.com/sgl-project/sglang/pull/22079)       | [nvidia] Gemma4 nvfp4 fix                                                                                                                                   | **merged** (2026-04-10)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| flashinfer-ai/flashinfer | [#3297](https://github.com/flashinfer-ai/flashinfer/issues/3297) | [Bug] head_dim=512 dispatch gap on SM121 (Gemma-4 global attention) — NUM_MMA_Q=1 NUM_MMA_KV=1 NUM_WARPS_Q=1 NUM_WARPS_KV=4 not instantiated after PR #2959 | **CLOSED as Done 2026-06-15** (filed 2026-05-12; closed by the merge of PR #3576). History: third-party repro 2026-06-03, our root-cause analysis 2026-06-04, maintainer @bkryu confirmation 2026-06-09 noting PR #2959 covers only trtllm kernels, @bkryu announcing PR #3576 2026-06-11.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| flashinfer-ai/flashinfer | [#3576](https://github.com/flashinfer-ai/flashinfer/pull/3576)   | feat(attention): head_dim=512 support for attention prefill & decode for Gemma 4 on SM120/121                                                               | **MERGED into `main` 2026-06-15** by @bkryu (filed 2026-06-11T05:32Z). Scope: adds head_dim=512 to the `backend='fa2'` path for `BatchDecodeWithPagedKVCacheWrapper`, `BatchPrefillWithPagedKVCacheWrapper`, `BatchPrefillWithRaggedKVCacheWrapper` — prefill + decode; Q=bfloat16, KV=bfloat16 or fp8_e4m3; explicitly targets SM12x (RTX PRO 6000, DGX Spark / GB10); restricts the old persistent kernel to head_dim≤256 and adds new tile configs for hd=512. Benchmarks on DGX Spark/GB10 (SM121): prefill hd512 34.6 TFLOP/s @ s_qo=8192; decode KV-bandwidth-bound. Files: `include/flashinfer/attention/prefill.cuh`, `persistent.cuh`, `utils.cuh`, jinja kernel instantiations, `flashinfer/aot.py`, `test_fp8_prefill.py`, `test_batch_decode_kernels.py`. **Absent from v0.6.12 / v0.6.13rc1; first appeared in nightly `v0.6.13-20260615`, then v0.6.13rc2 (2026-06-17), and is now in flashinfer 0.6.13 STABLE (released 2026-06-24). Workaround remains required until our image's flashinfer pin is bumped to ≥ 0.6.13rc2 — see the Follow-up section at the top.** |
 
 PR #22079 in SGLang fixed the **Triton attention** side of the `head_dim=512`
 problem (PTX register exhaustion on SM100a/GB200). The companion FlashInfer

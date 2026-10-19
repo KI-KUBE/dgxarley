@@ -13,9 +13,9 @@ cannot be fixed via build flags alone.
 
 ## TL;DR
 
-| Issue | Where it lives | Fix |
-|---|---|---|
-| `cutlass.{Fw,Bw}Op` route to PyTorch's compiled `aten::_efficient_attention_forward`, which hard-rejects sm121 with `FATAL: kernel '..._sm80' is for sm80-sm100, but was built for sm121`. | PyTorch's compiled binary (we cannot patch it). | `xformers-disable-cutlass-on-sm121.patch`: mark cutlass.FwOp/BwOp as "not supported" on capability >= (12, 0). The xformers dispatcher then falls through to `fa2F@2.5.7-pt` (PyTorch's bundled Flash-Attention 2), which is sm121-clean. |
+| Issue                                                                                                                                                                                           | Where it lives                                                | Fix                                                                                                                                                                                                                                                                                                               |
+|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `cutlass.{Fw,Bw}Op` route to PyTorch's compiled `aten::_efficient_attention_forward`, which hard-rejects sm121 with `FATAL: kernel '..._sm80' is for sm80-sm100, but was built for sm121`.      | PyTorch's compiled binary (we cannot patch it).               | `xformers-disable-cutlass-on-sm121.patch`: mark cutlass.FwOp/BwOp as "not supported" on capability >= (12, 0). The xformers dispatcher then falls through to `fa2F@2.5.7-pt` (PyTorch's bundled Flash-Attention 2), which is sm121-clean.                                                                         |
 | Flash-Attention 3 has no sm121 SASS (FA3 is sm90-only); a default-dispatch call to `memory_efficient_attention` lands on FA3 first and crashes with `CUDA error: no kernel image is available`. | `xformers/ops/fmha/flash3.py` plus FA3 binaries in the wheel. | Build-time: `XFORMERS_DISABLE_FLASH_ATTN=1` env var (read by `setup.py:280`) — FA3 is not compiled into the wheel. Runtime belt-and-braces: `xformers-fa3-runtime-belt-and-braces.patch` makes `flash3.py` honour the same env var at import time, so even a stray FA3 wheel never registers with the dispatcher. |
 
 After both patches, the dispatcher's effective FMHA priority list on
@@ -505,11 +505,11 @@ need to be revisited against the new layout.
 
 ## Related files
 
-| Path | Role |
-|---|---|
-| `scripts/comfyui/patches/xformers-disable-cutlass-on-sm121.patch` | Patch 1 |
-| `scripts/comfyui/patches/xformers-fa3-runtime-belt-and-braces.patch` | Patch 2 |
-| `scripts/comfyui/Dockerfile` | Builds xformers from source, applies patches, runs verify step |
-| `scripts/build_comfyui_image.sh` | Wraps the Dockerfile build, registry distribution, optional Docker Hub push |
-| `roles/k8s_dgx/templates/comfyui_launch.sh.j2` | Sets `--use-sage-attention` so ComfyUI bypasses xformers on the hot path |
-| `COMFYUI_ARM64_SM121.md` | Higher-level guide to building the image for DGX Spark |
+| Path                                                                 | Role                                                                        |
+|----------------------------------------------------------------------|-----------------------------------------------------------------------------|
+| `scripts/comfyui/patches/xformers-disable-cutlass-on-sm121.patch`    | Patch 1                                                                     |
+| `scripts/comfyui/patches/xformers-fa3-runtime-belt-and-braces.patch` | Patch 2                                                                     |
+| `scripts/comfyui/Dockerfile`                                         | Builds xformers from source, applies patches, runs verify step              |
+| `scripts/build_comfyui_image.sh`                                     | Wraps the Dockerfile build, registry distribution, optional Docker Hub push |
+| `roles/k8s_dgx/templates/comfyui_launch.sh.j2`                       | Sets `--use-sage-attention` so ComfyUI bypasses xformers on the hot path    |
+| `COMFYUI_ARM64_SM121.md`                                             | Higher-level guide to building the image for DGX Spark                      |

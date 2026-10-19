@@ -2,28 +2,28 @@
 
 ## Environment
 
-| Component | Value                                                                   |
-|-----------|-------------------------------------------------------------------------|
-| GPU       | NVIDIA GB10 (SM121), 128 GB unified, driver 580.178.04 (nvidia-smi)     |
-| Node      | 1x DGX Spark (standalone podman host, not a cluster node)                         |
-| Image     | `xomoxcc/dgx-spark-sglang:0.5.21-sm121`                                 |
-| Model     | `nvidia/Qwen3.8-Flash-Next-NVFP4` (`--quantization modelopt_mixed`)     |
+| Component | Value                                                                                                                            |
+|-----------|----------------------------------------------------------------------------------------------------------------------------------|
+| GPU       | NVIDIA GB10 (SM121), 128 GB unified, driver 580.178.04 (nvidia-smi)                                                              |
+| Node      | 1x DGX Spark (standalone podman host, not a cluster node)                                                                        |
+| Image     | `xomoxcc/dgx-spark-sglang:0.5.21-sm121`                                                                                          |
+| Model     | `nvidia/Qwen3.8-Flash-Next-NVFP4` (`--quantization modelopt_mixed`)                                                              |
 | Launcher  | `scripts/run_standalone.sh` `PRESET=qwen38_nvidia` (working-tree version of 2026-10-10, with the `MTP_STEPS` / `ADAPTIVE` knobs) |
-| Parallel  | tp=1, pp=1, ep=1                                                        |
-| HF cache  | local NVMe (`/root/.cache/huggingface`), no network filesystem           |
-| PLE table | 51 GB PLE table offloaded to a file-backed mmap in `/var/tmp/sglang-ple-offload` (`PLE_KEEP=0`), resident set capped at 8 GiB |
-| Date      | 2026-10-10                                                              |
+| Parallel  | tp=1, pp=1, ep=1                                                                                                                 |
+| HF cache  | local NVMe (`/root/.cache/huggingface`), no network filesystem                                                                   |
+| PLE table | 51 GB PLE table offloaded to a file-backed mmap in `/var/tmp/sglang-ple-offload` (`PLE_KEEP=0`), resident set capped at 8 GiB    |
+| Date      | 2026-10-10                                                                                                                       |
 
 Run in parallel with a separate 4-node cluster sweep of the same model; this log is single-GPU only.
 
 Preset knobs used in all cases: `MAX_RUNNING=32` (sets `--max-running-requests 32` and `--cuda-graph-max-bs-decode 32`), `MEM_FRACTION` default `0.87` (`--mem-fraction-static 0.87`). Boot with these values succeeded in all four cases (no OOM, no fallback needed). Preset args: `--quantization modelopt_mixed --fp4-gemm-backend flashinfer_cutlass --mm-attention-backend triton_attn` plus the common qwen38 args; with MTP: `--speculative-algorithm EAGLE --speculative-draft-model-path nvidia/Qwen3.8-Flash-Next-NVFP4 --speculative-eagle-topk 1 --speculative-moe-runner-backend triton`, steps/draft tokens per case below.
 
-| Case | Env                                   | speculative args (server_args)                                    |
-|------|---------------------------------------|-------------------------------------------------------------------|
-| S0   | `SPEC=0 MAX_RUNNING=32`               | none                                                              |
-| S1   | `SPEC=1 MAX_RUNNING=32`               | num_steps 3, topk 1, num_draft_tokens 4                           |
-| S2   | `SPEC=1 MTP_STEPS=2 MAX_RUNNING=32`   | num_steps 2, topk 1, num_draft_tokens 3                           |
-| S3   | `SPEC=1 ADAPTIVE=1 MAX_RUNNING=32`    | `speculative_adaptive: True`, `speculative_adaptive_config: /launch/adaptive_config.json`, start num_steps 2 / num_draft_tokens 3 |
+| Case | Env                                 | speculative args (server_args)                                                                                                    |
+|------|-------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------|
+| S0   | `SPEC=0 MAX_RUNNING=32`             | none                                                                                                                              |
+| S1   | `SPEC=1 MAX_RUNNING=32`             | num_steps 3, topk 1, num_draft_tokens 4                                                                                           |
+| S2   | `SPEC=1 MTP_STEPS=2 MAX_RUNNING=32` | num_steps 2, topk 1, num_draft_tokens 3                                                                                           |
+| S3   | `SPEC=1 ADAPTIVE=1 MAX_RUNNING=32`  | `speculative_adaptive: True`, `speculative_adaptive_config: /launch/adaptive_config.json`, start num_steps 2 / num_draft_tokens 3 |
 
 S3 adaptive config (`adaptive_config.json`): `{"1": {"candidate_steps": [1, 2, 3]}, "8": {"candidate_steps": [1, 2, 3]}, "32": {"candidate_steps": [1, 2]}}`. (An earlier revision of the preset used other tiers; this run used the corrected file above.)
 
@@ -31,12 +31,12 @@ Method: one container start per case, bench via `sglang-gsm8k` from the control 
 
 ## Matrix
 
-| #  | Config                  | n=1 tok/s | GSM8K n=1/4/8/16/32 (correct/N) | accept len | max_running_requests (effective) | probe collapses | probe tool calls parsed |
-|----|-------------------------|----------:|---------------------------------|-----------:|---------------------------------:|----------------:|-----------------------:|
-| S0 | MTP off                 | 16.3      | 4/4, 8/8, 15/16, 30/32, 63/64   | -          | 25                               | 0/16            | 4/4                    |
-| S1 | MTP 3 / 1 / 4           | 31.7      | 4/4, 8/8, 15/16, 31/32, 62/64   | 3.04       | 9                                | 0/16            | 4/4                    |
-| S2 | MTP 2 / 1 / 3           | 32.0      | 4/4, 8/8, 15/16, 30/32, 63/64   | 2.55       | 10                               | 0/16            | 4/4                    |
-| S3 | adaptive (start 2 steps)| 31.3      | 4/4, 8/8, 15/16, 31/32, 63/64   | 2.99       | 11                               | 0/16            | 4/4                    |
+| #   | Config                   | n=1 tok/s | GSM8K n=1/4/8/16/32 (correct/N) | accept len | max_running_requests (effective) | probe collapses | probe tool calls parsed |
+|-----|--------------------------|----------:|---------------------------------|-----------:|---------------------------------:|----------------:|------------------------:|
+| S0  | MTP off                  |      16.3 | 4/4, 8/8, 15/16, 30/32, 63/64   |          - |                               25 |            0/16 |                     4/4 |
+| S1  | MTP 3 / 1 / 4            |      31.7 | 4/4, 8/8, 15/16, 31/32, 62/64   |       3.04 |                                9 |            0/16 |                     4/4 |
+| S2  | MTP 2 / 1 / 3            |      32.0 | 4/4, 8/8, 15/16, 30/32, 63/64   |       2.55 |                               10 |            0/16 |                     4/4 |
+| S3  | adaptive (start 2 steps) |      31.3 | 4/4, 8/8, 15/16, 31/32, 63/64   |       2.99 |                               11 |            0/16 |                     4/4 |
 
 Aggregate tok/s (total tokens / wall time, n=1/4/8/16/32): S0 15.9 / 39.6 / 27.6 / 31.9 / 44.5; S1 30.2 / 55.4 / 75.2 / 69.3 / 71.1; S2 29.8 / 59.8 / 73.7 / 57.8 / 86.0; S3 29.4 / 61.1 / 60.4 / 69.7 / 112.9. Aggregate is dominated by the longest request at each level (the few lengthy generations) and is no throughput measure.
 

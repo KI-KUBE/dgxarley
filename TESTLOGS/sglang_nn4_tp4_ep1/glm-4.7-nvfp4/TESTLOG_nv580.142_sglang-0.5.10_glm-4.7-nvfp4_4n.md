@@ -2,18 +2,18 @@
 
 ## Environment
 
-| Component | Value |
-|-----------|-------|
-| GPU | NVIDIA GB10 (SM121/Blackwell), 128 GB per node |
-| Driver | 580.142 |
-| CUDA | 13.2 |
-| Kernel | 6.19.11-custom |
-| OS | Ubuntu 24.04 LTS (aarch64) |
-| K3s | v1.35.3+k3s1 |
-| Nodes | spark1, spark2, spark3, spark4 (1 GPU each) |
-| Image | `scitrera/dgx-spark-sglang:0.5.10` |
-| Model | `nvidia/GLM-4.7-NVFP4` |
-| NCCL | 2.29.7+cuda13.2 (dgxspark-3node-ring) |
+| Component | Value                                              |
+|-----------|----------------------------------------------------|
+| GPU       | NVIDIA GB10 (SM121/Blackwell), 128 GB per node     |
+| Driver    | 580.142                                            |
+| CUDA      | 13.2                                               |
+| Kernel    | 6.19.11-custom                                     |
+| OS        | Ubuntu 24.04 LTS (aarch64)                         |
+| K3s       | v1.35.3+k3s1                                       |
+| Nodes     | spark1, spark2, spark3, spark4 (1 GPU each)        |
+| Image     | `scitrera/dgx-spark-sglang:0.5.10`                 |
+| Model     | `nvidia/GLM-4.7-NVFP4`                             |
+| NCCL      | 2.29.7+cuda13.2 (dgxspark-3node-ring)              |
 | Transport | **RoCE** via SR-IOV VF (9.78 GB/s measured bus BW) |
 
 Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/glm-4.7-nvfp4/nv580.142_sglang-0.5.10_glm-4.7-nvfp4_n4_ep1.yaml`

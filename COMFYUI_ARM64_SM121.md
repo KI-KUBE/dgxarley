@@ -44,13 +44,13 @@ For SM_121 we need **CUDA ≥ 13.0** and **PyTorch with Blackwell support**.
 SDPA `EFFICIENT_ATTENTION` kernels (verified empirically — see
 [`UPSTREAM_PYTORCH_SDPA_SM121.md`](UPSTREAM_PYTORCH_SDPA_SM121.md)).
 
-| Base | torch / cu | sm121 SDPA | Use |
-|---|---|---|---|
-| `nvcr.io/nvidia/pytorch:26.03-py3` | 2.11.0a0+nv / cu13.2 | ✓ correct | **default** |
-| `nvcr.io/nvidia/pytorch:26.02-py3` | 2.11.0a0+nv / cu13.1 | ✓ correct | alternative |
-| `nvcr.io/nvidia/pytorch:25.12-py3` | 2.10.0a0+nv / cu13.1 | ✓ correct | last 2.10 NGC |
-| `scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131` | 2.10.0 / cu13.1 | **✗ broken** | DO NOT USE |
-| `xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132` | 2.11.0 / cu13.2 | **✗ broken** | DO NOT USE |
+| Base                                             | torch / cu           | sm121 SDPA   | Use           |
+|--------------------------------------------------|----------------------|--------------|---------------|
+| `nvcr.io/nvidia/pytorch:26.03-py3`               | 2.11.0a0+nv / cu13.2 | ✓ correct    | **default**   |
+| `nvcr.io/nvidia/pytorch:26.02-py3`               | 2.11.0a0+nv / cu13.1 | ✓ correct    | alternative   |
+| `nvcr.io/nvidia/pytorch:25.12-py3`               | 2.10.0a0+nv / cu13.1 | ✓ correct    | last 2.10 NGC |
+| `scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131` | 2.10.0 / cu13.1      | **✗ broken** | DO NOT USE    |
+| `xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132`  | 2.11.0 / cu13.2      | **✗ broken** | DO NOT USE    |
 
 > **Avoid scitrera-pipeline images on sm121.** Both
 > `scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131` and our own rebuild
@@ -420,17 +420,17 @@ ansible-playbook k8s_dgx.yml --tags comfyui -e comfyui_enabled=true
 
 ## 10. Troubleshooting
 
-| Symptom | Cause / fix |
-|---|---|
-| `RuntimeError: CUDA error: no kernel image is available` | Arch list missing 12.1 → rebuild image with `TORCH_CUDA_ARCH_LIST="9.0a;12.0;12.1"` |
-| Build kills itself during SageAttention / torchaudio compile | RAM exhausted → `MAX_JOBS=4` or `2`, keep the host otherwise idle |
-| ComfyUI starts, but generation is **slower** than the NGC image | Base-image skew — check torch/cu version in the new image (`python -c "import torch; print(torch.__version__, torch.version.cuda)"`) and switch to a base with torch ≥ 2.11/cu13.2 if needed |
+| Symptom                                                                                                                                 | Cause / fix                                                                                                                                                                                                                                     |
+|-----------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `RuntimeError: CUDA error: no kernel image is available`                                                                                | Arch list missing 12.1 → rebuild image with `TORCH_CUDA_ARCH_LIST="9.0a;12.0;12.1"`                                                                                                                                                             |
+| Build kills itself during SageAttention / torchaudio compile                                                                            | RAM exhausted → `MAX_JOBS=4` or `2`, keep the host otherwise idle                                                                                                                                                                               |
+| ComfyUI starts, but generation is **slower** than the NGC image                                                                         | Base-image skew — check torch/cu version in the new image (`python -c "import torch; print(torch.__version__, torch.version.cuda)"`) and switch to a base with torch ≥ 2.11/cu13.2 if needed                                                    |
 | **Image renders but prompts are ignored / wrong content** (red apple → loft scene, "blue cube" → tiki statue, Flux → handwriting cards) | scitrera-pipeline base image — torch wheel has broken SDPA EFFICIENT_ATTENTION on sm121. **Switch to NGC base.** See [`COMFYUI_PROMPT_FAIL.md`](COMFYUI_PROMPT_FAIL.md) and [`UPSTREAM_PYTORCH_SDPA_SM121.md`](UPSTREAM_PYTORCH_SDPA_SM121.md). |
-| `OSError: undefined symbol: torch_dtype_float4_e2m1fn_x2` from torchaudio at pod start | Stock-PyPI torchaudio over NGC torch (ABI mismatch). Filter `torchaudio` out of pip requirements before install (Section 4 above) and build it from source against in-place NGC torch. |
-| `ModuleNotFoundError: No module named 'torchaudio'` at pod start | torchaudio source build skipped (`--no-torchaudio`) but ComfyUI imports it unconditionally via `comfy/sd.py`. Re-enable the torchaudio build step. |
-| `!` tokens / NaN / black images on FLUX-fp8 | fp8 attention without kernel support → set `--use-sage-attention` or pull the fp16 variant instead |
-| Pod stays `ContainerCreating` after an image push | `imagePullPolicy: IfNotPresent` + new tag → recreate the pod, or switch to `Always` + a versioned tag |
-| `nvidia-smi` inside the pod shows no GPU | Time-slicing share gone? → `kubectl describe pod` → check the `nvidia.com/gpu` request. The cluster has 4 replicas/GPU via time-slicing (SGLang + ComfyUI share that) |
+| `OSError: undefined symbol: torch_dtype_float4_e2m1fn_x2` from torchaudio at pod start                                                  | Stock-PyPI torchaudio over NGC torch (ABI mismatch). Filter `torchaudio` out of pip requirements before install (Section 4 above) and build it from source against in-place NGC torch.                                                          |
+| `ModuleNotFoundError: No module named 'torchaudio'` at pod start                                                                        | torchaudio source build skipped (`--no-torchaudio`) but ComfyUI imports it unconditionally via `comfy/sd.py`. Re-enable the torchaudio build step.                                                                                              |
+| `!` tokens / NaN / black images on FLUX-fp8                                                                                             | fp8 attention without kernel support → set `--use-sage-attention` or pull the fp16 variant instead                                                                                                                                              |
+| Pod stays `ContainerCreating` after an image push                                                                                       | `imagePullPolicy: IfNotPresent` + new tag → recreate the pod, or switch to `Always` + a versioned tag                                                                                                                                           |
+| `nvidia-smi` inside the pod shows no GPU                                                                                                | Time-slicing share gone? → `kubectl describe pod` → check the `nvidia.com/gpu` request. The cluster has 4 replicas/GPU via time-slicing (SGLang + ComfyUI share that)                                                                           |
 
 ---
 

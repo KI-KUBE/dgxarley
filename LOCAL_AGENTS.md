@@ -242,28 +242,28 @@ Delivery happens through the gateway.
 
 Selection of the most useful ones:
 
-| Command | Purpose |
-|---------|---------|
-| `/new`, `/reset` | fresh conversation |
-| `/model [provider:model]` | switch model mid-session |
-| `/personality [name]` | set persona |
-| `/retry`, `/undo` | revise / redo last action |
-| `/skills` | browse skill library |
-| `/compress` | actively compress context |
-| `/usage` | token / cost view |
+| Command                   | Purpose                   |
+|---------------------------|---------------------------|
+| `/new`, `/reset`          | fresh conversation        |
+| `/model [provider:model]` | switch model mid-session  |
+| `/personality [name]`     | set persona               |
+| `/retry`, `/undo`         | revise / redo last action |
+| `/skills`                 | browse skill library      |
+| `/compress`               | actively compress context |
+| `/usage`                  | token / cost view         |
 
 #### CLI commands
 
-| Command | Purpose |
-|---------|---------|
-| `hermes setup` | interactive setup wizard |
-| `hermes model` | provider / model selection |
-| `hermes tools` | enable / disable tools |
-| `hermes config set …` | individual settings |
-| `hermes` | start CLI chat |
-| `hermes gateway` | activate messaging bridge |
-| `hermes doctor` | diagnostics |
-| `hermes update` | self-update |
+| Command               | Purpose                    |
+|-----------------------|----------------------------|
+| `hermes setup`        | interactive setup wizard   |
+| `hermes model`        | provider / model selection |
+| `hermes tools`        | enable / disable tools     |
+| `hermes config set …` | individual settings        |
+| `hermes`              | start CLI chat             |
+| `hermes gateway`      | activate messaging bridge  |
+| `hermes doctor`       | diagnostics                |
+| `hermes update`       | self-update                |
 
 #### Research features
 
@@ -286,14 +286,14 @@ ahead.
 
 ## Quick decision matrix
 
-| Use case | Recommendation |
-|---|---|
-| Fast pair programmer in the terminal, git-centric | **Aider** |
-| Modern terminal TUI, many providers | **OpenCode** or **Crush** |
-| Stay in VS Code | **Cline** or **Continue** |
-| Clean MCP ecosystem, headless capable | **Goose** |
-| Autonomous agents with sandbox and browser | **OpenHands** |
-| Persistent general-purpose agent that learns | **Hermes Agent** |
+| Use case                                          | Recommendation            |
+|---------------------------------------------------|---------------------------|
+| Fast pair programmer in the terminal, git-centric | **Aider**                 |
+| Modern terminal TUI, many providers               | **OpenCode** or **Crush** |
+| Stay in VS Code                                   | **Cline** or **Continue** |
+| Clean MCP ecosystem, headless capable             | **Goose**                 |
+| Autonomous agents with sandbox and browser        | **OpenHands**             |
+| Persistent general-purpose agent that learns      | **Hermes Agent**          |
 
 ---
 

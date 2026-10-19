@@ -33,11 +33,11 @@ The current setup uses **one AI pod per node** (SGLang Head on Spark 1, Worker o
 
 The GB10 has exactly **one** Blackwell GPU with 128 GB Unified Memory. GPU sharing options:
 
-| Method | GB10 Support? | Memory Isolation? | Assessment |
-|---|---|---|---|
-| **MIG** (Multi-Instance GPU) | ❌ Not supported | ✅ Yes | MIG is only for A100/H100/B200 — GB10 has Unified Memory |
-| **Time-Slicing** | ✅ Works | ❌ No | Pods share full GPU memory; if Pod A occupies 120 GB → Pod B gets OOM |
-| **MPS** (Multi-Process Service) | ✅ Works | ❌ No | Concurrent kernels, same memory limitation |
+| Method                          | GB10 Support?    | Memory Isolation? | Assessment                                                            |
+|---------------------------------|------------------|-------------------|-----------------------------------------------------------------------|
+| **MIG** (Multi-Instance GPU)    | ❌ Not supported | ✅ Yes            | MIG is only for A100/H100/B200 — GB10 has Unified Memory              |
+| **Time-Slicing**                | ✅ Works         | ❌ No             | Pods share full GPU memory; if Pod A occupies 120 GB → Pod B gets OOM |
+| **MPS** (Multi-Process Service) | ✅ Works         | ❌ No             | Concurrent kernels, same memory limitation                            |
 
 > [!success] Implemented
 > GPU Time-Slicing is active in the production K3s cluster with `nvidia_gpu_timeslice_replicas: 4`. This allows Ollama (bge-m3 Embedding) and SGLang to run in parallel as separate GPU consumers on the same node.
@@ -59,11 +59,11 @@ sharing:
 
 The current `host-device` CNI **moves** the physical interface into the pod namespace — only **one** pod can use it. Alternatives for multi-pod:
 
-| Method | RDMA-capable? | Effort | Note |
-|---|---|---|---|
-| **`hostNetwork: true`** | ✅ Yes | Low | All pods see all host interfaces, but port conflicts possible |
-| **`macvlan`** + RDMA Shared Device Plugin | ✅ Partially | Medium | `macvlan` for IP, shared RDMA device as K8s resource |
-| **SR-IOV** | ✅ Yes (per VF) | High | Each pod gets its own Virtual Function with its own RDMA device |
+| Method                                    | RDMA-capable?   | Effort | Note                                                            |
+|-------------------------------------------|-----------------|--------|-----------------------------------------------------------------|
+| **`hostNetwork: true`**                   | ✅ Yes          | Low    | All pods see all host interfaces, but port conflicts possible   |
+| **`macvlan`** + RDMA Shared Device Plugin | ✅ Partially    | Medium | `macvlan` for IP, shared RDMA device as K8s resource            |
+| **SR-IOV**                                | ✅ Yes (per VF) | High   | Each pod gets its own Virtual Function with its own RDMA device |
 
 **SR-IOV on GB10 — open risk**: The ConnectX-7 in the GB10 runs in Multi-Host mode (2× PCIe Gen5 x4). Whether SR-IOV works in this configuration is **neither documented by NVIDIA nor tested by the community**. VFs would need to be distributed across two PCIe root complexes, which is not foreseen in classic SR-IOV. Additionally, GPUDirect RDMA is not supported on the Spark anyway — the main advantage of per-VF GPUDirect therefore does not apply.
 
@@ -87,16 +87,16 @@ GLM-5 (Zhipu AI / Z.ai, released February 2026) is significantly larger than Qwe
 
 **Memory requirements vs. DGX Spark configurations:**
 
-| Quantization | Weight Size | Sparks needed | KV-Cache Headroom | Engine |
-|---|---|---|---|---|
-| FP8 ([zai-org/GLM-5-FP8](https://huggingface.co/zai-org/GLM-5-FP8)) | ~800 GB | 8 | ~224 GB | SGLang (TP=8) — requires 2× CRS812 or SN3700 |
-| **AWQ** ([QuantTrio/GLM-5-AWQ](https://huggingface.co/QuantTrio/GLM-5-AWQ)) | **~392 GB** | **4–5** ✅ | **~120–248 GB** | **SGLang (TP=4/5, NCCL)** |
-| Q8_0 (GGUF) | ~801 GB | 7 ❌ | ~95 GB | llama.cpp |
-| Q5_K_M (GGUF) | ~535 GB | 5 | ~105 GB | llama.cpp |
-| **UD-Q4_K_XL** ([unsloth/GLM-5-GGUF](https://huggingface.co/unsloth/GLM-5-GGUF)) | **~431 GB** | **4** ✅ | **~81 GB** | llama.cpp (RPC) |
-| Q4_K_M (GGUF) | ~456 GB | 4 | ~56 GB | llama.cpp |
-| NVFP4 (Blackwell-native) | ~400 GB (estimated) | 4 | ~112 GB | SGLang — **does not exist yet** |
-| UD-Q2_K_XL (GGUF) | ~281 GB | 3 | ~103 GB | llama.cpp — quality questionable |
+| Quantization                                                                     | Weight Size         | Sparks needed | KV-Cache Headroom | Engine                                       |
+|----------------------------------------------------------------------------------|---------------------|---------------|-------------------|----------------------------------------------|
+| FP8 ([zai-org/GLM-5-FP8](https://huggingface.co/zai-org/GLM-5-FP8))              | ~800 GB             | 8             | ~224 GB           | SGLang (TP=8) — requires 2× CRS812 or SN3700 |
+| **AWQ** ([QuantTrio/GLM-5-AWQ](https://huggingface.co/QuantTrio/GLM-5-AWQ))      | **~392 GB**         | **4–5** ✅    | **~120–248 GB**   | **SGLang (TP=4/5, NCCL)**                    |
+| Q8_0 (GGUF)                                                                      | ~801 GB             | 7 ❌          | ~95 GB            | llama.cpp                                    |
+| Q5_K_M (GGUF)                                                                    | ~535 GB             | 5             | ~105 GB           | llama.cpp                                    |
+| **UD-Q4_K_XL** ([unsloth/GLM-5-GGUF](https://huggingface.co/unsloth/GLM-5-GGUF)) | **~431 GB**         | **4** ✅      | **~81 GB**        | llama.cpp (RPC)                              |
+| Q4_K_M (GGUF)                                                                    | ~456 GB             | 4             | ~56 GB            | llama.cpp                                    |
+| NVFP4 (Blackwell-native)                                                         | ~400 GB (estimated) | 4             | ~112 GB           | SGLang — **does not exist yet**              |
+| UD-Q2_K_XL (GGUF)                                                                | ~281 GB             | 3             | ~103 GB           | llama.cpp — quality questionable             |
 
 **FP8 with 8× Spark is technically feasible** — SGLang supports multi-node natively via NCCL, and the 200 Gbit/s interconnect is sufficient for the all-to-all communication of the 40B active MoE parameters. However: 8 Sparks require 2× MikroTik CRS812 or an enterprise switch (Mellanox SN3700). The HF-recommended TP=8 setup maps 1:1.
 
@@ -146,14 +146,14 @@ For 2 Sparks, a direct DAC cable (point-to-point) is sufficient. For 3+ Sparks, 
 
 ### Switch Recommendation: MikroTik CRS812 DDQ
 
-| Property | Value |
-|---|---|
-| **Model** | CRS812-8DS-2DQ-2DDQ-RM |
-| **Ports** | 8× 50G SFP56 + **2× 200G QSFP56** + **2× 400G QSFP56-DD** |
-| **Switching capacity** | 1.6 Tbps unidirectional |
-| **Form factor** | 1U Rackmount, Dual-PSU (redundant) |
-| **CPU** | Quad-Core ARM 2 GHz, 4 GB RAM |
-| **RouterOS** | v7, Layer 3, hardware offloading |
+| Property               | Value                                                     |
+|------------------------|-----------------------------------------------------------|
+| **Model**              | CRS812-8DS-2DQ-2DDQ-RM                                    |
+| **Ports**              | 8× 50G SFP56 + **2× 200G QSFP56** + **2× 400G QSFP56-DD** |
+| **Switching capacity** | 1.6 Tbps unidirectional                                   |
+| **Form factor**        | 1U Rackmount, Dual-PSU (redundant)                        |
+| **CPU**                | Quad-Core ARM 2 GHz, 4 GB RAM                             |
+| **RouterOS**           | v7, Layer 3, hardware offloading                          |
 
 **Community-confirmed**: A user in the NVIDIA Developer Forum is successfully running an 8-node Spark cluster with 2× CRS812 DDQ. Comment: *"It pretty much just works."*
 
@@ -178,15 +178,15 @@ MikroTik CRS812 DDQ
 
 ### What does 4× Spark bring?
 
-| Property | 2× Spark (current) | 4× Spark |
-|---|---|---|
-| **Unified Memory** | 256 GB | **512 GB** |
-| **FP8 model + KV budget** | 237 GB model + ~14 GB KV | 237 GB model + **~270 GB KV** |
-| **Context length (FP8 KV)** | ~140K | **Full 262K** (and more headroom) |
-| **Decode speed (MoE)** | ~25 t/s | ~30–50 t/s (better parallelization) |
-| **Prefill throughput** | ~23K t/s | **Significantly higher** (linear scaling) |
-| **Alternative models** | Qwen3-235B max. | GLM-4.7-FP8 (355B MoE), GLM-5-AWQ (744B MoE) possible |
-| **SGLang launch command** | `--tp 2 --nnodes 2` | `--tp 4 --nnodes 4` |
+| Property                    | 2× Spark (current)       | 4× Spark                                              |
+|-----------------------------|--------------------------|-------------------------------------------------------|
+| **Unified Memory**          | 256 GB                   | **512 GB**                                            |
+| **FP8 model + KV budget**   | 237 GB model + ~14 GB KV | 237 GB model + **~270 GB KV**                         |
+| **Context length (FP8 KV)** | ~140K                    | **Full 262K** (and more headroom)                     |
+| **Decode speed (MoE)**      | ~25 t/s                  | ~30–50 t/s (better parallelization)                   |
+| **Prefill throughput**      | ~23K t/s                 | **Significantly higher** (linear scaling)             |
+| **Alternative models**      | Qwen3-235B max.          | GLM-4.7-FP8 (355B MoE), GLM-5-AWQ (744B MoE) possible |
+| **SGLang launch command**   | `--tp 2 --nnodes 2`      | `--tp 4 --nnodes 4`                                   |
 
 **Most important advantage**: With 4× Spark and FP8 weights you would have enough memory for the **full 262K context window** — without compromises on model quality. Alternatively, you could run even larger models like GLM-4.7-FP8 (355B).
 
@@ -194,13 +194,13 @@ MikroTik CRS812 DDQ
 
 If you want to scale beyond 6 Sparks or require enterprise support:
 
-| Property | MikroTik CRS812 DDQ | Mellanox SN3700 (refurbished) |
-|---|---|---|
-| **Max. 200G ports** | 4 (2 native + 2 via breakout) | **32 native** |
-| **Max. Sparks (1 switch)** | 6 | 32 |
-| **RoCE/RDMA** | ✅ Basic | ✅ Natively optimized, GPUDirect |
-| **Latency** | Standard | 425ns port-to-port |
-| **Support** | Community | Enterprise (10-year warranty) |
+| Property                   | MikroTik CRS812 DDQ           | Mellanox SN3700 (refurbished)    |
+|----------------------------|-------------------------------|----------------------------------|
+| **Max. 200G ports**        | 4 (2 native + 2 via breakout) | **32 native**                    |
+| **Max. Sparks (1 switch)** | 6                             | 32                               |
+| **RoCE/RDMA**              | ✅ Basic                      | ✅ Natively optimized, GPUDirect |
+| **Latency**                | Standard                      | 425ns port-to-port               |
+| **Support**                | Community                     | Enterprise (10-year warranty)    |
 
 For a home/office setup with ≤6 Sparks, the CRS812 DDQ is the clear choice. You only need the SN3700 for serious datacenter-scale deployments.
 

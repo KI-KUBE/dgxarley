@@ -26,8 +26,8 @@ Today every spark holds a full, independent ~1.2 TiB copy of the cache under
 `sglang_tune_moe.yml`). JuiceFS is a single shared namespace, so migrating the
 big read-mostly data eliminates both the duplication **and** those rsync steps.
 
-| Subdir               | → JuiceFS?                       | Rationale                                                                               |
-|----------------------|----------------------------------|-----------------------------------------------------------------------------------------|
+| Subdir               | → JuiceFS?                        | Rationale                                                                               |
+|----------------------|-----------------------------------|-----------------------------------------------------------------------------------------|
 | `hub`                | ✅ **yes** (primary goal)         | The ~1.2 TiB weight cache; read-mostly after download; 4× duplicated today              |
 | `xet`                | ✅ yes — **must move with `hub`** | HF `hf_xet` download-accel cache, same `HF_HOME` tree, coupled to `hub`                 |
 | `modules`            | ✅ yes                            | Small `trust_remote_code` python cache; no write contention                             |
@@ -139,11 +139,11 @@ hf_hub_cache_on_juicefs: true
 then redeploy the SGLang/vLLM instances (e.g. `ansible-playbook k8s_dgx.yml
 --tags sglang`). The gate flips the `hf-cache` volume on every container:
 
-| | `false` (default) | `true` |
-|---|---|---|
-| hostPath | `hf_cache_path` (`/var/lib/hf-cache`, local NVMe) | `hf_cache_juicefs_root` (`= juicefs_mount_path`, `/mnt/jfs`, JuiceFS) |
-| `type` | `DirectoryOrCreate` | `Directory` (fail loudly if JuiceFS isn't mounted) |
-| `mountPropagation` | `None` | `HostToContainer` (survive a JuiceFS FUSE remount) |
+|                    | `false` (default)                                 | `true`                                                                |
+|--------------------|---------------------------------------------------|-----------------------------------------------------------------------|
+| hostPath           | `hf_cache_path` (`/var/lib/hf-cache`, local NVMe) | `hf_cache_juicefs_root` (`= juicefs_mount_path`, `/mnt/jfs`, JuiceFS) |
+| `type`             | `DirectoryOrCreate`                               | `Directory` (fail loudly if JuiceFS isn't mounted)                    |
+| `mountPropagation` | `None`                                            | `HostToContainer` (survive a JuiceFS FUSE remount)                    |
 
 **Why these exact choices** (the two constraints that shaped the gate):
 
@@ -301,13 +301,13 @@ places. Placeholders below: `<old-qsfp-ip>` / `<new-qsfp-ip>` = the QSFP IPs of
 the old/new storage node, `<disk-path>` = the disk `path` in the node's
 `juicefs_rustfs_members` entry (vault), `sparkN` = the target node.
 
-| Piece | Lives where | Moves with the disk? |
-|---|---|---|
-| Object data (all chunks) | `<disk-path>/rustfs` on the USB disk | ✅ yes |
-| **Metadata** (inodes, dir tree, chunk map) | Valkey — `/var/lib/valkey` on the storage **node's local disk** | ❌ **no** — must be dumped/loaded |
-| Bucket endpoint URL | **inside the metadata** (baked at format time: `http://<old QSFP IP>:9000/juicefs`) | ❌ must be rewritten (`juicefs config`) |
-| Valkey + RustFS services | systemd units on the storage node | ❌ redeployed by the role |
-| Client mount units | every mount node, dialing the old node's QSFP IP | ❌ re-rendered by the role |
+| Piece                                      | Lives where                                                                         | Moves with the disk?                    |
+|--------------------------------------------|-------------------------------------------------------------------------------------|-----------------------------------------|
+| Object data (all chunks)                   | `<disk-path>/rustfs` on the USB disk                                                | ✅ yes                                  |
+| **Metadata** (inodes, dir tree, chunk map) | Valkey — `/var/lib/valkey` on the storage **node's local disk**                     | ❌ **no** — must be dumped/loaded       |
+| Bucket endpoint URL                        | **inside the metadata** (baked at format time: `http://<old QSFP IP>:9000/juicefs`) | ❌ must be rewritten (`juicefs config`) |
+| Valkey + RustFS services                   | systemd units on the storage node                                                   | ❌ redeployed by the role               |
+| Client mount units                         | every mount node, dialing the old node's QSFP IP                                    | ❌ re-rendered by the role              |
 
 > ⚠️ **Never run a plain `ansible-playbook storage.yml` while the NEW node's
 > Valkey is still empty but the bucket already holds data.** The format step is

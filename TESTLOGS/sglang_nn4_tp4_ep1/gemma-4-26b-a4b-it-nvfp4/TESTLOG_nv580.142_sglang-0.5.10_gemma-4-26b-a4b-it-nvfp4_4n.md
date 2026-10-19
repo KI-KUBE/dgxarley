@@ -2,19 +2,19 @@
 
 ## Environment
 
-| Component | Value |
-|-----------|-------|
-| GPU | NVIDIA GB10 (SM121/Blackwell), 128 GB per node |
-| Driver | 580.142 |
-| CUDA | 13.2 |
-| Kernel | 6.19.11-custom |
-| OS | Ubuntu 24.04 LTS (aarch64) |
-| K3s | v1.35.3+k3s1 |
-| Nodes | spark1, spark2, spark3, spark4 (1 GPU each) |
-| Image | `xomoxcc/dgx-spark-sglang:main-gemma4-sm121` |
-| Model | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4` |
-| NCCL | 2.29.7+cuda13.2 (dgxspark-3node-ring) |
-| Transport | **RoCE** via SR-IOV VF |
+| Component | Value                                          |
+|-----------|------------------------------------------------|
+| GPU       | NVIDIA GB10 (SM121/Blackwell), 128 GB per node |
+| Driver    | 580.142                                        |
+| CUDA      | 13.2                                           |
+| Kernel    | 6.19.11-custom                                 |
+| OS        | Ubuntu 24.04 LTS (aarch64)                     |
+| K3s       | v1.35.3+k3s1                                   |
+| Nodes     | spark1, spark2, spark3, spark4 (1 GPU each)    |
+| Image     | `xomoxcc/dgx-spark-sglang:main-gemma4-sm121`   |
+| Model     | `bg-digitalservices/Gemma-4-26B-A4B-it-NVFP4`  |
+| NCCL      | 2.29.7+cuda13.2 (dgxspark-3node-ring)          |
+| Transport | **RoCE** via SR-IOV VF                         |
 
 Matrix file: `matrixtest_matrices/sglang_nn4_tp4_ep1/gemma-4-26b-a4b-it-nvfp4/nv580.142_sglang-0.5.10_gemma-4-26b-a4b-it-nvfp4_n4_ep1.yaml`
 

@@ -25,12 +25,12 @@ as Gemma-4) and `moe_runner_backend: triton` (flashinfer_cutlass asserts on
 
 ## Affected
 
-| | |
-|---|---|
-| SGLang | 0.5.15 (verified) and `main` (per patch author) |
-| Image | `xomoxcc/dgx-spark-sglang:0.5.15-sm121` (validated), also 0.5.14-sm121 gaps |
-| Files | `sglang/srt/models/mllama4.py`, `sglang/srt/models/llama4.py` |
-| Class | `Llama4ForConditionalGeneration` (multimodal: text MoE + vision) |
+|        |                                                                             |
+|--------|-----------------------------------------------------------------------------|
+| SGLang | 0.5.15 (verified) and `main` (per patch author)                             |
+| Image  | `xomoxcc/dgx-spark-sglang:0.5.15-sm121` (validated), also 0.5.14-sm121 gaps |
+| Files  | `sglang/srt/models/mllama4.py`, `sglang/srt/models/llama4.py`               |
+| Class  | `Llama4ForConditionalGeneration` (multimodal: text MoE + vision)            |
 
 ## The patches
 

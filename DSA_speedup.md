@@ -115,14 +115,14 @@ indexer assert (torch gating worked, all 3 metadata call sites) and PAST KV allo
 CUDA-graph autotune of the MLA decode attention: `TllmGenFmhaRunner ... Unsupported architecture`
 (trtllm-gen FMHA). A full GPU-pod survey of every DSA decode/prefill attention backend:
 
-| Backend (`dsa_decode/prefill_backend`) | Origin | SM121 status |
-|---|---|---|
-| `trtllm` (auto-default when kv fp8 + major>=10) | trtllm-gen FMHA (`TllmGenFmhaRunner`) | ISA wall, live crash |
-| `flashmla_sparse` / `flashmla_kv` | `sgl_kernel.flash_mla` (`flashmla_ops`) | extension NOT built in image (ImportError; only `sm100/common_ops`) |
-| `fa3` | flash-attention-v3 | hard gate `_is_fa3_supported()` = major==8 or 9; GB10=12 -> False |
-| `tilelang` | `dsa/tilelang_kernel.py` (own JIT) | v2 (tail>0, GLM-5.2) PROVEN DEAD; v1 (tail=0, GLM-5.3-Flash) WORKS with retuned tile (32,1,128), GPU-verified 2026-10-08, see below |
-| `aiter` | ROCm | N/A (AMD) |
-| indexer `dsa_paged_mqa_logits_backend=torch` | our port | WORKS (this is what got the boot past the indexer) |
+| Backend (`dsa_decode/prefill_backend`)          | Origin                                  | SM121 status                                                                                                                        |
+|-------------------------------------------------|-----------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
+| `trtllm` (auto-default when kv fp8 + major>=10) | trtllm-gen FMHA (`TllmGenFmhaRunner`)   | ISA wall, live crash                                                                                                                |
+| `flashmla_sparse` / `flashmla_kv`               | `sgl_kernel.flash_mla` (`flashmla_ops`) | extension NOT built in image (ImportError; only `sm100/common_ops`)                                                                 |
+| `fa3`                                           | flash-attention-v3                      | hard gate `_is_fa3_supported()` = major==8 or 9; GB10=12 -> False                                                                   |
+| `tilelang`                                      | `dsa/tilelang_kernel.py` (own JIT)      | v2 (tail>0, GLM-5.2) PROVEN DEAD; v1 (tail=0, GLM-5.3-Flash) WORKS with retuned tile (32,1,128), GPU-verified 2026-10-08, see below |
+| `aiter`                                         | ROCm                                    | N/A (AMD)                                                                                                                           |
+| indexer `dsa_paged_mqa_logits_backend=torch`    | our port                                | WORKS (this is what got the boot past the indexer)                                                                                  |
 
 Root cause of the auto-default: `arg_groups/overrides.py::_dsa_split_backend_resolution` picks
 `trtllm if major>=10` - the SAME `major>=10` bug that conflates datacenter Blackwell (SM100) with
@@ -138,12 +138,12 @@ is **proven dead for the v2 kernel** (measured on v2; the v1 kernel is retracted
 `1160*H + 2306*block_I + 2*H*block_I` (H=64 for GLM-5.2), dominated by the 4x KV double-buffer (2-stage
 pipeline), linear in block_I. There is a hard contradiction:
 
-| block_I | smem | compiles? | launches (< 101376 B)? |
-|---|---|---|---|
-| 64 (default) | 231680 B | yes | NO |
-| 16 | 114944 B | yes | NO (~13.5 KB over) |
-| 8 | ~93712 B (fits) | **NO** ("Layout infer conflict m_i/alpha_local") | - |
-| 4 | ~83976 B | **NO** ("N must be divisible by 8") | - |
+| block_I      | smem            | compiles?                                        | launches (< 101376 B)? |
+|--------------|-----------------|--------------------------------------------------|------------------------|
+| 64 (default) | 231680 B        | yes                                              | NO                     |
+| 16           | 114944 B        | yes                                              | NO (~13.5 KB over)     |
+| 8            | ~93712 B (fits) | **NO** ("Layout infer conflict m_i/alpha_local") | -                      |
+| 4            | ~83976 B        | **NO** ("N must be divisible by 8")              | -                      |
 
 The smallest COMPILABLE block_I (16) needs 114944 B (over budget); the smallest smem-FITTING block_I (8)
 does not compile (the warp-specialized GEMM/layout choreography breaks at tiny tiles). No block_I satisfies
@@ -175,16 +175,16 @@ v1 matrix (batch 4, topk 2048, decode = 4 query rows and verify = 32 query rows,
 rows, reference = float32 gathered attention in torch, rel err = ||o-ref||/||ref||,
 `shared_memory_per_block_optin` = 101376 B). Tile = (block_I, num_stages, threads):
 
-| H | tile | result |
-|---|---|---|
-| 32 (reporter's TP=2) | (64,2,256) stock | launch FAILS: "Failed to set the allowed dynamic shared memory size to 169984" (the reported number) |
-| 32 | (32,1,128) | launches both shapes, rel err 2.25e-3 / 2.22e-3, max abs 1.7e-4, 0.143 / 0.144 ms per call |
-| 32 | (32,2,128) | launches, same error and timing |
-| 32 | (16,1,128), (32,1,256) | COMPILE FAIL (fragment layout error) |
-| 16 (our TP=4) | (64,2,256) stock | launch FAILS at 151552 B |
-| 16 | (32,1,128) | launches both shapes, rel err 2.26e-3 / 2.23e-3, 0.140 / 0.141 ms |
-| 16 | (32,2,128) | launches |
-| 16 | (16,1,128), (32,1,256) | COMPILE FAIL, "AssertionError: warp_row_tiles must be greater than 16, got 8" (MMA assert) |
+| H                    | tile                   | result                                                                                               |
+|----------------------|------------------------|------------------------------------------------------------------------------------------------------|
+| 32 (reporter's TP=2) | (64,2,256) stock       | launch FAILS: "Failed to set the allowed dynamic shared memory size to 169984" (the reported number) |
+| 32                   | (32,1,128)             | launches both shapes, rel err 2.25e-3 / 2.22e-3, max abs 1.7e-4, 0.143 / 0.144 ms per call           |
+| 32                   | (32,2,128)             | launches, same error and timing                                                                      |
+| 32                   | (16,1,128), (32,1,256) | COMPILE FAIL (fragment layout error)                                                                 |
+| 16 (our TP=4)        | (64,2,256) stock       | launch FAILS at 151552 B                                                                             |
+| 16                   | (32,1,128)             | launches both shapes, rel err 2.26e-3 / 2.23e-3, 0.140 / 0.141 ms                                    |
+| 16                   | (32,2,128)             | launches                                                                                             |
+| 16                   | (16,1,128), (32,1,256) | COMPILE FAIL, "AssertionError: warp_row_tiles must be greater than 16, got 8" (MMA assert)           |
 
 Reproduced: the reported coupling (threads must be 128 before block_I can be 32) and the block_I=16 assert.
 num_stages=1 is not strictly required at H=16/32 (num_stages=2 also launched), but 1 is the safe choice. Exact smem
@@ -268,14 +268,14 @@ with DSA` / `Set DSA backends for fp8_e4m3 KV Cache: prefill=trtllm, decode=trtl
 
 Image-baked env (observed):
 
-| flag | value | meaning |
-|------|-------|---------|
-| `SGLANG_ENABLE_JIT_DEEPGEMM` | `false` | DeepGEMM JIT FP8 GEMM kernels OFF (the indexer/MoE fast path) |
-| `SGLANG_FP8_PAGED_MQA_LOGITS_TORCH` | `0` | indexer logits NOT on the slow torch fallback (native path) |
-| `SGLANG_TOPK_TRANSFORM_512_TORCH` | `0` | top-k transform native (works on SM121, per prior finding) |
-| `SGLANG_OPT_USE_TILELANG_INDEXER` | `0` | tilelang indexer path OFF |
-| `SGLANG_OPT_DEEPGEMM_HC_PRENORM` | `1` | DeepGEMM high-contiguous prenorm opt (moot while JIT off) |
-| (startup) | | `Patched cute/mma.py: added sm_120a + sm_121a to BlockScaledMmaOp.admissible_archs` |
+| flag                                | value   | meaning                                                                             |
+|-------------------------------------|---------|-------------------------------------------------------------------------------------|
+| `SGLANG_ENABLE_JIT_DEEPGEMM`        | `false` | DeepGEMM JIT FP8 GEMM kernels OFF (the indexer/MoE fast path)                       |
+| `SGLANG_FP8_PAGED_MQA_LOGITS_TORCH` | `0`     | indexer logits NOT on the slow torch fallback (native path)                         |
+| `SGLANG_TOPK_TRANSFORM_512_TORCH`   | `0`     | top-k transform native (works on SM121, per prior finding)                          |
+| `SGLANG_OPT_USE_TILELANG_INDEXER`   | `0`     | tilelang indexer path OFF                                                           |
+| `SGLANG_OPT_DEEPGEMM_HC_PRENORM`    | `1`     | DeepGEMM high-contiguous prenorm opt (moot while JIT off)                           |
+| (startup)                           |         | `Patched cute/mma.py: added sm_120a + sm_121a to BlockScaledMmaOp.admissible_archs` |
 
 DeepGEMM is off almost certainly because its codegen targets SM90 / SM100 (TMA,
 cluster, `tcgen05`) and SM121 is not admitted, so enabling it in the image build either

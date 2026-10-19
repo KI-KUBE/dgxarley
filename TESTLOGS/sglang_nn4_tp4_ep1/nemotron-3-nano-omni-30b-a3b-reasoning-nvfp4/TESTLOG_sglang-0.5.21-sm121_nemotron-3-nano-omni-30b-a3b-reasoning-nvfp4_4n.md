@@ -19,14 +19,14 @@ Method: one Ansible rollout per case (`ansible-playbook k8s_dgx.yml --tags sglan
 
 ## Matrix (6 cases: 5 run, 1 skipped)
 
-| #  | Delta vs case 01                                   | Status      | n=1 tok/s | n=4 peak | n=8 peak | n=16 peak | Output  |
-|----|----------------------------------------------------|-------------|----------:|---------:|---------:|----------:|---------|
-| 01 | none (profile as is)                               | ok          | 118.5     | 329.8    | 507.3    | 769.5     | clean   |
-| 02 | `ep_size: 4`                                       | ok (slower) | 110.3     | 309.2    | 465.8    | 753.1     | clean   |
-| 03 | `mamba_backend: flashinfer`                        | ok (slower) | 114.7     | 293.0    | 485.0    | 734.3     | clean   |
-| 04 | `mamba_ssm_dtype: bfloat16`                        | ok (neutral)| 116.1     | 312.0    | 511.5    | 793.2     | clean   |
-| 05 | `ep_size: 4` + `mamba_backend: flashinfer`         | skipped: 03 did not win | - | - | - | - | 03 below baseline at n8 and n16 |
-| 06 | `cuda_graph_backend_prefill: breakable`            | ok (no-op, neutral) | 110.6 | 340.6 | 483.7 | 762.7 | clean   |
+| #   | Delta vs case 01                           | Status                  | n=1 tok/s | n=4 peak | n=8 peak | n=16 peak | Output                          |
+|-----|--------------------------------------------|-------------------------|----------:|---------:|---------:|----------:|---------------------------------|
+| 01  | none (profile as is)                       | ok                      |     118.5 |    329.8 |    507.3 |     769.5 | clean                           |
+| 02  | `ep_size: 4`                               | ok (slower)             |     110.3 |    309.2 |    465.8 |     753.1 | clean                           |
+| 03  | `mamba_backend: flashinfer`                | ok (slower)             |     114.7 |    293.0 |    485.0 |     734.3 | clean                           |
+| 04  | `mamba_ssm_dtype: bfloat16`                | ok (neutral)            |     116.1 |    312.0 |    511.5 |     793.2 | clean                           |
+| 05  | `ep_size: 4` + `mamba_backend: flashinfer` | skipped: 03 did not win |         - |        - |        - |         - | 03 below baseline at n8 and n16 |
+| 06  | `cuda_graph_backend_prefill: breakable`    | ok (no-op, neutral)     |     110.6 |    340.6 |    483.7 |     762.7 | clean                           |
 
 Cases 03, 05 and 06 were skipped in the first run (2026-10-08) because: `sglang_launch.sh` and `sglang_instance.yml` have no `mamba_backend` env/flag and no `cuda_graph_backend_prefill` variable (only `disable_piecewise_cuda_graph`, which maps to `--cuda-graph-backend-prefill disabled`; `disable_piecewise_cuda_graph: false` would leave the SGLang default, not an explicit `breakable`). Boot logs confirm the effective `mamba_backend: triton` and `cuda_graph_backend_prefill: disabled`. The plumbing was added afterwards and cases 03 and 06 were run on 2026-10-09 (see the addendum below); 05 stays skipped.
 

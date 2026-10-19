@@ -62,13 +62,13 @@ Same Blackwell GB10 hardware (NVIDIA DGX Spark, sm121, ARM64,
 driver 580.95.05), same reproducer (below), four different PyTorch
 builds:
 
-| PyTorch build | torch version | CUDA | sm121 EFFICIENT correct? |
-|---|---|---|---|
-| `xomoxcc/comfyui:sm121` (our overlay over scitrera-2.10 base) | 2.10.0 | 13.1 | **NO — broken** |
-| `scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131` (bare) | 2.10.0 | 13.1 | **NO — broken (byte-identical to overlay)** |
-| `xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132` (our build of scitrera's 2.11 recipe) | 2.11.0 | 13.2 | **NO — broken (byte-identical to scitrera 2.10)** |
-| `nvcr.io/nvidia/pytorch:25.12-py3` | 2.10.0a0+nv25.12 | 13.1 | **YES — correct** |
-| `nvcr.io/nvidia/pytorch:26.02-py3` | 2.11.0a0+nv26.02 | 13.1 | **YES — correct** |
+| PyTorch build                                                                         | torch version    | CUDA | sm121 EFFICIENT correct?                          |
+|---------------------------------------------------------------------------------------|------------------|------|---------------------------------------------------|
+| `xomoxcc/comfyui:sm121` (our overlay over scitrera-2.10 base)                         | 2.10.0           | 13.1 | **NO — broken**                                   |
+| `scitrera/dgx-spark-pytorch-dev:2.10.0-v2-cu131` (bare)                               | 2.10.0           | 13.1 | **NO — broken (byte-identical to overlay)**       |
+| `xomoxcc/dgx-spark-pytorch-dev:2.11.0-v1-cu132` (our build of scitrera's 2.11 recipe) | 2.11.0           | 13.2 | **NO — broken (byte-identical to scitrera 2.10)** |
+| `nvcr.io/nvidia/pytorch:25.12-py3`                                                    | 2.10.0a0+nv25.12 | 13.1 | **YES — correct**                                 |
+| `nvcr.io/nvidia/pytorch:26.02-py3`                                                    | 2.11.0a0+nv26.02 | 13.1 | **YES — correct**                                 |
 
 The load-bearing comparison is the trio **scitrera-2.10/cu131** vs
 **xomoxcc-2.11/cu132 (built from scitrera's recipe)** vs
@@ -240,12 +240,12 @@ device=NVIDIA GB10  cap=(12, 1)
 
 Magnitude of the breakage:
 
-| Shape × dtype | Reference norm | EFFICIENT norm | Ratio |
-|---|---|---|---|
-| 77 × fp32  | 43.900 | 85.923   | **1.96×** |
-| 77 × bf16  | 43.584 |  3.506   | **0.080×** (12× too small) |
-| 77 × fp16  | 43.676 | 250.800  | **5.74×** |
-| 4096 × bf16 | 37.586 | 1023.564 | **27.2×** |
+| Shape × dtype | Reference norm | EFFICIENT norm | Ratio                      |
+|---------------|----------------|----------------|----------------------------|
+| 77 × fp32     | 43.900         | 85.923         | **1.96×**                  |
+| 77 × bf16     | 43.584         | 3.506          | **0.080×** (12× too small) |
+| 77 × fp16     | 43.676         | 250.800        | **5.74×**                  |
+| 4096 × bf16   | 37.586         | 1023.564       | **27.2×**                  |
 
 `max|Δ|` of 1.1–4.9 against an output `std` of 0.02–0.18 is 5×–250×
 the natural variation — well above anything attributable to fp16/bf16
@@ -296,11 +296,11 @@ same major PyTorch version.
 ## Cross-validation summary table
 
 | Shape × dtype | CPU ref | scitrera 2.10/cu131 | xomoxcc 2.11/cu132 (scitrera-pipeline) | NGC 25.12 (torch 2.10a) | NGC 26.02 (torch 2.11a) |
-|---|---|---|---|---|---|
-| 77 × fp32   | 43.900 | **85.923 ✗**   | **85.923 ✗**   | 43.900 ✓ | 43.900 ✓ |
-| 77 × bf16   | 43.584 | **3.506 ✗**    | **3.506 ✗**    | 43.584 ✓ | 43.584 ✓ |
-| 77 × fp16   | 43.676 | **250.800 ✗**  | **250.800 ✗**  | 43.676 ✓ | 43.676 ✓ |
-| 4096 × bf16 | 37.586 | **1023.564 ✗** | **1023.564 ✗** | 37.592 ✓ | 37.592 ✓ |
+|---------------|---------|---------------------|----------------------------------------|-------------------------|-------------------------|
+| 77 × fp32     | 43.900  | **85.923 ✗**        | **85.923 ✗**                           | 43.900 ✓                | 43.900 ✓                |
+| 77 × bf16     | 43.584  | **3.506 ✗**         | **3.506 ✗**                            | 43.584 ✓                | 43.584 ✓                |
+| 77 × fp16     | 43.676  | **250.800 ✗**       | **250.800 ✗**                          | 43.676 ✓                | 43.676 ✓                |
+| 4096 × bf16   | 37.586  | **1023.564 ✗**      | **1023.564 ✗**                         | 37.592 ✓                | 37.592 ✓                |
 
 (EFFICIENT_ATTENTION norms only; full per-backend matrices in the
 output blocks above.) The two scitrera-pipeline columns are byte-
@@ -336,13 +336,13 @@ cause.
 
 Counts of `sm_NN` symbol references inside the compiled CUDA library:
 
-| sm-arch | scitrera-pipeline (broken) | NGC (correct) | observation |
-|---|---|---|---|
-| sm121  |  58  |   3  | scitrera embeds sm121-tagged kernels everywhere; NGC almost never |
-| sm120  | 121  | 212  | NGC has ~2× more sm120 family kernels |
-| sm110  |   0  |  99  | NGC includes a full sm110 family that scitrera lacks entirely |
-| sm100  | 149  | 243  | NGC ~60% more sm100 |
-| sm86   |   3  | 102  | NGC includes the sm86 family; scitrera barely |
+| sm-arch | scitrera-pipeline (broken) | NGC (correct) | observation                                                       |
+|---------|----------------------------|---------------|-------------------------------------------------------------------|
+| sm121   | 58                         | 3             | scitrera embeds sm121-tagged kernels everywhere; NGC almost never |
+| sm120   | 121                        | 212           | NGC has ~2× more sm120 family kernels                             |
+| sm110   | 0                          | 99            | NGC includes a full sm110 family that scitrera lacks entirely     |
+| sm100   | 149                        | 243           | NGC ~60% more sm100                                               |
+| sm86    | 3                          | 102           | NGC includes the sm86 family; scitrera barely                     |
 
 Library size: scitrera **212 MB** vs NGC **588 MB** — NGC carries
 substantially more arch variants.
@@ -486,11 +486,11 @@ What's left is the scitrera-specific build artefact reported here.
 
 ## Cross-references inside this repository
 
-| Path | Role |
-|---|---|
-| `COMFYUI_PROMPT_FAIL.md` | End-to-end discovery, per-phase diagnosis, fix verification |
-| `COMFYUI_SM121_PATCHES.md` | Earlier xformers-side sm121 fixes (cutlass self-reject + FA3 disable) — separate concern, complementary |
-| `roles/k8s_dgx/templates/comfyui_launch.sh.j2` §4c | Production workaround: sitecustomize shim wrapping `SDClipModel.forward` with `sdpa_kernel([MATH])` |
+| Path                                               | Role                                                                                                    |
+|----------------------------------------------------|---------------------------------------------------------------------------------------------------------|
+| `COMFYUI_PROMPT_FAIL.md`                           | End-to-end discovery, per-phase diagnosis, fix verification                                             |
+| `COMFYUI_SM121_PATCHES.md`                         | Earlier xformers-side sm121 fixes (cutlass self-reject + FA3 disable) — separate concern, complementary |
+| `roles/k8s_dgx/templates/comfyui_launch.sh.j2` §4c | Production workaround: sitecustomize shim wrapping `SDClipModel.forward` with `sdpa_kernel([MATH])`     |
 
 ## Once filed
 

@@ -512,10 +512,10 @@ This happens reliably after ~1000 inference passes (~8 min wall time under moder
 
 **Confirmed failing on both architectures:**
 
-| Model class | Image | Date | Pod |
-|---|---|---|---|
-| `Qwen3MoeForCausalLM` (Qwen3-235B-A22B) | 0.5.9-t5 | 2026-03-19 | sglang-head-855c5799c4 |
-| `Qwen3_5MoeForConditionalGeneration` (Qwen3.5-122B-A10B-FP8) | 0.5.9-dev2-acab24a7-t5 | 2026-03-20 | sglang-head-5d7585955 |
+| Model class                                                  | Image                  | Date       | Pod                    |
+|--------------------------------------------------------------|------------------------|------------|------------------------|
+| `Qwen3MoeForCausalLM` (Qwen3-235B-A22B)                      | 0.5.9-t5               | 2026-03-19 | sglang-head-855c5799c4 |
+| `Qwen3_5MoeForConditionalGeneration` (Qwen3.5-122B-A10B-FP8) | 0.5.9-dev2-acab24a7-t5 | 2026-03-20 | sglang-head-5d7585955  |
 
 The Qwen3.5 crash on dev2-acab24a7-t5 proves that [PR #19767](https://github.com/sgl-project/sglang/pull/19767)
 ("Fix qwen3.5 mtp eplb related issues", merged 2026-03-09) is either not included in

@@ -483,11 +483,11 @@ model — dense for seq<=2048 ... sparse >2048 a follow-up"*.
 
 DSA on GB10 as of 2026-07-16:
 
-| component | status |
-|---|---|
-| indexer (torch fallback) | works; is the decode perf floor |
-| decode (flashinfer_gather + cuda-graph) | **works, proven, 8.4 tok/s** |
-| prefill | **no viable path**: trtllm dead, gather memory-explosive + ~1-5 tok/s, chunking insufficient, dense = project |
+| component                               | status                                                                                                        |
+|-----------------------------------------|---------------------------------------------------------------------------------------------------------------|
+| indexer (torch fallback)                | works; is the decode perf floor                                                                               |
+| decode (flashinfer_gather + cuda-graph) | **works, proven, 8.4 tok/s**                                                                                  |
+| prefill                                 | **no viable path**: trtllm dead, gather memory-explosive + ~1-5 tok/s, chunking insufficient, dense = project |
 
 **Decision (user, 2026-07-16): STOP here, commit + document.** Before investing in
 the dense-prefill project, the honest next step is to measure the DENSE BASELINE

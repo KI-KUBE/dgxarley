@@ -2,17 +2,17 @@
 
 ## Environment
 
-| Component | Value                                                                                   |
-|-----------|-----------------------------------------------------------------------------------------|
-| GPU       | NVIDIA GB10 (SM121), 128 GB unified, driver 580.178.04                                  |
-| Node      | 1x DGX Spark (standalone podman host, not a cluster node)                                         |
-| Image     | `xomoxcc/dgx-spark-sglang:0.5.21-sm121` (digest `sha256:4ab12e77ff98…`)                 |
-| Model     | `vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt` (snapshot `e76f894`, uniform W4A4 NVFP4, FP8 KV) |
+| Component | Value                                                                                                                                                                         |
+|-----------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| GPU       | NVIDIA GB10 (SM121), 128 GB unified, driver 580.178.04                                                                                                                        |
+| Node      | 1x DGX Spark (standalone podman host, not a cluster node)                                                                                                                     |
+| Image     | `xomoxcc/dgx-spark-sglang:0.5.21-sm121` (digest `sha256:4ab12e77ff98…`)                                                                                                       |
+| Model     | `vroomfondel/Qwen3.8-27B-NVFP4-ModelOpt` (snapshot `e76f894`, uniform W4A4 NVFP4, FP8 KV)                                                                                     |
 | Drafts    | `RadixArk/Qwen3.8-27B-DSpark` (block 7, 5 target layers); `RedHatAI/Qwen3.8-27B-speculator.dspark` (block 8, 8 target layers, config converted, see below); built-in MTP head |
-| Launcher  | `scripts/run_standalone.sh` `PRESET=qwen38_27b`, patches `vroomfondel/dgxarley@e9bbf67` |
-| Parallel  | tp=1, pp=1, ep=1                                                                        |
-| HF cache  | local NVMe (`/root/.cache/huggingface`), no network filesystem                           |
-| Date      | 2026-10-10                                                                              |
+| Launcher  | `scripts/run_standalone.sh` `PRESET=qwen38_27b`, patches `vroomfondel/dgxarley@e9bbf67`                                                                                       |
+| Parallel  | tp=1, pp=1, ep=1                                                                                                                                                              |
+| HF cache  | local NVMe (`/root/.cache/huggingface`), no network filesystem                                                                                                                |
+| Date      | 2026-10-10                                                                                                                                                                    |
 
 Profile: `roles/k8s_dgx/model_profiles/vroomfondel-qwen3.8-27b-nvfp4-modelopt.yml` (cluster profile runs tp_size 4; this log is single-GPU only).
 Predecessor: none in TESTLOGS (the profile header records a 2026-08-15 single-Spark run on 0.5.17 via the quantizer's serve path: full GSM8K 97.42 %, accept len 3.77, NEXTN crashed).
@@ -23,16 +23,16 @@ Method: one container start per case, bench via `sglang-gsm8k` from the control 
 
 ## Matrix
 
-| #  | Spec config                                  | n=1 tok/s | GSM8K   | accept len (ceiling) | max_running_requests |
-|----|----------------------------------------------|----------:|---------|---------------------:|---------------------:|
-| A  | none                                         | 12.6      | 58/60   | -                    | 44 |
-| M3 | MTP (EAGLE) 3 / 1 / 4 (card config)          | 24.9      | 58/60   | 3.10 (4)             | 22 |
-| M5 | MTP (EAGLE) 5 / 1 / 6                        | 24.7      | 57/60 ¹ | 3.62 (6)             | 17 |
-| D3 | DSpark RadixArk gamma 3                      | 31.5      | 58/60   | 3.20 (4)             | 22 |
-| D5 | DSpark RadixArk gamma 5                      | 41.3      | 57/60 ¹ | 3.81 (6)             | 18 |
-| D7 | DSpark RadixArk gamma 7 (card, = profile)    | 48.3      | 58/60   | 4.31 (8)             | 15 |
-| R1 | DSpark RedHat gamma 7, target ids aux-1      | **52.5**  | 58/60   | 4.43 (8)             | 15 |
-| R0 | DSpark RedHat gamma 7, target ids = aux      | 49.3      | 58/60   | **4.77** (8)         | 15 |
+| #   | Spec config                               | n=1 tok/s | GSM8K   | accept len (ceiling) | max_running_requests |
+|-----|-------------------------------------------|----------:|---------|---------------------:|---------------------:|
+| A   | none                                      |      12.6 | 58/60   |                    - |                   44 |
+| M3  | MTP (EAGLE) 3 / 1 / 4 (card config)       |      24.9 | 58/60   |             3.10 (4) |                   22 |
+| M5  | MTP (EAGLE) 5 / 1 / 6                     |      24.7 | 57/60 ¹ |             3.62 (6) |                   17 |
+| D3  | DSpark RadixArk gamma 3                   |      31.5 | 58/60   |             3.20 (4) |                   22 |
+| D5  | DSpark RadixArk gamma 5                   |      41.3 | 57/60 ¹ |             3.81 (6) |                   18 |
+| D7  | DSpark RadixArk gamma 7 (card, = profile) |      48.3 | 58/60   |             4.31 (8) |                   15 |
+| R1  | DSpark RedHat gamma 7, target ids aux-1   |  **52.5** | 58/60   |             4.43 (8) |                   15 |
+| R0  | DSpark RedHat gamma 7, target ids = aux   |      49.3 | 58/60   |         **4.77** (8) |                   15 |
 
 Every miss is GSM8K id 12 (gt 13, answered 12, finish `stop`), present in ALL cases including A (no draft), i.e. a model/question property. ¹ plus one truncation (M5: id 16 at 8192 tokens; D5: one additional miss at n=16).
 

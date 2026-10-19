@@ -4,14 +4,14 @@ Switch chip: **Marvell 98DX7335** (Prestera Aldrin3) | RouterOS 7.22.1 | Firmwar
 
 ## Port Overview
 
-| RouterOS Interface | Type | Lanes | Max Speed | Cable / Connection |
-|---|---|---|---|---|
-| `ether1` | RJ45 10GbE | — | 10G | Uplink → CRS310-8G-2S |
-| `qsfp56-1-1` | QSFP56 | 4 (1-4) | 200G | spark3 (Amphenol NJAAKK-N911 DAC) |
-| `qsfp56-2-1` | QSFP56 | 4 (1-4) | 200G | spark4 (prepared) |
-| `qsfp56-dd-1-1` | QSFP-DD | 4 (1-4) | 200G* | spark1 via breakout |
-| `qsfp56-dd-1-5` | QSFP-DD | 4 (5-8) | 200G* | spark2 via breakout |
-| `qsfp56-dd-2-1` | QSFP-DD | 8 (1-8) | 400G | spare (unused) |
+| RouterOS Interface | Type       | Lanes   | Max Speed | Cable / Connection                |
+|--------------------|------------|---------|-----------|-----------------------------------|
+| `ether1`           | RJ45 10GbE | —       | 10G       | Uplink → CRS310-8G-2S             |
+| `qsfp56-1-1`       | QSFP56     | 4 (1-4) | 200G      | spark3 (Amphenol NJAAKK-N911 DAC) |
+| `qsfp56-2-1`       | QSFP56     | 4 (1-4) | 200G      | spark4 (prepared)                 |
+| `qsfp56-dd-1-1`    | QSFP-DD    | 4 (1-4) | 200G*     | spark1 via breakout               |
+| `qsfp56-dd-1-5`    | QSFP-DD    | 4 (5-8) | 200G*     | spark2 via breakout               |
+| `qsfp56-dd-2-1`    | QSFP-DD    | 8 (1-8) | 400G      | spare (unused)                    |
 
 *\*Breakout cable: NADDOD Q2Q56-400G-CU2 (QSFP-DD → 2x QSFP56, 2m DAC)*
 

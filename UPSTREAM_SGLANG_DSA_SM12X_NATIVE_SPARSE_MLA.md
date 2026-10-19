@@ -950,10 +950,10 @@ behaviour is byte-identical.
 
 ## Local mapping
 
-| local | upstream file |
-|---|---|
-| p34 mixin edit | `sglang/srt/model_executor/model_runner_kv_cache_mixin.py` |
-| p34 edits 0-3 | `sglang/srt/layers/attention/dsa_backend.py` (`_forward_trtllm`) |
+| local                | upstream file                                                                |
+|----------------------|------------------------------------------------------------------------------|
+| p34 mixin edit       | `sglang/srt/model_executor/model_runner_kv_cache_mixin.py`                   |
+| p34 edits 0-3        | `sglang/srt/layers/attention/dsa_backend.py` (`_forward_trtllm`)             |
 | p34 forward_mla edit | `sglang/srt/models/deepseek_common/attention_forward_methods/forward_mla.py` |
 
 Full local chronology: `dsalogitrework.md` (PART 4 + LIVE-DEPLOY RESULT),

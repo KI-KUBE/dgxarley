@@ -58,11 +58,11 @@ identically on every node). The **primary** (`juicefs_primary_node`) must be a
 member — it keeps running Valkey, does the one-time format, and is the single S3
 endpoint the FUSE clients dial. Redundancy level via `juicefs_rustfs_raid_level`:
 
-| `raid_level` | `EC:M` | usable (n drives) | tolerates |
-|--------------|--------|-------------------|-----------|
+| `raid_level` | `EC:M` | usable (n drives) | tolerates         |
+|--------------|--------|-------------------|-------------------|
 | `raid0`      | `EC:0` | 100 %             | 0 (striping only) |
-| `raid5`      | `EC:1` | (n−1)/n           | 1 node/disk |
-| `raid6`      | `EC:2` | (n−2)/n           | 2 nodes/disks |
+| `raid5`      | `EC:1` | (n−1)/n           | 1 node/disk       |
+| `raid6`      | `EC:2` | (n−2)/n           | 2 nodes/disks     |
 
 **Constraints (verified upstream):** ≥4 total drives; **Valkey stays single-node**
 (distributing RustFS does NOT remove the metadata SPOF — the meta-backup cron is

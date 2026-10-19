@@ -2,17 +2,17 @@
 
 ## Environment
 
-| Component | Value |
-|-----------|-------|
-| GPU | NVIDIA GB10 (SM121/Blackwell), 128 GB per node |
-| Driver | 580.142 |
-| CUDA | 13.0 |
-| Kernel | 6.17.0-1014-nvidia |
-| OS | Ubuntu 24.04.4 LTS (aarch64) |
-| K3s | v1.35.3+k3s1 |
-| Nodes | spark1, spark2, spark3, spark4 (1 GPU each) |
-| Image | `scitrera/dgx-spark-sglang:0.5.10` |
-| Model | `nvidia/Qwen3-235B-A22B-NVFP4` |
+| Component | Value                                          |
+|-----------|------------------------------------------------|
+| GPU       | NVIDIA GB10 (SM121/Blackwell), 128 GB per node |
+| Driver    | 580.142                                        |
+| CUDA      | 13.0                                           |
+| Kernel    | 6.17.0-1014-nvidia                             |
+| OS        | Ubuntu 24.04.4 LTS (aarch64)                   |
+| K3s       | v1.35.3+k3s1                                   |
+| Nodes     | spark1, spark2, spark3, spark4 (1 GPU each)    |
+| Image     | `scitrera/dgx-spark-sglang:0.5.10`             |
+| Model     | `nvidia/Qwen3-235B-A22B-NVFP4`                 |
 
 First test series for this model on this setup — no prior version to compare against.
 
@@ -26,62 +26,62 @@ All tests use: `tp=4, pp=1, ep=4, quantization=modelopt_fp4, kv_cache_dtype=fp8_
 
 36 tests: systematic sweep of `moe_runner × attention × fp4_gemm × cuda_graph_variant`. pp_async always 0 (PP=1).
 
-| # | nccl_transport | moe_runner | attention | fp4_gemm | dis_cuda_graph | dis_piecewise | pp_async | cuda_graph_max_bs | Stability | 1∥ tok/s | 4∥ tok/s | 8∥ tok/s |
-|---|----------------|------------|-----------|----------|----------------|---------------|----------|-------------------|-----------|---------|---------|---------|
-| 1 | socket | triton | flashinfer | fi_cutlass | false | true | 0 | 8 | **startup_crash** | — | — | — |
-| 2 | socket | triton | flashinfer | fi_cutlass | true | true | 0 | — | **infer_error** | — | — | — |
-| 3 | socket | triton | flashinfer | fi_cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
-| 4 | socket | triton | triton | fi_cutlass | false | true | 0 | 8 | **startup_crash** | — | — | — |
-| 5 | socket | triton | triton | fi_cutlass | true | true | 0 | — | **infer_error** | — | — | — |
-| 6 | socket | triton | triton | fi_cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
-| 7 | socket | triton | flashinfer | fi_cudnn | false | true | 0 | 8 | **startup_crash** | — | — | — |
-| 8 | socket | triton | flashinfer | fi_cudnn | true | true | 0 | — | **startup_crash** | — | — | — |
-| 9 | socket | triton | flashinfer | fi_cudnn | false | false | 0 | 8 | **startup_crash** | — | — | — |
-| 10 | socket | triton | triton | fi_cudnn | false | true | 0 | 8 | **startup_crash** | — | — | — |
-| 11 | socket | triton | triton | fi_cudnn | true | true | 0 | — | **startup_crash** | — | — | — |
-| 12 | socket | triton | triton | fi_cudnn | false | false | 0 | 8 | **startup_crash** | — | — | — |
-| 13 | socket | fi_cutlass | flashinfer | fi_cutlass | false | true | 0 | 8 | **STABLE** | 12.28 | 28.94 | 40.11 |
-| 14 | socket | fi_cutlass | flashinfer | fi_cutlass | true | true | 0 | — | **STABLE** | 11.79 | 29.47 | 40.65 |
-| 15 | socket | fi_cutlass | flashinfer | fi_cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
-| 16 | socket | fi_cutlass | triton | fi_cutlass | false | true | 0 | 8 | **STABLE** | **12.54** | 30.40 | 41.36 |
-| 17 | socket | fi_cutlass | triton | fi_cutlass | true | true | 0 | — | **STABLE ★** | 11.28 | **34.60** | **42.70** |
-| 18 | socket | fi_cutlass | triton | fi_cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
-| 19 | socket | fi_cutlass | flashinfer | fi_cudnn | false | true | 0 | 8 | **startup_crash** | — | — | — |
-| 20 | socket | fi_cutlass | flashinfer | fi_cudnn | true | true | 0 | — | **startup_crash** | — | — | — |
-| 21 | socket | fi_cutlass | flashinfer | fi_cudnn | false | false | 0 | 8 | **startup_crash** | — | — | — |
-| 22 | socket | fi_cutlass | triton | fi_cudnn | false | true | 0 | 8 | **startup_crash** | — | — | — |
-| 23 | socket | fi_cutlass | triton | fi_cudnn | true | true | 0 | — | **startup_crash** | — | — | — |
-| 24 | socket | fi_cutlass | triton | fi_cudnn | false | false | 0 | 8 | **startup_crash** | — | — | — |
-| 25 | socket | cutlass | flashinfer | fi_cutlass | false | true | 0 | 8 | **startup_crash** | — | — | — |
-| 26 | socket | cutlass | flashinfer | fi_cutlass | true | true | 0 | — | **infer_error** | — | — | — |
-| 27 | socket | cutlass | flashinfer | fi_cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
-| 28 | socket | cutlass | triton | fi_cutlass | false | true | 0 | 8 | **startup_crash** | — | — | — |
-| 29 | socket | cutlass | triton | fi_cutlass | true | true | 0 | — | **infer_error** | — | — | — |
-| 30 | socket | cutlass | triton | fi_cutlass | false | false | 0 | 8 | **startup_crash** | — | — | — |
-| 31 | socket | cutlass | flashinfer | fi_cudnn | false | true | 0 | 8 | **startup_crash** | — | — | — |
-| 32 | socket | cutlass | flashinfer | fi_cudnn | true | true | 0 | — | **startup_crash** | — | — | — |
-| 33 | socket | cutlass | flashinfer | fi_cudnn | false | false | 0 | 8 | **startup_crash** | — | — | — |
-| 34 | socket | cutlass | triton | fi_cudnn | false | true | 0 | 8 | **startup_crash** | — | — | — |
-| 35 | socket | cutlass | triton | fi_cudnn | true | true | 0 | — | **startup_crash** | — | — | — |
-| 36 | socket | cutlass | triton | fi_cudnn | false | false | 0 | 8 | **startup_crash** | — | — | — |
+| #   | nccl_transport | moe_runner | attention  | fp4_gemm   | dis_cuda_graph | dis_piecewise | pp_async | cuda_graph_max_bs | Stability         | 1∥ tok/s  | 4∥ tok/s  | 8∥ tok/s  |
+|-----|----------------|------------|------------|------------|----------------|---------------|----------|-------------------|-------------------|-----------|-----------|-----------|
+| 1   | socket         | triton     | flashinfer | fi_cutlass | false          | true          | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 2   | socket         | triton     | flashinfer | fi_cutlass | true           | true          | 0        | —                 | **infer_error**   | —         | —         | —         |
+| 3   | socket         | triton     | flashinfer | fi_cutlass | false          | false         | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 4   | socket         | triton     | triton     | fi_cutlass | false          | true          | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 5   | socket         | triton     | triton     | fi_cutlass | true           | true          | 0        | —                 | **infer_error**   | —         | —         | —         |
+| 6   | socket         | triton     | triton     | fi_cutlass | false          | false         | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 7   | socket         | triton     | flashinfer | fi_cudnn   | false          | true          | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 8   | socket         | triton     | flashinfer | fi_cudnn   | true           | true          | 0        | —                 | **startup_crash** | —         | —         | —         |
+| 9   | socket         | triton     | flashinfer | fi_cudnn   | false          | false         | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 10  | socket         | triton     | triton     | fi_cudnn   | false          | true          | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 11  | socket         | triton     | triton     | fi_cudnn   | true           | true          | 0        | —                 | **startup_crash** | —         | —         | —         |
+| 12  | socket         | triton     | triton     | fi_cudnn   | false          | false         | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 13  | socket         | fi_cutlass | flashinfer | fi_cutlass | false          | true          | 0        | 8                 | **STABLE**        | 12.28     | 28.94     | 40.11     |
+| 14  | socket         | fi_cutlass | flashinfer | fi_cutlass | true           | true          | 0        | —                 | **STABLE**        | 11.79     | 29.47     | 40.65     |
+| 15  | socket         | fi_cutlass | flashinfer | fi_cutlass | false          | false         | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 16  | socket         | fi_cutlass | triton     | fi_cutlass | false          | true          | 0        | 8                 | **STABLE**        | **12.54** | 30.40     | 41.36     |
+| 17  | socket         | fi_cutlass | triton     | fi_cutlass | true           | true          | 0        | —                 | **STABLE ★**      | 11.28     | **34.60** | **42.70** |
+| 18  | socket         | fi_cutlass | triton     | fi_cutlass | false          | false         | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 19  | socket         | fi_cutlass | flashinfer | fi_cudnn   | false          | true          | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 20  | socket         | fi_cutlass | flashinfer | fi_cudnn   | true           | true          | 0        | —                 | **startup_crash** | —         | —         | —         |
+| 21  | socket         | fi_cutlass | flashinfer | fi_cudnn   | false          | false         | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 22  | socket         | fi_cutlass | triton     | fi_cudnn   | false          | true          | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 23  | socket         | fi_cutlass | triton     | fi_cudnn   | true           | true          | 0        | —                 | **startup_crash** | —         | —         | —         |
+| 24  | socket         | fi_cutlass | triton     | fi_cudnn   | false          | false         | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 25  | socket         | cutlass    | flashinfer | fi_cutlass | false          | true          | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 26  | socket         | cutlass    | flashinfer | fi_cutlass | true           | true          | 0        | —                 | **infer_error**   | —         | —         | —         |
+| 27  | socket         | cutlass    | flashinfer | fi_cutlass | false          | false         | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 28  | socket         | cutlass    | triton     | fi_cutlass | false          | true          | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 29  | socket         | cutlass    | triton     | fi_cutlass | true           | true          | 0        | —                 | **infer_error**   | —         | —         | —         |
+| 30  | socket         | cutlass    | triton     | fi_cutlass | false          | false         | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 31  | socket         | cutlass    | flashinfer | fi_cudnn   | false          | true          | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 32  | socket         | cutlass    | flashinfer | fi_cudnn   | true           | true          | 0        | —                 | **startup_crash** | —         | —         | —         |
+| 33  | socket         | cutlass    | flashinfer | fi_cudnn   | false          | false         | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 34  | socket         | cutlass    | triton     | fi_cudnn   | false          | true          | 0        | 8                 | **startup_crash** | —         | —         | —         |
+| 35  | socket         | cutlass    | triton     | fi_cudnn   | true           | true          | 0        | —                 | **startup_crash** | —         | —         | —         |
+| 36  | socket         | cutlass    | triton     | fi_cudnn   | false          | false         | 0        | 8                 | **startup_crash** | —         | —         | —         |
 
 > ★ = Overall winner. **STABLE** = n=1, n=4, n=8 all fully pass. Throughput columns show 1∥ per-request tok/s and 4∥/8∥ peak concurrent throughput (sum of per-request tok/s).
 
 ### Column Legend
 
-| Column | Description |
-|--------|-------------|
-| nccl_transport | `sglang_nccl_transport` — NCCL inter-node transport (`socket` = TCP/IP) |
-| moe_runner | `moe_runner_backend` — MoE expert dispatch kernel (`fi_cutlass` = flashinfer_cutlass, `triton` = triton→cutlass_moe_fp4 fallback for NVFP4, `cutlass` = cutlass direct) |
-| attention | `attention_backend` — attention kernel |
-| fp4_gemm | `fp4_gemm_backend` — FP4 dense GEMM kernel (`fi_cutlass` = flashinfer_cutlass, `fi_cudnn` = flashinfer_cudnn) |
-| dis_cuda_graph | `disable_cuda_graph` — true = eager, false = capture CUDA graphs |
-| dis_piecewise | `disable_piecewise_cuda_graph` — true = only fixed-BS graphs, false = piecewise variable-length graphs |
-| pp_async | `pp_async_batch_depth` — PP=1 here, always 0 |
-| cuda_graph_max_bs | `cuda_graph_max_bs` — largest batch captured (— = N/A when graphs disabled) |
-| 1∥ tok/s | 1 sequential request (= per-request tok/s) |
-| 4∥ tok/s | Peak concurrent throughput at 4∥ (sum of per-request tok/s) |
-| 8∥ tok/s | Peak concurrent throughput at 8∥ (sum of per-request tok/s) |
+| Column            | Description                                                                                                                                                             |
+|-------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| nccl_transport    | `sglang_nccl_transport` — NCCL inter-node transport (`socket` = TCP/IP)                                                                                                 |
+| moe_runner        | `moe_runner_backend` — MoE expert dispatch kernel (`fi_cutlass` = flashinfer_cutlass, `triton` = triton→cutlass_moe_fp4 fallback for NVFP4, `cutlass` = cutlass direct) |
+| attention         | `attention_backend` — attention kernel                                                                                                                                  |
+| fp4_gemm          | `fp4_gemm_backend` — FP4 dense GEMM kernel (`fi_cutlass` = flashinfer_cutlass, `fi_cudnn` = flashinfer_cudnn)                                                           |
+| dis_cuda_graph    | `disable_cuda_graph` — true = eager, false = capture CUDA graphs                                                                                                        |
+| dis_piecewise     | `disable_piecewise_cuda_graph` — true = only fixed-BS graphs, false = piecewise variable-length graphs                                                                  |
+| pp_async          | `pp_async_batch_depth` — PP=1 here, always 0                                                                                                                            |
+| cuda_graph_max_bs | `cuda_graph_max_bs` — largest batch captured (— = N/A when graphs disabled)                                                                                             |
+| 1∥ tok/s          | 1 sequential request (= per-request tok/s)                                                                                                                              |
+| 4∥ tok/s          | Peak concurrent throughput at 4∥ (sum of per-request tok/s)                                                                                                             |
+| 8∥ tok/s          | Peak concurrent throughput at 8∥ (sum of per-request tok/s)                                                                                                             |
 
 ---
 
@@ -111,12 +111,12 @@ Within the working `fi_cutlass` MoE + `fi_cutlass` fp4 family, the piecewise CUD
 
 All four winners share: `moe_runner_backend=flashinfer_cutlass`, `fp4_gemm_backend=flashinfer_cutlass`, non-piecewise CUDA graphs (either fixed-BS or disabled). Attention backend and CUDA-graph-vs-eager are orthogonal within this group.
 
-| Test | attn | CUDA graphs | n=1 tok/s | n=1 TTFT | n=4 peak | n=4 TTFT | n=8 peak | n=8 TTFT |
-|------|------|-------------|-----------|----------|----------|----------|----------|----------|
-| 13 | flashinfer | fixed-BS | 12.28 | 5.60s | 28.94 | 1.96s | 40.11 | 2.08s |
-| 14 | flashinfer | eager | 11.79 | 5.75s | 29.47 | 2.28s | 40.65 | 2.26s |
-| 16 | triton | fixed-BS | **12.54** | **1.01s** | 30.40 | 2.46s | 41.36 | 1.86s |
-| 17 | triton | eager | 11.28 | 10.97s | **34.60** | 2.14s | **42.70** | 2.39s |
+| Test | attn       | CUDA graphs | n=1 tok/s | n=1 TTFT  | n=4 peak  | n=4 TTFT | n=8 peak  | n=8 TTFT |
+|------|------------|-------------|-----------|-----------|-----------|----------|-----------|----------|
+| 13   | flashinfer | fixed-BS    | 12.28     | 5.60s     | 28.94     | 1.96s    | 40.11     | 2.08s    |
+| 14   | flashinfer | eager       | 11.79     | 5.75s     | 29.47     | 2.28s    | 40.65     | 2.26s    |
+| 16   | triton     | fixed-BS    | **12.54** | **1.01s** | 30.40     | 2.46s    | 41.36     | 1.86s    |
+| 17   | triton     | eager       | 11.28     | 10.97s    | **34.60** | 2.14s    | **42.70** | 2.39s    |
 
 **Test 17 ★ overall winner:** best peak at both n=4 (34.60) and n=8 (42.70). n=1 TTFT is high (~11s) but n=4/n=8 TTFT normalizes to ~2s.
 
@@ -128,15 +128,15 @@ n=1 per-request tok/s scales cleanly: 12 tok/s single → 5 tok/s each at n=8, w
 
 ## Summary — v0.5.10 Qwen3-235B-A22B NVFP4
 
-| Finding | Detail |
-|---------|--------|
-| **Remarkably stable** | 4 fully stable configs (vs GLM-4.7's 0 on v0.5.10 TP=4 EP=4 and PP=4). Qwen3-235B is the best-behaved NVFP4 model tested so far in this setup. |
-| **Only `fi_cutlass` MoE + `fi_cutlass` fp4 works** | All other MoE runners (triton, cutlass) crash on NVFP4 via the `nvfp4_blockwise_moe.cuh` path. |
-| **`fi_cudnn` fp4 fully broken** | Same v0.5.10 regression as GLM-4.7, Qwen3.5-397B. 18/18 tests crash at startup. |
-| **Piecewise CUDA graphs crash** | Must use fixed-BS (`disable_piecewise_cuda_graph: true`) or eager. |
-| **Attention backend doesn't matter** | Both `flashinfer` and `triton` attention work with the winning MoE+FP4 combo. |
-| **YaRN required for context > 40K** | Qwen3 ships `rope_scaling: null`; needs `json_model_override_args` + `SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN=1`. `rope_theta` must be included inside `rope_scaling` dict. |
-| **No speculative decoding test** | Qwen3-235B has no MTP heads — NEXTN not applicable. |
+| Finding                                            | Detail                                                                                                                                                                        |
+|----------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Remarkably stable**                              | 4 fully stable configs (vs GLM-4.7's 0 on v0.5.10 TP=4 EP=4 and PP=4). Qwen3-235B is the best-behaved NVFP4 model tested so far in this setup.                                |
+| **Only `fi_cutlass` MoE + `fi_cutlass` fp4 works** | All other MoE runners (triton, cutlass) crash on NVFP4 via the `nvfp4_blockwise_moe.cuh` path.                                                                                |
+| **`fi_cudnn` fp4 fully broken**                    | Same v0.5.10 regression as GLM-4.7, Qwen3.5-397B. 18/18 tests crash at startup.                                                                                               |
+| **Piecewise CUDA graphs crash**                    | Must use fixed-BS (`disable_piecewise_cuda_graph: true`) or eager.                                                                                                            |
+| **Attention backend doesn't matter**               | Both `flashinfer` and `triton` attention work with the winning MoE+FP4 combo.                                                                                                 |
+| **YaRN required for context > 40K**                | Qwen3 ships `rope_scaling: null`; needs `json_model_override_args` + `SGLANG_ALLOW_OVERWRITE_LONGER_CONTEXT_LEN=1`. `rope_theta` must be included inside `rope_scaling` dict. |
+| **No speculative decoding test**                   | Qwen3-235B has no MTP heads — NEXTN not applicable.                                                                                                                           |
 
 ### Recommended config
 

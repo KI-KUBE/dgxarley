@@ -60,12 +60,12 @@ The key point: The GB10 SoC can provide **at most PCIe Gen5 x4** per device. To 
 
 The OS shows **four** network interfaces, not two:
 
-| Interface | PCIe Address | Physical Port | PCIe Link |
-|---|---|---|---|
-| `enp1s0f0np0` | `0000:01:00.0` | Port 0 (left) | Link A |
-| `enp1s0f1np1` | `0000:01:00.1` | Port 1 (right) | Link A |
-| `enP2p1s0f0np0` | `0002:01:00.0` | Port 0 (left) | Link B |
-| `enP2p1s0f1np1` | `0002:01:00.1` | Port 1 (right) | Link B |
+| Interface       | PCIe Address   | Physical Port  | PCIe Link |
+|-----------------|----------------|----------------|-----------|
+| `enp1s0f0np0`   | `0000:01:00.0` | Port 0 (left)  | Link A    |
+| `enp1s0f1np1`   | `0000:01:00.1` | Port 1 (right) | Link A    |
+| `enP2p1s0f0np0` | `0002:01:00.0` | Port 0 (left)  | Link B    |
+| `enP2p1s0f1np1` | `0002:01:00.1` | Port 1 (right) | Link B    |
 
 Each physical port is thus represented by **two logical interfaces** running over different PCIe links. The NVIDIA documentation recommends using only the `enp1s0f*` interfaces and ignoring the `enP2p1s0f*` variants, as they refer to the same physical port.
 
@@ -95,14 +95,14 @@ The [official NVIDIA documentation](https://build.nvidia.com/spark/connect-two-s
 
 ### 3.2 Measured Values
 
-| Method | Result | Source |
-|---|---|---|
-| iperf3, 1 port, 1 stream | ~96 Gbit/s | [ServeTheHome](https://www.servethehome.com/the-nvidia-gb10-connectx-7-200gbe-networking-is-really-different/) |
-| iperf3, 2 ports, 2× streams | ~96 Gbit/s (no gain) | [ServeTheHome](https://www.servethehome.com/the-nvidia-gb10-connectx-7-200gbe-networking-is-really-different/) |
-| iperf3, 2 ports, 60–64 streams, jumbo | 160–198 Gbit/s | [ServeTheHome](https://www.servethehome.com/the-nvidia-gb10-connectx-7-200gbe-networking-is-really-different/) |
-| RoCE / RDMA (perftest) | 185–190 Gbit/s | [ServeTheHome](https://www.servethehome.com/the-nvidia-gb10-connectx-7-200gbe-networking-is-really-different/) |
-| Bonding (XOR/RR) | ≤ 112 Gbit/s | [NVIDIA Forum](https://forums.developer.nvidia.com/t/connectx-7-nic-in-dgx-spark/350417?page=4) |
-| Two cables vs. one cable | No speed advantage | [NVIDIA Forum](https://forums.developer.nvidia.com/t/connectx-7-nic-in-dgx-spark/350417?page=4) |
+| Method                                | Result               | Source                                                                                                         |
+|---------------------------------------|----------------------|----------------------------------------------------------------------------------------------------------------|
+| iperf3, 1 port, 1 stream              | ~96 Gbit/s           | [ServeTheHome](https://www.servethehome.com/the-nvidia-gb10-connectx-7-200gbe-networking-is-really-different/) |
+| iperf3, 2 ports, 2× streams           | ~96 Gbit/s (no gain) | [ServeTheHome](https://www.servethehome.com/the-nvidia-gb10-connectx-7-200gbe-networking-is-really-different/) |
+| iperf3, 2 ports, 60–64 streams, jumbo | 160–198 Gbit/s       | [ServeTheHome](https://www.servethehome.com/the-nvidia-gb10-connectx-7-200gbe-networking-is-really-different/) |
+| RoCE / RDMA (perftest)                | 185–190 Gbit/s       | [ServeTheHome](https://www.servethehome.com/the-nvidia-gb10-connectx-7-200gbe-networking-is-really-different/) |
+| Bonding (XOR/RR)                      | ≤ 112 Gbit/s         | [NVIDIA Forum](https://forums.developer.nvidia.com/t/connectx-7-nic-in-dgx-spark/350417?page=4)                |
+| Two cables vs. one cable              | No speed advantage   | [NVIDIA Forum](https://forums.developer.nvidia.com/t/connectx-7-nic-in-dgx-spark/350417?page=4)                |
 
 ### 3.3 Why TCP/IP Is Limited to ~100 Gbit/s
 
@@ -144,12 +144,12 @@ ServeTheHome summarizes the situation pragmatically: if you use both ports, thin
 
 Despite the limitations, there are legitimate use cases for the second port:
 
-| Scenario | Assessment |
-|---|---|
-| **Redundancy:** Failover in case of cable/port failure | ✅ Useful |
-| **Switch connectivity:** Port 1 → partner Spark, Port 2 → switch for multi-node clusters (>2 nodes) | ⚠️ Possible, but PCIe bandwidth is shared |
-| **Double bandwidth to partner Spark** | ❌ No benefit |
-| **Separation of management and data traffic** | ⚠️ Better solved via the dedicated 10 GbE RJ45 port |
+| Scenario                                                                                            | Assessment                                          |
+|-----------------------------------------------------------------------------------------------------|-----------------------------------------------------|
+| **Redundancy:** Failover in case of cable/port failure                                              | ✅ Useful                                           |
+| **Switch connectivity:** Port 1 → partner Spark, Port 2 → switch for multi-node clusters (>2 nodes) | ⚠️ Possible, but PCIe bandwidth is shared           |
+| **Double bandwidth to partner Spark**                                                               | ❌ No benefit                                       |
+| **Separation of management and data traffic**                                                       | ⚠️ Better solved via the dedicated 10 GbE RJ45 port |
 
 For management traffic, SSH access, and general network traffic, the dedicated **10 GbE RJ45 port** is available, which does not affect QSFP bandwidth. NVIDIA's own stacking documentation explicitly uses this port (or Wi-Fi) for out-of-band management.
 

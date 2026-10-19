@@ -9,31 +9,31 @@ Determine why RoCE is not delivering RDMA throughput (2.2 GB/s observed vs
 
 ### Baseline (2026-04-12 13:50)
 
-| Transport | NCCL_IB_HCA | Peak bus BW | Actual NCCL transport | Notes |
-|-----------|-------------|-------------|----------------------|-------|
-| socket (VF7) | — | 2.12 GB/s | NET/Socket | NCCL_NET=Socket, NCCL_IB_DISABLE=1 |
-| "roce" (VF7) | rocep1s0f0v7 | 2.20 GB/s | NET/Socket (fallback) | IB init failed, see below |
+| Transport    | NCCL_IB_HCA  | Peak bus BW | Actual NCCL transport | Notes                              |
+|--------------|--------------|-------------|-----------------------|------------------------------------|
+| socket (VF7) | —            | 2.12 GB/s   | NET/Socket            | NCCL_NET=Socket, NCCL_IB_DISABLE=1 |
+| "roce" (VF7) | rocep1s0f0v7 | 2.20 GB/s   | NET/Socket (fallback) | IB init failed, see below          |
 
 Both are ~2.1 GB/s → NCCL is falling back to TCP socket in the RoCE test.
 
 ### Test 1.1 → 2.2: RoCE debugging sequence (2026-04-12 13:30–15:00)
 
-| Test | Config | NCCL transport | Peak BW | Finding |
-|------|--------|---------------|---------|---------|
-| 1.1 | VF7, non-privileged | Socket (fallback) | 2.20 GB/s | `NET/IB: No device found` — `/dev/infiniband/` not visible in container |
-| 2.2a | PF hostNetwork, non-privileged | Socket (fallback) | 2.19 GB/s | Same `No device found` — hostNetwork alone doesn't expose IB char devices |
-| 2.2b | PF hostNetwork, **privileged** | **IB/RoCE** | crash | `ibv_modify_qp failed: Network unreachable` — VF GID table has no IPv4 entries |
-| fix | Added IPv4 addresses to VF netplan | — | — | RoCE GID table populated: `::ffff:10.10.100.x` at GID index 3 |
-| 2.2c | PF hostNetwork, privileged, GIDs fixed | **IB/RoCE** | crash | QP connect uses VF sub-devices whose GIDs were still link-local |
-| 1.1b | VF7, **privileged**, GIDs fixed | **IB/RoCE** | **9.78 GB/s** | All channels `via NET/IB/0` — first successful RoCE run |
+| Test | Config                                 | NCCL transport    | Peak BW       | Finding                                                                        |
+|------|----------------------------------------|-------------------|---------------|--------------------------------------------------------------------------------|
+| 1.1  | VF7, non-privileged                    | Socket (fallback) | 2.20 GB/s     | `NET/IB: No device found` — `/dev/infiniband/` not visible in container        |
+| 2.2a | PF hostNetwork, non-privileged         | Socket (fallback) | 2.19 GB/s     | Same `No device found` — hostNetwork alone doesn't expose IB char devices      |
+| 2.2b | PF hostNetwork, **privileged**         | **IB/RoCE**       | crash         | `ibv_modify_qp failed: Network unreachable` — VF GID table has no IPv4 entries |
+| fix  | Added IPv4 addresses to VF netplan     | —                 | —             | RoCE GID table populated: `::ffff:10.10.100.x` at GID index 3                  |
+| 2.2c | PF hostNetwork, privileged, GIDs fixed | **IB/RoCE**       | crash         | QP connect uses VF sub-devices whose GIDs were still link-local                |
+| 1.1b | VF7, **privileged**, GIDs fixed        | **IB/RoCE**       | **9.78 GB/s** | All channels `via NET/IB/0` — first successful RoCE run                        |
 
 ### Final result (2026-04-12 15:15)
 
-| Transport | Peak bus BW | Latency @4KB | Speedup vs socket |
-|-----------|-------------|--------------|-------------------|
-| socket (VF7) | 2.12 GB/s | 209 µs | 1× |
-| **RoCE (VF7)** | **9.78 GB/s** | **40 µs** | **4.6×** |
-| Theorie 200 GbE | ~25 GB/s | — | — |
+| Transport       | Peak bus BW   | Latency @4KB | Speedup vs socket |
+|-----------------|---------------|--------------|-------------------|
+| socket (VF7)    | 2.12 GB/s     | 209 µs       | 1×                |
+| **RoCE (VF7)**  | **9.78 GB/s** | **40 µs**    | **4.6×**          |
+| Theorie 200 GbE | ~25 GB/s      | —            | —                 |
 
 9.78 GB/s = ~39% of 200 GbE line rate. The gap to theoretical is likely
 from missing PFC/DCBX lossless Ethernet config, no GPU Direct RDMA (GDR),
@@ -44,13 +44,13 @@ and default NCCL tuning parameters.
 Model: nvidia/Qwen3-235B-A22B-NVFP4, EP=4, TP=4, flashinfer_cutlass,
 scitrera/dgx-spark-sglang:0.5.10, n=4 concurrent, max_tokens=2048.
 
-| Metric | Test 17 Winner (Socket) | RoCE (new) | Speedup |
-|--------|------------------------|------------|---------|
-| Peak (sum tok/s) | 34.6 | **65.2** | **1.88×** |
-| Aggregate tok/s | 31.0 | **65.4** | **2.1×** |
-| Per-request tok/s | 8.65 | **16.3** | **1.88×** |
-| Avg TTFT | 2.14s | **0.92s** | **2.3×** |
-| Wall time (n=4) | 345s | **125s** | **2.8×** |
+| Metric            | Test 17 Winner (Socket) | RoCE (new) | Speedup   |
+|-------------------|-------------------------|------------|-----------|
+| Peak (sum tok/s)  | 34.6                    | **65.2**   | **1.88×** |
+| Aggregate tok/s   | 31.0                    | **65.4**   | **2.1×**  |
+| Per-request tok/s | 8.65                    | **16.3**   | **1.88×** |
+| Avg TTFT          | 2.14s                   | **0.92s**  | **2.3×**  |
+| Wall time (n=4)   | 345s                    | **125s**   | **2.8×**  |
 
 Nearly 2× throughput and 2.3× lower TTFT from two changes:
 1. NCCL transport Socket → RoCE (9.78 GB/s vs 2.12 GB/s bus bandwidth)
@@ -67,10 +67,10 @@ baseline.
 Model: nvidia/Qwen3-235B-A22B-NVFP4 + nvidia/Qwen3-235B-A22B-Eagle3
 (EAGLE3), n=8 concurrent, RoCE transport.
 
-| Config | n=8 gen throughput | accept rate |
-|--------|-------------------|-------------|
-| Normal decode (RoCE) | **~105 tok/s** | — |
-| Speculative EAGLE3 (RoCE) | ~75-80 tok/s | **9%** |
+| Config                    | n=8 gen throughput | accept rate |
+|---------------------------|--------------------|-------------|
+| Normal decode (RoCE)      | **~105 tok/s**     | —           |
+| Speculative EAGLE3 (RoCE) | ~75-80 tok/s       | **9%**      |
 
 Speculative is **~25% slower** than normal decode. Root cause: the EAGLE3
 draft model's accept rate is only 9% — 91% of speculative tokens are
@@ -249,10 +249,10 @@ ssh root@spark1.local 'cma_roce_mode -d mlx5_0 -p 1 2>/dev/null || echo "cma_roc
 
 ## Expected outcomes
 
-| If... | Then... |
-|-------|---------|
-| Test 1.1 shows "NET/Socket" fallback | NCCL can't init RoCE on VF7 |
-| Test 2.2 gives 20+ GB/s on PF | RoCE works on PF but not VFs → SR-IOV RoCE config issue |
-| Test 2.2 also gives ~2 GB/s | RoCE not functional on these NICs → check Phase 3 prerequisites |
-| Test 3.1 shows no IB devices | RDMA/IB kernel modules not loaded or NIC firmware issue |
-| Test 3.2 shows no PFC | Lossless Ethernet not configured → RoCE will have drops under load |
+| If...                                | Then...                                                            |
+|--------------------------------------|--------------------------------------------------------------------|
+| Test 1.1 shows "NET/Socket" fallback | NCCL can't init RoCE on VF7                                        |
+| Test 2.2 gives 20+ GB/s on PF        | RoCE works on PF but not VFs → SR-IOV RoCE config issue            |
+| Test 2.2 also gives ~2 GB/s          | RoCE not functional on these NICs → check Phase 3 prerequisites    |
+| Test 3.1 shows no IB devices         | RDMA/IB kernel modules not loaded or NIC firmware issue            |
+| Test 3.2 shows no PFC                | Lossless Ethernet not configured → RoCE will have drops under load |
