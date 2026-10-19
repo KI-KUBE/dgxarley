@@ -387,6 +387,7 @@ ansible-playbook site.yml --tags k3sinstall
 ansible-playbook dgx.yml --tags qsfp
 ansible-playbook common.yml --tags iptables
 ansible-playbook k3sserver.yml --tags kubeconfig
+ansible-playbook k3sserver.yml --tags k9s
 ansible-playbook k8s_infra.yml --tags promstack
 ansible-playbook k8s_infra.yml --tags postgresql
 

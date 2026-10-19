@@ -40,6 +40,22 @@ Orchestrates all subtasks in order:
 4. **Cron jobs** (`crontab.yml`)
 5. **HAProxy** (`haproxy.yml`) -- master only
 6. **Rsyslog** (`rsyslog.yml`)
+7. **k9s** (`k9s.yml`) -- master only, tag `k9s`
+
+### `k9s.yml`
+
+Installs [k9s](https://github.com/derailed/k9s) (Kubernetes TUI) on the K3s master (`ansible-playbook k3sserver.yml --tags k9s`). Version-aware and idempotent: the binary is only replaced when missing or when `k9s version --short` differs from the target.
+
+1. **Version** -- `k9s_version: latest` queries the GitHub releases API; if that fails (e.g. rate limit) an installed k9s is kept with a warning, otherwise the play fails. A pinned `vX.Y.Z` skips the lookup
+2. **Download** -- `k9s_Linux_<amd64|arm64>.tar.gz` from the release, verified against the release's `checksums.sha256`
+3. **Install** -- extracts only the `k9s` binary into a temp dir, copies it to `k9s_install_dir` (mode `0755`), removes the temp dir and verifies `k9s version --short`
+
+| Variable          | Default          | Description                                      |
+|-------------------|------------------|--------------------------------------------------|
+| `k9s_enabled`     | `true`           | Install k9s on the master                        |
+| `k9s_version`     | `latest`         | `latest` or a pinned release tag, e.g. `v0.51.0` |
+| `k9s_install_dir` | `/usr/local/bin` | Target directory of the binary                   |
+| `k9s_github_repo` | `derailed/k9s`   | GitHub `owner/repo` of the releases              |
 
 ### `installbasicpackages.yml`
 
