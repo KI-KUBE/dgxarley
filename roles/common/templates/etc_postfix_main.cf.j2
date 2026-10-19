@@ -46,6 +46,8 @@ alias_database = hash:/etc/aliases
 # https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html
 mydestination = {{ mailname }}, {{ mailname | regex_replace("^(.*?)\\.(.*)$", "\\1") }}, localhost.localdomain,localhost
 relayhost = {{ postfix_relayhost }}
+# default "dns" ignores /etc/hosts, so a bracketed relayhost alias (postfix_relay_alias) would not resolve
+smtp_host_lookup = dns, native
 mynetworks = 10.0.0.0/8 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128
 mailbox_size_limit = 0
 recipient_delimiter = +

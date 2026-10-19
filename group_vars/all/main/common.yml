@@ -10,6 +10,9 @@ smartd_mail_recipients: "root,admin@example.com"
 
 # Postfix relay
 postfix_relayhost: "[mail.example.com]"
+# /etc/hosts alias for the relay (roles/common/defaults); the IP is set per host in host_vars
+postfix_relay_alias: "mailrelay"
+postfix_relay_alias_ip: ""
 
 # Geoblock/Allow
 geoallow:

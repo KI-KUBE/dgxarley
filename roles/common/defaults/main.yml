@@ -3,6 +3,12 @@
 
 # Postfix relayhost - set to empty string for direct delivery
 postfix_relayhost: "[mail.example.com]"
+# Relay alias: with postfix_relay_alias_ip set, /etc/hosts gets "<ip> <alias>" so that
+# postfix_relayhost: "[mailrelay]" stays identical on every host while the address varies per host
+# (nodes -> their master, the master -> the ops hub's tunnel address). Empty = no entry (an existing
+# alias line is removed). main.cf uses smtp_host_lookup = dns, native so the alias resolves.
+postfix_relay_alias: "mailrelay"
+postfix_relay_alias_ip: ""
 
 # docker-ce-cli (needs Docker's apt repo; set false on hosts without it, e.g. Ubuntu 26.04)
 install_docker_cli: true
