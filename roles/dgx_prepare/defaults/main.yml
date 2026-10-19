@@ -12,6 +12,10 @@ qsfp_sriov_numvfs: 8
 qsfp_sriov_pf_pci: "0000:01:00.0"
 qsfp_sriov_pf_iface: "enp1s0f0np0"
 # qsfp_sriov_vf_prefix lives in group_vars/all/main/qsfp.yml (shared with k8s_dgx)
+# Rail-2 PF: the second PCIe x4 link to the SAME cabled QSFP cage. With qsfp_dualrail_enabled
+# (group_vars/all/main/qsfp.yml, together with qsfp_sriov_vf2_prefix + qsfp_rail2_octet3_offset)
+# it gets the rail-2 host IP and, with SR-IOV, its own qsfp_sriov_numvfs VFs.
+qsfp_rail2_pf_iface: "enP2p1s0f0np0"
 
 # Manual DCBX/PFC — only if switch DCBX auto-negotiation doesn't work
 set_dcbx_manually: false

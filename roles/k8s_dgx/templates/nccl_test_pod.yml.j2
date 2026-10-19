@@ -26,7 +26,13 @@ metadata:
                qsfp_sriov_assignments.iperf_test.worker_ip3] %}
   annotations:
 {% if qsfp_sriov_enabled | default(false) %}
+{% if qsfp_dualrail_enabled | default(false) | bool %}
+{# rail-2 twin VF as net2, rail-2 IP = third octet + qsfp_rail2_octet3_offset (see defaults/main/qsfp.yml) #}
+{% set _o = _ips[rank].split('.') %}
+    k8s.v1.cni.cncf.io/networks: '[{"name":"qsfp-vf{{ _vf }}","ips":["{{ _ips[rank] }}/24"]},{"name":"qsfp-r2-vf{{ _vf }}","ips":["{{ _o[0] }}.{{ _o[1] }}.{{ _o[2] | int + qsfp_rail2_octet3_offset | default(1) | int }}.{{ _o[3] | int }}/24"]}]'
+{% else %}
     k8s.v1.cni.cncf.io/networks: '[{"name":"qsfp-vf{{ _vf }}","ips":["{{ _ips[rank] }}/24"]}]'
+{% endif %}
 {% elif rank == 0 %}
     k8s.v1.cni.cncf.io/networks: qsfp-direct
 {% else %}
