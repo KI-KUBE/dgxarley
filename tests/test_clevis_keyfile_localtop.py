@@ -36,6 +36,8 @@ class Box:
         (root / "dev" / "label" / "LUKSKEY").touch()
         (root / "good.key").write_text(GOOD)
         self.log = root / "cs.log"
+        self.kmsg = root / "kmsg"
+        self.kmsg.touch()
         cs = root / "bin" / "cryptsetup"
         cs.parent.mkdir()
         cs.write_text(
@@ -59,7 +61,7 @@ class Box:
         calls = f"\n{between}\n".join('fetch_key /dev/fake; echo "RES $? ${KEY#$MNT/}"' for _ in range(rounds))
         script = (
             f"FAKEDEV={self.root}/dev\nBOOT=0\nUSB=1\nUSB_LABEL=LUKSKEY\nUSB_FILE='{usb_file}'\n"
-            f"USB_DIR='{usb_dir}'\nHOST=me\nMNT={self.stick}\nBMNT={self.root}/boot\nREJECTED=''\n"
+            f"USB_DIR='{usb_dir}'\nHOST=me\nMNT={self.stick}\nBMNT={self.root}/boot\nKMSG={self.kmsg}\nREJECTED=''\n"
             + _functions()
             + "mount_ro() { return 0; }\n"
             + calls
@@ -106,6 +108,14 @@ def test_rejected_keys_not_retried(box: Box) -> None:
     box.key("luks-keys/bbb.key", STALE2)
     assert box.run(rounds=3) == ["2 ", "1 ", "1 "]  # backoff only after a fresh rejection
     assert box.tried() == ["luks-keys/aaa.key", "luks-keys/bbb.key"]
+
+
+def test_rejection_logged_to_kmsg_once(box: Box) -> None:
+    box.key("luks-keys/aaa.key", STALE)
+    box.run(rounds=2)
+    assert box.kmsg.read_text().splitlines() == [
+        f"<5>clevis-keyfile: key {box.stick}/luks-keys/aaa.key rejected by /dev/fake"
+    ]
 
 
 def test_changed_key_is_retried(box: Box) -> None:

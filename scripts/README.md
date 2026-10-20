@@ -87,6 +87,31 @@ everything inside it is gone after encryption. The RAM check only counts what is
 before the reboot, refill the HF cache afterwards (e.g. rsync from another node) and let containerd
 re-pull its images.
 
+### Unattended first boot (boot keyfile fallback, default)
+
+Phase A stages the clevis role's keyfile fallback (`roles/clevis/files/initramfs_*_clevis-keyfile`, found next
+to the script in a checkout, else pass `--clevis-files=DIR`) and a random key in
+`/etc/clevis-keyfile/fallback.key`. Phase B adds that key as a second LUKS keyslot, copies it to
+`/boot/clevis-keyfile/luks-fallback.key` and writes `/etc/clevis-keyfile/keyfile.conf` (`BOOT=1`), i.e. the state
+the role produces with `clevis_put_keyfile_to_boot_partition_enabled: true`. The first boot after encryption then
+unlocks without the console; the passphrase prompt stays as a fallback. `--no-boot-keyfile` skips all of this.
+
+`/boot` is not encrypted, so the disk is not protected at rest until that copy is gone. After binding
+clevis/tang, remove it with the role (the keyslot stays, usable from a `LUKSKEY` USB stick):
+
+```bash
+ansible-playbook common.yml --limit spark1 --tags clevis_keyfile \
+  -e 'clevis_keyfile_enabled=true clevis_put_keyfile_to_boot_partition_enabled=false'
+```
+
+Standalone copy to a node:
+
+```bash
+scp scripts/luks_encrypt_spark.sh root@spark1:/root/luks-encrypt/
+scp -r roles/clevis/files root@spark1:/root/luks-encrypt/clevis-files
+ssh -t root@spark1 'bash /root/luks-encrypt/luks_encrypt_spark.sh --clevis-files=/root/luks-encrypt/clevis-files'
+```
+
 ### Screenshots
 
 **Step 1-2: Mounting old root and backing up to RAM**
@@ -115,7 +140,7 @@ re-pull its images.
 
 ### After encryption
 
-On first boot after encryption, enter the LUKS passphrase manually at the prompt. Then bind clevis/tang for automatic unlock on subsequent boots:
+On first boot after encryption the root unlocks from the `/boot` keyfile (or, with `--no-boot-keyfile`, enter the LUKS passphrase at the prompt). Then bind clevis/tang for automatic unlock on subsequent boots:
 
 ```bash
 ansible-playbook common.yml --limit spark1 --tags clevis \

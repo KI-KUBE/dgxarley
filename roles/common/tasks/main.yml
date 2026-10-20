@@ -210,6 +210,16 @@
     - blacklist_simpledrm
   import_tasks: blacklist_simpledrm.yml
 
+- name: disable DRM connector polling (GRUB + runtime)
+  tags:
+    - drm_kms_poll
+  import_tasks: drm_kms_poll.yml
+
+- name: force DRM connectors on (GRUB video=<connector>:e)
+  tags:
+    - drm_force_connector
+  import_tasks: drm_force_connector.yml
+
 - name: prepare host for Rook/Ceph (kernel modules, lvm2)
   tags:
     - rookceph_host

@@ -46,10 +46,19 @@ case "$1" in
     ;;
 esac
 
+KMSG=${CLEVIS_DHCP_RELEASE_KMSG:-/dev/kmsg}
+
+# kmsg_log <msg>: stderr plus kmsg; plain initramfs-tools output never reaches the journal (journalctl -k -b).
+kmsg_log() {
+    echo "dhcp-release: $*" >&2
+    [ -w "$KMSG" ] && echo "<5>dhcp-release: $*" > "$KMSG" 2>/dev/null
+    return 0
+}
+
 # dhcpcd is the only release-capable DHCP client in the initramfs. Without it
 # there is nothing to do (klibc ipconfig cannot send DHCPRELEASE).
 if ! command -v dhcpcd >/dev/null 2>&1; then
-    echo "dhcp-release: dhcpcd not present in initramfs, skipping" >&2
+    kmsg_log "dhcpcd not present in initramfs, skipping"
     exit 0
 fi
 
@@ -113,7 +122,7 @@ release_lease() {
     ip addr flush dev "$dev" 2>/dev/null || true
     ip link set dev "$dev" down 2>/dev/null || true
 
-    echo "dhcp-release: released boot DHCP lease on $dev" >&2
+    kmsg_log "released boot DHCP lease on $dev"
 }
 
 # configure_networking() records each configured interface in /run/net-<dev>.conf

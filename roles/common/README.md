@@ -79,6 +79,16 @@ ansible-playbook common.yml --tags netplan
 - Deploys `/etc/modprobe.d/blacklist-simpledrm.conf` and triggers `update-initramfs -u`
 - Conditional on `blacklist_simpledrm: true` host variable
 
+### DRM connector polling (`drm_kms_poll`)
+- Sets `drm_kms_helper.poll=0` via `/etc/default/grub.d/zz-drm-kms-poll.cfg` and on the running kernel via sysfs
+- Stops `EDID block 0 ... checksum is invalid` log spam from a display output that returns broken EDID
+- Conditional on `disable_drm_kms_poll: true` host variable; snippet is removed otherwise
+
+### Forced DRM connectors (`drm_force_connector`)
+- Adds `video=<connector>:e` per entry of `drm_force_connectors` via `/etc/default/grub.d/zz-drm-force-connector.cfg`
+- Keeps the console output enabled (and a synthetic EDID usable) when no monitor/KVM is attached at boot
+- Takes effect after the next reboot; snippet is removed when the list is empty
+
 ### Podman (`podman`)
 - Installs Podman and enables the system-level `podman.socket`
 - Enables linger for root
@@ -128,6 +138,8 @@ ansible-playbook common.yml --tags netplan
 | `geoblock`                    | list       | Country codes to geo-block (optional)                                                                                                     |
 | `geoallow`                    | list       | Country codes to geo-allow (optional)                                                                                                     |
 | `blacklist_simpledrm`         | bool       | Blacklist simpledrm kernel module for Intel iGPU card0 (optional)                                                                         |
+| `disable_drm_kms_poll`        | bool       | Disable DRM connector polling (`drm_kms_helper.poll=0`) (optional)                                                                        |
+| `drm_force_connectors`        | list       | DRM connectors forced on via `video=<connector>:e`, e.g. `["HDMI-A-1"]` (optional)                                                        |
 | `wantspodman`                 | bool       | Install and configure Podman (optional)                                                                                                   |
 | `wantsclevis`                 | bool       | Enable clevis/tang NBDE auto-decryption (optional)                                                                                        |
 | `clevis_luks_device_override` | string     | Override auto-detected LUKS device (optional)                                                                                             |
@@ -159,7 +171,7 @@ ansible-playbook common.yml --tags netplan
 
 ## Tags
 
-`installbasicpackages`, `avahi`, `netplan`, `fortune`, `sshconfig`, `postfix`, `fail2ban`, `iptables`, `crontab`, `sysstat`, `locale`, `sysctl`, `usb_autosuspend`, `podman`, `blacklist_simpledrm`, `upgradestuff`, `clevis`
+`installbasicpackages`, `avahi`, `netplan`, `fortune`, `sshconfig`, `postfix`, `fail2ban`, `iptables`, `crontab`, `sysstat`, `locale`, `sysctl`, `usb_autosuspend`, `podman`, `blacklist_simpledrm`, `drm_kms_poll`, `drm_force_connector`, `upgradestuff`, `clevis`
 
 ## Handlers
 

@@ -24,6 +24,8 @@
 #   sudo ./luks_encrypt_spark.sh --dry-run # Show what would be done
 #   sudo ./luks_encrypt_spark.sh --exclude=/srv/scratch      # Also skip (and lose) a directory's contents
 #   sudo ./luks_encrypt_spark.sh --no-default-excludes       # Back up hf-cache + containerd too
+#   sudo ./luks_encrypt_spark.sh --clevis-files=/root/files  # roles/clevis/files when not run from the repo
+#   sudo ./luks_encrypt_spark.sh --no-boot-keyfile           # Passphrase prompt on first boot instead
 #
 # After reboot (enter LUKS passphrase at prompt), bind clevis/tang:
 #   ansible-playbook common.yml --limit spark1.local --tags clevis \
@@ -62,6 +64,17 @@ CONFIG_PATH="/etc/luks-encrypt-spark.conf"
 KEY_PATH="/etc/luks-encrypt-spark.key"
 EXCLUDE_PATH="/etc/luks-encrypt-spark.exclude"
 
+# Boot keyfile fallback, same paths and scripts as roles/clevis (clevis_put_keyfile_to_boot_partition_enabled)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CLEVIS_FILES_DIR="${SCRIPT_DIR}/../roles/clevis/files"
+CLEVIS_KEYFILE_DIR="/etc/clevis-keyfile"
+CLEVIS_KEYFILE="${CLEVIS_KEYFILE_DIR}/fallback.key"
+CLEVIS_INITRAMFS_FILES=(
+  "initramfs_hooks_clevis-keyfile:/etc/initramfs-tools/hooks/clevis-keyfile"
+  "initramfs_local-top_clevis-keyfile:/etc/initramfs-tools/scripts/local-top/clevis-keyfile"
+  "initramfs_local-bottom_clevis-keyfile:/etc/initramfs-tools/scripts/local-bottom/clevis-keyfile"
+)
+
 # ═══════════════════════════════════════════════════════════════
 # UI helpers
 # ═══════════════════════════════════════════════════════════════
@@ -86,6 +99,7 @@ MODE="prep"
 DRY_RUN=false
 EXCLUDES=()
 USE_DEFAULT_EXCLUDES=true
+BOOT_KEYFILE=true
 
 for arg in "$@"; do
   case "$arg" in
@@ -94,6 +108,8 @@ for arg in "$@"; do
     --dry-run)  DRY_RUN=true ;;
     --exclude=*) EXCLUDES+=("${arg#--exclude=}") ;;
     --no-default-excludes) USE_DEFAULT_EXCLUDES=false ;;
+    --no-boot-keyfile) BOOT_KEYFILE=false ;;
+    --clevis-files=*) CLEVIS_FILES_DIR="${arg#--clevis-files=}" ;;
     -h|--help)
       cat <<'HELPEOF'
 Usage: sudo ./luks_encrypt_spark.sh [OPTIONS]
@@ -113,7 +129,20 @@ Options:
               /var/lib/rancher/k3s/agent/containerd (skipped if absent).
   --no-default-excludes
               Back up the default-excluded dirs as well
+  --clevis-files=DIR
+              Directory with the clevis role's initramfs_*_clevis-keyfile scripts
+              (default: ../roles/clevis/files next to this script)
+  --no-boot-keyfile
+              Do not add the boot keyfile fallback. Without it the first boot
+              after encryption needs the passphrase at the console.
   -h, --help  Show this help
+
+Boot keyfile fallback (default): a random key is added as a second LUKS keyslot
+and copied to /boot/clevis-keyfile/luks-fallback.key, so the encrypted root
+unlocks unattended. /boot is NOT encrypted: until that copy is removed the disk
+is not protected at rest. Remove it after binding clevis/tang:
+  ansible-playbook common.yml -l <host> --tags clevis_keyfile \
+    -e 'clevis_keyfile_enabled=true clevis_put_keyfile_to_boot_partition_enabled=false'
 
 Flow:
   1. Run this script on the live Spark node
@@ -172,6 +201,22 @@ if [ "$MODE" = "abort" ]; then
       REMOVED=true
     fi
   done
+  # keyfile.conf only exists once the clevis role (or a finished encryption) took over the fallback
+  if [ ! -f "${CLEVIS_KEYFILE_DIR}/keyfile.conf" ]; then
+    for entry in "${CLEVIS_INITRAMFS_FILES[@]}"; do
+      dst="${entry#*:}"
+      if [ -f "$dst" ]; then
+        rm -f "$dst"
+        ok "Removed: $dst"
+        REMOVED=true
+      fi
+    done
+    if [ -f "$CLEVIS_KEYFILE" ]; then
+      rm -f "$CLEVIS_KEYFILE"
+      rmdir --ignore-fail-on-non-empty "$CLEVIS_KEYFILE_DIR"
+      ok "Removed: $CLEVIS_KEYFILE"
+    fi
+  fi
   if [ "$REMOVED" = true ]; then
     info "Rebuilding initramfs (removing encryption hooks)..."
     update-initramfs -u -k all
@@ -291,6 +336,16 @@ if [ -f "$CONFIG_PATH" ] || [ -f "$PREMOUNT_PATH" ]; then
   fail "Encryption hooks already deployed. Use --status to check or --abort to cancel."
 fi
 
+if [ "$BOOT_KEYFILE" = true ]; then
+  for entry in "${CLEVIS_INITRAMFS_FILES[@]}"; do
+    src="${CLEVIS_FILES_DIR}/${entry%%:*}"
+    if [ ! -f "$src" ]; then
+      fail "Boot keyfile fallback needs $src (pass --clevis-files=DIR with roles/clevis/files, or --no-boot-keyfile)"
+    fi
+  done
+  ok "Boot keyfile fallback: initramfs scripts found in $CLEVIS_FILES_DIR"
+fi
+
 # ─── Summary ────────────────────────────────────────────────
 
 echo ""
@@ -309,11 +364,17 @@ echo "  2. On next boot, initramfs backs up root to RAM (~${DATA_USED_MB}MB)"
 echo "  3. Repartition: p2=${BOOT_PARTITION_SIZE_MB}MB /boot, p3=LUKS (remaining)"
 echo "  4. LUKS format p3, LVM ${LVM_VG_NAME}/${LVM_LV_NAME}"
 echo "  5. Restore backup to encrypted root, rebuild GRUB, auto-reboot"
+if [ "$BOOT_KEYFILE" = true ]; then
+  echo "  6. Second keyslot with a random key, copy on /boot: first boot unlocks unattended"
+fi
 echo ""
 echo -e "${RED}${BOLD}WARNING: On next reboot, ALL data on $ORIG_ROOT_PART will be destroyed and re-encrypted.${NC}"
 echo -e "${RED}${BOLD}The backup exists ONLY in RAM. Power loss during encryption = total data loss.${NC}"
 if [ "${#EXCLUDES[@]}" -gt 0 ]; then
   echo -e "${RED}${BOLD}The contents of the excluded directories are NOT backed up and will be gone afterwards.${NC}"
+fi
+if [ "$BOOT_KEYFILE" = true ]; then
+  echo -e "${YELLOW}Until /boot/clevis-keyfile/luks-fallback.key is removed, the disk is NOT protected at rest.${NC}"
 fi
 
 if [ "$DRY_RUN" = true ]; then
@@ -348,6 +409,22 @@ if [ ${#MISSING[@]} -gt 0 ]; then
   ok "Packages installed"
 else
   ok "All packages already installed"
+fi
+
+# ─── Step 2b: Stage boot keyfile fallback ────────────────────
+# Inert until Phase B writes keyfile.conf into the new root: hook and local-top exit without it.
+
+if [ "$BOOT_KEYFILE" = true ]; then
+  info "Staging boot keyfile fallback..."
+  for entry in "${CLEVIS_INITRAMFS_FILES[@]}"; do
+    install -D -m 0755 -o root -g root "${CLEVIS_FILES_DIR}/${entry%%:*}" "${entry#*:}"
+  done
+  install -d -m 0700 -o root -g root "$CLEVIS_KEYFILE_DIR"
+  if [ ! -s "$CLEVIS_KEYFILE" ]; then
+    # ASCII without trailing newline: askpass' passfifo would keep the newline
+    (umask 077; head -c 48 /dev/urandom | base64 -w0 > "$CLEVIS_KEYFILE")
+  fi
+  ok "Boot keyfile fallback staged ($CLEVIS_KEYFILE + clevis-keyfile initramfs scripts)"
 fi
 
 # ─── Step 3: Configure initramfs networking ───────────────────
@@ -416,6 +493,7 @@ LUKS_MAPPER_NAME=${LUKS_MAPPER_NAME}
 LVM_VG_NAME=${LVM_VG_NAME}
 LVM_LV_NAME=${LVM_LV_NAME}
 BOOT_PARTITION_SIZE_MB=${BOOT_PARTITION_SIZE_MB}
+BOOT_KEYFILE=$([ "$BOOT_KEYFILE" = true ] && echo 1 || echo 0)
 CONFEOF
 chmod 600 "$CONFIG_PATH"
 
@@ -773,6 +851,37 @@ BOOT_UUID=$(blkid -s UUID -o value "${BOOT_PART}")
 log_msg "[Step 11/18] LUKS UUID: ${LUKS_UUID}"
 log_msg "[Step 11/18] Boot UUID: ${BOOT_UUID}"
 
+# ── Step 11b: Boot keyfile fallback ───────────────────────
+# Failure is not fatal: the passphrase still unlocks, only the first boot needs the console.
+if [ "${BOOT_KEYFILE:-0}" = 1 ]; then
+  log_msg "[Step 11/18] Adding boot keyfile fallback (keyslot + /boot copy)..."
+  NEW_KEY=/tmp/newroot/etc/clevis-keyfile/fallback.key
+  if [ -s "$NEW_KEY" ] && cryptsetup luksAddKey --batch-mode --pbkdf argon2id \
+       --key-file "${KEY_FILE}" "${LUKS_PART}" "$NEW_KEY"; then
+    mkdir -p /tmp/newroot/boot/clevis-keyfile
+    chmod 700 /tmp/newroot/boot/clevis-keyfile
+    cp "$NEW_KEY" /tmp/newroot/boot/clevis-keyfile/luks-fallback.key
+    chmod 600 /tmp/newroot/boot/clevis-keyfile/luks-fallback.key
+    NEW_HOST=$(cat /tmp/newroot/etc/hostname 2>/dev/null || echo "")
+    cat > /tmp/newroot/etc/clevis-keyfile/keyfile.conf <<KEYCONFEOF
+# Written by luks_encrypt_spark.sh in the clevis role's format; the role overwrites it
+KEYFILE='/etc/clevis-keyfile/fallback.key'
+USB=0
+USB_LABEL='LUKSKEY'
+USB_FILE='luks-fallback.key'
+USB_DIR='luks-keys'
+HOST='${NEW_HOST}'
+BOOT=1
+BOOT_DEV='UUID=${BOOT_UUID}'
+BOOT_FILE='clevis-keyfile/luks-fallback.key'
+KEYCONFEOF
+    chmod 600 /tmp/newroot/etc/clevis-keyfile/keyfile.conf
+    log_msg "[Step 11/18] Boot keyfile fallback ready: /boot/clevis-keyfile/luks-fallback.key"
+  else
+    log_msg "[Step 11/18] WARNING: boot keyfile fallback failed — next boot needs the passphrase"
+  fi
+fi
+
 # ── Step 12: Update /etc/fstab ────────────────────────────
 log_msg "[Step 12/18] Updating /etc/fstab..."
 FSTAB="/tmp/newroot/etc/fstab"
@@ -871,7 +980,7 @@ cryptsetup luksClose "${LUKS_MAPPER_NAME}" 2>/dev/null || true
 log_msg "[Step 18/18] ═══════════════════════════════════════════════════════"
 log_msg "[Step 18/18]   Encryption complete!"
 log_msg "  Rebooting in 5 seconds..."
-log_msg "  On next boot, enter LUKS passphrase at the prompt."
+log_msg "  Next boot unlocks from the /boot keyfile if set up, else enter the LUKS passphrase."
 log_msg "  Then bind clevis/tang via Ansible for auto-unlock."
 log_msg "═══════════════════════════════════════════════════════"
 
@@ -914,8 +1023,13 @@ echo ""
 echo "     Encryption runs automatically in initramfs (~5-10 min)."
 echo "     Console output shows progress. System reboots when done."
 echo ""
-echo "  2. On next boot, enter your LUKS passphrase at the prompt."
-echo "     (Clevis not yet bound — manual passphrase required this once.)"
+if [ "$BOOT_KEYFILE" = true ]; then
+  echo "  2. On next boot the root unlocks from /boot/clevis-keyfile/luks-fallback.key."
+  echo "     (The passphrase prompt stays as a fallback if that key fails.)"
+else
+  echo "  2. On next boot, enter your LUKS passphrase at the prompt."
+  echo "     (Clevis not yet bound — manual passphrase required this once.)"
+fi
 echo ""
 echo "  3. Verify encryption:"
 echo "     ${CYAN}lsblk -f${NC}"
@@ -926,6 +1040,12 @@ echo "  4. Bind clevis/tang for auto-unlock on subsequent boots:"
 echo "     ${CYAN}ansible-playbook common.yml --limit <host> --tags clevis \\${NC}"
 echo "     ${CYAN}  -e 'wantsclevis=true clevis_luks_passphrase=...'${NC}"
 echo ""
+if [ "$BOOT_KEYFILE" = true ]; then
+  echo "  5. Remove the unprotected key copy from /boot (keeps the keyslot for a USB stick):"
+  echo "     ${CYAN}ansible-playbook common.yml --limit <host> --tags clevis_keyfile \\${NC}"
+  echo "     ${CYAN}  -e 'clevis_keyfile_enabled=true clevis_put_keyfile_to_boot_partition_enabled=false'${NC}"
+  echo ""
+fi
 echo "To cancel before rebooting:"
 echo "  ${CYAN}sudo $0 --abort${NC}"
 echo ""

@@ -30,6 +30,7 @@ CONF=/etc/clevis-keyfile/keyfile.conf
 
 MNT=/run/clevis-keyfile-usb
 BMNT=/run/clevis-keyfile-boot
+KMSG=${CLEVIS_KEYFILE_KMSG:-/dev/kmsg}
 
 # Prints "<pid> <fifo-path>" of the process holding cryptsetup's passfifo.
 find_askpass() {
@@ -70,6 +71,7 @@ try_key() {
         return 0
     fi
     REJECTED="$REJECTED$id"
+    kmsg_log "key $1 rejected by $2"
     return 2
 }
 
@@ -108,6 +110,13 @@ fetch_key() {
     return 1
 }
 
+# kmsg_log <msg>: console plus kmsg; plain initramfs-tools output never reaches the journal (journalctl -k -b).
+kmsg_log() {
+    echo "clevis-keyfile: $*"
+    [ -w "$KMSG" ] && echo "<5>clevis-keyfile: $*" > "$KMSG" 2>/dev/null
+    return 0
+}
+
 keyloop() {
     if [ "$USB" = 1 ] || [ "$BOOT" = 1 ]; then
         for mod in usb_storage uas sd_mod vfat exfat ext4 nls_cp437 nls_iso8859_1; do
@@ -139,7 +148,7 @@ keyloop() {
 
         # Builtin printf keeps the blocking fifo open inside this subshell, so local-bottom's kill ends it.
         [ -p "$fifo" ] || continue
-        printf '%s' "$(cat "$key")" > "$fifo" && echo "clevis-keyfile: unlocked $src with fallback keyfile ($key)"
+        printf '%s' "$(cat "$key")" > "$fifo" && kmsg_log "unlocked $src with fallback keyfile ($key)"
         served=$pid
     done
 }
