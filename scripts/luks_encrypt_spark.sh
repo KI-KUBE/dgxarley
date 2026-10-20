@@ -916,20 +916,12 @@ log_msg "[Step 13/18] crypttab written"
 # ── Step 14: Update /etc/default/grub ─────────────────────
 log_msg "[Step 14/18] Updating /etc/default/grub..."
 GRUB_FILE="/tmp/newroot/etc/default/grub"
-CRYPT_PARAM="cryptdevice=UUID=${LUKS_UUID}:${LUKS_MAPPER_NAME}"
 
-if grep -q '^GRUB_CMDLINE_LINUX=' "${GRUB_FILE}"; then
-  # Extract existing value, strip any old cryptdevice param
+# initramfs-tools unlocks via crypttab; cryptdevice= (Arch encrypt hook) only triggers a kernel warning
+if grep -q '^GRUB_CMDLINE_LINUX=.*cryptdevice=' "${GRUB_FILE}"; then
   OLD_VAL=$(sed -n 's/^GRUB_CMDLINE_LINUX="\(.*\)"/\1/p' "${GRUB_FILE}")
   CLEAN_VAL=$(echo "${OLD_VAL}" | sed 's/cryptdevice=[^ ]*//' | sed 's/  */ /g' | sed 's/^ *//;s/ *$//')
-  if [ -n "${CLEAN_VAL}" ]; then
-    NEW_VAL="${CRYPT_PARAM} ${CLEAN_VAL}"
-  else
-    NEW_VAL="${CRYPT_PARAM}"
-  fi
-  sed -i "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"${NEW_VAL}\"|" "${GRUB_FILE}"
-else
-  echo "GRUB_CMDLINE_LINUX=\"${CRYPT_PARAM}\"" >> "${GRUB_FILE}"
+  sed -i "s|^GRUB_CMDLINE_LINUX=.*|GRUB_CMDLINE_LINUX=\"${CLEAN_VAL}\"|" "${GRUB_FILE}"
 fi
 log_msg "[Step 14/18] GRUB config updated"
 
