@@ -41,6 +41,8 @@ fi
 
 echo -e "Bindings found:\n$SLOTS_INFO\n"
 
+FAILED=0
+
 # Iterate through slots and test each one
 while IFS= read -r line; do
     # Use awk to safely split the fields.
@@ -63,6 +65,7 @@ while IFS= read -r line; do
             echo -e "${GREEN}[OK] Successfully authenticated.${NC} (duration: ${DURATION}ms)"
         else
             echo -e "${RED}[FAIL] Could not authenticate.${NC}"
+            FAILED=$((FAILED + 1))
             echo "Possible causes:"
             echo " - Tang server unreachable"
             echo " - DNS issues"
@@ -73,3 +76,8 @@ while IFS= read -r line; do
     fi
     echo "---------------------------------------------------"
 done <<< "$SLOTS_INFO"
+
+if [ "$FAILED" -gt 0 ]; then
+    echo -e "${RED}$FAILED slot(s) failed.${NC}"
+    exit 1
+fi

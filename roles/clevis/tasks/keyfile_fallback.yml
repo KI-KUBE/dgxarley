@@ -399,7 +399,7 @@
       debug:
         msg:
           - "initramfs generator: {{ clevis_initramfs_generator }}"
-          - "USB stick: {{ ('label ' + clevis_keyfile_usb_label + ', file /' + clevis_keyfile_usb_file + ' -- write it with: /root/clevis_keyfile_write_usb.sh /dev/sdX1') if (clevis_keyfile_usb_enabled | bool) else 'disabled' }}"
+          - "USB stick: {{ ('label ' + clevis_keyfile_usb_label + ', file ' + (('/' + clevis_keyfile_usb_dir + '/' + inventory_hostname + '.key') if clevis_keyfile_usb_dir | default('') else ('/' + clevis_keyfile_usb_file)) + ' -- write it with: /root/clevis_keyfile_write_usb.sh /dev/sdX1') if (clevis_keyfile_usb_enabled | bool) else 'disabled' }}"
           - "{{ ('boot key file: ' + clevis_keyfile_boot_mount + '/' + clevis_keyfile_boot_file + ' (UUID=' + clevis_boot_uuid + ', ' + clevis_boot_fstype + ')') if (clevis_keyfile_boot_enabled | bool) else 'boot key file: disabled' }}"
 
 - name: "LUKS keyfile fallback: teardown"
@@ -507,4 +507,4 @@
 
     - name: display teardown reminder
       debug:
-        msg: "Keyfile fallback removed. Wipe the key from any USB stick (file /{{ clevis_keyfile_usb_file }}); with the keyslot gone, old copies no longer unlock the disk."
+        msg: "Keyfile fallback removed. Wipe the key from any USB stick ({{ ('/' ~ clevis_keyfile_usb_dir ~ '/' ~ inventory_hostname ~ '.key and /') if clevis_keyfile_usb_dir | default('') else '/' }}{{ clevis_keyfile_usb_file }}); with the keyslot gone, old copies no longer unlock the disk."

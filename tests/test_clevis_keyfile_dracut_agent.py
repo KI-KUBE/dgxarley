@@ -26,6 +26,7 @@ AGENT = (
 
 GOOD = "G" * 20 + "oodKeyBase64Chars0123456789abcdefghijklmnopqrstuv"[:44]  # 64 chars, no newline
 STALE = "S" * 64
+STALE2 = "T" * 64
 BOOT_REL = "clevis-keyfile/luks-fallback.key"
 
 pytestmark = pytest.mark.skipif(shutil.which("sh") is None, reason="sh not installed")
@@ -186,7 +187,7 @@ def test_stick_plugged_in_later(sb: Sandbox) -> None:
 
 def test_all_stale_no_reply_exits_when_ask_removed(sb: Sandbox) -> None:
     boot = sb.source_dir("boot", STALE, BOOT_REL)
-    usb = sb.source_dir("usb", STALE, "luks-fallback.key")
+    usb = sb.source_dir("usb", STALE2, "luks-fallback.key")
     ask = sb.ask_file()
     proc = sb.start(
         sb.conf(BOOT="1", BOOT_DEV="UUID=x", USB="1"),
@@ -203,7 +204,7 @@ def test_all_stale_no_reply_exits_when_ask_removed(sb: Sandbox) -> None:
     # each stale key is tried once per ask file, not once per round
     assert err.count("source 'boot' does not unlock") == 1
     assert err.count("source 'usb' does not unlock") == 1
-    assert STALE not in out + err
+    assert STALE not in out + err and STALE2 not in out + err
 
 
 def test_changed_stick_is_retried(sb: Sandbox) -> None:
@@ -256,3 +257,52 @@ def test_missing_conf_exits_zero(sb: Sandbox) -> None:
     proc = sb.start(sb.root / "does-not-exist.conf")
     proc.communicate(timeout=10)
     assert proc.returncode == 0
+
+
+def test_multi_host_stick_own_host_first(sb: Sandbox) -> None:
+    usb = sb.source_dir("usb", STALE, "luks-keys/aaa.key")
+    sb.source_dir("usb", GOOD, "luks-keys/me.key")
+    sb.ask_file()
+    proc = sb.start(sb.conf(USB="1", USB_FILE="''", USB_DIR="luks-keys", HOST="me"), CLEVIS_KEYFILE_USB_DIR=str(usb))
+    assert sb.wait_reply()
+    rc, output = finish(proc)
+    assert rc == 0
+    assert sb.replies() == [GOOD.encode()]
+    assert "answered /dev/fake from source 'usb:luks-keys/me.key'" in output
+    assert "does not unlock" not in output  # own key first, the other host's key is never tried
+
+
+def test_multi_host_stick_tries_all_keys(sb: Sandbox) -> None:
+    usb = sb.source_dir("usb", STALE, "luks-fallback.key")
+    sb.source_dir("usb", STALE2, "luks-keys/aaa.key")
+    sb.source_dir("usb", STALE, "luks-keys/bbb.key")
+    sb.source_dir("usb", GOOD, "luks-keys/ccc.key")
+    sb.source_dir("usb", STALE2, "luks-keys/notakey.txt")
+    sb.ask_file()
+    proc = sb.start(sb.conf(USB="1", USB_DIR="luks-keys", HOST="me"), CLEVIS_KEYFILE_USB_DIR=str(usb))
+    assert sb.wait_reply()
+    rc, output = finish(proc)
+    assert rc == 0
+    assert sb.replies() == [GOOD.encode()]
+    assert "source 'usb' does not unlock" in output
+    assert "source 'usb:luks-keys/aaa.key' does not unlock" in output
+    assert "bbb.key" not in output  # same content as the rejected root key: not tried again
+    assert "answered /dev/fake from source 'usb:luks-keys/ccc.key'" in output
+    assert GOOD not in output and STALE not in output
+
+
+def test_multi_host_stick_all_stale_tried_once(sb: Sandbox) -> None:
+    usb = sb.source_dir("usb", STALE, "luks-keys/aaa.key")
+    sb.source_dir("usb", STALE2, "luks-keys/bbb.key")
+    ask = sb.ask_file()
+    proc = sb.start(
+        sb.conf(USB="1", USB_FILE="''", USB_DIR="luks-keys", HOST="me"),
+        CLEVIS_KEYFILE_USB_DIR=str(usb),
+        CLEVIS_KEYFILE_IDLE_ROUNDS="2",
+    )
+    time.sleep(1.0)
+    ask.unlink()
+    out, err = proc.communicate(timeout=10)
+    assert proc.returncode == 0
+    assert not sb.rec.exists()
+    assert err.count("does not unlock") == 2

@@ -1,5 +1,6 @@
 #!/bin/bash
 # clevis_keyfile_write_usb.sh - copy the LUKS fallback key onto a USB stick
+# Keys of other hosts on the same stick are left alone (one file per host under USB_DIR).
 # Deployed by Ansible (clevis role, clevis_keyfile_enabled) - do not edit manually
 #
 # Usage: sudo /root/clevis_keyfile_write_usb.sh <partition>   (e.g. /dev/sdb1)
@@ -12,6 +13,8 @@ LUKS_DEVICE={{ clevis_luks_device | quote }}
 KEYFILE={{ clevis_keyfile_path | quote }}
 USB_LABEL={{ clevis_keyfile_usb_label | quote }}
 USB_FILE={{ clevis_keyfile_usb_file | quote }}
+USB_DIR={{ clevis_keyfile_usb_dir | default('') | regex_replace('^/+|/+$', '') | quote }}
+HOST={{ inventory_hostname | quote }}
 
 if [ "$EUID" -ne 0 ]; then
   echo "This script must be run as root (sudo)." >&2
@@ -35,12 +38,21 @@ MNT=$(mktemp -d)
 trap 'umount "$MNT" 2>/dev/null || true; rmdir "$MNT"' EXIT
 mount "$DEV" "$MNT"
 
-install -m 0400 "$KEYFILE" "$MNT/$USB_FILE"
+if [ -n "$USB_DIR" ]; then
+  REL="$USB_DIR/$HOST.key"
+  mkdir -p "$MNT/$USB_DIR"
+else
+  REL="$USB_FILE"
+fi
+install -m 0400 "$KEYFILE" "$MNT/$REL"
 sync
-cmp "$KEYFILE" "$MNT/$USB_FILE"
+cmp "$KEYFILE" "$MNT/$REL"
 
-if cryptsetup open --test-passphrase --key-file "$MNT/$USB_FILE" "$LUKS_DEVICE"; then
-  echo "OK: $DEV:/$USB_FILE unlocks $LUKS_DEVICE."
+if cryptsetup open --test-passphrase --key-file "$MNT/$REL" "$LUKS_DEVICE"; then
+  echo "OK: $DEV:/$REL unlocks $LUKS_DEVICE."
+  if [ -n "$USB_DIR" ]; then
+    echo "Keys on the stick: $(cd "$MNT/$USB_DIR" && ls -- *.key 2>/dev/null | tr '\n' ' ')"
+  fi
 else
   echo "FAIL: key on $DEV does not unlock $LUKS_DEVICE (keyslot missing?)." >&2
   exit 1

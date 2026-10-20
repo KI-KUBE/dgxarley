@@ -11,6 +11,7 @@
 # source never blocks the next one:
 #   BOOT=1   BOOT_FILE on the unencrypted partition BOOT_DEV (UUID=/LABEL=/PARTUUID=), mounted read-only
 #   USB=1    USB_FILE on the stick with filesystem label USB_LABEL (may be plugged in while the prompt is shown)
+#            plus USB_DIR/*.key (keys of several hosts on one stick; USB_DIR/HOST.key first)
 # A key is only sent after `cryptsetup open --test-passphrase --key-file <copy> <dev>` accepted it, so a
 # stale key/stick never burns one of the prompt's tries. A rejected key is not retried for the same ask
 # file until its content changes (stick swapped); after a stale/unreadable source the loop backs off.
@@ -49,7 +50,8 @@ log() {
     echo "clevis-keyfile-agent: $*" >&2
 }
 
-BOOT=0 USB=0 BOOT_DEV='' BOOT_FILE='' USB_LABEL='' USB_FILE=''
+BOOT=0 USB=0 BOOT_DEV='' BOOT_FILE='' USB_LABEL='' USB_FILE='' USB_DIR='' HOST=''
+CAND_N=0
 if [ -r "$CONF" ]; then
     # shellcheck disable=SC1090
     . "$CONF"
@@ -94,44 +96,65 @@ resolve_dev() {
     esac
 }
 
-# fetch_from <name> <dev|""> <override-dir|""> <mountpoint> <file>
-# Copies the key of one source to $WORK/key.<name> (0600). Returns 0 = copied, 1 = source
-# absent (nothing to do, no backoff), 2 = source present but unreadable/empty (backoff).
+# add_cand <label> <file>: copies a readable, non-empty key to the next $WORK/cand/k.<n> (0600).
+add_cand() {
+    [ -r "$2" ] || return 0
+    c_out=$WORK/cand/k.$CAND_N
+    if cat "$2" > "$c_out" 2>/dev/null && [ -s "$c_out" ]; then
+        echo "$1" > "$WORK/cand/l.$CAND_N"
+        CAND_N=$((CAND_N + 1))
+    else
+        rm -f "$c_out"
+    fi
+}
+
+# Candidate keys of one mounted source rooted at $2; USB order: USB_FILE, USB_DIR/HOST.key, other USB_DIR/*.key.
+add_source_keys() {
+    case "$1" in
+        boot) add_cand boot "$2/$BOOT_FILE" ;;
+        usb)
+            [ -n "$USB_FILE" ] && add_cand usb "$2/$USB_FILE"
+            if [ -n "$USB_DIR" ]; then
+                [ -n "$HOST" ] && add_cand "usb:$USB_DIR/$HOST.key" "$2/$USB_DIR/$HOST.key"
+                for k in "$2/$USB_DIR"/*.key; do
+                    [ "$k" = "$2/$USB_DIR/$HOST.key" ] && continue
+                    add_cand "usb:$USB_DIR/${k##*/}" "$k"
+                done
+            fi
+            ;;
+    esac
+}
+
+# fetch_from <name> <dev|""> <override-dir|""> <mountpoint>
+# Adds the keys of one source to the candidates. Returns 0 = at least one added, 1 = source
+# absent (nothing to do, no backoff), 2 = source present but no readable key (backoff).
 fetch_from() {
-    f_name=$1 f_dev=$2 f_dir=$3 f_mnt=$4 f_file=$5
-    f_out=$WORK/key.$f_name
-    rm -f "$f_out"
+    f_name=$1 f_dev=$2 f_dir=$3 f_mnt=$4
+    f_before=$CAND_N
     if [ -n "$f_dir" ]; then
-        f_src=$f_dir/$f_file
-        [ -r "$f_src" ] || return 2
-        cat "$f_src" > "$f_out" 2>/dev/null || return 2
+        add_source_keys "$f_name" "$f_dir"
     else
         [ -e "$f_dev" ] || return 1
         mount_ro "$f_dev" "$f_mnt" || return 2
-        f_src=$f_mnt/$f_file
-        if [ -r "$f_src" ]; then
-            cat "$f_src" > "$f_out" 2>/dev/null
-            f_rc=$?
-        else
-            f_rc=1
-        fi
+        add_source_keys "$f_name" "$f_mnt"
         umount "$f_mnt" 2>/dev/null
-        [ "$f_rc" = 0 ] || return 2
     fi
-    [ -s "$f_out" ] || return 2
+    [ "$CAND_N" -gt "$f_before" ] || return 2
     return 0
 }
 
-# Gathers the candidate keys of all enabled sources into $WORK/key.{boot,usb}.
-# Sets BACKOFF_NEEDED=1 if a present source could not be read.
+# Gathers the candidate keys of all enabled sources into $WORK/cand (k.<n> key, l.<n> label).
+# Sets BACKOFF_NEEDED=1 if a present source had no readable key.
 gather() {
-    rm -f "$WORK"/key.boot "$WORK"/key.usb
+    rm -rf "$WORK/cand"
+    mkdir -p "$WORK/cand"
+    CAND_N=0
     if [ "$BOOT" = 1 ]; then
-        fetch_from boot "$(resolve_dev "$BOOT_DEV")" "${CLEVIS_KEYFILE_BOOT_DIR:-}" "$BMNT" "$BOOT_FILE"
+        fetch_from boot "$(resolve_dev "$BOOT_DEV")" "${CLEVIS_KEYFILE_BOOT_DIR:-}" "$BMNT"
         [ $? = 2 ] && BACKOFF_NEEDED=1
     fi
     if [ "$USB" = 1 ]; then
-        fetch_from usb "$(resolve_dev "LABEL=$USB_LABEL")" "${CLEVIS_KEYFILE_USB_DIR:-}" "$UMNT" "$USB_FILE"
+        fetch_from usb "$(resolve_dev "LABEL=$USB_LABEL")" "${CLEVIS_KEYFILE_USB_DIR:-}" "$UMNT"
         [ $? = 2 ] && BACKOFF_NEEDED=1
     fi
 }
@@ -172,11 +195,14 @@ handle_ask() {
     fi
     a_dev=${ID#cryptsetup:}
 
-    for a_src in boot usb; do
-        a_key=$WORK/key.$a_src
-        [ -s "$a_key" ] || continue
+    a_i=0
+    while [ "$a_i" -lt "$CAND_N" ]; do
+        a_key=$WORK/cand/k.$a_i
+        a_src=$(cat "$WORK/cand/l.$a_i")
+        a_i=$((a_i + 1))
         a_sum=$(cksum < "$a_key")
-        grep -qxF "$a_src $a_sum" "$STATE/tried.$a_name" 2>/dev/null && continue
+        # keyed by content only: the same key under another name is not tried twice
+        grep -qxF "$a_sum" "$STATE/tried.$a_name" 2>/dev/null && continue
         "$CRYPTSETUP" open --test-passphrase --key-file "$a_key" "$a_dev" > /dev/null 2>&1
         a_rc=$?
         if [ "$a_rc" = 0 ]; then
@@ -189,7 +215,7 @@ handle_ask() {
             BACKOFF_NEEDED=1
         elif [ "$a_rc" = 2 ]; then
             # wrong passphrase: remember this exact key for this ask file
-            echo "$a_src $a_sum" >> "$STATE/tried.$a_name"
+            echo "$a_sum" >> "$STATE/tried.$a_name"
             log "source '$a_src' does not unlock $a_dev"
             BACKOFF_NEEDED=1
         else

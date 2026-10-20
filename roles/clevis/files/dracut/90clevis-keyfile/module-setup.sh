@@ -26,7 +26,7 @@ installkernel() {
 install() {
     local conf=/etc/clevis-keyfile/keyfile.conf
     local BOOT=0 USB=0 KEYFILE=/etc/clevis-keyfile/fallback.key
-    local BOOT_DEV='' BOOT_FILE='' USB_LABEL='' USB_FILE=''
+    local BOOT_DEV='' BOOT_FILE='' USB_LABEL='' USB_FILE='' USB_DIR='' HOST=''
     local unitdir=${systemdsystemunitdir:-/usr/lib/systemd/system}
     # an explicit add_dracutmodules skips check()
     if [[ ! -r $conf ]]; then
