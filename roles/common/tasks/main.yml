@@ -210,10 +210,10 @@
     - blacklist_simpledrm
   import_tasks: blacklist_simpledrm.yml
 
-- name: disable DRM connector polling (GRUB + runtime)
+- name: synthetic EDID firmware for a DRM connector (GRUB + runtime)
   tags:
-    - drm_kms_poll
-  import_tasks: drm_kms_poll.yml
+    - drm_edid_firmware
+  import_tasks: drm_edid_firmware.yml
 
 - name: force DRM connectors on (GRUB video=<connector>:e)
   tags:

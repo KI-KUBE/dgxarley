@@ -1,0 +1,45 @@
+---
+# file: roles/common/tasks/drm_edid_firmware.yml
+- name: check for GRUB drop-in directory
+  stat:
+    path: /etc/default/grub.d
+  register: drm_edid_firmware_grub_d
+
+- name: install synthetic 1280x720 EDID firmware blob
+  copy:
+    src: "{{ role_path }}/../dgx_prepare/files/edid_1280x720.bin"
+    dest: /lib/firmware/edid/1280x720.bin
+    owner: root
+    group: root
+    mode: '0644'
+  when: drm_edid_firmware | default('') | length > 0
+
+- name: manage zz-drm-edid-firmware GRUB snippet
+  copy:
+    content: 'GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX drm.edid_firmware={{ drm_edid_firmware }}:edid/1280x720.bin"'
+    dest: /etc/default/grub.d/zz-drm-edid-firmware.cfg
+    owner: root
+    group: root
+    mode: '0644'
+  notify: update grub
+  when:
+    - drm_edid_firmware_grub_d.stat.isdir | default(false)
+    - drm_edid_firmware | default('') | length > 0
+
+- name: remove zz-drm-edid-firmware GRUB snippet
+  file:
+    path: /etc/default/grub.d/zz-drm-edid-firmware.cfg
+    state: absent
+  notify: update grub
+  when:
+    - drm_edid_firmware_grub_d.stat.isdir | default(false)
+    - drm_edid_firmware | default('') | length == 0
+
+- name: set EDID firmware override on the running kernel
+  shell: |
+    want='{{ drm_edid_firmware }}:edid/1280x720.bin'
+    [ "$(cat /sys/module/drm/parameters/edid_firmware)" = "$want" ] && exit 0
+    echo "$want" > /sys/module/drm/parameters/edid_firmware && echo changed
+  register: drm_edid_firmware_runtime
+  changed_when: "'changed' in drm_edid_firmware_runtime.stdout"
+  when: drm_edid_firmware | default('') | length > 0

@@ -79,10 +79,10 @@ ansible-playbook common.yml --tags netplan
 - Deploys `/etc/modprobe.d/blacklist-simpledrm.conf` and triggers `update-initramfs -u`
 - Conditional on `blacklist_simpledrm: true` host variable
 
-### DRM connector polling (`drm_kms_poll`)
-- Sets `drm_kms_helper.poll=0` via `/etc/default/grub.d/zz-drm-kms-poll.cfg` and on the running kernel via sysfs
-- Stops `EDID block 0 ... checksum is invalid` log spam from a display output that returns broken EDID
-- Conditional on `disable_drm_kms_poll: true` host variable; snippet is removed otherwise
+### Synthetic EDID (`drm_edid_firmware`)
+- Installs `/lib/firmware/edid/1280x720.bin` (blob from `dgx_prepare/files/`) and sets `drm.edid_firmware=<connector>:edid/1280x720.bin` via `/etc/default/grub.d/zz-drm-edid-firmware.cfg` and on the running kernel via sysfs
+- For an IP-KVM that returns broken EDID while switched away (`EDID block 0 ... checksum is invalid`) and sends no hotplug on switch-back: the connector stays connected, connector polling stays on
+- Conditional on `drm_edid_firmware: "<connector>"` host variable; snippet is removed otherwise
 
 ### Forced DRM connectors (`drm_force_connector`)
 - Adds `video=<connector>:e` per entry of `drm_force_connectors` via `/etc/default/grub.d/zz-drm-force-connector.cfg`
@@ -138,7 +138,7 @@ ansible-playbook common.yml --tags netplan
 | `geoblock`                    | list       | Country codes to geo-block (optional)                                                                                                     |
 | `geoallow`                    | list       | Country codes to geo-allow (optional)                                                                                                     |
 | `blacklist_simpledrm`         | bool       | Blacklist simpledrm kernel module for Intel iGPU card0 (optional)                                                                         |
-| `disable_drm_kms_poll`        | bool       | Disable DRM connector polling (`drm_kms_helper.poll=0`) (optional)                                                                        |
+| `drm_edid_firmware`           | string     | DRM connector that gets the synthetic 1280x720 EDID, e.g. `HDMI-A-1` (optional)                                                           |
 | `drm_force_connectors`        | list       | DRM connectors forced on via `video=<connector>:e`, e.g. `["HDMI-A-1"]` (optional)                                                        |
 | `wantspodman`                 | bool       | Install and configure Podman (optional)                                                                                                   |
 | `wantsclevis`                 | bool       | Enable clevis/tang NBDE auto-decryption (optional)                                                                                        |
@@ -171,7 +171,7 @@ ansible-playbook common.yml --tags netplan
 
 ## Tags
 
-`installbasicpackages`, `avahi`, `netplan`, `fortune`, `sshconfig`, `postfix`, `fail2ban`, `iptables`, `crontab`, `sysstat`, `locale`, `sysctl`, `usb_autosuspend`, `podman`, `blacklist_simpledrm`, `drm_kms_poll`, `drm_force_connector`, `upgradestuff`, `clevis`
+`installbasicpackages`, `avahi`, `netplan`, `fortune`, `sshconfig`, `postfix`, `fail2ban`, `iptables`, `crontab`, `sysstat`, `locale`, `sysctl`, `usb_autosuspend`, `podman`, `blacklist_simpledrm`, `drm_edid_firmware`, `drm_force_connector`, `upgradestuff`, `clevis`
 
 ## Handlers
 
