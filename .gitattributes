@@ -11,3 +11,6 @@ nsupdate_test.sh filter=git-crypt diff=git-crypt
 # failsafe for .local files...
 *.local.* filter=git-crypt diff=git-crypt
 *.local filter=git-crypt diff=git-crypt
+# empty-dir markers in vault/ stay plaintext
+group_vars/**/vault/.gitkeep !filter !diff
+host_vars/**/vault/.gitkeep !filter !diff
