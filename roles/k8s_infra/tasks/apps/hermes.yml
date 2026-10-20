@@ -25,7 +25,7 @@
     that:
       - item.outline.api_key | default('') is match('^ol_api_')
       - item.outline.api_key != 'ol_api_changeme'
-    fail_msg: "hermes.outline.enabled is true but hermes user '{{ item.username }}' has no real outline.api_key (group_vars/all/vault/hermes.yml)"
+    fail_msg: "hermes.outline.enabled is true but hermes user '{{ item.username }}' has no real outline.api_key (group_vars/all/vault/hermes.sops.yml)"
     quiet: true
   loop: "{{ _hermes_active_users }}"
   loop_control:

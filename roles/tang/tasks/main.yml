@@ -6,6 +6,12 @@
   tags:
     - tang
 
+- name: daily podman auto-update of the tang image
+  import_tasks: autoupdate.yml
+  tags:
+    - tang
+    - tang_autoupdate
+
 - name: back up the tang keys to RustFS
   import_tasks: backup.yml
   tags:

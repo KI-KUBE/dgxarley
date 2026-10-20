@@ -1,5 +1,5 @@
 ---
-# Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
+# Public dummy/example values. Real values live in the same-named vault/<topic>.sops.yml of the private sops overlay.
 deinstall_apparmor: true
 
 # Install K3s (server or agent) on this host. This is the ONE place the flag is

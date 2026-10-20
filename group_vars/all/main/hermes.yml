@@ -1,10 +1,10 @@
 ---
-# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+# Public dummy/example values. Real values live in group_vars/all/vault/<topic>.sops.yml of the private sops overlay.
 # === Nous Hermes Agent (per-user deployments) — SCHEMA REFERENCE ===
-# Public schema documentation. Real entries live in group_vars/all/vault/hermes.yml
-# (git-crypted) and override this list entirely. Default is `[]` from
+# Public schema documentation. Real entries live in group_vars/all/vault/hermes.sops.yml
+# (sops overlay) and override this list entirely. Default is `[]` from
 # roles/k8s_infra/defaults/main/hermes.yml — this dummy is purely illustrative.
-# `enabled: false` on every entry keeps it inert even if vault.yml is missing.
+# `enabled: false` on every entry keeps it inert even if the vault copy is missing.
 #
 # Per-user gates (independent):
 #   dashboard_enabled  → official `hermes dashboard` pod  (<u>.hermes-dashboard.<dns>)
@@ -33,7 +33,7 @@ hermes_users:
     # api_key is injected at startup from the Secret .env var
     # CUSTOM_PROVIDER_<NAME>_API_KEY by merge-config (kept out of the non-secret
     # ConfigMap) — a config-var (inline api_key), NOT key_env/ENV provider auth.
-    # Real endpoints/keys live in the git-crypt vault, not here.
+    # Real endpoints/keys live in the sops vault, not here.
     custom_providers:                  # omit to skip
       - name: "othercluster"                  # label shown in the picker (any string)
         base_url: "https://api.example.com/v1"   # OpenAI-compatible endpoint

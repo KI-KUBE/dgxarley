@@ -108,7 +108,7 @@
 # render — so GET /v1/models advertises the real window (LiteLLM 1.91.0 surfaces it
 # top-level + resolves aliases) and clients like Hermes Desktop auto-detect it.
 # ALL provider specifics live in each entry's context_probe (cloud entries keep
-# theirs in the git-crypt vault), so nothing provider-specific is hardcoded here.
+# theirs in the sops vault), so nothing provider-specific is hardcoded here.
 # Graceful: a failed/unreachable probe falls back to context_probe.fallback below.
 - name: Probe declared model context endpoints
   ansible.builtin.uri:

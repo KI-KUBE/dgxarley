@@ -79,7 +79,7 @@
 # weights + pools + graphs + overhead), so it does NOT fit next to 0.75.
 # To co-locate, the `default` INSTANCE caps the KV pool instead of lowering the
 # fraction: max_total_tokens 9437184 (18 x 524288, ~20 GB incl. draft KV) in
-# _sglang_default_instance (group_vars/all/vault/sglang.yml). The GPU process is
+# _sglang_default_instance (group_vars/all/vault/sglang.sops.yml). The GPU process is
 # only part of the node footprint: measured 2026-10-09 with Omni co-located, Super
 # held 62 GB GPU per rank, Omni 11 GB, plus ~16 GB shmem (NCCL/CUDA IPC) and ~13 GB
 # anon pages of the scheduler processes, leaving 14 to 17 GB per node. A 16.78M cap

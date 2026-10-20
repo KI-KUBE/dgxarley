@@ -79,7 +79,7 @@
 # 35 GB free after capture). Next to Super (capped to ~83 GB/rank via its instance's
 # max_total_tokens, ~35 GB left) the profile stays as is and the INSTANCE pins the
 # footprint. The effective `_sglang_vision_instance` lives in
-# group_vars/all/vault/sglang.yml (the vault copy replaces the one in
+# group_vars/all/vault/sglang.sops.yml (the vault copy replaces the one in
 # defaults/main/sglang_instances.yml); topology (nodes 1-4, tp 4, pp 1, ep 1) and
 # sriov_key sglang_vision (VF block already carries head + 3 workers) come from the
 # profile defaults, the instance adds only the caps:

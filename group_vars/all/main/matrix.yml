@@ -1,9 +1,9 @@
 ---
-# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+# Public dummy/example values. Real values live in group_vars/all/vault/<topic>.sops.yml of the private sops overlay.
 # Matrix (Synapse homeserver + Cinny web client) — dummy values; real secrets and
-# the real base_domain live in group_vars/all/vault/matrix.yml.
-# hash_behaviour=replace: vault.yml's `matrix:` overrides this entirely, so the
-# operational keys are duplicated. Keep in sync with vault.yml and
+# the real base_domain live in group_vars/all/vault/matrix.sops.yml.
+# hash_behaviour=replace: the vault copy's `matrix:` overrides this entirely, so the
+# operational keys are duplicated. Keep in sync with the vault copy and
 # roles/k8s_infra/defaults/main/matrix.yml.
 # The DB password is postgresql_synapse_password (in group_vars/all/{main,vault}/postgresql.yml).
 # *_secret / jwt_secret: generate with `openssl rand -hex 32`; keep stable across
@@ -62,7 +62,7 @@ matrix:
     # enable_tls: true                 # false -> never attempt STARTTLS
     # tlsname: "mail.example.eu"       # cert hostname, if != smtp_host
   # Regular human accounts, created directly at deploy (register_new_matrix_user
-  # --no-admin). Examples — real accounts + passwords go in vault (git-crypt).
+  # --no-admin). Examples — real accounts + passwords go in the sops vault.
   # `email` is OPTIONAL: register_new_matrix_user cannot set third-party IDs, so
   # it is applied afterwards via the admin API (see the 3PID task in matrix.yml).
   # Omit it and the account is left untouched. NOTE there is no SMTP config on this

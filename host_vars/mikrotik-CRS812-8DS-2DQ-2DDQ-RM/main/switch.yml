@@ -1,5 +1,5 @@
 ---
-# Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
+# Public dummy/example values. Real values live in the same-named vault/<topic>.sops.yml of the private sops overlay.
 mikrotik_bridge_name: bridge
 
 mikrotik_bridge_ports:
@@ -16,7 +16,7 @@ mikrotik_bridge_ports:
   - interface: qsfp56-dd-2-1
     comment: "spare QSFP-DD"
 
-# No VLANs — pure L2 bridge (real values in vault.yml)
+# No VLANs — pure L2 bridge (real values in the vault)
 mikrotik_bridge_vlans: []
 mikrotik_mgmt_interfaces: []
 

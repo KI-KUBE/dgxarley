@@ -23,7 +23,7 @@ hf_token: "hf_CHANGEME"
 # /mnt/intenso, relocated there 2026-07-30), so with hf_hub_cache_on_juicefs
 # the object-write leg becomes loopback instead of a spark -> master hop over
 # the network. Two hard prerequisites, both easy to get wrong:
-#   1. juicefs_mount_master MUST be true (group_vars/all/vault/juicefs.yml).
+#   1. juicefs_mount_master MUST be true (group_vars/all/vault/juicefs.sops.yml).
 #      The hf-cache hostPath below is type Directory when JuiceFS-backed, so
 #      without /mnt/jfs on the master the pod stays unschedulable/failed.
 #   2. The image must be amd64-capable (see hf_preload_image).

@@ -1,7 +1,7 @@
 ---
-# Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
+# Public dummy/example values. Real values live in the same-named vault/<topic>.sops.yml of the private sops overlay.
 # NFS server config — k3smaster acts as the NFS master.
-# Real values overridden in host_vars/k3smaster/vault/nfs.yml.
+# Real values overridden in host_vars/k3smaster/vault/nfs.sops.yml.
 # Consumed by roles/common/tasks/nfs_server.yml → /etc/exports (via etc_exports.j2).
 #
 # ─── Schema: nfs_bind_mounts (optional) ─────────────────────────────────────

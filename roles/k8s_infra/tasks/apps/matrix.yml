@@ -23,7 +23,7 @@
 #     User IDs are @user:matrix.<base_domain>.
 #   - Domain is split main.yml/vault: matrix.base_domain holds ONLY the dummy
 #     (example.eu) in group_vars/all/main + role defaults; the real one is in
-#     group_vars/all/vault/matrix.yml (git-crypt).
+#     group_vars/all/vault/matrix.sops.yml.
 #   - Database: dedicated `synapse` DB on the shared PostgreSQL, created with the
 #     C collation Synapse requires (LC_COLLATE/LC_CTYPE 'C', template0). DB
 #     password flows postgresql-secrets -> k8s_info -> app Secret, like forgejo.

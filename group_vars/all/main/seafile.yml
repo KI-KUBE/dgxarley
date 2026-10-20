@@ -1,7 +1,7 @@
 ---
-# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+# Public dummy/example values. Real values live in group_vars/all/vault/<topic>.sops.yml of the private sops overlay.
 # Seafile (CE) — full operational config. With hash_behaviour=replace (Ansible
-# default), vault.yml's `seafile:` REPLACES this whole block — so vault.yml
+# default), the vault copy's `seafile:` REPLACES this whole block — so the vault copy
 # must carry the operational keys too. Same pattern as
 # qsfp_sriov_assignments / nut_ups_shutdown_map.
 # DB has its own root + per-app user; admin login is auto-bootstrapped on

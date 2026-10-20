@@ -1,5 +1,5 @@
 ---
-# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+# Public dummy/example values. Real values live in group_vars/all/vault/<topic>.sops.yml of the private sops overlay.
 # Traefik IP-Allowlist for internal services (k8s_infra + k8s_dgx)
 traefik_internal_allowlist:
   - "192.168.123.0/24"

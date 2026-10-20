@@ -36,7 +36,7 @@ nodered_smtp_from: "Node-RED <nodered@{{ dns_external_domain_suffix }}>"
 nodered_openai_base_url: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
 nodered_openai_model: "{{ litellm_hermes_alias_model }}"
 
-# Sensitive, real values in group_vars/all/vault/nodered.yml; the key itself is provisioned by the litellm deploy.
+# Sensitive, real values in group_vars/all/vault/nodered.sops.yml; the key itself is provisioned by the litellm deploy.
 nodered_litellm_api_key: "sk-changeme"
 # Encrypts flows_cred.json; changing it makes all stored node credentials unreadable.
 nodered_credential_secret: "changeme-nodered-credential-secret"

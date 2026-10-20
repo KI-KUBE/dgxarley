@@ -1,5 +1,5 @@
 ---
-# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+# Public dummy/example values. Real values live in group_vars/all/vault/<topic>.sops.yml of the private sops overlay.
 outline_secret_key: "changeme"
 outline_utils_secret: "changeme"
 outline_admin:

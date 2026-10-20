@@ -15,6 +15,19 @@ tang_quadlet_dir: /etc/containers/systemd
 # The static podman bundle has no libsystemd, so the journald log driver does not exist.
 tang_container_log_driver: passthrough
 
+tang_autoupdate_enabled: true
+# Opt-in: stop the timer, remove script + units and drop the AutoUpdate label.
+tang_autoupdate_teardown: false
+tang_autoupdate_schedule: daily
+tang_autoupdate_random_delay: 45min
+# Image pulls can outlast systemd's 90s default start timeout.
+tang_autoupdate_timeout: 30min
+tang_autoupdate_prune: true
+tang_autoupdate_recipient: "{{ fail2ban_recipient }}"
+tang_autoupdate_sender: "podman-autoupdate@{{ mailname }}"
+tang_autoupdate_script: /usr/local/sbin/podman-auto-update-mail
+tang_autoupdate_systemd_dir: /etc/systemd/system
+
 tang_backup_enabled: true
 # Opt-in: stop the timer and remove script + units (bucket objects are kept).
 tang_backup_teardown: false

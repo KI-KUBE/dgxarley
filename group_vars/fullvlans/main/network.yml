@@ -1,6 +1,6 @@
 ---
-# Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
-# DNS server and gateway for VLAN 123 + 124 (overridden by vault.yml)
+# Public dummy/example values. Real values live in the same-named vault/<topic>.sops.yml of the private sops overlay.
+# DNS server and gateway for VLAN 123 + 124 (overridden by the vault copy)
 fullvlans_dns_server: "192.168.123.1"
 fullvlans_gateway: "192.168.123.1"
 

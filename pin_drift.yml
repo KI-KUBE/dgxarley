@@ -40,7 +40,6 @@ pins:
     files:
       - roles/k8s_infra/defaults/main/forgejo.yml
       - group_vars/all/main/forgejo.yml
-      - group_vars/all/vault/forgejo.yml
     pattern: 'forgejo/forgejo",\s*tag:\s*"([\d.]+)"'
     running_image: codeberg.org/forgejo/forgejo
   - name: uptime-kuma
@@ -115,7 +114,6 @@ pins:
     files:
       - roles/k8s_infra/defaults/main/monitoring.yml
       - group_vars/all/main/monitoring.yml
-      - group_vars/all/vault/monitoring.yml
     image: fluent/fluent-bit
   - name: nut-exporter
     github: DRuggeri/nut_exporter

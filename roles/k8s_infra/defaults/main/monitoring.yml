@@ -56,7 +56,7 @@ loki_networkpolicy_extra_namespaces: []
 # Loki log collector (DaemonSet in ns `loki`)
 # ---------------------------------------------------------------------------
 # !! These values are SHADOWED. Every key below is redefined in
-# !! group_vars/all/main/monitoring.yml and group_vars/all/vault/monitoring.yml,
+# !! group_vars/all/main/monitoring.yml and group_vars/all/vault/monitoring.sops.yml,
 # !! which both win over role defaults. Editing them HERE has no effect — change
 # !! the group_vars copies. The lists are especially unforgiving: group_vars
 # !! REPLACES a list wholesale instead of merging, so an entry appended here is

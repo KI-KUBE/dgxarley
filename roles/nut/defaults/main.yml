@@ -13,7 +13,7 @@ nut_ups_port: "auto"
 nut_ups_desc: "Green Cell UPS 1000VA 600W"
 nut_ups_vendorid: "0001"
 nut_ups_productid: "0000"
-# busport = site-specific USB topology → real value in group_vars/all/vault/nut.yml
+# busport = site-specific USB topology → real value in group_vars/all/vault/nut.sops.yml
 # (nut_ups_bus stays undefined here — the template only emits "bus =" if it is defined)
 nut_ups_busport: "001"              # DUMMY — see vault (nut-scanner -U → busport)
 # langid_fix: required for Green Cell USB communication
@@ -45,7 +45,7 @@ nut_ups_extra_options:
 # nut_ups_secondary_name — defined in group_vars/all/main/nut.yml (shared with k8s_infra)
 nut_ups_secondary_driver: "blazer_usb"
 nut_ups_secondary_port: "auto"
-# bus/busport = site-specific USB topology → real values in group_vars/all/vault/nut.yml
+# bus/busport = site-specific USB topology → real values in group_vars/all/vault/nut.sops.yml
 nut_ups_secondary_bus: "001"        # DUMMY — see vault
 nut_ups_secondary_busport: "004"    # DUMMY — see vault (nut-scanner -U → busport)
 nut_ups_secondary_desc: "Green Cell UPS 2000VA 1200W"

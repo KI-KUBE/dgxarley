@@ -29,7 +29,7 @@ outline_smtp_from: "Outline <outline@{{ dns_external_domain_suffix }}>"
 # Workspace + first admin, created once via api/installation.create when the DB has no team yet.
 outline_team_name: "dgxarley"
 
-# Sensitive, real values in group_vars/all/vault/outline.yml.
+# Sensitive, real values in group_vars/all/vault/outline.sops.yml.
 # SECRET_KEY must be exactly 64 hex chars (openssl rand -hex 32); rotating it invalidates all sessions.
 outline_secret_key: "changeme"
 outline_utils_secret: "changeme"

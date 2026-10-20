@@ -1,5 +1,5 @@
 ---
-# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+# Public dummy/example values. Real values live in group_vars/all/vault/<topic>.sops.yml of the private sops overlay.
 # NUT UPS
 nut_ups_name: "greencell"
 nut_ups_secondary_name: "greencell2"

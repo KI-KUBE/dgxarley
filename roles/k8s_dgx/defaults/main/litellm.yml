@@ -293,7 +293,7 @@ litellm_settings:
 #       output_parse_pii: true
 #       default_on: false   # opt-in per key — not every workload wants PII redaction
 #
-# --- SaaS-based guardrails (require API keys in vault.yml) ---
+# --- SaaS-based guardrails (require API keys in the vault) ---
 #
 #   # 3) lakera-prompt-injection: Prompt-injection & jailbreak detection.
 #     #  during_call mode = runs parallel to the LLM request, no added latency,

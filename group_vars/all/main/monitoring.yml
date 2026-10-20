@@ -1,5 +1,5 @@
 ---
-# Public dummy/example values — real values live in group_vars/all/vault/ (git-crypt).
+# Public dummy/example values. Real values live in group_vars/all/vault/<topic>.sops.yml of the private sops overlay.
 # Grafana
 grafana_admin_password: "changeme"
 grafana_root_url: "https://grafana.example.com"

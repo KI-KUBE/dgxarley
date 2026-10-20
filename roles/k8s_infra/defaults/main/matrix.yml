@@ -5,9 +5,9 @@
 # down to LOCAL Synapse auth (dgxarley has no Keycloak). Same Traefik +
 # cert-manager + nsupdate + shared-PostgreSQL pattern as forgejo/seafile/honcho.
 #
-# hash_behaviour=replace: vault.yml's `matrix:` REPLACES this whole block, so all
+# hash_behaviour=replace: the vault copy's `matrix:` REPLACES this whole block, so all
 # keys are duplicated across this file, group_vars/all/main/matrix.yml and
-# group_vars/all/vault/matrix.yml (same rule as forgejo/seafile). Keep in sync.
+# group_vars/all/vault/matrix.sops.yml (same rule as forgejo/seafile). Keep in sync.
 #
 #   base_domain   — the Matrix identity/server domain. server_name and every
 #                   hostname derive from it: server_name/public_baseurl =

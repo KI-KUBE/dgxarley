@@ -1,5 +1,5 @@
 ---
-# Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
+# Public dummy/example values. Real values live in the same-named vault/<topic>.sops.yml of the private sops overlay.
 k3s_node_ip: "192.168.124.100"
 # Flannel VTEP must use the K3s cluster VLAN interface, not the default route interface
 k3s_flannel_iface: "br0.124"

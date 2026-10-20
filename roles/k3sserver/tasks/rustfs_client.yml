@@ -3,7 +3,7 @@
 # Reference: /home/thiess/pythondev_workspace/ansible/roles/rustfs/tasks/install_rc.yml
 
 # Version resolution is best-effort, never fatal. The GitHub releases API is
-# anonymous unless github_api_token is set (group_vars/all/vault/github.yml),
+# anonymous unless github_api_token is set (group_vars/all/vault/github.sops.yml),
 # and anonymous means 60 req/h per SOURCE IP, shared with every other tool on
 # this control node. Hitting that quota used to abort the whole play, so the
 # lookup now carries failed_when: false and the role falls back to the pinned

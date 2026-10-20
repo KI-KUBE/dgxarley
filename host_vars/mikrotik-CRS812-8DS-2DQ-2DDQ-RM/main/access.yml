@@ -1,5 +1,5 @@
 ---
-# Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
+# Public dummy/example values. Real values live in the same-named vault/<topic>.sops.yml of the private sops overlay.
 ansible_host: "192.168.123.3"
 ansible_password: "changeme"
 serial_number: "CHANGEME"

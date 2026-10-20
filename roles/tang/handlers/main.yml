@@ -17,3 +17,13 @@
     name: tang-backup.timer
     state: restarted
     daemon_reload: true
+
+- name: reload systemd for podman-auto-update
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart podman-auto-update timer
+  ansible.builtin.systemd:
+    name: podman-auto-update.timer
+    state: restarted
+    daemon_reload: true

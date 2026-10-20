@@ -18,7 +18,7 @@
           - nodered_litellm_api_key is match('^sk-')
           - nodered_litellm_api_key != 'sk-changeme'
           - nodered_litellm_api_key != litellm_master_key
-        fail_msg: "nodered_users / nodered_credential_secret / nodered_litellm_api_key still hold dummies; set them in group_vars/all/vault/nodered.yml"
+        fail_msg: "nodered_users / nodered_credential_secret / nodered_litellm_api_key still hold dummies; set them in group_vars/all/vault/nodered.sops.yml"
         quiet: true
 
     - name: Render Node-RED settings.js, package.json and auth.json

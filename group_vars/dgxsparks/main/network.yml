@@ -1,5 +1,5 @@
 ---
-# Public dummy/example values — real values live in the same-named file under vault/ (git-crypt).
+# Public dummy/example values. Real values live in the same-named vault/<topic>.sops.yml of the private sops overlay.
 # WiFi Interface deaktivieren (kein DHCP, kein Link-Local)
 disable_wifi_iface: "wlP9s9"
 
@@ -7,7 +7,7 @@ disable_wifi_iface: "wlP9s9"
 wantsopenvswitch: true
 ovs_bridge_name: "br0"
 
-# Network (overridden by vault.yml)
+# Network (overridden by the vault copy)
 dgxsparks_dns_server: "192.168.123.1"
 dgxsparks_gateway: "192.168.124.1"
 
