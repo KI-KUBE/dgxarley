@@ -1,0 +1,27 @@
+---
+# file: roles/common/tasks/drm_force_connector.yml
+- name: check for GRUB drop-in directory
+  stat:
+    path: /etc/default/grub.d
+  register: drm_force_connector_grub_d
+
+- name: manage zz-drm-force-connector GRUB snippet
+  copy:
+    content: 'GRUB_CMDLINE_LINUX="$GRUB_CMDLINE_LINUX{% for c in drm_force_connectors %} video={{ c }}:e{% endfor %}"'
+    dest: /etc/default/grub.d/zz-drm-force-connector.cfg
+    owner: root
+    group: root
+    mode: '0644'
+  notify: update grub
+  when:
+    - drm_force_connector_grub_d.stat.isdir | default(false)
+    - drm_force_connectors | default([]) | length > 0
+
+- name: remove zz-drm-force-connector GRUB snippet
+  file:
+    path: /etc/default/grub.d/zz-drm-force-connector.cfg
+    state: absent
+  notify: update grub
+  when:
+    - drm_force_connector_grub_d.stat.isdir | default(false)
+    - drm_force_connectors | default([]) | length == 0

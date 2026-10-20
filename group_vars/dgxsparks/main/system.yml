@@ -22,3 +22,7 @@ podman_apt_purge: true
 # new config, (3) a Burstable consumer pod with a memory request — the
 # sglang_shard Job sets sglang_shard_memory_request for exactly this.
 k3s_node_swap_enabled: false
+
+# Must match the connector in drm.edid_firmware (roles/dgx_prepare/tasks/disable_gui.yml).
+drm_force_connectors:
+  - "HDMI-A-1"
