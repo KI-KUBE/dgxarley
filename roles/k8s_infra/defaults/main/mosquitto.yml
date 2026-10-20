@@ -1,0 +1,21 @@
+---
+# === Mosquitto (MQTT broker) ===
+# Deployed by roles/k8s_infra/tasks/apps/mosquitto.yml (tag: mosquitto).
+# false only skips the install; removal is the opt-in `-e mosquitto_teardown=true` (data dir on disk is kept).
+# In-cluster clients: mosquitto.<namespace>.svc.cluster.local:1883. The IoT AP (roles/iot_ap) reaches it via
+# HAProxy on the AP address -> 127.0.0.1:<proxied nodeport> with PROXY protocol v2 (roles/k3sserver).
+mosquitto_enabled: false
+mosquitto_teardown: false
+mosquitto_namespace: "mosquitto"
+mosquitto_image: "xomoxcc/mosquitto:2.1"
+mosquitto_port: 1883
+mosquitto_proxied_port: 1882
+# Must match the backend in roles/k3sserver/templates/etc_haproxy_haproxy.cfg.j2 (default there: 31882).
+mosquitto_proxied_nodeport: 31882
+# hostPath on the k3smaster (pod pinned via node-role=k3smaster); NFS stalls the single-threaded broker.
+mosquitto_data_base: "/var/lib/mosquitto-k8s"
+
+# Sensitive, real values in group_vars/all/vault/mosquitto.yml of the overlay. Every user may read/write all topics.
+mosquitto_users:
+  - username: tasmota
+    password: "changeme"

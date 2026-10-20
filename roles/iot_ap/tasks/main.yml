@@ -1,0 +1,234 @@
+---
+# file: roles/iot_ap/tasks/main.yml
+#
+# Install + teardown in ONE file as two conditional blocks (repo convention).
+
+- name: Assert iot_ap gates
+  ansible.builtin.assert:
+    that:
+      - not (iot_ap_enabled | bool and iot_ap_teardown | bool)
+    fail_msg: "iot_ap_enabled and iot_ap_teardown are mutually exclusive"
+    quiet: true
+  tags:
+    - iot_ap
+
+- name: Install IoT access point
+  when: iot_ap_enabled | bool and not iot_ap_teardown | bool
+  tags:
+    - iot_ap
+  block:
+    - name: Assert IoT AP parameters
+      ansible.builtin.assert:
+        that:
+          - iot_ap_interface is match('^[A-Za-z0-9_.-]{1,15}$')
+          - iot_ap_uplink_interface is match('^[A-Za-z0-9_.-]{1,15}$')
+          - iot_ap_address is match('^\d+\.\d+\.\d+\.\d+/\d+$')
+          - iot_ap_dhcp_range_start is match('^\d+\.\d+\.\d+\.\d+$')
+          - iot_ap_dhcp_range_end is match('^\d+\.\d+\.\d+\.\d+$')
+          - iot_ap_ssid | length > 0 and iot_ap_ssid != 'changeme-iot'
+          - iot_ap_passphrase | length >= 8 and iot_ap_passphrase | length <= 63
+          - iot_ap_passphrase != 'changeme-iot-passphrase'
+          - iot_ap_blocked_destinations | reject('match', '^\d+\.\d+\.\d+\.\d+/\d+$') | list | length == 0
+          - iot_ap_adopt_interface == '' or iot_ap_adopt_interface is match('^[A-Za-z0-9_.-]{1,15}$')
+        fail_msg: >-
+          iot_ap: interface names, iot_ap_address (IPv4 CIDR) and the DHCP range are required;
+          iot_ap_ssid / iot_ap_passphrase (8-63 chars) still hold dummies? Set them in host_vars/<host>/vault/iot_ap.yml
+        quiet: true
+
+    - name: Install hostapd, dnsmasq-base and iw
+      ansible.builtin.apt:
+        name:
+          - hostapd
+          - dnsmasq-base
+          - iw
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Read the phy of the AP interface
+      ansible.builtin.slurp:
+        src: "/sys/class/net/{{ iot_ap_interface }}/phy80211/name"
+      register: iot_ap_phy
+      check_mode: false
+
+    - name: Read the phy capabilities
+      ansible.builtin.command: "iw phy {{ iot_ap_phy.content | b64decode | trim }} info"
+      register: iot_ap_phy_info
+      changed_when: false
+      check_mode: false
+
+    - name: Assert AP mode support
+      ansible.builtin.assert:
+        that:
+          - >-
+            (iot_ap_phy_info.stdout ~ '\n')
+            | regex_search('Supported interface modes:\n(?:\s+\* .*\n)+') | default('', true)
+            is search('\* AP\n')
+        fail_msg: "{{ iot_ap_interface }} does not support AP mode"
+        quiet: true
+
+    - name: Render the networkd file of the AP interface
+      ansible.builtin.template:
+        src: etc_systemd_network_iot_ap.network.j2
+        dest: /etc/systemd/network/10-iot-ap.network
+        owner: root
+        group: root
+        mode: "0644"
+      notify: reload networkd for the iot ap
+
+    - name: Render the networkd file of the adopt interface
+      ansible.builtin.template:
+        src: etc_systemd_network_iot_ap_adopt.network.j2
+        dest: /etc/systemd/network/10-iot-ap-adopt.network
+        owner: root
+        group: root
+        mode: "0644"
+      when: iot_ap_adopt_interface | length > 0
+      notify: reload networkd for the iot ap
+
+    - name: Remove the networkd file of the adopt interface (no adopt interface)
+      ansible.builtin.file:
+        path: /etc/systemd/network/10-iot-ap-adopt.network
+        state: absent
+      when: iot_ap_adopt_interface | length == 0
+      notify: reload networkd for the iot ap
+
+    - name: Render the hostapd config (contains the passphrase)
+      ansible.builtin.template:
+        src: etc_hostapd_iface.conf.j2
+        dest: "/etc/hostapd/{{ iot_ap_interface }}.conf"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+      notify: restart hostapd for the iot ap
+
+    - name: Ensure /etc/iot-ap
+      ansible.builtin.file:
+        path: /etc/iot-ap
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Render the dnsmasq config
+      ansible.builtin.template:
+        src: etc_iot_ap_dnsmasq.conf.j2
+        dest: /etc/iot-ap/dnsmasq.conf
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart dnsmasq for the iot ap
+
+    - name: Render the dnsmasq unit
+      ansible.builtin.template:
+        src: iot-ap-dnsmasq.service.j2
+        dest: /etc/systemd/system/iot-ap-dnsmasq.service
+        owner: root
+        group: root
+        mode: "0644"
+      notify: restart dnsmasq for the iot ap
+
+    - name: Enable IPv4 forwarding for the AP subnet
+      ansible.builtin.copy:
+        content: |
+          # Managed by Ansible (roles/iot_ap)
+          net.ipv4.ip_forward = 1
+        dest: /etc/sysctl.d/90-iot-ap.conf
+        owner: root
+        group: root
+        mode: "0644"
+      register: iot_ap_sysctl
+
+    - name: Apply the forwarding sysctl
+      ansible.builtin.command: sysctl -q -p /etc/sysctl.d/90-iot-ap.conf
+      changed_when: false
+      when: iot_ap_sysctl is changed
+
+    - name: Apply pending restarts
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start hostapd on the AP interface
+      ansible.builtin.systemd:
+        name: "hostapd@{{ iot_ap_interface }}"
+        enabled: true
+        masked: false
+        state: started
+        daemon_reload: true
+
+    - name: Enable and start dnsmasq for the AP
+      ansible.builtin.systemd:
+        name: iot-ap-dnsmasq
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Show the AP state
+      ansible.builtin.shell:
+        cmd: |
+          iw dev {{ iot_ap_interface }} info
+          ip -br addr show dev {{ iot_ap_interface }}
+          systemctl is-active hostapd@{{ iot_ap_interface }} iot-ap-dnsmasq
+      register: iot_ap_state
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: AP state
+      ansible.builtin.debug:
+        var: iot_ap_state.stdout_lines
+
+    - name: Firewall reminder
+      ansible.builtin.debug:
+        msg: >-
+          The AP firewall/NAT lives in the common iptables script: run 'common.yml --tags iptables' after
+          changing iot_ap_interface, iot_ap_address, iot_ap_uplink_interface or iot_ap_blocked_destinations.
+
+- name: Remove IoT access point
+  when: iot_ap_teardown | bool
+  tags:
+    - iot_ap
+  block:
+    - name: Stop and disable hostapd and dnsmasq of the AP
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - "hostapd@{{ iot_ap_interface }}"
+        - iot-ap-dnsmasq
+      register: iot_ap_stop
+      failed_when: iot_ap_stop.failed | default(false) and 'Could not find' not in (iot_ap_stop.msg | default(''))
+
+    - name: Remove AP config files
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/etc/hostapd/{{ iot_ap_interface }}.conf"
+        - /etc/iot-ap
+        - /etc/systemd/system/iot-ap-dnsmasq.service
+        - /etc/systemd/network/10-iot-ap.network
+        - /etc/systemd/network/10-iot-ap-adopt.network
+        - /etc/sysctl.d/90-iot-ap.conf
+
+    - name: Reload systemd and networkd
+      ansible.builtin.shell:
+        cmd: systemctl daemon-reload && networkctl reload
+      changed_when: true
+
+    # common.yml does not remove the chains when the flag is off.
+    - name: Remove the AP firewall chains
+      ansible.builtin.shell:
+        cmd: |
+          iptables -D FORWARD -j HTIOTAP 2>/dev/null && iptables -F HTIOTAP && iptables -X HTIOTAP && echo removed
+          iptables -t nat -D POSTROUTING -j HTIOTAPNAT 2>/dev/null && iptables -t nat -F HTIOTAPNAT && iptables -t nat -X HTIOTAPNAT && echo removed
+          true
+      register: iot_ap_fw
+      changed_when: "'removed' in iot_ap_fw.stdout"
+
+    - name: Teardown reminders
+      ansible.builtin.debug:
+        msg:
+          - "Rerun 'common.yml --tags iptables' (iot_ap_enabled=false) so the INPUT rules of the AP disappear too."
+          - "Rerun 'k3sserver.yml --tags haproxy' so the MQTT frontend on the AP address disappears."

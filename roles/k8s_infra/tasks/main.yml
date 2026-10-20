@@ -311,6 +311,13 @@
     - isk3smaster is defined
     - isk3smaster
 
+- name: Deploy/teardown Mosquitto MQTT broker (gated install/teardown)
+  import_tasks: apps/mosquitto.yml
+  tags: mosquitto
+  when:
+    - isk3smaster is defined
+    - isk3smaster
+
 - name: Deploy/teardown Outline wiki (gated install/teardown)
   import_tasks: apps/outline.yml
   tags: outline

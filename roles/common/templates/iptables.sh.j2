@@ -59,6 +59,21 @@ iptables -A HTSTUFFIN -i lo -j RETURN
 # just to have it in as "pretty"
 iptables -A HTSTUFFIN -s 127.0.0.1/32 -j RETURN
 
+{% if iot_ap_enabled | default(false) | bool %}
+{# role defaults of iot_ap are NOT loaded in the common play: every default below must match roles/iot_ap/defaults/main.yml #}
+{% set iot_if = iot_ap_interface | mandatory %}
+{% set iot_ip = (iot_ap_address | default('10.85.0.1/24')).split('/')[0] %}
+# IoT AP (roles/iot_ap): only DHCP, DNS and MQTT (HAProxy) on the AP address; must stay ahead of every
+# generic RETURN below (e.g. the 10.0.0.0/8 rsyslog rule).
+iptables -A HTSTUFFIN -i {{ iot_if }} -m state --state ESTABLISHED,RELATED -j RETURN
+iptables -A HTSTUFFIN -i {{ iot_if }} -p udp --dport 67 -j RETURN
+iptables -A HTSTUFFIN -i {{ iot_if }} -d {{ iot_ip }} -p udp --dport 53 -j RETURN
+iptables -A HTSTUFFIN -i {{ iot_if }} -d {{ iot_ip }} -p tcp --dport 53 -j RETURN
+iptables -A HTSTUFFIN -i {{ iot_if }} -d {{ iot_ip }} -p tcp --dport {{ iot_ap_mqtt_port | default(1883) }} -j RETURN
+iptables -A HTSTUFFIN -i {{ iot_if }} -m limit --limit 10/min -j LOG --log-prefix "IPTABLES_DROP_IOTAP_IN " --log-level 4
+iptables -A HTSTUFFIN -i {{ iot_if }} -j DROP
+{% endif %}
+
 
 {% if qsfp_network is defined %}
 # QSFP point-to-point interconnect — accept all traffic (NCCL, iperf, etc.)
@@ -419,6 +434,32 @@ iptables -t nat -I POSTROUTING 1 -j HTOPSWGNAT
 iptables -t nat -A HTOPSWGNAT -s {{ kwg_ops }} -d {{ lan }} ! -o {{ kwg_if }} -j MASQUERADE
 {% endfor %}
 {% endif %}
+
+{% endif %}
+{% if iot_ap_enabled | default(false) | bool %}
+{% set iot_if = iot_ap_interface | mandatory %}
+{% set iot_up = iot_ap_uplink_interface | default(default_route_iface | default(ansible_facts['default_ipv4']['interface'])) %}
+# IoT AP (roles/iot_ap): internet via NAT over the uplink only; nothing may open connections into the AP subnet.
+iptables -N HTIOTAP 2>/dev/null || true
+iptables -F HTIOTAP
+iptables -D FORWARD -j HTIOTAP 2>/dev/null || true
+iptables -I FORWARD 1 -j HTIOTAP
+iptables -A HTIOTAP -o {{ iot_if }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+iptables -A HTIOTAP -o {{ iot_if }} -m limit --limit 10/min -j LOG --log-prefix "IPTABLES_DROP_IOTAP_TO " --log-level 4
+iptables -A HTIOTAP -o {{ iot_if }} -j DROP
+{% for cidr in iot_ap_blocked_destinations | default(['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', '100.64.0.0/10', '169.254.0.0/16']) %}
+iptables -A HTIOTAP -i {{ iot_if }} -d {{ cidr }} -j DROP
+{% endfor %}
+iptables -A HTIOTAP -i {{ iot_if }} -o {{ iot_up }} -j ACCEPT
+iptables -A HTIOTAP -i {{ iot_if }} -m limit --limit 10/min -j LOG --log-prefix "IPTABLES_DROP_IOTAP_FWD " --log-level 4
+iptables -A HTIOTAP -i {{ iot_if }} -j DROP
+
+iptables -t nat -N HTIOTAPNAT 2>/dev/null || true
+iptables -t nat -F HTIOTAPNAT
+iptables -t nat -D POSTROUTING -j HTIOTAPNAT 2>/dev/null || true
+iptables -t nat -I POSTROUTING 1 -j HTIOTAPNAT
+# iptables masks the host bits of the AP address, so this matches the whole AP subnet.
+iptables -t nat -A HTIOTAPNAT -s {{ iot_ap_address | default('10.85.0.1/24') }} -o {{ iot_up }} -j MASQUERADE
 
 {% endif %}
 # iptables -A FORWARD -j blocklists

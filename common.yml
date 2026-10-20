@@ -40,3 +40,12 @@
       tags:
         - ops_wireguard
       when: (ops_wireguard_enabled | default(false) | bool) or (ops_wireguard_teardown | default(false) | bool)
+
+- name: IoT Wi-Fi access point (Tasmota plugs)
+  hosts: all,!disabled,!switches
+  become: true
+  roles:
+    - role: iot_ap
+      tags:
+        - iot_ap
+      when: (iot_ap_enabled | default(false) | bool) or (iot_ap_teardown | default(false) | bool)

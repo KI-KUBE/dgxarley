@@ -1,0 +1,18 @@
+---
+# file: roles/iot_ap/handlers/main.yml
+
+- name: reload networkd for the iot ap
+  ansible.builtin.shell:
+    cmd: "networkctl reload && networkctl reconfigure {{ iot_ap_interface }}"
+  failed_when: false
+
+- name: restart hostapd for the iot ap
+  ansible.builtin.systemd:
+    name: "hostapd@{{ iot_ap_interface }}"
+    state: restarted
+
+- name: restart dnsmasq for the iot ap
+  ansible.builtin.systemd:
+    name: iot-ap-dnsmasq
+    state: restarted
+    daemon_reload: true

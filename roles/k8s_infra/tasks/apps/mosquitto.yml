@@ -1,0 +1,249 @@
+---
+# Mosquitto: single pinned Deployment on k3smaster, data on local hostPath, users from mosquitto_users.
+# Listener 1883 plain (ClusterIP), 1882 with PROXY protocol v2 (NodePort on 127.0.0.1, behind HAProxy).
+# Knobs: defaults/main/mosquitto.yml.
+
+- name: Mosquitto — install
+  when:
+    - mosquitto_enabled | default(false) | bool
+    - not (mosquitto_teardown | default(false) | bool)
+  block:
+    - name: Assert mosquitto users are real
+      ansible.builtin.assert:
+        that:
+          - mosquitto_users | length > 0
+          - mosquitto_users | map(attribute='password') | map('length') | min >= 12
+          - mosquitto_users | map(attribute='username') | select('search', '[:\s]') | list | length == 0
+        fail_msg: "mosquitto_users still hold dummies (passwords >= 12 chars, no ':' in usernames); set them in group_vars/all/vault/mosquitto.yml"
+        quiet: true
+
+    - name: Render mosquitto.conf and the plaintext password file
+      ansible.builtin.set_fact:
+        _mosquitto_conf: |
+          per_listener_settings false
+          allow_anonymous false
+          global_plugin /usr/lib/mosquitto_password_file.so
+          plugin_opt_password_file /mosquitto/auth/mosquitto.passwd
+
+          listener {{ mosquitto_port }} 0.0.0.0
+          socket_domain ipv4
+          protocol mqtt
+
+          listener {{ mosquitto_proxied_port }} 0.0.0.0
+          enable_proxy_protocol 2
+          socket_domain ipv4
+          protocol mqtt
+
+          persistence true
+          persistence_location /mosquitto/data/
+          autosave_interval 300
+
+          log_dest stdout
+          log_type error
+          log_type warning
+          log_type notice
+          log_type information
+          connection_messages true
+          log_timestamp true
+          log_timestamp_format [%Y-%m-%dT%H:%M:%S]
+        _mosquitto_passwd_plain: "{{ mosquitto_users | map(attribute='username') | zip(mosquitto_users | map(attribute='password')) | map('join', ':') | join('\n') }}\n"
+      no_log: true
+
+    - name: Create mosquitto namespace
+      kubernetes.core.k8s:
+        name: "{{ mosquitto_namespace }}"
+        api_version: v1
+        kind: Namespace
+        state: present
+
+    - name: Create mosquitto config
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: mosquitto-config
+            namespace: "{{ mosquitto_namespace }}"
+          data:
+            mosquitto.conf: "{{ _mosquitto_conf }}"
+
+    - name: Create mosquitto users secret (plaintext, hashed by the initContainer)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: mosquitto-users
+            namespace: "{{ mosquitto_namespace }}"
+          type: Opaque
+          stringData:
+            passwd.plain: "{{ _mosquitto_passwd_plain }}"
+      no_log: true
+
+    - name: Create mosquitto service (in-cluster clients)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          kind: Service
+          apiVersion: v1
+          metadata:
+            name: mosquitto
+            namespace: "{{ mosquitto_namespace }}"
+            labels:
+              app: mosquitto
+          spec:
+            selector:
+              app: mosquitto
+            ports:
+              - port: "{{ mosquitto_port }}"
+                name: mqtt
+                targetPort: mqtt
+                protocol: TCP
+
+    # kube-proxy binds NodePorts to 127.0.0.0/8 only, so this is reachable for the local HAProxy alone.
+    - name: Create mosquitto proxied service (HAProxy backend)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          kind: Service
+          apiVersion: v1
+          metadata:
+            name: mosquitto-proxied
+            namespace: "{{ mosquitto_namespace }}"
+            labels:
+              app: mosquitto
+          spec:
+            type: NodePort
+            selector:
+              app: mosquitto
+            ports:
+              - port: "{{ mosquitto_proxied_port }}"
+                name: mqtt-proxied
+                targetPort: mqtt-proxied
+                nodePort: "{{ mosquitto_proxied_nodeport }}"
+                protocol: TCP
+
+    - name: Create mosquitto deployment
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: mosquitto
+            namespace: "{{ mosquitto_namespace }}"
+            labels:
+              app: mosquitto
+            annotations:
+              keel.sh/policy: force
+              keel.sh/match-tag: "true"
+              keel.sh/pollSchedule: "@every 24h"
+              keel.sh/trigger: poll
+          spec:
+            replicas: 1
+            strategy:
+              type: Recreate
+            selector:
+              matchLabels:
+                app: mosquitto
+            template:
+              metadata:
+                labels:
+                  app: mosquitto
+                annotations:
+                  checksum/config: "{{ (_mosquitto_conf ~ _mosquitto_passwd_plain) | hash('sha256') }}"
+              spec:
+                nodeSelector:
+                  node-role: k3smaster
+                initContainers:
+                  # fsGroup does not apply to hostPath; uid 1883 is the mosquitto user of the image.
+                  - name: prepare
+                    image: "{{ mosquitto_image }}"
+                    imagePullPolicy: Always
+                    command:
+                      - /bin/sh
+                      - -ec
+                      - >-
+                        mkdir -p /mosquitto/data &&
+                        chown 1883:1883 /mosquitto/data &&
+                        cp /users/passwd.plain /mosquitto/auth/mosquitto.passwd &&
+                        mosquitto_passwd -U /mosquitto/auth/mosquitto.passwd &&
+                        chown 1883:1883 /mosquitto/auth/mosquitto.passwd &&
+                        chmod 0600 /mosquitto/auth/mosquitto.passwd
+                    volumeMounts:
+                      - name: data
+                        mountPath: /mosquitto/data
+                      - name: auth
+                        mountPath: /mosquitto/auth
+                      - name: users
+                        mountPath: /users
+                        readOnly: true
+                containers:
+                  - name: mosquitto
+                    image: "{{ mosquitto_image }}"
+                    imagePullPolicy: Always
+                    # Skips the image's /runmosquitto.sh (seeds admin/public defaults); keeps tini as entrypoint.
+                    args: ["/usr/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
+                    ports:
+                      - containerPort: "{{ mosquitto_port }}"
+                        name: mqtt
+                        protocol: TCP
+                      - containerPort: "{{ mosquitto_proxied_port }}"
+                        name: mqtt-proxied
+                        protocol: TCP
+                    resources:
+                      requests:
+                        cpu: 20m
+                        memory: 32Mi
+                      limits:
+                        cpu: 200m
+                        memory: 128Mi
+                    readinessProbe:
+                      tcpSocket:
+                        port: mqtt
+                      initialDelaySeconds: 5
+                      periodSeconds: 15
+                    livenessProbe:
+                      tcpSocket:
+                        port: mqtt
+                      initialDelaySeconds: 30
+                      periodSeconds: 30
+                    volumeMounts:
+                      - name: data
+                        mountPath: /mosquitto/data
+                      - name: auth
+                        mountPath: /mosquitto/auth
+                        readOnly: true
+                      - name: config
+                        mountPath: /mosquitto/config/mosquitto.conf
+                        subPath: mosquitto.conf
+                        readOnly: true
+                restartPolicy: Always
+                volumes:
+                  - name: data
+                    hostPath:
+                      path: "{{ mosquitto_data_base }}"
+                      type: DirectoryOrCreate
+                  - name: auth
+                    emptyDir:
+                      medium: Memory
+                      sizeLimit: 1Mi
+                  - name: users
+                    secret:
+                      secretName: mosquitto-users
+                  - name: config
+                    configMap:
+                      name: mosquitto-config
+
+- name: Mosquitto — teardown (opt-in `-e mosquitto_teardown=true`)
+  when: mosquitto_teardown | default(false) | bool
+  block:
+    # Retained messages under mosquitto_data_base are kept on disk.
+    - name: Delete mosquitto namespace (cascades all mosquitto resources)
+      kubernetes.core.k8s:
+        state: absent
+        api_version: v1
+        kind: Namespace
+        name: "{{ mosquitto_namespace }}"

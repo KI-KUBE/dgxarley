@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+{% set iot_ap_ip = iot_ap_address.split('/')[0] %}
+interface={{ iot_ap_interface }}
+except-interface=lo
+bind-dynamic
+
+domain-needed
+bogus-priv
+no-hosts
+resolv-file=/run/systemd/resolve/resolv.conf
+
+dhcp-authoritative
+dhcp-range={{ iot_ap_dhcp_range_start }},{{ iot_ap_dhcp_range_end }},{{ iot_ap_dhcp_lease_time }}
+dhcp-option=option:router,{{ iot_ap_ip }}
+dhcp-option=option:dns-server,{{ iot_ap_ip }}
+dhcp-leasefile=/var/lib/misc/iot-ap.leases
+{% for h in iot_ap_dhcp_hosts %}
+dhcp-host={{ h.mac }},{{ h.ip }}{{ ',' ~ h.name if h.name is defined else '' }}
+{% endfor %}

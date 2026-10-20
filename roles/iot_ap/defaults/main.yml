@@ -1,0 +1,50 @@
+---
+# file: roles/iot_ap/defaults/main.yml
+#
+# Isolated Wi-Fi access point for IoT devices (Tasmota plugs) on a USB dongle of the k3smaster:
+# hostapd + dnsmasq (DHCP/DNS) + networkd address. The AP subnet reaches the internet via NAT over
+# the uplink, nothing else; the firewall lives in roles/common/templates/iptables.sh.j2 and the MQTT
+# frontend (HAProxy -> mosquitto NodePort with PROXY protocol) in roles/k3sserver.
+# common.yml and k3sserver.yml do NOT load these defaults: every `| default()` there must match.
+
+# Gate: false = role does nothing (and removes nothing). Teardown is the opt-in -e iot_ap_teardown=true.
+iot_ap_enabled: false
+iot_ap_teardown: false
+
+# Wi-Fi interface of the dongle (stable wlx<mac> name); must support AP mode (iw phy -> "AP").
+iot_ap_interface: ""
+# Uplink for the NAT, i.e. the interface of the default route.
+iot_ap_uplink_interface: "{{ default_route_iface | default(ansible_facts['default_ipv4']['interface']) }}"
+
+# Address of this box on the AP subnet WITH prefix; the subnet is derived from it.
+iot_ap_address: "10.85.0.1/24"
+iot_ap_dhcp_range_start: "10.85.0.100"
+iot_ap_dhcp_range_end: "10.85.0.199"
+iot_ap_dhcp_lease_time: "12h"
+# Fixed leases: [{ mac: "aa:bb:cc:dd:ee:ff", ip: "10.85.0.11", name: "plug-k3smaster" }]
+iot_ap_dhcp_hosts: []
+
+# ESP8266/ESP32 only do 2.4 GHz. Channel 1 is also the default channel of the Tasmota setup AP,
+# which lets a second managed vif (adopt interface) coexist with the AP (dongles allow #channels <= 1).
+iot_ap_country_code: "DE"
+iot_ap_channel: 1
+iot_ap_isolate: true
+
+# Sensitive, real values in host_vars/<host>/vault/iot_ap.yml of the overlay.
+iot_ap_ssid: "changeme-iot"
+iot_ap_passphrase: "changeme-iot-passphrase"
+
+# Destinations the AP subnet must never reach (cluster LAN, pod/service CIDRs, ops tunnel, customer LAN).
+iot_ap_blocked_destinations:
+  - 10.0.0.0/8
+  - 172.16.0.0/12
+  - 192.168.0.0/16
+  - 100.64.0.0/10
+  - 169.254.0.0/16
+
+# MQTT port HAProxy listens on at the AP address (tasmota -> haproxy -> mosquitto NodePort).
+iot_ap_mqtt_port: 1883
+
+# Managed vif for onboarding Tasmotas while the AP runs (iw phy <phy> interface add <name> type managed);
+# networkd leaves it alone. Empty = no unmanaged rule.
+iot_ap_adopt_interface: "tadopt0"

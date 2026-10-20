@@ -1,0 +1,21 @@
+# {{ ansible_managed }}
+interface={{ iot_ap_interface }}
+driver=nl80211
+ctrl_interface=/run/hostapd
+
+ssid={{ iot_ap_ssid }}
+ignore_broadcast_ssid=0
+country_code={{ iot_ap_country_code }}
+ieee80211d=1
+hw_mode=g
+channel={{ iot_ap_channel }}
+ieee80211n=1
+wmm_enabled=1
+
+auth_algs=1
+wpa=2
+wpa_key_mgmt=WPA-PSK
+rsn_pairwise=CCMP
+wpa_passphrase={{ iot_ap_passphrase }}
+
+ap_isolate={{ 1 if iot_ap_isolate | bool else 0 }}

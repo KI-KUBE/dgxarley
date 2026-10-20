@@ -1,0 +1,15 @@
+# {{ ansible_managed }}
+# Sorts before catch-all files such as dracut's zzzz-dracut-default.network.
+[Match]
+Name={{ iot_ap_interface }}
+
+[Link]
+RequiredForOnline=no
+
+[Network]
+Address={{ iot_ap_address }}
+DHCP=no
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+ConfigureWithoutCarrier=yes
+IgnoreCarrierLoss=yes

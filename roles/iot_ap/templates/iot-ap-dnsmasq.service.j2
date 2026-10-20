@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+[Unit]
+Description=dnsmasq (DHCP/DNS) for the IoT access point on {{ iot_ap_interface }}
+After=network.target systemd-resolved.service
+
+[Service]
+ExecStartPre=/usr/sbin/dnsmasq --test --conf-file=/etc/iot-ap/dnsmasq.conf
+ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --pid-file= --conf-file=/etc/iot-ap/dnsmasq.conf
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

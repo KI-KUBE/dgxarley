@@ -94,4 +94,18 @@ backend k3s_https_back
     # server k3s-node-2 <K3S_NODE_2_IP>:443 send-proxy-v2 check
 
 
+{% if iot_ap_enabled | default(false) | bool and mosquitto_enabled | default(false) | bool %}
+{# defaults must match roles/iot_ap/defaults/main.yml and roles/k8s_infra/defaults/main/mosquitto.yml #}
+# MQTT for the IoT AP only (roles/iot_ap); ip_nonlocal_bind lets this bind before the AP address exists.
+frontend iot_ap_mqtt_front
+    bind {{ (iot_ap_address | default('10.85.0.1/24')).split('/')[0] }}:{{ iot_ap_mqtt_port | default(1883) }}
+    mode tcp
+    option tcplog
+    default_backend iot_ap_mqtt_back
+
+backend iot_ap_mqtt_back
+    mode tcp
+    server mosquitto 127.0.0.1:{{ mosquitto_proxied_nodeport | default(31882) }} send-proxy-v2
+{% endif %}
+
 # check roles/k3sserver/files/traefik-extend.yaml for ports/proxy_protocol enabled ports there
