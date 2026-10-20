@@ -213,6 +213,11 @@ iptables -A HTSTUFFIN -p udp --dport 55660 -j RETURN
 iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 80,443 -j RETURN
 {% endif %}
 
+{% for _ports in iptables_public_tcp_ports | default([]) | batch(15) %}
+# public: open to every source, exposure is decided upstream (Mikrotik dst-nat)
+iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport {{ _ports | join(',') }} -j RETURN
+{% endfor %}
+
 {% if ops_wireguard_enabled | default(false) | bool %}
 {# role defaults of ops_wireguard are NOT loaded in the common play: every default below must match roles/ops_wireguard/defaults/main.yml #}
 {% set kwg_if = ops_wireguard_interface | default('ops-wg') %}

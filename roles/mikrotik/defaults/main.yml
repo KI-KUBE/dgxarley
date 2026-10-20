@@ -20,6 +20,9 @@ mikrotik_uplink_interface: ""
 mikrotik_uplink_mode: dhcp
 mikrotik_uplink_address: ""
 mikrotik_uplink_use_peer_dns: true
+# dst-nat from the uplink address to LAN hosts: [{to_address, tcp_ports (max 15)}]; the target host opens the
+# ports itself (common: iptables_public_tcp_ports), the forwarded packets keep the client's source address.
+mikrotik_uplink_port_forwards: []
 
 # RoCE/RDMA lossless Ethernet — only active when qsfp_switch: true
 mikrotik_qsfp_roce_ports: []

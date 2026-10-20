@@ -10,7 +10,12 @@
       - mikrotik_uplink_mode == 'dhcp' or (mikrotik_uplink_address | length > 0 and mikrotik_default_gateway | default('') | length > 0)
       - mikrotik_uplink_interface not in (mikrotik_bridge_ports | map(attribute='interface') | list)
       - mikrotik_object_prefix is match('^[A-Za-z0-9_-]+$')
-    fail_msg: "uplink: mode must be dhcp or static (static needs mikrotik_uplink_address + mikrotik_default_gateway); the uplink port must not be in mikrotik_bridge_ports; mikrotik_object_prefix allows only letters, digits, - and _"
+      - mikrotik_uplink_port_forwards | map(attribute='to_address') | reject('match', '^\\d+\\.\\d+\\.\\d+\\.\\d+$') | list | length == 0
+      - mikrotik_uplink_port_forwards | map(attribute='to_address') | unique | length == mikrotik_uplink_port_forwards | length
+      - mikrotik_uplink_port_forwards | rejectattr('tcp_ports', 'defined') | list | length == 0
+      - mikrotik_uplink_port_forwards | map(attribute='tcp_ports') | map('length') | select('gt', 15) | list | length == 0
+      - mikrotik_uplink_port_forwards | map(attribute='tcp_ports') | map('length') | select('eq', 0) | list | length == 0
+    fail_msg: "uplink: mode must be dhcp or static (static needs mikrotik_uplink_address + mikrotik_default_gateway); the uplink port must not be in mikrotik_bridge_ports; mikrotik_object_prefix allows only letters, digits, - and _; port forwards need one entry per IPv4 to_address with 1-15 tcp_ports"
     quiet: true
 
 - name: Take the uplink port out of the bridge
@@ -64,6 +69,44 @@
         out-interface={{ mikrotik_uplink_interface }} }
   changed_when: false
 
+- name: Ensure uplink port forwards
+  community.routeros.command:
+    commands:
+      - >-
+        :if ([:len [/ip/firewall/nat/find comment="{{ _comment }}"]] = 0)
+        do={ /ip/firewall/nat/add {{ _rule }} comment="{{ _comment }}" }
+        else={ /ip/firewall/nat/set [find comment="{{ _comment }}"] {{ _rule }} }
+  vars:
+    _comment: "{{ mikrotik_uplink_comment }} dstnat {{ item.to_address }}"
+    _rule: >-
+      chain=dstnat action=dst-nat in-interface={{ mikrotik_uplink_interface }} dst-address-type=local
+      protocol=tcp dst-port={{ item.tcp_ports | join(',') }} to-addresses={{ item.to_address }}
+  loop: "{{ mikrotik_uplink_port_forwards }}"
+  loop_control:
+    label: "{{ item.to_address }}: {{ item.tcp_ports | join(',') }}"
+  changed_when: false
+
+# The console echoes the command, wrapped at terminal width, into stdout; the dnat| marker separates the lines.
+- name: Read uplink port forwards
+  community.routeros.command:
+    commands:
+      - ':foreach i in=[/ip/firewall/nat/find comment~"^{{ mikrotik_uplink_comment }} dstnat "] do={ :put ("dnat|" . [/ip/firewall/nat/get $i comment]) }'
+  register: mikrotik_uplink_dstnat
+  changed_when: false
+  check_mode: false
+
+- name: Remove stale uplink port forwards
+  community.routeros.command:
+    commands:
+      - /ip/firewall/nat/remove [find comment="{{ item }}"]
+  loop: >-
+    {{ mikrotik_uplink_dstnat.stdout_lines[0] | map('trim') | select('match', '^dnat\|' ~ (_prefix | regex_escape))
+       | map('regex_replace', '^dnat\|', '') | reject('in', _wanted) | list }}
+  vars:
+    _prefix: "{{ mikrotik_uplink_comment }} dstnat "
+    _wanted: "{{ mikrotik_uplink_port_forwards | map(attribute='to_address') | map('regex_replace', '^', _prefix) | list }}"
+  changed_when: true
+
 # Drops are appended and listed first; each accept is placed right before its drop by id
 # (`place-before=([find comment=...]->0)`; a numeric place-before such as `=0` is not "top of the list" on RouterOS 7).
 # The anchor exists because the drop is ensured earlier in the same loop; a missing one fails the task.
@@ -99,6 +142,26 @@
     label: "{{ item.comment }}"
   changed_when: false
 
+- name: Ensure uplink forward rule for port forwards
+  community.routeros.command:
+    commands:
+      - >-
+        :if ([:len [/ip/firewall/filter/find comment="{{ mikrotik_uplink_comment }} forward dstnat"]] = 0)
+        do={ /ip/firewall/filter/add chain=forward action=accept connection-nat-state=dstnat
+        in-interface={{ mikrotik_uplink_interface }} comment="{{ mikrotik_uplink_comment }} forward dstnat"
+        place-before=([/ip/firewall/filter/find comment="{{ mikrotik_uplink_comment }} forward drop"]->0) }
+        else={ /ip/firewall/filter/set [find comment="{{ mikrotik_uplink_comment }} forward dstnat"]
+        chain=forward action=accept connection-nat-state=dstnat in-interface={{ mikrotik_uplink_interface }} }
+  changed_when: false
+  when: mikrotik_uplink_port_forwards | length > 0
+
+- name: Remove uplink forward rule for port forwards
+  community.routeros.command:
+    commands:
+      - /ip/firewall/filter/remove [find comment="{{ mikrotik_uplink_comment }} forward dstnat"]
+  changed_when: false
+  when: mikrotik_uplink_port_forwards | length == 0
+
 - name: Read uplink rule order
   community.routeros.command:
     commands:
@@ -117,6 +180,7 @@
       - _in.index('{{ mikrotik_uplink_comment }} input established') < _in.index('{{ mikrotik_uplink_comment }} input drop')
       - _in.index('{{ mikrotik_uplink_comment }} input icmp') < _in.index('{{ mikrotik_uplink_comment }} input drop')
       - _fwd.index('{{ mikrotik_uplink_comment }} forward established') < _fwd.index('{{ mikrotik_uplink_comment }} forward drop')
+      - mikrotik_uplink_port_forwards | length == 0 or _fwd.index('{{ mikrotik_uplink_comment }} forward dstnat') < _fwd.index('{{ mikrotik_uplink_comment }} forward drop')
     fail_msg: "uplink accept rules ended up below their drop rule; move them up on the router"
 
 - name: Restrict MAC access and neighbor discovery to the internal side

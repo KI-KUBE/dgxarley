@@ -48,6 +48,12 @@ def test_common_defaults_and_mirror() -> None:
         assert d["postfix_relay_alias_ip"] == "", path
         assert d["postfix_relayhost"] == "[mail.example.com]", path
         assert d["postfix_queue_lifetime"] == "5d", path
+        env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+        nets = env.from_string(d["postfix_mynetworks"]).render(
+            localnets=[{"cidr": "10.87.0.0/24"}], localnets_k3sserver=[{"cidr": "10.68.0.0/16"}]
+        )
+        assert nets == "['10.87.0.0/24', '10.68.0.0/16']", path
+        assert env.from_string(d["postfix_mynetworks"]).render(localnets=[]) == "[]", path
 
 
 def test_hosts_alias_task() -> None:
@@ -73,12 +79,16 @@ def test_main_cf_template() -> None:
     env = jinja2.Environment(undefined=jinja2.StrictUndefined, keep_trailing_newline=True)
     env.filters["regex_replace"] = lambda s, pat, rep: re.sub(pat, rep, s)
     out = env.from_string((COMMON / "templates" / "etc_postfix_main.cf.j2").read_text()).render(
-        mailname="node.example.invalid", postfix_relayhost="[mailrelay]", postfix_queue_lifetime="30d"
+        mailname="node.example.invalid",
+        postfix_relayhost="[mailrelay]",
+        postfix_queue_lifetime="30d",
+        postfix_mynetworks=["10.87.0.0/24", "10.68.0.0/16"],
     )
     assert "\nrelayhost = [mailrelay]\n" in out
     assert "\nmaximal_queue_lifetime = 30d\n" in out
     assert "\nbounce_queue_lifetime = 30d\n" in out
     assert "\nsmtp_host_lookup = dns, native\n" in out
+    assert "\nmynetworks = 127.0.0.0/8 [::ffff:127.0.0.0]/104 [::1]/128 10.87.0.0/24 10.68.0.0/16\n" in out
 
 
 def test_mikrotik_defaults() -> None:
