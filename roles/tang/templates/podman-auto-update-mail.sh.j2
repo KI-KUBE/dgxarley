@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+# Mails only on update, rollback or failure; the full report always goes to the journal.
+set -uo pipefail
+
+RECIPIENT={{ tang_autoupdate_recipient | quote }}
+SENDER={{ tang_autoupdate_sender | quote }}
+HOST="$(hostname -f 2>/dev/null || hostname)"
+
+PODMAN="$(command -v podman)" || { echo "podman not found in PATH (${PATH})" >&2; exit 1; }
+
+out="$("${PODMAN}" auto-update 2>&1)"
+rc=$?
+printf '%s\n' "${out}"
+
+# Report columns: UNIT CONTAINER IMAGE POLICY UPDATED; UPDATED is "false" when the digest matched.
+changed="$(printf '%s\n' "${out}" | awk 'NR > 1 && NF > 0 && $NF != "false"')"
+
+if [ "${rc}" -ne 0 ]; then
+  subject="podman auto-update FAILED on ${HOST}"
+elif [ -n "${changed}" ]; then
+  subject="podman auto-update: container updated on ${HOST}"
+else
+  exit 0
+fi
+
+printf '%s\n\nExit code: %s\n' "${out}" "${rc}" | mail -s "${subject}" -r "${SENDER}" "${RECIPIENT}"
+exit "${rc}"

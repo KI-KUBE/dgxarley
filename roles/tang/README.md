@@ -18,6 +18,22 @@ Conditional on `providestang: true` (needs `wantspodman: true` for podman >= 4.4
 - Verifies `GET /adv` returns 200.
 - `common` opens `tang_port` in `iptables.sh` for `localnets` on hosts with `providestang`.
 
+## Auto-update
+
+`podman-auto-update.timer` (tag `tang_autoupdate`, gate `tang_autoupdate_enabled`, default `true`, opt-in removal `tang_autoupdate_teardown`, default `false`, schedule `tang_autoupdate_schedule`, default `daily` plus `tang_autoupdate_random_delay`, `Persistent=true`) runs `/usr/local/sbin/podman-auto-update-mail`, a wrapper around `podman auto-update`. The container carries `AutoUpdate=registry`; podman compares the local digest of `tang_image` with the registry, pulls on change, restarts `tang.service` and rolls back if the restart fails.
+
+- The static podman bundle ships the `auto-update` subcommand but no unit/timer; both are deployed to `/etc/systemd/system`. The role asserts the subcommand exists and that the RUNNING container carries the label (a container created before the label is silently skipped).
+- Mail to `tang_autoupdate_recipient` (default `fail2ban_recipient`) only on an update, rollback or failed run, via the host's `mail` (mailutils + postfix from `common`). The full report is always in `journalctl -u podman-auto-update`.
+- `tang_autoupdate_prune` (default `true`) runs `podman image prune -f` after the run.
+- `podman auto-update` acts on every container with the label on the host, not only tang.
+- Removal: `ansible-playbook common.yml --tags tang_autoupdate --limit k3smaster -e tang_autoupdate_teardown=true` stops the timer, removes wrapper and units, and drops the label from `tang.container`.
+
+```bash
+ansible-playbook common.yml --tags tang_autoupdate --limit k3smaster
+systemctl start podman-auto-update.service   # run once now
+podman auto-update --dry-run
+```
+
 ## Backup
 
 `tang-backup.timer` (tag `tang_backup`, gate `tang_backup_enabled`, default `true`, opt-in removal `tang_backup_teardown`, default `false`, schedule `tang_backup_schedule`, default daily 02:45 plus `tang_backup_random_delay`, `Persistent=true`) runs `/usr/local/sbin/tang-backup.sh`, which uploads every `tang_data_dir/*.jwk` to `<rustfs_rc_alias>/<rustfs_rc_backup_bucket>/tang/<inventory_hostname>/` with the host's `rc` binary and `/root/.config/rc` (installed by `k3sserver`, tag `rustfs_client`; the role only asserts they exist).
@@ -35,4 +51,4 @@ ansible-playbook common.yml --tags tang_backup --limit k3smaster
 ## Caveats
 
 - A host cannot unlock itself via its own tang (the keys sit on its encrypted disk). `clevis_tang_servers` is therefore derived per client as every other `providestang` host (`t=1`); the only tang host gets an empty list and boots via the keyfile fallback (`clevis_keyfile_enabled`).
-- The image tag is rolling (`latest`) and there is no auto-update timer; `podman pull` + `systemctl restart tang` to update.
+- The image tag is rolling (`latest`); updates come from the auto-update timer, manually `podman auto-update` or `podman pull` + `systemctl restart tang`.

@@ -1,0 +1,90 @@
+---
+# file: roles/tang/tasks/autoupdate.yml
+
+# enabled: false only skips the install; removal is the opt-in -e tang_autoupdate_teardown=true.
+- name: Install the podman auto-update timer
+  when: (tang_autoupdate_enabled | default(true) | bool) and not (tang_autoupdate_teardown | default(false) | bool)
+  block:
+    - name: Check that this podman knows the auto-update subcommand
+      ansible.builtin.command: podman auto-update --help
+      register: _tang_autoupdate_help
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Assert podman supports auto-update
+      ansible.builtin.assert:
+        that: _tang_autoupdate_help.rc == 0
+        fail_msg: >-
+          `podman auto-update` is not available on {{ inventory_hostname }}.
+          Set tang_autoupdate_enabled: false, or install a podman build that has it.
+        success_msg: "podman auto-update available"
+
+    - name: Deploy the auto-update mail wrapper
+      ansible.builtin.template:
+        src: podman-auto-update-mail.sh.j2
+        dest: "{{ tang_autoupdate_script }}"
+        owner: root
+        group: root
+        mode: "0750"
+
+    - name: Deploy the podman-auto-update units
+      ansible.builtin.template:
+        src: "podman-auto-update.{{ item }}.j2"
+        dest: "{{ tang_autoupdate_systemd_dir }}/podman-auto-update.{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - service
+        - timer
+      notify: restart podman-auto-update timer
+
+    - name: Flush handlers before enabling the timer
+      ansible.builtin.meta: flush_handlers
+
+    - name: Enable and start the podman-auto-update timer
+      ansible.builtin.systemd:
+        name: podman-auto-update.timer
+        state: started
+        enabled: true
+        daemon_reload: true
+
+    - name: Read the auto-update label from the running tang container
+      ansible.builtin.command: >-
+        podman inspect --format {{ '{{ index .Config.Labels "io.containers.autoupdate" }}' | quote }} tang
+      register: _tang_autoupdate_label
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Assert the running tang container is enrolled for auto-update
+      # A container created before the label was added is silently skipped by podman auto-update.
+      ansible.builtin.assert:
+        that: _tang_autoupdate_label.stdout | trim == 'registry'
+        fail_msg: >-
+          tang is not enrolled for auto-update
+          (io.containers.autoupdate = '{{ _tang_autoupdate_label.stdout | default('') | trim }}').
+          Recreate it: systemctl daemon-reload && systemctl restart tang.
+        success_msg: "tang: auto-update policy = registry"
+      when: not ansible_check_mode
+
+- name: Remove the podman auto-update timer
+  when: tang_autoupdate_teardown | default(false) | bool
+  block:
+    - name: Stop and disable the podman-auto-update timer
+      ansible.builtin.systemd:
+        name: podman-auto-update.timer
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove the auto-update mail wrapper and units
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ tang_autoupdate_script }}"
+        - "{{ tang_autoupdate_systemd_dir }}/podman-auto-update.service"
+        - "{{ tang_autoupdate_systemd_dir }}/podman-auto-update.timer"
+      notify: reload systemd for podman-auto-update

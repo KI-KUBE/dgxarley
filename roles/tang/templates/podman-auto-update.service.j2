@@ -1,0 +1,16 @@
+# {{ ansible_managed }}
+# The static podman bundle ships the auto-update subcommand but not this unit.
+[Unit]
+Description=Podman auto-update of the Quadlet containers
+Documentation=man:podman-auto-update(1)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart={{ tang_autoupdate_script }}
+{% if tang_autoupdate_prune | bool %}
+# No $(...) here: systemd does its own $ expansion on Exec* lines.
+ExecStartPost=-/bin/sh -c 'exec podman image prune -f'
+{% endif %}
+TimeoutStartSec={{ tang_autoupdate_timeout }}

@@ -1,0 +1,11 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Daily podman auto-update of the Quadlet containers
+
+[Timer]
+OnCalendar={{ tang_autoupdate_schedule }}
+RandomizedDelaySec={{ tang_autoupdate_random_delay }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

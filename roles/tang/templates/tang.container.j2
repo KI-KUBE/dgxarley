@@ -16,6 +16,9 @@ Environment=TANGPORT={{ tang_port }}
 Environment=USEHAPROXY=0
 Environment=USENGINX=0
 LogDriver={{ tang_container_log_driver }}
+{% if (tang_autoupdate_enabled | bool) and not (tang_autoupdate_teardown | bool) %}
+AutoUpdate=registry
+{% endif %}
 
 [Service]
 Restart=always
