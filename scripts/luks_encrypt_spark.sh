@@ -22,6 +22,8 @@
 #   sudo ./luks_encrypt_spark.sh --status  # Check if encryption is pending
 #   sudo ./luks_encrypt_spark.sh --abort   # Cancel pending encryption
 #   sudo ./luks_encrypt_spark.sh --dry-run # Show what would be done
+#   sudo ./luks_encrypt_spark.sh --exclude=/srv/scratch      # Also skip (and lose) a directory's contents
+#   sudo ./luks_encrypt_spark.sh --no-default-excludes       # Back up hf-cache + containerd too
 #
 # After reboot (enter LUKS passphrase at prompt), bind clevis/tang:
 #   ansible-playbook common.yml --limit spark1.local --tags clevis \
@@ -42,6 +44,10 @@ LVM_LV_NAME="root"
 BOOT_PARTITION_SIZE_MB=1536  # 1.5GB for /boot
 NETWORK_INTERFACE="enP7s7"   # DGX Spark onboard NIC
 MIN_PASSPHRASE_LEN=8
+DEFAULT_EXCLUDES=(
+  "/var/lib/hf-cache"
+  "/var/lib/rancher/k3s/agent/containerd"
+)
 
 TANG_SERVERS=(
   "http://tang.example.com"
@@ -54,6 +60,7 @@ HOOK_PATH="/etc/initramfs-tools/hooks/luks-encrypt-spark"
 PREMOUNT_PATH="/etc/initramfs-tools/scripts/local-premount/luks-encrypt-spark"
 CONFIG_PATH="/etc/luks-encrypt-spark.conf"
 KEY_PATH="/etc/luks-encrypt-spark.key"
+EXCLUDE_PATH="/etc/luks-encrypt-spark.exclude"
 
 # ═══════════════════════════════════════════════════════════════
 # UI helpers
@@ -77,12 +84,16 @@ fail()  { echo -e "${RED}[FAIL]${NC} $*"; exit 1; }
 
 MODE="prep"
 DRY_RUN=false
+EXCLUDES=()
+USE_DEFAULT_EXCLUDES=true
 
 for arg in "$@"; do
   case "$arg" in
     --status)   MODE="status" ;;
     --abort)    MODE="abort" ;;
     --dry-run)  DRY_RUN=true ;;
+    --exclude=*) EXCLUDES+=("${arg#--exclude=}") ;;
+    --no-default-excludes) USE_DEFAULT_EXCLUDES=false ;;
     -h|--help)
       cat <<'HELPEOF'
 Usage: sudo ./luks_encrypt_spark.sh [OPTIONS]
@@ -94,6 +105,14 @@ Options:
   --status    Check if encryption is pending (hooks deployed)
   --abort     Remove hooks and config, rebuild initramfs (cancel)
   --dry-run   Show what would be done without executing
+  --exclude=DIR
+              Do not back up the contents of DIR (repeatable). DIR is restored
+              as an empty directory; its contents are LOST. Use for re-creatable
+              bulk data (model caches, container images) that does not fit in RAM.
+              Added to the default excludes /var/lib/hf-cache and
+              /var/lib/rancher/k3s/agent/containerd (skipped if absent).
+  --no-default-excludes
+              Back up the default-excluded dirs as well
   -h, --help  Show this help
 
 Flow:
@@ -120,7 +139,7 @@ fi
 if [ "$MODE" = "status" ]; then
   echo -e "${BOLD}Encryption status:${NC}"
   PENDING=false
-  for f in "$HOOK_PATH" "$PREMOUNT_PATH" "$CONFIG_PATH" "$KEY_PATH"; do
+  for f in "$HOOK_PATH" "$PREMOUNT_PATH" "$CONFIG_PATH" "$KEY_PATH" "$EXCLUDE_PATH"; do
     if [ -f "$f" ]; then
       echo "  $(basename "$f"): deployed"
       PENDING=true
@@ -146,7 +165,7 @@ fi
 if [ "$MODE" = "abort" ]; then
   info "Removing encryption hooks and config..."
   REMOVED=false
-  for f in "$HOOK_PATH" "$PREMOUNT_PATH" "$CONFIG_PATH" "$KEY_PATH"; do
+  for f in "$HOOK_PATH" "$PREMOUNT_PATH" "$CONFIG_PATH" "$KEY_PATH" "$EXCLUDE_PATH"; do
     if [ -f "$f" ]; then
       rm -f "$f"
       ok "Removed: $f"
@@ -216,10 +235,47 @@ if [ "$P2_FSTYPE" != "ext4" ]; then
 fi
 ok "Root partition: $ORIG_ROOT_PART ($P2_FSTYPE)"
 
+if [ "$USE_DEFAULT_EXCLUDES" = true ]; then
+  for p in "${DEFAULT_EXCLUDES[@]}"; do
+    if [ -d "$p" ] && [[ " ${EXCLUDES[*]%/} " != *" $p "* ]]; then
+      EXCLUDES+=("$p")
+    fi
+  done
+fi
+
+# Validate --exclude paths
+EXCLUDED_KB=0
+for i in "${!EXCLUDES[@]}"; do
+  p="${EXCLUDES[$i]%/}"
+  if [ -z "$p" ]; then
+    fail "--exclude=/ would drop the whole root filesystem"
+  fi
+  if [[ "$p" != /* ]]; then
+    fail "--exclude needs an absolute path: '${EXCLUDES[$i]}'"
+  fi
+  # rsync would read these as pattern metacharacters
+  if [[ "$p" == *[\*\?\[]* || "$p" == *$'\n'* ]]; then
+    fail "--exclude path must not contain *, ?, [ or a newline: $p"
+  fi
+  for c in /etc /usr /boot /bin /sbin /lib /var/lib/dpkg; do
+    if [[ "$c" == "$p" || "$c" == "$p"/* || "$p" == "$c"/* ]]; then
+      fail "--exclude=$p would drop $c, which the encrypted root needs to boot"
+    fi
+  done
+  if [ ! -d "$p" ] || [ -L "$p" ]; then
+    fail "--exclude path is not a directory: $p"
+  fi
+  EXCLUDES[$i]="$p"
+  info "Measuring excluded directory $p..."
+  P_KB=$(du -sxk "$p" | awk '{print $1}')
+  EXCLUDED_KB=$((EXCLUDED_KB + P_KB))
+  ok "Excluded: $p ($((P_KB / 1024))MB, contents will be lost)"
+done
+
 # Check RAM vs data usage
 RAM_KB=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
 RAM_GB=$((RAM_KB / 1024 / 1024))
-DATA_USED_KB=$(df -k / | awk 'NR==2 {print $3}')
+DATA_USED_KB=$(( $(df -k / | awk 'NR==2 {print $3}') - EXCLUDED_KB ))
 DATA_USED_GB=$((DATA_USED_KB / 1024 / 1024))
 DATA_USED_MB=$((DATA_USED_KB / 1024))
 
@@ -241,8 +297,11 @@ echo ""
 echo -e "${BOLD}System summary:${NC}"
 echo "  Device:       $NVME_DEVICE"
 echo "  EFI:          $EFI_PART (untouched)"
-echo "  Current root: $ORIG_ROOT_PART (${DATA_USED_MB}MB used)"
+echo "  Current root: $ORIG_ROOT_PART (${DATA_USED_MB}MB to back up)"
 echo "  RAM:          ${RAM_GB}GB"
+for p in "${EXCLUDES[@]}"; do
+  echo "  Excluded:     $p"
+done
 echo ""
 echo -e "${BOLD}Encryption plan:${NC}"
 echo "  1. Install packages, deploy initramfs hooks, rebuild initramfs"
@@ -253,6 +312,9 @@ echo "  5. Restore backup to encrypted root, rebuild GRUB, auto-reboot"
 echo ""
 echo -e "${RED}${BOLD}WARNING: On next reboot, ALL data on $ORIG_ROOT_PART will be destroyed and re-encrypted.${NC}"
 echo -e "${RED}${BOLD}The backup exists ONLY in RAM. Power loss during encryption = total data loss.${NC}"
+if [ "${#EXCLUDES[@]}" -gt 0 ]; then
+  echo -e "${RED}${BOLD}The contents of the excluded directories are NOT backed up and will be gone afterwards.${NC}"
+fi
 
 if [ "$DRY_RUN" = true ]; then
   echo ""
@@ -357,6 +419,13 @@ BOOT_PARTITION_SIZE_MB=${BOOT_PARTITION_SIZE_MB}
 CONFEOF
 chmod 600 "$CONFIG_PATH"
 
+# One rsync pattern per excluded dir: "<dir>/*" keeps the (empty) dir with its owner and mode
+: > "$EXCLUDE_PATH"
+for p in "${EXCLUDES[@]}"; do
+  printf '%s/*\n' "$p" >> "$EXCLUDE_PATH"
+done
+chmod 600 "$EXCLUDE_PATH"
+
 # Write key file (raw passphrase)
 printf '%s' "$LUKS_PASS" > "$KEY_PATH"
 chmod 600 "$KEY_PATH"
@@ -404,6 +473,9 @@ fi
 if [ -f /etc/luks-encrypt-spark.key ]; then
   cp /etc/luks-encrypt-spark.key "${DESTDIR}/etc/luks-encrypt-spark.key"
   chmod 600 "${DESTDIR}/etc/luks-encrypt-spark.key"
+fi
+if [ -f /etc/luks-encrypt-spark.exclude ]; then
+  cp /etc/luks-encrypt-spark.exclude "${DESTDIR}/etc/luks-encrypt-spark.exclude"
 fi
 HOOKEOF
 chmod +x "$HOOK_PATH"
@@ -514,9 +586,18 @@ log_msg "[Step 2/18] Backing up root filesystem to RAM (this may take several mi
 log_msg "[Step 2/18]   Source: /tmp/oldroot/  →  Dest: /tmp/backup/"
 mkdir -p /tmp/backup
 
+EXCLUDE_FROM=""
+if [ -s /etc/luks-encrypt-spark.exclude ]; then
+  EXCLUDE_FROM="--exclude-from=/etc/luks-encrypt-spark.exclude"
+  while read -r pat; do
+    log_msg "[Step 2/18]   Excluded (contents dropped): ${pat}"
+  done < /etc/luks-encrypt-spark.exclude
+fi
+
 set +e
 rsync -aHx --info=progress2,stats2 \
   --no-xattrs --no-acls \
+  $EXCLUDE_FROM \
   --exclude='/dev/*' \
   --exclude='/proc/*' \
   --exclude='/sys/*' \
@@ -749,6 +830,7 @@ rm -f /tmp/newroot/etc/initramfs-tools/hooks/luks-encrypt-spark
 rm -f /tmp/newroot/etc/initramfs-tools/scripts/local-premount/luks-encrypt-spark
 rm -f /tmp/newroot/etc/luks-encrypt-spark.conf
 rm -f /tmp/newroot/etc/luks-encrypt-spark.key
+rm -f /tmp/newroot/etc/luks-encrypt-spark.exclude
 rm -f /tmp/newroot/etc/fstab.pre-encrypt
 log_msg "[Step 15/18] Encryption hooks removed from new root"
 
@@ -822,6 +904,7 @@ echo "  Hook:     $HOOK_PATH"
 echo "  Premount: $PREMOUNT_PATH"
 echo "  Config:   $CONFIG_PATH"
 echo "  Key:      $KEY_PATH"
+echo "  Exclude:  $EXCLUDE_PATH (${#EXCLUDES[@]} dir(s))"
 echo ""
 echo -e "${BOLD}Next steps:${NC}"
 echo ""

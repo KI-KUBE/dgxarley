@@ -71,7 +71,21 @@ sudo ./luks_encrypt_spark.sh --abort
 
 # Dry run (show plan without executing)
 sudo ./luks_encrypt_spark.sh --dry-run
+
+# Additionally skip another directory (contents are LOST)
+sudo ./luks_encrypt_spark.sh --exclude=/srv/scratch
+
+# Back up the default-excluded dirs as well
+sudo ./luks_encrypt_spark.sh --no-default-excludes
 ```
+
+By default the contents of `/var/lib/hf-cache` and `/var/lib/rancher/k3s/agent/containerd` are left out of
+the RAM backup (each only if it exists); `--no-default-excludes` turns that off. `--exclude=DIR`
+(repeatable) adds further dirs. An excluded dir comes back empty with its original owner and mode;
+everything inside it is gone after encryption. The RAM check only counts what is still backed up. `/etc`,
+`/usr`, `/boot`, `/bin`, `/sbin`, `/lib` and `/var/lib/dpkg` (and their parents) are refused. Drain the node
+before the reboot, refill the HF cache afterwards (e.g. rsync from another node) and let containerd
+re-pull its images.
 
 ### Screenshots
 
@@ -111,6 +125,6 @@ ansible-playbook common.yml --limit spark1 --tags clevis \
 ### Requirements
 
 - DGX Spark / ASUS Ascent GX10 (ARM64) with standard 2-partition NVMe layout
-- Sufficient RAM to hold the entire root filesystem (~128GB nodes have plenty)
+- Sufficient RAM to hold the root filesystem minus any `--exclude` dirs (backed-up data × 1.2 + 10GB)
 - Network connectivity for package installation (Phase A) and clevis/tang (post-encryption)
 - Must run as root on the live Spark node (not via SSH from a different machine's filesystem)
