@@ -18,7 +18,7 @@ VENV_BIN = REPO / ".venv" / "bin"
 NEW_VARS = {
     "clevis_initramfs_generator_override": "",
     "clevis_keyfile_auth_keyfile": "",
-    "clevis_keyfile_boot_enabled": False,
+    "clevis_put_keyfile_to_boot_partition_enabled": False,
     "clevis_keyfile_boot_mount": "/boot",
     "clevis_keyfile_boot_file": "clevis-keyfile/luks-fallback.key",
 }
@@ -196,7 +196,7 @@ def _keyfile_conf(**kw: object) -> dict[str, str]:
         "clevis_keyfile_usb_enabled": True,
         "clevis_keyfile_usb_label": "LUKSKEY",
         "clevis_keyfile_usb_file": "luks-fallback.key",
-        "clevis_keyfile_boot_enabled": False,
+        "clevis_put_keyfile_to_boot_partition_enabled": False,
         "clevis_keyfile_boot_file": "clevis-keyfile/luks-fallback.key",
     }
     ctx.update(kw)
@@ -205,7 +205,9 @@ def _keyfile_conf(**kw: object) -> dict[str, str]:
 
 
 def test_keyfile_conf_renders_boot() -> None:
-    conf = _keyfile_conf(clevis_keyfile_boot_enabled=True, clevis_boot_uuid="98b6a6a0-38bd-4c62-8d56-bd8b14c927a6")
+    conf = _keyfile_conf(
+        clevis_put_keyfile_to_boot_partition_enabled=True, clevis_boot_uuid="98b6a6a0-38bd-4c62-8d56-bd8b14c927a6"
+    )
     assert conf["BOOT"] == "1"
     assert conf["BOOT_DEV"] == "UUID=98b6a6a0-38bd-4c62-8d56-bd8b14c927a6"
     assert conf["BOOT_FILE"] == "clevis-keyfile/luks-fallback.key"
@@ -228,7 +230,7 @@ def test_keyfile_conf_boot_disabled() -> None:
 def test_keyfile_conf_combinations(usb: bool, boot: bool) -> None:
     conf = _keyfile_conf(
         clevis_keyfile_usb_enabled=usb,
-        clevis_keyfile_boot_enabled=boot,
+        clevis_put_keyfile_to_boot_partition_enabled=boot,
         clevis_boot_uuid="U-1",
     )
     assert (conf["USB"], conf["BOOT"]) == tuple("1" if x else "0" for x in (usb, boot))
@@ -259,4 +261,11 @@ def test_boot_copy_removed_when_boot_disabled() -> None:
     install = next(t for t in tasks if t.get("name") == "LUKS keyfile fallback: install")
     imports = [t for t in install["block"] if t.get("import_tasks") == "remove_boot_keyfile.yml"]
     assert len(imports) == 1
-    assert imports[0]["when"] == "not (clevis_keyfile_boot_enabled | bool)"
+    assert imports[0]["when"] == "not (clevis_put_keyfile_to_boot_partition_enabled | bool)"
+
+
+def test_old_boot_option_name_refused() -> None:
+    assert "clevis_keyfile_boot_enabled" not in yaml.safe_load((ROLE / "defaults" / "main.yml").read_text())
+    tasks = yaml.safe_load((ROLE / "tasks" / "keyfile_fallback.yml").read_text())
+    guard = next(t for t in tasks if t.get("name") == "refuse the renamed boot key file option")
+    assert guard["when"] == "clevis_keyfile_boot_enabled is defined"

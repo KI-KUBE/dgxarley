@@ -1,7 +1,7 @@
 ---
 # remove_boot_keyfile.yml
 # Removes the plain key copy on the unencrypted boot partition (shred, plain rm as fallback, empty dir).
-# Imported by keyfile_fallback.yml: install with clevis_keyfile_boot_enabled=false, and teardown.
+# Imported by keyfile_fallback.yml: install with clevis_put_keyfile_to_boot_partition_enabled=false, and teardown.
 
 - name: stat the boot key file
   stat:

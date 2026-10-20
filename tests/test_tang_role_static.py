@@ -181,7 +181,7 @@ def test_k3smaster_keeps_clevis_with_boot_keyfile() -> None:
     assert hosts["k3sserver"]["hosts"]["k3smaster"]["wantsclevis"] is True
     cv = yaml.safe_load((REPO / "host_vars" / "k3smaster" / "main" / "clevis.yml").read_text())
     assert cv["clevis_keyfile_enabled"] is True
-    assert cv["clevis_keyfile_boot_enabled"] is True
+    assert cv["clevis_put_keyfile_to_boot_partition_enabled"] is True
 
 
 def test_clevis_removes_tang_helpers_without_tang_servers() -> None:

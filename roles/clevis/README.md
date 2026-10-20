@@ -70,7 +70,7 @@ The initramfs generator is auto-detected (fact `clevis_initramfs_generator`): `d
 - **tang on dracut** is provided by the distro's `clevis-dracut` package and configured by this role (next section); it answers the same ask-password requests.
 - Teardown: dracut module and conf removed, initramfs rebuilt, then keyslot removal and shred.
 
-### Key file on /boot (`clevis_keyfile_boot_enabled`)
+### Key file on /boot (`clevis_put_keyfile_to_boot_partition_enabled`)
 
 A second key source: the key is copied to `<clevis_keyfile_boot_mount>/<clevis_keyfile_boot_file>` (default `/boot/clevis-keyfile/luks-fallback.key`, directory `0700`, file `0600`, root:root). The device is derived at run time with `findmnt -nP -o UUID,SOURCE,FSTYPE <mount>` and referenced as `UUID=<uuid>`; the run fails if the mount does not exist, has no UUID or is not a local block filesystem, and warns on vfat (no POSIX permissions there).
 
@@ -78,7 +78,7 @@ A second key source: the key is copied to `<clevis_keyfile_boot_mount>/<clevis_k
 - The key lies unencrypted on `/boot`: anyone with the disk can read it. The initrd is **not** rebuilt when the key changes, because the key is read from the partition at boot. Tear down (or rotate) once tang works.
 - dracut: the agent resolves `BOOT_DEV` (`UUID=`, also `LABEL=`/`PARTUUID=`) to `/dev/disk/by-*`, mounts it read-only on `/run/clevis-keyfile-boot` (retry with `ro,noload` for a dirty ext4 journal), reads the key, unmounts again.
 - Both: `keyfile.conf` gets `BOOT=1`, `BOOT_DEV=UUID=...`, `BOOT_FILE=...`. initramfs-tools `local-top/clevis-keyfile` tries the boot partition (mounted read-only by `/dev/disk/by-uuid/`), then USB, using the first key that passes `--test-passphrase`; `local-bottom` unmounts it. The hook adds `ext4 vfat nls_*`.
-- Teardown shreds and removes the file from the boot partition (plain `rm` where shred is not possible, e.g. vfat) and drops the empty directory (`tasks/remove_boot_keyfile.yml`). The same happens on a normal run with `clevis_keyfile_boot_enabled: false`, so switching the option off never leaves the key behind on `/boot`.
+- Teardown shreds and removes the file from the boot partition (plain `rm` where shred is not possible, e.g. vfat) and drops the empty directory (`tasks/remove_boot_keyfile.yml`). The same happens on a normal run with `clevis_put_keyfile_to_boot_partition_enabled: false`, so switching the option off never leaves the key behind on `/boot`.
 
 ## Tang on dracut (systemd-cryptsetup, e.g. Ubuntu 26.04)
 
@@ -125,25 +125,25 @@ The main task file containing all logic. Read-only tasks use `check_mode: false`
 
 ## Defaults
 
-| Variable                              | Default                                                        | Description                                                                              |
-|---------------------------------------|----------------------------------------------------------------|------------------------------------------------------------------------------------------|
-| `clevis_tang_servers`                 | derived (`group_vars/all/main/common.yml`)                     | Tang server URLs of every other enabled `providestang` host                              |
-| `clevis_sss_threshold`                | `1`                                                            | SSS threshold (number of tang servers needed for decryption)                             |
-| `clevis_keyfile_enabled`              | `false`                                                        | Install the keyfile fallback                                                             |
-| `clevis_keyfile_teardown`             | `false`                                                        | Remove keyslot + files (opt-in, `-e`)                                                    |
-| `clevis_keyfile_path`                 | `/etc/clevis-keyfile/fallback.key`                             | Master copy of the key (must stay in `/etc/clevis-keyfile`)                              |
-| `clevis_keyfile_usb_enabled`          | `true`                                                         | Look for the key on a USB stick                                                          |
-| `clevis_keyfile_usb_label`            | `LUKSKEY`                                                      | Filesystem label of the stick (vfat/exfat/ext4)                                          |
-| `clevis_keyfile_usb_file`             | `luks-fallback.key`                                            | Key file name in the stick's root (old layout, still tried first)                        |
-| `clevis_keyfile_usb_dir`              | `luks-keys`                                                    | Stick directory with one `<host>.key` per host; all `*.key` are tried, own host first    |
-| `clevis_keyfile_boot_enabled`         | `false`                                                        | Second key source: plain key file on an unencrypted local partition (see below)          |
-| `clevis_keyfile_boot_mount`           | `/boot`                                                        | Mountpoint of that partition; device is derived via `findmnt` and referenced as `UUID=`  |
-| `clevis_keyfile_boot_file`            | `clevis-keyfile/luks-fallback.key`                             | Key path relative to that filesystem's root (dir `0700`, file `0600`, root:root)         |
-| `clevis_initramfs_generator_override` | `""`                                                           | Force `dracut` or `initramfs-tools` (empty = auto-detect)                                |
-| `clevis_keyfile_auth_keyfile`         | `""`                                                           | Existing key file for `luksAddKey --key-file` (tried before passphrase / clevis binding) |
-| `clevis_dracut_extra_modules`         | `[clevis-pin-tang, clevis-pin-sss]`                            | dracut: modules added next to `clevis` and `network` in `90-clevis.conf`                 |
-| `clevis_dracut_net_timeout_carrier`   | `15`                                                           | dracut: `rd.net.timeout.carrier` seconds (0 = omit)                                      |
-| `clevis_dracut_net_dhcp_retry`        | `3`                                                            | dracut: `rd.net.dhcp.retry` attempts (0 = omit)                                          |
+| Variable                                       | Default                                    | Description                                                                              |
+|------------------------------------------------|--------------------------------------------|------------------------------------------------------------------------------------------|
+| `clevis_tang_servers`                          | derived (`group_vars/all/main/common.yml`) | Tang server URLs of every other enabled `providestang` host                              |
+| `clevis_sss_threshold`                         | `1`                                        | SSS threshold (number of tang servers needed for decryption)                             |
+| `clevis_keyfile_enabled`                       | `false`                                    | Install the keyfile fallback                                                             |
+| `clevis_keyfile_teardown`                      | `false`                                    | Remove keyslot + files (opt-in, `-e`)                                                    |
+| `clevis_keyfile_path`                          | `/etc/clevis-keyfile/fallback.key`         | Master copy of the key (must stay in `/etc/clevis-keyfile`)                              |
+| `clevis_keyfile_usb_enabled`                   | `true`                                     | Look for the key on a USB stick                                                          |
+| `clevis_keyfile_usb_label`                     | `LUKSKEY`                                  | Filesystem label of the stick (vfat/exfat/ext4)                                          |
+| `clevis_keyfile_usb_file`                      | `luks-fallback.key`                        | Key file name in the stick's root (old layout, still tried first)                        |
+| `clevis_keyfile_usb_dir`                       | `luks-keys`                                | Stick directory with one `<host>.key` per host; all `*.key` are tried, own host first    |
+| `clevis_put_keyfile_to_boot_partition_enabled` | `false`                                    | Second key source: plain key file on an unencrypted local partition (see below)          |
+| `clevis_keyfile_boot_mount`                    | `/boot`                                    | Mountpoint of that partition; device is derived via `findmnt` and referenced as `UUID=`  |
+| `clevis_keyfile_boot_file`                     | `clevis-keyfile/luks-fallback.key`         | Key path relative to that filesystem's root (dir `0700`, file `0600`, root:root)         |
+| `clevis_initramfs_generator_override`          | `""`                                       | Force `dracut` or `initramfs-tools` (empty = auto-detect)                                |
+| `clevis_keyfile_auth_keyfile`                  | `""`                                       | Existing key file for `luksAddKey --key-file` (tried before passphrase / clevis binding) |
+| `clevis_dracut_extra_modules`                  | `[clevis-pin-tang, clevis-pin-sss]`        | dracut: modules added next to `clevis` and `network` in `90-clevis.conf`                 |
+| `clevis_dracut_net_timeout_carrier`            | `15`                                       | dracut: `rd.net.timeout.carrier` seconds (0 = omit)                                      |
+| `clevis_dracut_net_dhcp_retry`                 | `3`                                        | dracut: `rd.net.dhcp.retry` attempts (0 = omit)                                          |
 
 ## Helper Scripts
 

@@ -30,12 +30,12 @@ clevis_keyfile_usb_label: LUKSKEY
 clevis_keyfile_usb_file: luks-fallback.key
 # Directory on the stick with one key per host (<inventory_hostname>.key); every *.key is tried, own host first.
 clevis_keyfile_usb_dir: luks-keys
-# clevis_keyfile_embed_initramfs (key inside the initrd) was removed 2026-10: use clevis_keyfile_boot_* instead.
+# clevis_keyfile_embed_initramfs (key inside the initrd) was removed 2026-10: use clevis_put_keyfile_to_boot_partition_enabled instead.
 # Second key source: a plain copy of the key on an unencrypted local partition (default: the /boot
 # filesystem next to the initrd; ext4 gives real 0600 perms, unlike the ESP). No initrd rebuild when the
 # key changes. The device is derived at run time via `findmnt <mount>` and referenced as UUID=<uuid>.
 # false removes the copy again on the next run.
-clevis_keyfile_boot_enabled: false
+clevis_put_keyfile_to_boot_partition_enabled: false
 # Mountpoint of the unencrypted partition that holds the key.
 clevis_keyfile_boot_mount: /boot
 # Path of the key relative to that filesystem's root (parent dir is created 0700, file 0600 root:root).

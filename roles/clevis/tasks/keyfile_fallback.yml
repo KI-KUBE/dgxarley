@@ -80,9 +80,16 @@
   fail:
     msg: >-
       clevis_keyfile_embed_initramfs was removed (the key is never put into the initrd any more).
-      Drop the variable and use clevis_keyfile_boot_enabled (key file on /boot) instead; the next
+      Drop the variable and use clevis_put_keyfile_to_boot_partition_enabled (key file on /boot) instead; the next
       run rebuilds the initrd without the key.
   when: clevis_keyfile_embed_initramfs | default(false) | bool
+
+- name: refuse the renamed boot key file option
+  fail:
+    msg: >-
+      clevis_keyfile_boot_enabled was renamed to clevis_put_keyfile_to_boot_partition_enabled.
+      Rename the variable in the inventory; the old name is no longer read.
+  when: clevis_keyfile_boot_enabled is defined
 
 - name: "LUKS keyfile fallback: install"
   when:
@@ -91,7 +98,7 @@
     - clevis_has_luks | bool
   block:
     - name: resolve the unencrypted partition holding the boot key file
-      when: clevis_keyfile_boot_enabled | bool
+      when: clevis_put_keyfile_to_boot_partition_enabled | bool
       block:
         - name: query the mount of the boot key partition
           command: findmnt -nP -o UUID,SOURCE,FSTYPE {{ clevis_keyfile_boot_mount | quote }}
@@ -200,7 +207,7 @@
             state: absent
 
     - name: "boot key file: directory and copy on {{ clevis_keyfile_boot_mount }}"
-      when: clevis_keyfile_boot_enabled | bool
+      when: clevis_put_keyfile_to_boot_partition_enabled | bool
       block:
         - name: create the directory of the boot key file
           file:
@@ -223,7 +230,7 @@
 
     - name: "boot key file disabled: remove a copy left on {{ clevis_keyfile_boot_mount }}"
       import_tasks: remove_boot_keyfile.yml
-      when: not (clevis_keyfile_boot_enabled | bool)
+      when: not (clevis_put_keyfile_to_boot_partition_enabled | bool)
 
     - name: deploy keyfile fallback config
       template:
@@ -384,7 +391,7 @@
             executable: /bin/bash
           environment:
             USB: "{{ 1 if (clevis_keyfile_usb_enabled | bool) else 0 }}"
-            BOOT: "{{ 1 if (clevis_keyfile_boot_enabled | bool) else 0 }}"
+            BOOT: "{{ 1 if (clevis_put_keyfile_to_boot_partition_enabled | bool) else 0 }}"
           register: clevis_dracut_check
           changed_when: false
           check_mode: false
@@ -400,7 +407,7 @@
         msg:
           - "initramfs generator: {{ clevis_initramfs_generator }}"
           - "USB stick: {{ ('label ' + clevis_keyfile_usb_label + ', file ' + (('/' + clevis_keyfile_usb_dir + '/' + inventory_hostname + '.key') if clevis_keyfile_usb_dir | default('') else ('/' + clevis_keyfile_usb_file)) + ' -- write it with: /root/clevis_keyfile_write_usb.sh /dev/sdX1') if (clevis_keyfile_usb_enabled | bool) else 'disabled' }}"
-          - "{{ ('boot key file: ' + clevis_keyfile_boot_mount + '/' + clevis_keyfile_boot_file + ' (UUID=' + clevis_boot_uuid + ', ' + clevis_boot_fstype + ')') if (clevis_keyfile_boot_enabled | bool) else 'boot key file: disabled' }}"
+          - "{{ ('boot key file: ' + clevis_keyfile_boot_mount + '/' + clevis_keyfile_boot_file + ' (UUID=' + clevis_boot_uuid + ', ' + clevis_boot_fstype + ')') if (clevis_put_keyfile_to_boot_partition_enabled | bool) else 'boot key file: disabled' }}"
 
 - name: "LUKS keyfile fallback: teardown"
   when:
