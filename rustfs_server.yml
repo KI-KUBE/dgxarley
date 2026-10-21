@@ -1,0 +1,12 @@
+---
+# RustFS S3 server, standalone (storage.yml runs the same role before JuiceFS).
+#
+#   ansible-playbook rustfs_server.yml
+#   ansible-playbook rustfs_server.yml --tags rustfs_server_users
+- name: RustFS S3 server
+  hosts: k3sserver
+  become: true
+  roles:
+    - role: rustfs_server
+      tags: rustfs_server
+      when: rustfs_server_enabled | default(false) | bool

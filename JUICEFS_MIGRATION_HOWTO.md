@@ -5,6 +5,11 @@ from per-node local NVMe (`hf_cache_path`, `/var/lib/hf-cache`) onto the shared
 JuiceFS filesystem (`roles/juicefs_storage`), while keeping node-local JIT caches
 local.
 
+> RustFS is its own role now (`roles/rustfs_server`): disk topology, fstab, S3 keys and placement are
+> `rustfs_server_*` (vault: `group_vars/all/vault/rustfs_server.sops.yml`). Moving the storage node means
+> setting BOTH `juicefs_primary_node` (Valkey) and `rustfs_server_primary_node` (S3), and the RustFS
+> side is installed by `storage.yml` (or `rustfs_server.yml`) before JuiceFS.
+
 > Status of this doc's changes — the wiring is **already in the repo, gated OFF**:
 > - `hf_hub_cache_on_juicefs: false` (`roles/k8s_dgx/defaults/main/hf_cache.yml`) — the master
 >   switch. Flipping it to `true` routes the SGLang/vLLM HF cache to JuiceFS and
@@ -47,14 +52,14 @@ risk for no benefit.
 ## 2. Prerequisites
 
 - The USB disk is physically attached to `juicefs_primary_node` and mounted at the
-  `path` in that node's `juicefs_rustfs_members` entry (`disks: [{ path, uuid, fstype }]`
+  `path` in that node's `rustfs_server_members` entry (`disks: [{ path, uuid, fstype }]`
   — the sole disk source in both single-node and distributed). Real values live in
   `group_vars/all/vault/juicefs.yml` (public dummies in `group_vars/all/main/juicefs.yml`).
   The role refuses to run if the path isn't a real mountpoint
-  (`juicefs_require_disk_mount: true`); with `juicefs_manage_fstab: true` it also
+  (`rustfs_server_require_disk_mount: true`); with `rustfs_server_manage_fstab: true` it also
   writes the UUID-keyed fstab entry and mounts the disk for you.
 - Real secrets set in `group_vars/all/vault/juicefs.yml` (they are dummies in the role
-  defaults): `juicefs_rustfs_access_key`, `juicefs_rustfs_secret_key`,
+  defaults): `rustfs_server_access_key`, `rustfs_server_secret_key`,
   `juicefs_valkey_password`.
 - Free space check: each spark currently has only ~200 GiB free until the old
   local `hub` copy is removed (Phase 6). Size the cache accordingly (Phase 2).
@@ -299,7 +304,7 @@ Relocating the storage role from the current `juicefs_primary_node` (vault) to
 another spark is **three moves, not one**, because the pieces live in different
 places. Placeholders below: `<old-qsfp-ip>` / `<new-qsfp-ip>` = the QSFP IPs of
 the old/new storage node, `<disk-path>` = the disk `path` in the node's
-`juicefs_rustfs_members` entry (vault), `sparkN` = the target node.
+`rustfs_server_members` entry (vault), `sparkN` = the target node.
 
 | Piece                                      | Lives where                                                                         | Moves with the disk?                    |
 |--------------------------------------------|-------------------------------------------------------------------------------------|-----------------------------------------|
@@ -332,8 +337,8 @@ only the delta + metadata dance needs the stop window.
 1. **Prepare the new disk** on `sparkN`: partition/mkfs yourself (the role never
    touches block devices), add an fstab entry (`UUID=... <mountpoint> ext4
    defaults,nofail 0 2`), mount it. If the mountpoint differs from the current one,
-   update the node's disk `path` in `juicefs_rustfs_members`
-   (`group_vars/all/vault/juicefs.yml`) later in step 5. (With `juicefs_manage_fstab:
+   update the node's disk `path` in `rustfs_server_members`
+   (`group_vars/all/vault/juicefs.yml`) later in step 5. (With `rustfs_server_manage_fstab:
    true` the role writes the fstab entry itself from the member's `uuid` — you just
    need the disk formatted with a known UUID.)
 2. **Live pre-sync** of the object store over QSFP (chunks are write-once, so a
@@ -360,7 +365,7 @@ only the delta + metadata dance needs the stop window.
    (`--keep-secret-key` keeps the S3 secret inside the dump so the FS is
    mountable right after load — delete the dump file once the move is verified.)
 5. **Repo:** set `juicefs_primary_node: sparkN` and update that node's
-   `juicefs_rustfs_members` entry (node name + disk `path`/`uuid`) in
+   `rustfs_server_members` entry (node name + disk `path`/`uuid`) in
    `group_vars/all/vault/juicefs.yml`.
 6. **Backend bring-up on sparkN** (binaries + Valkey + RustFS + backup env —
    deliberately WITHOUT the format/mount tags, see the warning above):
@@ -475,9 +480,9 @@ the NFS exports and all ingress. A cold model load will saturate it.
 #### Repo changes (before touching hardware)
 
 1. `group_vars/all/vault/juicefs.yml`: `juicefs_primary_node: k3smaster`, and in
-   `juicefs_rustfs_members` change the entry's `node:` to `k3smaster` (its disk
+   `rustfs_server_members` change the entry's `node:` to `k3smaster` (its disk
    `path`/`uuid`/`fstype` travel with the disk and stay as they are). With
-   `juicefs_manage_fstab: true` the role then writes the UUID-keyed fstab entry on
+   `rustfs_server_manage_fstab: true` the role then writes the UUID-keyed fstab entry on
    the master and mounts the disk itself.
 2. **Firewall gate** (`roles/common/templates/iptables.sh.j2`): already wired, see
    the comment there. The rule opening 6379+9000 from `k3snodes` used to hang on
@@ -494,7 +499,7 @@ the NFS exports and all ingress. A cold model load will saturate it.
    is not SNAT'd, and arrives with the POD IP, which is not in `k3snodes`. Symptom
    is a `context deadline exceeded` on that one target with the exporter answering
    `curl` locally and NO entry in the ulogd drop log.
-3. `juicefs_rustfs_memory_high` in `host_vars/k3smaster/main/juicefs.yml`: the
+3. `rustfs_server_memory_high` in `host_vars/k3smaster/main/rustfs_server.yml`: the
    default is unlimited, which is fine on a 128 GB spark and not fine on the
    master (control plane, PostgreSQL, Grafana, Loki on ~16 GB). `"2G"` is a sane
    start.
@@ -523,7 +528,7 @@ mounting: owner must resolve to `rustfs`, not a bare number.
 #### Runbook
 
 Placeholders: `<master-ip>` = the master's `k3s_node_ip`, `<old-ip>` = the old
-storage node's QSFP IP, `<disk-path>` = the disk `path` from `juicefs_rustfs_members`.
+storage node's QSFP IP, `<disk-path>` = the disk `path` from `rustfs_server_members`.
 
 1. **Downtime starts.** Scale SGLang/vLLM to 0 (they hold the FUSE mount when
    `hf_hub_cache_on_juicefs` is on), then on EVERY mount node:
@@ -641,8 +646,8 @@ on this cluster after the move: 400 MiB at 2.1 GB/s, 107 hits, 0 misses, 0 GETs.
   non-backup nodes, but nothing else: `/etc/rustfs`, `/etc/juicefs`, the disabled
   units and `/var/lib/valkey` stay. That is deliberate (rollback), so wipe them
   only after a few healthy days.
-- **fstab on the old node** is NOT unwound by `juicefs_manage_fstab` when a host
-  leaves `juicefs_rustfs_members`; step 2 removes the line by hand.
+- **fstab on the old node** is NOT unwound by `rustfs_server_manage_fstab` when a host
+  leaves `rustfs_server_members`; step 2 removes the line by hand.
 - **spark5 (or any QSFP-less spark)** can mount after this move. Flip its inline
   `juicefs_mount_enabled: true` in `hosts.yml` and re-run
   `storage.yml --tags juicefs_mount`; it also enters the Prometheus target list.

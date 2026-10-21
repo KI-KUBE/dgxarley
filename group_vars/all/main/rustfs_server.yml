@@ -1,0 +1,32 @@
+---
+# Public dummy/example values. Real values live in group_vars/all/vault/<topic>.sops.yml of the private sops overlay.
+# RustFS S3 server (roles/rustfs_server). Kept here, not as role defaults, because common's iptables
+# template and juicefs_storage read them from foreign plays.
+rustfs_server_enabled: false
+# S3 endpoint node; the only RustFS node in single-node mode. Must be a rustfs_server_members entry.
+rustfs_server_primary_node: spark1
+# Erasure-coded cluster across rustfs_server_members (>= 4 drives); NOT an in-place switch from single-node.
+rustfs_server_distributed: false
+# Ordered per-node disk list (order = erasure position); sole disk source in both modes.
+# uuid/fstype are only used with rustfs_server_manage_fstab.
+rustfs_server_members:
+  - node: spark1
+    disks: [{ path: /mnt/jfs-usb, uuid: "00000000-0000-0000-0000-000000000001", fstype: ext4 }]
+  - node: spark2
+    disks: [{ path: /mnt/jfs-usb, uuid: "00000000-0000-0000-0000-000000000002", fstype: ext4 }]
+  - node: spark3
+    disks: [{ path: /mnt/jfs-usb, uuid: "00000000-0000-0000-0000-000000000003", fstype: ext4 }]
+  - node: spark4
+    disks: [{ path: /mnt/jfs-usb, uuid: "00000000-0000-0000-0000-000000000004", fstype: ext4 }]
+rustfs_server_manage_fstab: false
+rustfs_server_s3_port: 9000
+# Root credentials (RUSTFS_ACCESS_KEY / RUSTFS_SECRET_KEY; secret >= 8 chars).
+rustfs_server_access_key: "changeme-access-key"
+rustfs_server_secret_key: "changeme-secret-key-min8"
+# Extra S3 users (access key = name), each limited to its own buckets (created if missing).
+# rustfs_server_users:
+#   - name: example-access
+#     secret_key: "changeme-user-secret"
+#     buckets: [example]
+#     access: readwrite   # readwrite | readonly
+rustfs_server_users: []

@@ -2,8 +2,8 @@
 
 Distributed JuiceFS storage layer for the DGX cluster, deployed **entirely as
 host-level systemd services, outside k3s**. Pools large LLM weights across nodes,
-caches hot data per-node on the NVMe, and persists chunks to a single USB-SSD via
-an S3 object store.
+caches hot data per-node on the NVMe, and persists chunks to the RustFS S3 object
+store (`rustfs_server` role).
 
 ## Why host-level (not a DaemonSet / CSI)
 
@@ -18,89 +18,21 @@ directly to Valkey + RustFS, so nothing is routed through a coordinator.
 
 | Component       | Where                 | What                                                                   |
 |-----------------|-----------------------|------------------------------------------------------------------------|
-| **Valkey**      | storage node          | metadata engine (apt `valkey-server`, AOF + `noeviction` + auth)       |
-| **RustFS**      | storage node          | S3 object store (native binary, data dir on the USB-SSD)               |
-| **format**      | storage node          | one-time idempotent `juicefs format` (guarded by `juicefs status`)     |
+| **Valkey**      | metadata node         | metadata engine (apt `valkey-server`, AOF + `noeviction` + auth)       |
+| **format**      | metadata node         | one-time idempotent `juicefs format` (guarded by `juicefs status`)     |
 | **mount**       | `juicefs_mount_group` | native systemd FUSE mount, `Restart=always`, per-node cache            |
 | **meta-backup** | backup node           | root cron job: `juicefs dump` → external backup S3 (`rustfs_rc_alias`) |
 
-## Single-node vs. distributed object store
-
-`juicefs_rustfs_distributed` (default **false**) selects the RustFS topology:
-
-- **OFF (single-node):** RustFS runs only on `juicefs_primary_node`, one local
-  volume, no erasure coding. Original behaviour — unchanged.
-- **ON (distributed):** RustFS runs on **every** node in `juicefs_rustfs_members`,
-  forming one erasure-coded S3 cluster. Object data is striped + made redundant
-  across all their USB-SSDs, so no single USB bus carries every write.
-
-`juicefs_rustfs_members` is a **structured, ordered** list — one entry per node,
-each listing its USB disk(s) as dicts; heterogeneous paths and disk counts allowed:
-
-```yaml
-juicefs_rustfs_members:
-  - node: spark1
-    disks: [{ path: /mnt/intenso, uuid: "<blkid-UUID>", fstype: ext4 }]
-  - node: spark2                                        # two disks on this node
-    disks:
-      - { path: /mnt/usb-a, uuid: "<uuid>", fstype: ext4 }
-      - { path: /mnt/usb-b, uuid: "<uuid>", fstype: ext4 }
-  - node: spark3
-    disks: [{ path: /mnt/intenso, uuid: "<uuid>", fstype: ext4 }]
-  - node: spark4
-    disks: [{ path: /mnt/intenso, uuid: "<uuid>", fstype: ext4 }]
-```
-
-Per disk, `path` is always required (RustFS data dir = `<path>/rustfs`);
-`uuid`/`fstype`/`options` are consulted only when `juicefs_manage_fstab` is on.
-Order matters (positional erasure membership; `RUSTFS_VOLUMES` is rendered
-identically on every node). The **primary** (`juicefs_primary_node`) must be a
-member — it keeps running Valkey, does the one-time format, and is the single S3
-endpoint the FUSE clients dial. Redundancy level via `juicefs_rustfs_raid_level`:
-
-| `raid_level` | `EC:M` | usable (n drives) | tolerates         |
-|--------------|--------|-------------------|-------------------|
-| `raid0`      | `EC:0` | 100 %             | 0 (striping only) |
-| `raid5`      | `EC:1` | (n−1)/n           | 1 node/disk       |
-| `raid6`      | `EC:2` | (n−2)/n           | 2 nodes/disks     |
-
-**Constraints (verified upstream):** ≥4 total drives; **Valkey stays single-node**
-(distributing RustFS does NOT remove the metadata SPOF — the meta-backup cron is
-the insurance); RAID6 needs ≥4 drives.
-
-**Mounting the disks — `juicefs_manage_fstab`** (default **false**):
-
-- **OFF:** you own `/etc/fstab` (mount each USB by hand, e.g.
-  `UUID=… /mnt/intenso ext4 defaults,nofail 0 2`); the role only verifies the
-  mountpoints and fails if one is missing. Original behaviour.
-- **ON:** the role writes a **UUID-keyed** fstab entry (via `ansible.posix.mount`,
-  `state: mounted`, opts default `defaults,nofail`) and mounts each disk that
-  carries a `uuid` before the mountpoint check. UUID is mandatory — USB `/dev/sdX`
-  names reorder across boots and a wrong name would drop a disk into the wrong
-  erasure slot. Get the UUID with `blkid /dev/sdX1`. Works single-node too (the
-  primary is itself a `juicefs_rustfs_members` entry); a disk without a `uuid` is
-  skipped. Optional per-disk `dump`/`passno` (default 0) — set `passno` to match a
-  pre-existing hand-written line so the first managed run doesn't rewrite it.
-
-**⚠ Migration — enabling distributed is NOT in-place.** Single-node (SNSD) has no
-erasure coding and its on-disk layout is incompatible with distributed mode.
-Flipping `juicefs_rustfs_distributed` to true on a populated store means a **fresh
-`juicefs format`** — the existing object data is abandoned. Move/re-download data
-off the filesystem first, then wipe the old single-node data dir before deploying
-the cluster.
-
 ## Key variables (see `defaults/main.yml`)
 
-- `juicefs_primary_node` — **the placement knob**: which node runs Valkey + the
-  format + is the S3 endpoint clients dial (must be a `juicefs_rustfs_members` entry).
-- `juicefs_rustfs_members` — the disk topology (per node: `disks: [{path, uuid?,
-  fstype?}]`). **Sole source of the disk path(s)** in both modes; the primary must
-  be listed. RustFS refuses to run a node absent from it (or without a real mountpoint).
-- `juicefs_storage_address` — address mounts use; defaults to the storage node's
-  QSFP IP (spark → 200GbE) or its k3s VLAN IP (master).
+- `juicefs_primary_node` — **the placement knob**: which node runs Valkey + the format.
+- Object store: `rustfs_server_*` (see `roles/rustfs_server/README.md`); `juicefs_bucket`
+  is the bucket JuiceFS formats into.
+- `juicefs_storage_address` / `juicefs_s3_address` — Valkey / S3 address mounts use;
+  the QSFP IP of the respective node (spark → 200GbE) or its k3s VLAN IP (master).
 - `juicefs_cache_dir` / `juicefs_cache_size_mib` — per-node NVMe cache (MiB).
-- Secrets (`juicefs_rustfs_access_key`/`_secret_key`, `juicefs_valkey_password`)
-  are **dummies here** — put real values in `group_vars/all/vault/juicefs.yml`.
+- `juicefs_valkey_password` is a **dummy here** — the real value lives in
+  `group_vars/all/vault/juicefs.sops.yml`.
 
 ## Deploy
 
@@ -109,7 +41,7 @@ ansible-playbook storage.yml                      # full
 ansible-playbook storage.yml --tags juicefs_mount # mounts only
 ```
 
-Order is handled internally: binary → backend → format → mount → backup.
+Order: `rustfs_server` role first, then binary → backend → format → mount → backup.
 
 ## Monitoring (gated by `juicefs_enabled` AND `juicefs_metrics_enabled`)
 

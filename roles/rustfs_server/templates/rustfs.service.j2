@@ -1,28 +1,28 @@
-# Managed by Ansible (juicefs_storage) — do not edit.
+# Managed by Ansible (rustfs_server) — do not edit.
 [Unit]
-Description=RustFS S3 object store (JuiceFS backend)
+Description=RustFS S3 object store
 After=network-online.target
 Wants=network-online.target
 # Object data lives on the USB-SSD(s); require every one to be mounted.
-RequiresMountsFor={{ juicefs_rustfs_local_mounts | join(' ') }}
+RequiresMountsFor={{ rustfs_server_local_mounts | join(' ') }}
 
 [Service]
 Type=simple
-User={{ juicefs_rustfs_user }}
-Group={{ juicefs_rustfs_user }}
+User={{ rustfs_server_user }}
+Group={{ rustfs_server_user }}
 EnvironmentFile=/etc/rustfs/rustfs.env
 {# Single-node: pass the local data dir positionally. Distributed: the volume set
    comes from RUSTFS_VOLUMES in the env file (a positional arg would conflict).
    Build the arg in a set (NOT an inline {% endif %} at line end — trim_blocks
    would eat the trailing newline and glue ExecStart to the next line). #}
-{% set _rustfs_arg = (' ' ~ juicefs_rustfs_data_dir) if not juicefs_rustfs_distributed | bool else '' %}
+{% set _rustfs_arg = (' ' ~ rustfs_server_data_dir) if not rustfs_server_distributed | bool else '' %}
 ExecStart=/usr/local/bin/rustfs{{ _rustfs_arg }}
 Restart=always
 RestartSec=5s
 LimitNOFILE=1048576
-{% if juicefs_rustfs_memory_high %}
+{% if rustfs_server_memory_high %}
 # Soft page-cache containment (relevant on a unified-memory spark).
-MemoryHigh={{ juicefs_rustfs_memory_high }}
+MemoryHigh={{ rustfs_server_memory_high }}
 {% endif %}
 
 [Install]

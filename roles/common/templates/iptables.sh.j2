@@ -96,25 +96,19 @@ iptables -A HTSTUFFIN -s {{ _o[0] }}.{{ _o[1] }}.{{ _o[2] | int + qsfp_rail2_oct
 {% if juicefs_enabled | default(false) | bool and inventory_hostname == juicefs_primary_node | default('')
    and (juicefs_mount_master | default(false) | bool
         or hostvars[juicefs_primary_node | default('')].qsfp_ip is not defined) %}
-# JuiceFS backend reachability for mount clients that cannot use the QSFP mesh.
-# Spark mount clients normally reach Valkey(6379)+RustFS(9000) over the QSFP
-# subnet (already trusted above), so no rule is needed. Rendered ON the storage
-# node only, in the two cases where a client arrives over the mgmt/k3s VLAN
-# instead, which is otherwise closed for these ports:
-#   1. juicefs_mount_master  -> the QSFP-less master mounts a spark-hosted backend;
-#   2. the storage node ITSELF has no qsfp_ip (e.g. juicefs_primary_node moved to
-#      the k3s master, see JUICEFS_MIGRATION_HOWTO.md §13.3) -> then EVERY client,
-#      i.e. all sparks, comes in over mgmt and juicefs_mount_master stays false.
-# Both resolve to the same rule; requirepass + S3 keys still apply.
-# (juicefs_enabled / juicefs_primary_node / juicefs_mount_master live in
-# group_vars/all/main/juicefs.yml; nothing opens while the layer is not deployed.)
-#
-# DISTRIBUTED mode (juicefs_rustfs_distributed) needs NO extra rule here: FUSE
-# clients still dial only the PRIMARY's 9000 (juicefs_storage_address), so this
-# same rule covers the master; and the inter-node erasure traffic between the
-# RustFS storage nodes is spark<->spark over the QSFP mesh, already accepted
-# wholesale by the qsfp_network RETURN above.
-iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 6379,9000 -m set --match-set k3snodes src -j RETURN
+# Valkey for JuiceFS mount clients that arrive over the mgmt/k3s VLAN instead of QSFP; requirepass still applies.
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 6379 -m set --match-set k3snodes src -j RETURN
+{% endif %}
+
+{% if rustfs_server_enabled | default(false) | bool
+   and (inventory_hostname == rustfs_server_primary_node | default('')
+        or (rustfs_server_distributed | default(false) | bool
+            and inventory_hostname in (rustfs_server_members | default([]) | map(attribute='node') | list))) %}
+# RustFS S3 from nodes (cross-node pod egress is SNAT'd to the node IP) and same-node pods (pod IP).
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport {{ rustfs_server_s3_port | default(9000) }} -m set --match-set k3snodes src -j RETURN
+{% if cluster_cidr is defined %}
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport {{ rustfs_server_s3_port | default(9000) }} -s {{ cluster_cidr }} -j RETURN
+{% endif %}
 {% endif %}
 
 {% if juicefs_enabled | default(false) | bool and juicefs_metrics_enabled | default(false) | bool %}

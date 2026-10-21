@@ -1,0 +1,49 @@
+---
+# rustfs_server: native RustFS S3 server (systemd), single-node or erasure-coded across nodes.
+# Cross-role knobs (enabled, primary node, members, distributed, fstab, port, root keys, users)
+# live in group_vars/all/main/rustfs_server.yml.
+
+# Refuses to start RustFS unless every data path is a mountpoint (never the OS disk).
+rustfs_server_require_disk_mount: true
+
+# Opt-in cleanup of hosts that are no longer RustFS nodes; current nodes are always skipped.
+rustfs_server_teardown: false
+rustfs_server_teardown_purge_user: false
+
+rustfs_server_nodes: >-
+  {{ (rustfs_server_members | map(attribute='node') | list)
+     if rustfs_server_distributed | bool
+     else [rustfs_server_primary_node] }}
+
+rustfs_server_local_disks: >-
+  {{ rustfs_server_members | default([]) | selectattr('node', 'equalto', inventory_hostname)
+     | map(attribute='disks') | first | default([]) }}
+rustfs_server_local_mounts: "{{ rustfs_server_local_disks | map(attribute='path') | list }}"
+rustfs_server_local_data_dirs: >-
+  {{ rustfs_server_local_mounts | map('regex_replace', '$', '/rustfs') | list }}
+rustfs_server_data_dir: "{{ rustfs_server_local_data_dirs | first }}"
+
+# raid0 -> EC:0, raid5 -> EC:1, raid6 -> EC:2; distributed only, applies to newly written objects.
+rustfs_server_raid_level: raid5
+rustfs_server_parity: >-
+  {{ {'raid0': 0, 'raid5': 1, 'raid6': 2}[rustfs_server_raid_level] }}
+rustfs_server_total_drives: >-
+  {{ rustfs_server_members | map(attribute='disks') | map('length') | sum
+     if rustfs_server_distributed | bool else 1 }}
+rustfs_server_set_drive_count: "{{ rustfs_server_total_drives }}"
+
+# Latest: curl -s https://api.github.com/repos/rustfs/rustfs/releases/latest | jq -r .tag_name
+rustfs_server_version: "1.0.1"
+rustfs_server_libc: musl
+rustfs_server_console_port: 9001
+rustfs_server_console_enable: true
+rustfs_server_user: rustfs
+# systemd MemoryHigh (soft reclaim); empty = unlimited.
+rustfs_server_memory_high: ""
+rustfs_server_state_dir: /var/lib/rustfs_server
+
+# S3 endpoint the user tasks talk to on the primary node.
+rustfs_server_users_endpoint: "127.0.0.1:{{ rustfs_server_s3_port }}"
+# Buckets no extra user may be granted.
+rustfs_server_protected_buckets: []
+rustfs_server_policy_dir: /etc/rustfs/iam

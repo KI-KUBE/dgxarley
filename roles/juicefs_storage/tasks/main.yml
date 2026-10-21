@@ -1,9 +1,9 @@
 ---
 # juicefs_storage — see defaults/main.yml for the architecture overview.
-# Tasks are host-gated so a single play over `k3sserver` configures every role:
+# Tasks are host-gated so a single play over `k3sserver` configures every role
+# (the S3 object store comes from the rustfs_server role, which runs first):
 #   - JuiceFS binary    -> all nodes in the play
-#   - RustFS            -> every storage node (juicefs_rustfs_nodes)
-#   - Valkey            -> the primary storage node only (metadata is single-node)
+#   - Valkey            -> juicefs_primary_node (metadata is single-node)
 #   - format (once)     -> the primary storage node only
 #   - FUSE mount        -> nodes in juicefs_mount_group
 #   - meta-backup timer -> the backup node (storage node by default)
@@ -23,17 +23,11 @@
   ansible.builtin.import_tasks: binaries_juicefs.yml
   tags: [juicefs_bin]
 
-- name: Deploy metadata + object backend (Valkey + RustFS)
+- name: Deploy the metadata backend (Valkey)
   ansible.builtin.import_tasks: backend.yml
-  # RustFS runs on every storage node (juicefs_rustfs_nodes = the single node in
-  # single mode, the full set in distributed mode). Valkey + the metrics exporter
-  # are gated to the primary INSIDE backend.yml (metadata stays single-node).
-  # The juicefs_backend_teardown arm widens this gate on purpose: a FORMER
-  # storage node is by definition no longer in juicefs_rustfs_nodes, so without
-  # it the teardown block in backend.yml could never reach the very hosts it
-  # exists for. install/teardown are separated by the two blocks inside the file.
+  # Widened for juicefs_backend_teardown: a former metadata node is no longer the primary.
   when: >-
-    inventory_hostname in juicefs_rustfs_nodes
+    inventory_hostname == juicefs_primary_node
     or juicefs_backend_teardown | default(false) | bool
   tags: [juicefs_backend]
 

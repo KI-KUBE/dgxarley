@@ -1,0 +1,4 @@
+---
+# Non-sensitive host overrides for the rustfs_server role on the k3s master.
+# MemoryHigh throttles rustfs.service page cache; the master's ~16 GB RAM is shared with the control plane.
+rustfs_server_memory_high: "8G"

@@ -1,0 +1,93 @@
+---
+# One rustfs_server_users entry (loop_var _iam_user).
+
+- name: "Resolve IAM settings for {{ _iam_user.name }}"
+  ansible.builtin.set_fact:
+    _iam_policy_name: "{{ _iam_user.name }}-policy"
+    _iam_actions: >-
+      {{ ['s3:*'] if (_iam_user.access | default('readwrite')) == 'readwrite'
+         else ['s3:GetBucketLocation', 's3:ListBucket', 's3:GetObject'] }}
+    _iam_resources: >-
+      {{ (_iam_user.buckets | map('regex_replace', '^', 'arn:aws:s3:::') | list)
+         + (_iam_user.buckets | map('regex_replace', '^(.*)$', 'arn:aws:s3:::\1/*') | list) }}
+
+- name: "Validate IAM entry {{ _iam_user.name }}"
+  ansible.builtin.assert:
+    that:
+      - _iam_user.secret_key | default('') | length >= 8
+      - _iam_user.buckets | default([]) | length > 0
+      - (_iam_user.access | default('readwrite')) in ['readwrite', 'readonly']
+      - _iam_user.buckets | intersect(rustfs_server_protected_buckets) | length == 0
+    fail_msg: "{{ _iam_user.name }}: needs secret_key (>= 8 chars), non-empty buckets without {{ rustfs_server_protected_buckets | join(', ') }}, access readwrite|readonly"
+    quiet: true
+
+- name: "Run the IAM steps for {{ _iam_user.name }} as RustFS root"
+  environment:
+    RC_HOST_rfsadmin: "http://{{ rustfs_server_access_key }}:{{ rustfs_server_secret_key }}@{{ rustfs_server_users_endpoint }}"
+    RC_HOST_rfsuser: "http://{{ _iam_user.name }}:{{ _iam_user.secret_key }}@{{ rustfs_server_users_endpoint }}"
+    RC_IAM_SECRET: "{{ _iam_user.secret_key }}"
+  no_log: true
+  block:
+    - name: "Check buckets of {{ _iam_user.name }}"
+      ansible.builtin.command: "rc ls rfsadmin/{{ item }}"
+      loop: "{{ _iam_user.buckets }}"
+      register: _iam_bucket_check
+      changed_when: false
+      failed_when: false
+
+    - name: "Create missing buckets of {{ _iam_user.name }}"
+      ansible.builtin.command: "rc mb rfsadmin/{{ item.item }}"
+      loop: "{{ _iam_bucket_check.results }}"
+      when: item.rc != 0
+
+    - name: "Write the policy document of {{ _iam_user.name }}"
+      ansible.builtin.copy:
+        dest: "{{ rustfs_server_policy_dir }}/{{ _iam_policy_name }}.json"
+        content: >-
+          {{ {'Version': '2012-10-17',
+              'Statement': [{'Effect': 'Allow', 'Action': _iam_actions, 'Resource': _iam_resources}]}
+             | to_nice_json }}
+        owner: root
+        group: root
+        mode: "0640"
+      register: _iam_policy_file
+
+    - name: "Check policy {{ _iam_policy_name }}"
+      ansible.builtin.command: "rc admin policy info rfsadmin {{ _iam_policy_name }}"
+      register: _iam_policy_check
+      changed_when: false
+      failed_when: false
+
+    - name: "Create or update policy {{ _iam_policy_name }}"
+      ansible.builtin.command: >-
+        rc admin policy create rfsadmin {{ _iam_policy_name }}
+        {{ rustfs_server_policy_dir }}/{{ _iam_policy_name }}.json
+      when: _iam_policy_file is changed or _iam_policy_check.rc != 0
+
+    - name: "Check user {{ _iam_user.name }}"
+      ansible.builtin.command: "rc admin user info rfsadmin {{ _iam_user.name }} --json"
+      register: _iam_user_check
+      changed_when: false
+      failed_when: false
+
+    - name: "Create user {{ _iam_user.name }}"
+      ansible.builtin.command: >-
+        rc admin user add rfsadmin {{ _iam_user.name }} {{ _iam_user.secret_key }}
+      when: _iam_user_check.rc != 0
+
+    - name: "Check that {{ _iam_user.name }} authenticates with the vault secret"
+      ansible.builtin.command: "rc ls rfsuser/{{ _iam_user.buckets[0] }}"
+      register: _iam_auth_check
+      changed_when: false
+      failed_when: false
+      when: _iam_user_check.rc == 0
+
+    - name: "Reset the secret of {{ _iam_user.name }} to the vault value"
+      ansible.builtin.command: >-
+        rc admin user passwd rfsadmin {{ _iam_user.name }} --password-from-env RC_IAM_SECRET
+      when: _iam_user_check.rc == 0 and _iam_auth_check.rc != 0
+
+    - name: "Attach policy {{ _iam_policy_name }} to {{ _iam_user.name }}"
+      ansible.builtin.command: >-
+        rc admin policy attach rfsadmin {{ _iam_policy_name }} --user {{ _iam_user.name }}
+      when: _iam_user_check.rc != 0 or _iam_policy_name not in _iam_user_check.stdout

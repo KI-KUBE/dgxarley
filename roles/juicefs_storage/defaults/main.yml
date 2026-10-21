@@ -5,15 +5,15 @@
 # Runs ENTIRELY outside k3s as native systemd services, so the storage layer is
 # independent of the k3s lifecycle (no FUSE-pod-restart fragility, no kubelet
 # OOM). JuiceFS has NO master: every mount talks DIRECTLY to Valkey (metadata)
-# and RustFS (S3 object store). One "storage node" holds the USB-SSD and runs
-# Valkey + RustFS; every node in juicefs_mount_group runs the FUSE mount.
+# and RustFS (S3 object store, rustfs_server role). juicefs_primary_node runs
+# Valkey; every node in juicefs_mount_group runs the FUSE mount.
 #
 # Deploy order is handled within the role (binaries -> backend -> format ->
-# mount -> backup). Run via: ansible-playbook storage.yml
+# mount -> backup). Run via: ansible-playbook storage.yml (rustfs_server runs first)
 
 # --- Topology ---------------------------------------------------------------
-# juicefs_primary_node (THE placement knob — inventory_hostname of the node with
-# the USB-SSD, running Valkey+RustFS) and juicefs_mount_master (opt-in mount on
+# juicefs_primary_node (THE placement knob — inventory_hostname of the node
+# running Valkey) and juicefs_mount_master (opt-in mount on
 # the QSFP-less master) are PROMOTED to group_vars/all/main/juicefs.yml, because the
 # `common` role's iptables template needs them to open the backend ports for a
 # master mount. They are authoritative there; do NOT redefine them here (a role
@@ -24,14 +24,14 @@
 #   2. juicefs_storage_address resolves to the storage node's k3s IP for any
 #      host without QSFP (the per-client logic below);
 #   3. Valkey is dual-homed on the storage node (juicefs_valkey_bind_addresses),
-#      and the storage node's firewall opens 6379/9000 (common iptables template).
+#      and the storage node's firewall opens 6379 (common iptables template).
 
 # Inventory group whose hosts get the JuiceFS mount: juicefs_mount_group is
 # PROMOTED to group_vars/all/main/juicefs.yml (2026-07, with juicefs_metrics_enabled) —
 # common's iptables template and k8s_infra's Prometheus scrape loop need it.
 # Do NOT redefine it here; a role default would just be shadowed.
 
-# Address a mount client uses to reach Valkey + RustFS on the storage node.
+# Address a mount client uses to reach Valkey on the storage node.
 # Resolved PER CLIENT: a QSFP-capable client (a spark) uses the storage node's
 # QSFP IP (200GbE mesh); a client WITHOUT QSFP (the master) falls back to the
 # storage node's k3s VLAN IP. If the storage node itself has no QSFP, everyone
@@ -41,12 +41,18 @@ juicefs_storage_address: >-
      if (qsfp_ip is defined and hostvars[juicefs_primary_node].qsfp_ip is defined)
      else hostvars[juicefs_primary_node].k3s_node_ip }}
 
+# Same per-client resolution for the S3 endpoint on rustfs_server_primary_node.
+juicefs_s3_address: >-
+  {{ hostvars[rustfs_server_primary_node].qsfp_ip
+     if (qsfp_ip is defined and hostvars[rustfs_server_primary_node].qsfp_ip is defined)
+     else hostvars[rustfs_server_primary_node].k3s_node_ip }}
+
 # Addresses Valkey binds on the storage node (127.0.0.1 is always added in the
 # template). Always the address spark clients dial (the storage node's QSFP IP,
 # or its k3s IP if the storage node has no QSFP); PLUS its k3s IP when
 # juicefs_mount_master is on, so the QSFP-less master can reach the metadata
-# engine over the management network. RustFS already binds 0.0.0.0 (all NICs);
-# Valkey is bind-scoped, so it needs this explicit list.
+# engine over the management network. Valkey is bind-scoped, so it needs this
+# explicit list.
 juicefs_valkey_bind_addresses: >-
   {{ (
        ([hostvars[juicefs_primary_node].qsfp_ip] if hostvars[juicefs_primary_node].qsfp_ip is defined
@@ -54,141 +60,24 @@ juicefs_valkey_bind_addresses: >-
        + ([hostvars[juicefs_primary_node].k3s_node_ip] if juicefs_mount_master | bool else [])
      ) | select | list | unique | join(' ') }}
 
-# Safety: refuse to deploy RustFS unless each of this host's disk paths is a real
-# mountpoint (so RustFS data never lands on the OS disk by accident). Test override.
-juicefs_require_disk_mount: true
-
 # --- Backend teardown (decommissioning a FORMER storage node) ---------------
 # Moving juicefs_primary_node to another host leaves the old one with a
-# disabled-but-installed Valkey + RustFS, their credential files, and a STALE
+# disabled-but-installed Valkey, its credential files, and a STALE
 # copy of the filesystem metadata in /var/lib/valkey. Nothing points there, but
 # anything that ever starts that Valkey serves a phantom filesystem on 6379.
 # Opt-in cleanup, same shape as the <x>_teardown flags in k8s_infra/k8s_dgx:
 #   ansible-playbook storage.yml -e juicefs_backend_teardown=true --limit spark4
-# The teardown block (tasks/backend.yml) SKIPS any current storage node, so a
+# The teardown block (tasks/backend.yml) SKIPS the current metadata node, so a
 # cluster-wide run cleans the former nodes and leaves the live backend alone.
 # It deliberately does NOT touch the FUSE client (a former storage node usually
-# stays a mount client) nor the object data on the old disk.
+# stays a mount client). RustFS: rustfs_server_teardown.
 juicefs_backend_teardown: false
-# Also apt-purge valkey-server / valkey-tools / prometheus-redis-exporter and
-# drop the rustfs system user. Off by default: package removal is the one step
-# that can drag unrelated things along, and a dormant package with no config,
-# no data and a disabled unit is harmless.
+# Also apt-purge valkey-server / valkey-tools / prometheus-redis-exporter. Off by
+# default: package removal is the one step that can drag unrelated things along,
+# and a dormant package with no config, no data and a disabled unit is harmless.
 juicefs_backend_teardown_purge_packages: false
 
-# --- Distributed RustFS (multi-node erasure coding) -------------------------
-# Single-node (default) vs distributed multi-node object store.
-#   OFF  -> exact single-node behaviour: RustFS on juicefs_primary_node only, a
-#           local volume, NO erasure coding. Zero change vs the original role.
-#   ON   -> RustFS runs on EVERY node in juicefs_rustfs_members, forming ONE
-#           erasure-coded S3 cluster whose object DATA is striped + made
-#           redundant across all their USB-SSDs.
-#
-# HARD CONSTRAINTS (RustFS distributed mode — all verified upstream):
-#   * Minimum 4 nodes, each with >=1 disk. RustFS refuses to start with fewer.
-#   * NOT an in-place upgrade. Single-node (SNSD) has no erasure coding and its
-#     on-disk layout is INCOMPATIBLE with distributed mode — enabling this on a
-#     populated single-node store means a FRESH juicefs format (the existing
-#     object data is abandoned). Migrate/re-download first. See README "Migration".
-#   * Valkey (metadata) STAYS single-node on juicefs_primary_node. Distributing
-#     RustFS does NOT remove the Valkey SPOF — only the object data gains
-#     redundancy. The off-box meta-backup cron remains your metadata insurance.
-#   * juicefs_primary_node stays the "primary": it runs Valkey, performs the
-#     one-time format, and is the single S3 endpoint the FUSE clients dial
-#     (juicefs_storage_address). The primary terminates S3 + coordinates the
-#     erasure writes out to its peers over QSFP; disk I/O still spreads across
-#     all nodes (the whole point — no single USB bus carries every write).
-juicefs_rustfs_distributed: false
-
-# The RustFS cluster members in distributed mode. STRUCTURED, ordered list — one
-# entry per node, each listing that node's USB disk(s) as dicts. Nodes may differ
-# in BOTH mountpoint path AND disk count (heterogeneous topology is supported):
-#   juicefs_rustfs_members:
-#     - node: spark1                                # inventory_hostname
-#       disks:
-#         - { path: /mnt/intenso, uuid: "<blkid-UUID>", fstype: ext4 }
-#     - node: spark2
-#       disks:                                      # two disks on this node
-#         - { path: /mnt/usb-a, uuid: "<uuid>", fstype: ext4 }
-#         - { path: /mnt/usb-b, uuid: "<uuid>", fstype: ext4 }
-# Per disk: `path` (mountpoint; RustFS data dir = <path>/rustfs) is ALWAYS
-# required. `uuid`/`fstype`/`options` are consulted ONLY when juicefs_manage_fstab
-# is on (see below) — otherwise you mount the disks yourself and only `path` matters.
-# ORDER MATTERS: erasure-set membership is positional and the RUSTFS_VOLUMES list
-# is rendered identically on every node, so keep the ordering stable across runs.
-# juicefs_primary_node MUST appear as one of the .node values. The erasure/cluster
-# use is distributed-only, BUT a matching entry is ALSO consulted in single-node
-# mode to supply the primary's per-disk uuid/fstype to the fstab step (see
-# juicefs_rustfs_local_disks). Promoted to group_vars/all/main/juicefs.yml (common's
-# iptables template + this role both iterate over it); real value in the vault twin.
-# Do NOT redefine here — a role default would be shadowed by the group_vars value.
-
-# Optionally let the role own /etc/fstab for the RustFS disk(s) via
-# ansible.posix.mount (state: mounted -> UUID-keyed fstab entry + mount NOW).
-#   OFF (default): you mount the disks yourself (fstab by hand); the role only
-#                  verifies the mountpoints and fails if one is missing (original
-#                  behaviour — unchanged).
-#   ON: each disk entry that carries a `uuid` is mounted at its `path` with
-#       `options` (default `defaults,nofail`) before the mountpoint check. UUID
-#       (not /dev/sdX) is mandatory because USB device names reorder across boots
-#       — a /dev name could drop the wrong disk into the wrong erasure slot.
-# Works in BOTH modes (every RustFS node — incl. the single-node primary — has an
-# entry in juicefs_rustfs_members, which is the sole disk source). A disk entry
-# WITHOUT a uuid is skipped (mount it by hand). Optional per-disk `dump`/`passno`
-# (both default 0) — set `passno` to match a pre-existing manual fstab line so the
-# first managed run doesn't rewrite it.
-juicefs_manage_fstab: false
-
-# Effective RustFS node list (hostnames) — resolved from the mode.
-juicefs_rustfs_nodes: >-
-  {{ (juicefs_rustfs_members | map(attribute='node') | list)
-     if juicefs_rustfs_distributed | bool
-     else [juicefs_primary_node] }}
-
-# THIS host's disk entries (dicts) — its matching entry in juicefs_rustfs_members
-# (match by node == inventory_hostname; NOT members[0], which would hand every host
-# the first node's disks in distributed mode). The SINGLE source of truth for this
-# host's disk(s) in BOTH modes: `path` (mountpoint + data dir) and, when
-# juicefs_manage_fstab is on, `uuid`/`fstype` for the fstab step. Empty ONLY if this
-# host is absent from members — a misconfig for a RustFS node, caught by the assert
-# in backend.yml. One list drives the mount step + the mount/data-dir derivations.
-juicefs_rustfs_local_disks: >-
-  {{ juicefs_rustfs_members | default([]) | selectattr('node', 'equalto', inventory_hostname)
-     | map(attribute='disks') | first | default([]) }}
-# This host's USB mountpoints that MUST be mounted before RustFS starts.
-juicefs_rustfs_local_mounts: "{{ juicefs_rustfs_local_disks | map(attribute='path') | list }}"
-# RustFS object data dirs on THIS host (each mountpoint + /rustfs), from local_disks.
-juicefs_rustfs_local_data_dirs: >-
-  {{ juicefs_rustfs_local_mounts | map('regex_replace', '$', '/rustfs') | list }}
-
-# RAID level -> Reed-Solomon parity (RUSTFS_STORAGE_CLASS_STANDARD=EC:M):
-#   raid0 -> EC:0  striping only, 0 parity, ~100% usable, NO fault tolerance
-#   raid5 -> EC:1  single parity, tolerates 1 node/disk loss, (n-1)/n usable
-#   raid6 -> EC:2  double parity, tolerates 2 node/disk losses, (n-2)/n usable
-# Only meaningful in distributed mode. Baked at format time; changing it later
-# only affects NEWLY written objects (RustFS keeps each object's original parity).
-# RAID6 needs >=4 drives. Parity must stay <= floor(set_drive_count / 2).
-juicefs_rustfs_raid_level: raid5
-juicefs_rustfs_parity: >-
-  {{ {'raid0': 0, 'raid5': 1, 'raid6': 2}[juicefs_rustfs_raid_level] }}
-
-# Total volumes across the whole cluster = sum of every node's disk count.
-juicefs_rustfs_total_drives: >-
-  {{ juicefs_rustfs_members | map(attribute='disks') | map('length') | sum
-     if juicefs_rustfs_distributed | bool else 1 }}
-# Drives per erasure set. Default = ALL volumes in one set. Override only if you
-# want multiple sets (total must be an integer multiple of the set drive count).
-juicefs_rustfs_set_drive_count: "{{ juicefs_rustfs_total_drives }}"
-
-# --- Disk / paths -----------------------------------------------------------
-# RustFS object data dir on THIS host's (first) USB-SSD, derived from the host's
-# juicefs_rustfs_members entry — ONE source of the disk path, so the mount checks
-# and what RustFS actually serves can never drift. Single-node uses this as the
-# positional volume; distributed builds RUSTFS_VOLUMES per disk instead (this var
-# is then unreferenced). The disk itself you mount yourself (or via
-# juicefs_manage_fstab); this role never partitions or formats it.
-juicefs_rustfs_data_dir: "{{ juicefs_rustfs_local_data_dirs | first }}"
-
+# --- Paths ------------------------------------------------------------------
 # Host mountpoint of the shared FS on every mount node.
 # PROMOTED to group_vars/all/main/juicefs.yml (k8s_dgx derives hf_cache_juicefs_root
 # from it, cross-play). Do NOT redefine here — a role default would be shadowed.
@@ -228,35 +117,17 @@ juicefs_allow_other: true
 juicefs_backup_meta_interval: "24h"
 
 # --- Versions ---------------------------------------------------------------
-# No automatic upgrade check for these pins (deliberate — the rustfs server
-# holds the object data, juicefs must stay consistent across all mounts).
+# No automatic upgrade check for this pin (juicefs must stay consistent across all mounts).
 # Check upstream for newer releases with:
 #   juicefs:  curl -s https://api.github.com/repos/juicedata/juicefs/releases/latest | jq -r .tag_name
 #             (tag has a "v" prefix — strip it for the var below)
-#   rustfs:   curl -s "https://api.github.com/repos/rustfs/rustfs/releases?per_page=1" | jq -r '.[0].tag_name'
-#             (or: gh release list -R rustfs/rustfs -L 1)
-#             NOTE: the list query also returns the 1.0.1-preview.* tags; since
-#             the 1.0.0 GA (2026-09-16) releases/latest resolves and skips those.
 juicefs_version: "1.4.1"                 # juicedata/juicefs release (arm64+amd64, LTS)
-juicefs_rustfs_version: "1.0.1"          # rustfs/rustfs release
-juicefs_rustfs_libc: musl                # musl (static) or gnu
 juicefs_valkey_apt_package: valkey-server  # noble: 7.2.x — sufficient for JuiceFS
 
-# --- RustFS server ----------------------------------------------------------
-juicefs_rustfs_s3_port: 9000
-juicefs_rustfs_console_port: 9001
-juicefs_rustfs_console_enable: true
-juicefs_rustfs_bucket: juicefs
-juicefs_rustfs_user: rustfs              # native system user (NOT the container's 10001)
-# Optional cgroup page-cache containment. RECOMMENDED on a spark storage node,
-# where page cache competes with GPU unified memory. Empty = unlimited.
-# Example: "16G". Uses MemoryHigh (soft reclaim) not MemoryMax (hard OOM).
-juicefs_rustfs_memory_high: ""
+# --- Object store (rustfs_server role) --------------------------------------
+juicefs_bucket: juicefs
 
 # --- Credentials — DUMMIES. Real values go in group_vars/all/vault/juicefs.sops.yml
-# RustFS S3 root creds (RUSTFS_ACCESS_KEY / RUSTFS_SECRET_KEY; secret >= 8 chars).
-juicefs_rustfs_access_key: "changeme-access-key"
-juicefs_rustfs_secret_key: "changeme-secret-key-min8"
 # Valkey requirepass == JuiceFS META_PASSWORD.
 juicefs_valkey_password: "changeme-valkey-password"
 

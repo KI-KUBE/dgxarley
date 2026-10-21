@@ -1,0 +1,20 @@
+---
+- name: Install RustFS
+  ansible.builtin.import_tasks: install.yml
+  when:
+    - not (rustfs_server_teardown | bool)
+    - inventory_hostname in rustfs_server_nodes
+  tags: [rustfs_server_install]
+
+- name: Configure extra RustFS S3 users
+  ansible.builtin.import_tasks: users.yml
+  when:
+    - not (rustfs_server_teardown | bool)
+    - inventory_hostname == rustfs_server_primary_node
+    - rustfs_server_users | length > 0
+  tags: [rustfs_server_users]
+
+- name: Tear down RustFS on former nodes
+  ansible.builtin.import_tasks: teardown.yml
+  when: rustfs_server_teardown | bool
+  tags: [rustfs_server_teardown]

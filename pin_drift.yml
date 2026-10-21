@@ -167,8 +167,8 @@ pins:
     var: juicefs_version
   - name: rustfs
     github: rustfs/rustfs
-    file: roles/juicefs_storage/defaults/main.yml
-    var: juicefs_rustfs_version
+    file: roles/rustfs_server/defaults/main.yml
+    var: rustfs_server_version
   - name: bottom
     github: ClementTsang/bottom
     file: roles/common/defaults/main.yml

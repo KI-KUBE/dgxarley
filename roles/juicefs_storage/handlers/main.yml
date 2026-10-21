@@ -8,11 +8,6 @@
     name: "{{ juicefs_valkey_apt_package }}"
     state: restarted
 
-- name: restart rustfs
-  ansible.builtin.systemd:
-    name: rustfs
-    state: restarted
-
 - name: restart redis exporter
   ansible.builtin.systemd:
     name: prometheus-redis-exporter

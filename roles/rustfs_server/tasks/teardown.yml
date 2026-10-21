@@ -1,0 +1,52 @@
+---
+# Object data on the disks is never touched.
+- name: RustFS teardown (former node)
+  when: inventory_hostname not in rustfs_server_nodes
+  block:
+    - name: Stop and disable rustfs
+      ansible.builtin.systemd:
+        name: rustfs
+        state: stopped
+        enabled: false
+      failed_when: false
+
+    - name: Remove the RustFS unit, config, credentials and binary
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /etc/systemd/system/rustfs.service
+        - /etc/rustfs
+        - "{{ rustfs_server_state_dir }}"
+        - /var/lib/juicefs_storage/rustfs.version
+        - /usr/local/bin/rustfs
+      register: _rustfs_teardown_removed
+
+    - name: Reload systemd after removing the unit
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Remove the rustfs system user and group
+      when: rustfs_server_teardown_purge_user | bool
+      block:
+        - name: Remove the rustfs system user
+          ansible.builtin.user:
+            name: "{{ rustfs_server_user }}"
+            state: absent
+            remove: false
+
+        - name: Remove the rustfs system group
+          ansible.builtin.group:
+            name: "{{ rustfs_server_user }}"
+            state: absent
+
+    - name: Report what the RustFS teardown removed
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: removed
+          {{ _rustfs_teardown_removed.results | selectattr('changed') | map(attribute='item') | list }}
+
+- name: Note the hosts the RustFS teardown skipped
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }} is a current RustFS node, teardown skipped."
+  when: inventory_hostname in rustfs_server_nodes

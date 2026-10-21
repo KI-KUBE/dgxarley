@@ -1,0 +1,27 @@
+---
+# Root credentials go in via RC_HOST_<alias>, never in argv.
+
+- name: Ensure the RustFS policy directory exists
+  ansible.builtin.file:
+    path: "{{ rustfs_server_policy_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Wait for the RustFS S3 endpoint to answer
+  ansible.builtin.uri:
+    url: "http://{{ rustfs_server_users_endpoint }}/"
+    method: GET
+    status_code: [200, 400, 403, 404]
+  register: _rustfs_users_up
+  retries: 30
+  delay: 2
+  until: _rustfs_users_up.status is defined and _rustfs_users_up.status > 0
+
+- name: Configure RustFS S3 user
+  ansible.builtin.include_tasks: user.yml
+  loop: "{{ rustfs_server_users }}"
+  loop_control:
+    loop_var: _iam_user
+    label: "{{ _iam_user.name }}"
