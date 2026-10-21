@@ -96,6 +96,11 @@ dashboard:
 model_catalog:
   excluded_providers: {{ (item.model_catalog_excluded_providers | default(hermes.model_catalog_excluded_providers)) | to_json }}
 
+# approvals.mode must stay a quoted string: bare off is YAML false and falls back to manual.
+approvals:
+  mode: "{{ item.approvals_mode | default(hermes.approvals_mode) }}"
+  timeout: {{ item.approvals_timeout | default(hermes.approvals_timeout) }}
+
 # Web search via in-cluster SearXNG (search-only). SEARXNG_URL is set in .env.
 # Extract/crawl backends are not configured — Hermes' web_extract / web_crawl
 # will be unavailable until a Firecrawl/Tavily/Exa key is added.

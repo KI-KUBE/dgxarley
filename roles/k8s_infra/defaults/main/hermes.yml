@@ -71,6 +71,8 @@ hermes:
   model_catalog_excluded_providers: ["openai-api", "opencode-free"]
   dashboard_theme: "cyberpunk-lg"
   dashboard_font: "theme"
+  approvals_mode: "off"                 # "off" skips the dangerous-command prompt; hardline blocklist still applies
+  approvals_timeout: 600
   default_model: "{{ litellm_hermes_alias_model }}"  # stable alias → current SGLang model
   # Explicit OVERRIDE for the LiteLLM-alias context window, rendered as
   # model.context_length in config.yaml. hermes-default is a LiteLLM alias, so
