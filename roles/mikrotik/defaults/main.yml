@@ -1,54 +1,77 @@
 ---
-mikrotik_bridge_name: bridge
-mikrotik_bridge_ports: []
-mikrotik_bridge_vlans: []
-mikrotik_mgmt_interfaces: []
-mikrotik_dns_servers: []
-mikrotik_dhcp_servers: []
-mikrotik_srcnat_rules: []
-mikrotik_fasttrack_enabled: false
-
 # Marker for the comments/lists uplink.yml and wireguard.yml look up their objects by; letters, digits, - and _ only.
 mikrotik_object_prefix: ansible
-mikrotik_uplink_comment: "{{ mikrotik_object_prefix }}-uplink"
 mikrotik_internal_list: "{{ mikrotik_object_prefix }}-internal"
-mikrotik_wireguard_comment: "{{ mikrotik_object_prefix }}-hub"
 
-# Routed uplink into the upstream LAN (tasks/uplink.yml); empty = not managed, the default route
-# then comes from mikrotik_default_gateway (routing.yml). Static mode uses mikrotik_default_gateway too.
-mikrotik_uplink_interface: ""
-mikrotik_uplink_mode: dhcp
-mikrotik_uplink_address: ""
-mikrotik_uplink_use_peer_dns: true
-# dst-nat from the uplink address to LAN hosts: [{to_address, tcp_ports (max 15)}]; the target host opens the
-# ports itself (common: iptables_public_tcp_ports), the forwarded packets keep the client's source address.
-mikrotik_uplink_port_forwards: []
+# Settings dicts: inventory sets <name> (partial is fine), tasks/main.yml merges it over <name>_defaults into _<name>.
+mikrotik_bridge: {}
+mikrotik_bridge_defaults:
+  name: bridge
+  ports: []
+  vlans: []
 
-# RoCE/RDMA lossless Ethernet — only active when qsfp_switch: true
-mikrotik_qsfp_roce_ports: []
-mikrotik_qsfp_mtu: 9000
-mikrotik_qsfp_l2mtu: 9500
-mikrotik_roce_dscp_data: 26
-mikrotik_roce_dscp_cnp: 48
-mikrotik_roce_traffic_class: 3
-mikrotik_cnp_traffic_class: 6
+mikrotik_management: {}
+mikrotik_management_defaults:
+  interfaces: []
 
-mikrotik_wireguard_enabled: false
-mikrotik_wireguard_teardown: false
-mikrotik_wireguard_forward_lan: false
-mikrotik_wireguard_interface: "wg-{{ mikrotik_object_prefix }}"
-mikrotik_wireguard_hub_endpoint: ""
-mikrotik_wireguard_hub_public_key: ""
-mikrotik_wireguard_tunnel_address: ""
-mikrotik_wireguard_ops_subnet: ""
-mikrotik_wireguard_keepalive: 25s
-mikrotik_wireguard_input_tcp_ports: [22, 8291]
-# Network CIDRs (not interface addresses); never the uplink VLAN, that is the upstream LAN.
-mikrotik_wireguard_forward_lans: []
-# TCP ports on the hub (first host of the ops subnet, .1) that LAN hosts may open through the tunnel, e.g. the
-# mail relay on the hub; [] = none. This traffic is src-NATed to the Mikrotik's tunnel address so the hub accepts
-# it regardless of forward_lan (its AllowedIPs for the Mikrotik peer hold only the tunnel address unless LANs
-# are forwarded). Nothing else is NATed into the tunnel.
-mikrotik_wireguard_hub_tcp_ports: [25, 587]
-# Hub address in the tunnel; derived from the ops subnet (IPv4, prefix >= /24), override if the hub is not .1.
-mikrotik_wireguard_hub_address: "{{ mikrotik_wireguard_ops_subnet | regex_replace('[.][0-9]+/[0-9]+$', '.1') }}"
+# default_gateway is also used by the static uplink; without an uplink it becomes the default route.
+mikrotik_routing: {}
+mikrotik_routing_defaults:
+  default_gateway: ""
+  dns_servers: []
+
+mikrotik_nat: {}
+mikrotik_nat_defaults:
+  srcnat_rules: []
+
+mikrotik_dhcp: {}
+mikrotik_dhcp_defaults:
+  servers: []
+
+mikrotik_firewall: {}
+mikrotik_firewall_defaults:
+  fasttrack_enabled: false
+
+# Routed uplink into the upstream LAN (tasks/uplink.yml); empty interface = not managed.
+# port_forwards: dst-nat from the uplink address to LAN hosts, [{to_address, tcp_ports (max 15)}]; the target host
+# opens the ports itself (common: iptables_public_tcp_ports), the forwarded packets keep the client's source address.
+mikrotik_uplink: {}
+mikrotik_uplink_defaults:
+  interface: ""
+  mode: dhcp
+  address: ""
+  comment: "{{ mikrotik_object_prefix }}-uplink"
+  use_peer_dns: true
+  port_forwards: []
+
+# RoCE/RDMA lossless Ethernet, only active when qsfp_switch: true
+mikrotik_qsfp: {}
+mikrotik_qsfp_defaults:
+  roce_ports: []
+  mtu: 9000
+  l2mtu: 9500
+  roce_dscp_data: 26
+  roce_dscp_cnp: 48
+  roce_traffic_class: 3
+  cnp_traffic_class: 6
+
+# forward_lans: network CIDRs (not interface addresses); never the uplink VLAN, that is the upstream LAN.
+# hub_tcp_ports: TCP ports on the hub (hub_address) that LAN hosts may open through the tunnel, e.g. the mail relay;
+# src-NATed to the Mikrotik's tunnel address so the hub accepts it regardless of forward_lan. [] = none.
+# hub_address: empty = first host of the ops subnet (.1, IPv4, prefix >= /24).
+mikrotik_wireguard: {}
+mikrotik_wireguard_defaults:
+  enabled: false
+  teardown: false
+  interface: "wg-{{ mikrotik_object_prefix }}"
+  comment: "{{ mikrotik_object_prefix }}-hub"
+  hub_endpoint: ""
+  hub_public_key: ""
+  hub_address: ""
+  tunnel_address: ""
+  ops_subnet: ""
+  keepalive: 25s
+  forward_lan: false
+  forward_lans: []
+  hub_tcp_ports: [25, 587]
+  input_tcp_ports: [22, 8291]

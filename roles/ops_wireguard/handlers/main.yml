@@ -4,5 +4,5 @@
 # Notified on conf/key change; the unit is started by the "enable and start" task otherwise.
 - name: restart wg-quick
   ansible.builtin.systemd:
-    name: "wg-quick@{{ ops_wireguard_interface }}"
+    name: "wg-quick@{{ _ops_wireguard.interface }}"
     state: restarted

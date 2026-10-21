@@ -4,38 +4,47 @@
 # Install + teardown in ONE file as two conditional blocks (repo convention). The play in common.yml
 # also runs for teardown-only hosts, so the gating lives in the blocks.
 
+- name: Merge ops_wireguard settings over their defaults
+  ansible.builtin.set_fact:
+    _ops_wireguard: >-
+      {{ _ow | combine({'private_key_file': _ow.private_key_file or ('/etc/wireguard/' ~ _ow.interface ~ '.key')}) }}
+  vars:
+    _ow: "{{ ops_wireguard_defaults | combine(ops_wireguard | default({}), recursive=True) }}"
+  tags:
+    - always
+
 - name: Assert ops_wireguard gates
   ansible.builtin.assert:
     that:
-      - not (ops_wireguard_enabled | bool and ops_wireguard_teardown | bool)
-    fail_msg: "ops_wireguard_enabled and ops_wireguard_teardown are mutually exclusive"
+      - not (_ops_wireguard.enabled | bool and _ops_wireguard.teardown | bool)
+    fail_msg: "ops_wireguard.enabled and ops_wireguard.teardown are mutually exclusive"
     quiet: true
   tags:
     - ops_wireguard
 
 - name: Install Ops WireGuard tunnel
-  when: ops_wireguard_enabled | bool and not ops_wireguard_teardown | bool
+  when: _ops_wireguard.enabled | bool and not _ops_wireguard.teardown | bool
   tags:
     - ops_wireguard
   block:
-    # No ansible.utils in requirements.yml -> plain regex asserts (IPv4 only, like mikrotik_wireguard_*).
+    # No ansible.utils in requirements.yml -> plain regex asserts (IPv4 only, like mikrotik_wireguard).
     - name: Assert WireGuard parameters
       ansible.builtin.assert:
         that:
-          - ops_wireguard_interface is match('^[A-Za-z0-9_=+.-]{1,15}$')
-          - ops_wireguard_hub_endpoint is match('^[^:\s]+:[0-9]{1,5}$')
-          - ops_wireguard_hub_public_key | length > 0
-          - ops_wireguard_tunnel_address is match('^\d+\.\d+\.\d+\.\d+/\d+$')
-          - ops_wireguard_ops_subnet is match('^\d+\.\d+\.\d+\.\d+/\d+$')
-          - ops_wireguard_route_mode in ['full', 'source']
-          - ops_wireguard_route_table | string is match('^[0-9]+$')
-          - ops_wireguard_rule_priority | string is match('^[0-9]+$')
-          - not ops_wireguard_forward_lan | bool or ops_wireguard_route_mode == 'full'
-          - not ops_wireguard_forward_lan | bool or ops_wireguard_forward_lans | length > 0
-          - ops_wireguard_forward_lans | reject('match', '^\d+\.\d+\.\d+\.\d+/\d+$') | list | length == 0
+          - _ops_wireguard.interface is match('^[A-Za-z0-9_=+.-]{1,15}$')
+          - _ops_wireguard.hub_endpoint is match('^[^:\s]+:[0-9]{1,5}$')
+          - _ops_wireguard.hub_public_key | length > 0
+          - _ops_wireguard.tunnel_address is match('^\d+\.\d+\.\d+\.\d+/\d+$')
+          - _ops_wireguard.ops_subnet is match('^\d+\.\d+\.\d+\.\d+/\d+$')
+          - _ops_wireguard.route_mode in ['full', 'source']
+          - _ops_wireguard.route_table | string is match('^[0-9]+$')
+          - _ops_wireguard.rule_priority | string is match('^[0-9]+$')
+          - not _ops_wireguard.forward_lan | bool or _ops_wireguard.route_mode == 'full'
+          - not _ops_wireguard.forward_lan | bool or _ops_wireguard.forward_lans | length > 0
+          - _ops_wireguard.forward_lans | reject('match', '^\d+\.\d+\.\d+\.\d+/\d+$') | list | length == 0
         fail_msg: >-
           ops_wireguard: hub endpoint (host:port) + public key, tunnel address and ops subnet (IPv4 CIDR) are
-          required; route_mode is full|source; forward_lan needs route_mode full and ops_wireguard_forward_lans as IPv4 CIDRs
+          required; route_mode is full|source; forward_lan needs route_mode full and _ops_wireguard.forward_lans as IPv4 CIDRs
         quiet: true
 
     - name: Install wireguard-tools
@@ -63,69 +72,69 @@
     # Vault-provided key: written as is. Empty: generate on the host once, or adopt an existing file.
     - name: Write the provided WireGuard private key
       ansible.builtin.copy:
-        content: "{{ ops_wireguard_private_key }}\n"
-        dest: "{{ ops_wireguard_private_key_file }}"
+        content: "{{ _ops_wireguard.private_key }}\n"
+        dest: "{{ _ops_wireguard.private_key_file }}"
         owner: root
         group: root
         mode: "0600"
       no_log: true
-      when: ops_wireguard_private_key | length > 0
-      register: ops_wireguard_key_written
+      when: _ops_wireguard.private_key | length > 0
+      register: _ops_wireguard_key_written
       notify: restart wg-quick
 
     - name: Generate the WireGuard private key on the host (only when missing)
       ansible.builtin.shell:
-        cmd: umask 077 && wg genkey > '{{ ops_wireguard_private_key_file }}'
-        creates: "{{ ops_wireguard_private_key_file }}"
+        cmd: umask 077 && wg genkey > '{{ _ops_wireguard.private_key_file }}'
+        creates: "{{ _ops_wireguard.private_key_file }}"
       no_log: true
-      when: ops_wireguard_private_key | length == 0
-      register: ops_wireguard_key_generated
+      when: _ops_wireguard.private_key | length == 0
+      register: _ops_wireguard_key_generated
       notify: restart wg-quick
 
     # check_mode: with a not-yet-generated key the file does not exist; everything below tolerates that.
     - name: Stat the key file
       ansible.builtin.stat:
-        path: "{{ ops_wireguard_private_key_file }}"
-      register: ops_wireguard_key_stat
+        path: "{{ _ops_wireguard.private_key_file }}"
+      register: _ops_wireguard_key_stat
       check_mode: false
 
     - name: Enforce key file permissions (also on an adopted key)
       ansible.builtin.file:
-        path: "{{ ops_wireguard_private_key_file }}"
+        path: "{{ _ops_wireguard.private_key_file }}"
         owner: root
         group: root
         mode: "0600"
-      when: ops_wireguard_key_stat.stat.exists
+      when: _ops_wireguard_key_stat.stat.exists
 
     - name: Read the key file
       ansible.builtin.slurp:
-        src: "{{ ops_wireguard_private_key_file }}"
-      register: ops_wireguard_key_slurp
+        src: "{{ _ops_wireguard.private_key_file }}"
+      register: _ops_wireguard_key_slurp
       no_log: true
       check_mode: false
-      when: ops_wireguard_key_stat.stat.exists
+      when: _ops_wireguard_key_stat.stat.exists
 
     - name: Derive the public key
       ansible.builtin.command:
         cmd: wg pubkey
-        stdin: "{{ ops_wireguard_key_slurp.content | b64decode }}"
-      register: ops_wireguard_pubkey_cmd
+        stdin: "{{ _ops_wireguard_key_slurp.content | b64decode }}"
+      register: _ops_wireguard_pubkey_cmd
       no_log: true
       changed_when: false
       check_mode: false
-      when: ops_wireguard_key_slurp.content is defined
+      when: _ops_wireguard_key_slurp.content is defined
 
     - name: Register the public key as fact
       ansible.builtin.set_fact:
-        ops_wireguard_public_key: "{{ ops_wireguard_pubkey_cmd.stdout | trim }}"
-      when: ops_wireguard_pubkey_cmd.stdout is defined
+        _ops_wireguard_public_key: "{{ _ops_wireguard_pubkey_cmd.stdout | trim }}"
+      when: _ops_wireguard_pubkey_cmd.stdout is defined
 
     # Adopts the tunnel bootstrapped by the initial setup script: the template wins over its conf
     # (PrivateKey line and wg-forward.sh hooks vanish, the key file is reused unchanged).
     - name: Render /etc/wireguard/<iface>.conf (no secret inside)
       ansible.builtin.template:
         src: etc_wireguard_iface.conf.j2
-        dest: "/etc/wireguard/{{ ops_wireguard_interface }}.conf"
+        dest: "/etc/wireguard/{{ _ops_wireguard.interface }}.conf"
         owner: root
         group: root
         mode: "0600"
@@ -142,19 +151,19 @@
         owner: root
         group: root
         mode: "0644"
-      register: ops_wireguard_sysctl
-      when: ops_wireguard_forward_lan | bool
+      register: _ops_wireguard_sysctl
+      when: _ops_wireguard.forward_lan | bool
 
     - name: Apply the forwarding sysctl
       ansible.builtin.command: sysctl -q -p /etc/sysctl.d/90-ops-wireguard.conf
       changed_when: false
-      when: ops_wireguard_sysctl is changed
+      when: _ops_wireguard_sysctl is changed
 
     - name: Remove the forwarding sysctl drop-in (forward_lan off)
       ansible.builtin.file:
         path: /etc/sysctl.d/90-ops-wireguard.conf
         state: absent
-      when: not ops_wireguard_forward_lan | bool
+      when: not _ops_wireguard.forward_lan | bool
 
     # Make sure a restart requested above happens before we look at the handshake.
     - name: Apply pending restarts
@@ -162,55 +171,55 @@
 
     - name: Enable and start wg-quick
       ansible.builtin.systemd:
-        name: "wg-quick@{{ ops_wireguard_interface }}"
+        name: "wg-quick@{{ _ops_wireguard.interface }}"
         enabled: true
         state: started
 
     - name: Show the interface
-      ansible.builtin.command: "wg show {{ ops_wireguard_interface }}"
-      register: ops_wireguard_show
+      ansible.builtin.command: "wg show {{ _ops_wireguard.interface }}"
+      register: _ops_wireguard_show
       changed_when: false
       failed_when: false
       check_mode: false
 
     - name: Interface state
       ansible.builtin.debug:
-        var: ops_wireguard_show.stdout_lines
+        var: _ops_wireguard_show.stdout_lines
 
     - name: Wait for a handshake with the hub (non-fatal)
-      ansible.builtin.command: "wg show {{ ops_wireguard_interface }} latest-handshakes"
-      register: ops_wireguard_handshake
+      ansible.builtin.command: "wg show {{ _ops_wireguard.interface }} latest-handshakes"
+      register: _ops_wireguard_handshake
       changed_when: false
       check_mode: false
       failed_when: false
-      retries: "{{ ((ops_wireguard_handshake_wait | int) / 2) | round(0, 'ceil') | int }}"
+      retries: "{{ ((_ops_wireguard.handshake_wait | int) / 2) | round(0, 'ceil') | int }}"
       delay: 2
       until: >-
-        ops_wireguard_handshake.stdout_lines
+        _ops_wireguard_handshake.stdout_lines
         | map('regex_replace', '^.*\s', '') | map('int') | select('>', 0) | list | length > 0
 
     - name: Report tunnel state
       ansible.builtin.debug:
         msg: >-
-          {{ ops_wireguard_interface }}:
+          {{ _ops_wireguard.interface }}:
           {{ 'handshake with the hub established'
-             if (ops_wireguard_handshake.stdout_lines | default([])
+             if (_ops_wireguard_handshake.stdout_lines | default([])
                  | map('regex_replace', '^.*\s', '') | map('int') | select('>', 0) | list | length > 0)
-             else 'NO handshake within ' ~ ops_wireguard_handshake_wait ~ 's (peer not registered on the hub yet?)' }}
+             else 'NO handshake within ' ~ _ops_wireguard.handshake_wait ~ 's (peer not registered on the hub yet?)' }}
 
     - name: Public key of this box
       ansible.builtin.debug:
         msg:
-          - "Public key: {{ ops_wireguard_public_key | default('<unknown>') }}"
+          - "Public key: {{ _ops_wireguard_public_key | default('<unknown>') }}"
           - >-
-            Register the peer on the ops hub: add-peer {{ ops_wireguard_customer_id or '<customer>' }}
-            {{ ops_wireguard_public_key | default('<pubkey>') }} {{ ops_wireguard_tunnel_address }}
-            --device {{ inventory_hostname }}{{ ' ' ~ (ops_wireguard_forward_lans | join(' ')) if ops_wireguard_forward_lan | bool else '' }}
+            Register the peer on the ops hub: add-peer {{ _ops_wireguard.customer_id or '<customer>' }}
+            {{ _ops_wireguard_public_key | default('<pubkey>') }} {{ _ops_wireguard.tunnel_address }}
+            --device {{ inventory_hostname }}{{ ' ' ~ (_ops_wireguard.forward_lans | join(' ')) if _ops_wireguard.forward_lan | bool else '' }}
           - >-
             Hub (ansible, hub device stanza): - { name: {{ inventory_hostname }},
-            octet: {{ ops_wireguard_tunnel_address.split('/')[0].split('.')[-1] }},
-            pubkey: "{{ ops_wireguard_public_key | default('<pubkey>') }}" }
-      when: ops_wireguard_key_generated is changed or ops_wireguard_key_written is changed
+            octet: {{ _ops_wireguard.tunnel_address.split('/')[0].split('.')[-1] }},
+            pubkey: "{{ _ops_wireguard_public_key | default('<pubkey>') }}" }
+      when: _ops_wireguard_key_generated is changed or _ops_wireguard_key_written is changed
 
     # All nodes of the play in one paste-ready block (only hosts whose public key is known).
     - name: Summary for the hub (hub device stanza)
@@ -218,38 +227,38 @@
         msg: |-
           hub device stanza:
           {% for h in ansible_play_hosts %}
-          {% if hostvars[h].ops_wireguard_public_key is defined %}
-            - { name: {{ h }}, octet: {{ hostvars[h].ops_wireguard_tunnel_address.split('/')[0].split('.')[-1] }}, pubkey: "{{ hostvars[h].ops_wireguard_public_key }}" }
+          {% if hostvars[h]._ops_wireguard_public_key is defined %}
+            - { name: {{ h }}, octet: {{ hostvars[h]._ops_wireguard.tunnel_address.split('/')[0].split('.')[-1] }}, pubkey: "{{ hostvars[h]._ops_wireguard_public_key }}" }
           {% endif %}
           {% endfor %}
       run_once: true
 
 - name: Remove Ops WireGuard tunnel
-  when: ops_wireguard_teardown | bool
+  when: _ops_wireguard.teardown | bool
   tags:
     - ops_wireguard
   block:
     - name: Stop and disable wg-quick
       ansible.builtin.systemd:
-        name: "wg-quick@{{ ops_wireguard_interface }}"
+        name: "wg-quick@{{ _ops_wireguard.interface }}"
         state: stopped
         enabled: false
-      register: ops_wireguard_stop
-      failed_when: ops_wireguard_stop.failed | default(false) and 'Could not find' not in (ops_wireguard_stop.msg | default(''))
+      register: _ops_wireguard_stop
+      failed_when: _ops_wireguard_stop.failed | default(false) and 'Could not find' not in (_ops_wireguard_stop.msg | default(''))
 
     - name: Remove tunnel config and sysctl drop-in
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
       loop:
-        - "/etc/wireguard/{{ ops_wireguard_interface }}.conf"
+        - "/etc/wireguard/{{ _ops_wireguard.interface }}.conf"
         - /etc/sysctl.d/90-ops-wireguard.conf
 
     - name: Remove the private key (teardown_remove_key)
       ansible.builtin.file:
-        path: "{{ ops_wireguard_private_key_file }}"
+        path: "{{ _ops_wireguard.private_key_file }}"
         state: absent
-      when: ops_wireguard_teardown_remove_key | bool
+      when: _ops_wireguard.teardown_remove_key | bool
 
     # The firewall chains were created by the common iptables script; common.yml does not remove them
     # when the flag is off, so drop them here (no-ops when absent).
@@ -259,12 +268,12 @@
           iptables -D FORWARD -j HTOPSWG 2>/dev/null && iptables -F HTOPSWG && iptables -X HTOPSWG && echo removed
           iptables -t nat -D POSTROUTING -j HTOPSWGNAT 2>/dev/null && iptables -t nat -F HTOPSWGNAT && iptables -t nat -X HTOPSWGNAT && echo removed
           true
-      register: ops_wireguard_fw
-      changed_when: "'removed' in ops_wireguard_fw.stdout"
+      register: _ops_wireguard_fw
+      changed_when: "'removed' in _ops_wireguard_fw.stdout"
 
     - name: Teardown reminders
       ansible.builtin.debug:
         msg:
-          - "Rerun 'ansible-playbook common.yml --tags iptables' so the INPUT rule for the ops subnet disappears too (set ops_wireguard_enabled=false first)."
+          - "Rerun 'ansible-playbook common.yml --tags iptables' so the INPUT rule for the ops subnet disappears too (set _ops_wireguard.enabled=false first)."
           - "On the Ops hub: remove-peer <customer>."
           - "/etc/sysctl.d/90-*-forward.conf (the initial setup script) is left untouched; ip_forward stays 1 until reboot."

@@ -6,7 +6,7 @@
         :if ([:len [/ip/pool/find name={{ item.pool_name }}]] = 0)
         do={ /ip/pool/add name={{ item.pool_name }} ranges={{ item.pool_ranges }} }
         else={ /ip/pool/set [find name={{ item.pool_name }}] ranges={{ item.pool_ranges }} }
-  loop: "{{ mikrotik_dhcp_servers }}"
+  loop: "{{ _mikrotik_dhcp.servers }}"
   loop_control:
     label: "{{ item.pool_name }}"
   changed_when: false
@@ -20,7 +20,7 @@
         gateway={{ item.gateway }} dns-server={{ item.dns_server }} }
         else={ /ip/dhcp-server/network/set [find address={{ item.network }}]
         gateway={{ item.gateway }} dns-server={{ item.dns_server }} }
-  loop: "{{ mikrotik_dhcp_servers }}"
+  loop: "{{ _mikrotik_dhcp.servers }}"
   loop_control:
     label: "{{ item.network }}"
   changed_when: false
@@ -34,7 +34,7 @@
         interface={{ item.interface }} address-pool={{ item.pool_name }} }
         else={ /ip/dhcp-server/set [find name={{ item.name }}]
         interface={{ item.interface }} address-pool={{ item.pool_name }} }
-  loop: "{{ mikrotik_dhcp_servers }}"
+  loop: "{{ _mikrotik_dhcp.servers }}"
   loop_control:
     label: "{{ item.name }}"
   changed_when: false

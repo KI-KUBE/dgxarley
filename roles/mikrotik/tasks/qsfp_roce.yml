@@ -9,9 +9,9 @@
     commands:
       - >-
         /interface/ethernet/set [find default-name={{ item.name }}]
-        mtu={{ mikrotik_qsfp_mtu }}
-        l2mtu={{ mikrotik_qsfp_l2mtu }}
-  loop: "{{ mikrotik_qsfp_roce_ports }}"
+        mtu={{ _mikrotik_qsfp.mtu }}
+        l2mtu={{ _mikrotik_qsfp.l2mtu }}
+  loop: "{{ _mikrotik_qsfp.roce_ports }}"
   loop_control:
     label: "{{ item.name }}"
   changed_when: false
@@ -24,104 +24,104 @@
       - >-
         /interface/ethernet/set [find default-name={{ item.name }}]
         advertise={{ item.advertise }}
-  loop: "{{ mikrotik_qsfp_roce_ports | selectattr('advertise', 'defined') | list }}"
+  loop: "{{ _mikrotik_qsfp.roce_ports | selectattr('advertise', 'defined') | list }}"
   loop_control:
     label: "{{ item.name }}"
   changed_when: false
   when: qsfp_switch | default(false)
 
 # 2. QoS profile for RoCE data traffic
-- name: Ensure QoS profile roce (tc={{ mikrotik_roce_traffic_class }})
+- name: Ensure QoS profile roce (tc={{ _mikrotik_qsfp.roce_traffic_class }})
   community.routeros.command:
     commands:
       - >-
         :if ([:len [/interface/ethernet/switch/qos/profile/find
         name=roce]] = 0)
         do={ /interface/ethernet/switch/qos/profile/add
-        name=roce traffic-class={{ mikrotik_roce_traffic_class }} }
+        name=roce traffic-class={{ _mikrotik_qsfp.roce_traffic_class }} }
         else={ /interface/ethernet/switch/qos/profile/set
         [find name=roce]
-        traffic-class={{ mikrotik_roce_traffic_class }} }
+        traffic-class={{ _mikrotik_qsfp.roce_traffic_class }} }
   changed_when: false
   when: qsfp_switch | default(false)
 
 # 3. QoS profile for CNP (Congestion Notification Packets)
-- name: Ensure QoS profile cnp (tc={{ mikrotik_cnp_traffic_class }})
+- name: Ensure QoS profile cnp (tc={{ _mikrotik_qsfp.cnp_traffic_class }})
   community.routeros.command:
     commands:
       - >-
         :if ([:len [/interface/ethernet/switch/qos/profile/find
         name=cnp]] = 0)
         do={ /interface/ethernet/switch/qos/profile/add
-        name=cnp traffic-class={{ mikrotik_cnp_traffic_class }} }
+        name=cnp traffic-class={{ _mikrotik_qsfp.cnp_traffic_class }} }
         else={ /interface/ethernet/switch/qos/profile/set
         [find name=cnp]
-        traffic-class={{ mikrotik_cnp_traffic_class }} }
+        traffic-class={{ _mikrotik_qsfp.cnp_traffic_class }} }
   changed_when: false
   when: qsfp_switch | default(false)
 
 # 4. DSCP → QoS profile mapping for RoCE data (DSCP 26 / AF31)
-- name: Ensure DSCP={{ mikrotik_roce_dscp_data }} maps to profile roce
+- name: Ensure DSCP={{ _mikrotik_qsfp.roce_dscp_data }} maps to profile roce
   community.routeros.command:
     commands:
       - >-
         :if ([:len [/interface/ethernet/switch/qos/map/ip/find
-        dscp={{ mikrotik_roce_dscp_data }}]] = 0)
+        dscp={{ _mikrotik_qsfp.roce_dscp_data }}]] = 0)
         do={ /interface/ethernet/switch/qos/map/ip/add
-        dscp={{ mikrotik_roce_dscp_data }} profile=roce }
+        dscp={{ _mikrotik_qsfp.roce_dscp_data }} profile=roce }
         else={ /interface/ethernet/switch/qos/map/ip/set
-        [find dscp={{ mikrotik_roce_dscp_data }}] profile=roce }
+        [find dscp={{ _mikrotik_qsfp.roce_dscp_data }}] profile=roce }
   changed_when: false
   when: qsfp_switch | default(false)
 
 # 5. DSCP → QoS profile mapping for CNP (DSCP 48 / CS6)
-- name: Ensure DSCP={{ mikrotik_roce_dscp_cnp }} maps to profile cnp
+- name: Ensure DSCP={{ _mikrotik_qsfp.roce_dscp_cnp }} maps to profile cnp
   community.routeros.command:
     commands:
       - >-
         :if ([:len [/interface/ethernet/switch/qos/map/ip/find
-        dscp={{ mikrotik_roce_dscp_cnp }}]] = 0)
+        dscp={{ _mikrotik_qsfp.roce_dscp_cnp }}]] = 0)
         do={ /interface/ethernet/switch/qos/map/ip/add
-        dscp={{ mikrotik_roce_dscp_cnp }} profile=cnp }
+        dscp={{ _mikrotik_qsfp.roce_dscp_cnp }} profile=cnp }
         else={ /interface/ethernet/switch/qos/map/ip/set
-        [find dscp={{ mikrotik_roce_dscp_cnp }}] profile=cnp }
+        [find dscp={{ _mikrotik_qsfp.roce_dscp_cnp }}] profile=cnp }
   changed_when: false
   when: qsfp_switch | default(false)
 
 # 6. Tx queue scheduling + ECN
-- name: Configure Tx queue {{ mikrotik_roce_traffic_class }} (high-priority, ECN=yes)
+- name: Configure Tx queue {{ _mikrotik_qsfp.roce_traffic_class }} (high-priority, ECN=yes)
   community.routeros.command:
     commands:
       - >-
         /interface/ethernet/switch/qos/tx-manager/queue/set
-        {{ mikrotik_roce_traffic_class }}
+        {{ _mikrotik_qsfp.roce_traffic_class }}
         schedule=high-priority-group weight=1 ecn=yes
   changed_when: false
   when: qsfp_switch | default(false)
 
-- name: Configure Tx queue {{ mikrotik_cnp_traffic_class }} (strict-priority)
+- name: Configure Tx queue {{ _mikrotik_qsfp.cnp_traffic_class }} (strict-priority)
   community.routeros.command:
     commands:
       - >-
         /interface/ethernet/switch/qos/tx-manager/queue/set
-        {{ mikrotik_cnp_traffic_class }}
+        {{ _mikrotik_qsfp.cnp_traffic_class }}
         schedule=strict-priority
   changed_when: false
   when: qsfp_switch | default(false)
 
 # 7. PFC profile for RoCE traffic class
-- name: Ensure PFC profile pfc-tc{{ mikrotik_roce_traffic_class }}
+- name: Ensure PFC profile pfc-tc{{ _mikrotik_qsfp.roce_traffic_class }}
   community.routeros.command:
     commands:
       - >-
         :if ([:len [/interface/ethernet/switch/qos/priority-flow-control/find
-        name=pfc-tc{{ mikrotik_roce_traffic_class }}]] = 0)
+        name=pfc-tc{{ _mikrotik_qsfp.roce_traffic_class }}]] = 0)
         do={ /interface/ethernet/switch/qos/priority-flow-control/add
-        name=pfc-tc{{ mikrotik_roce_traffic_class }}
-        rx=yes traffic-class={{ mikrotik_roce_traffic_class }} tx=yes }
+        name=pfc-tc{{ _mikrotik_qsfp.roce_traffic_class }}
+        rx=yes traffic-class={{ _mikrotik_qsfp.roce_traffic_class }} tx=yes }
         else={ /interface/ethernet/switch/qos/priority-flow-control/set
-        [find name=pfc-tc{{ mikrotik_roce_traffic_class }}]
-        rx=yes traffic-class={{ mikrotik_roce_traffic_class }} tx=yes }
+        [find name=pfc-tc{{ _mikrotik_qsfp.roce_traffic_class }}]
+        rx=yes traffic-class={{ _mikrotik_qsfp.roce_traffic_class }} tx=yes }
   changed_when: false
   when: qsfp_switch | default(false)
 
@@ -131,10 +131,10 @@
     commands:
       - >-
         /interface/ethernet/switch/qos/port/set {{ item.name }}
-        {{ 'egress-rate-queue' ~ mikrotik_roce_traffic_class ~ '=' ~ item.egress_rate if item.egress_rate is defined else '' }}
-        pfc=pfc-tc{{ mikrotik_roce_traffic_class }}
+        {{ 'egress-rate-queue' ~ _mikrotik_qsfp.roce_traffic_class ~ '=' ~ item.egress_rate if item.egress_rate is defined else '' }}
+        pfc=pfc-tc{{ _mikrotik_qsfp.roce_traffic_class }}
         trust-l3=keep
-  loop: "{{ mikrotik_qsfp_roce_ports }}"
+  loop: "{{ _mikrotik_qsfp.roce_ports }}"
   loop_control:
     label: "{{ item.name }}"
   changed_when: false
@@ -145,7 +145,7 @@
 - name: Set lossless traffic class (v7.23+)
   community.routeros.command:
     commands:
-      - /interface/ethernet/switch/qos/settings/set lossless-traffic-class={{ mikrotik_roce_traffic_class }}
+      - /interface/ethernet/switch/qos/settings/set lossless-traffic-class={{ _mikrotik_qsfp.roce_traffic_class }}
   changed_when: false
   failed_when: false
   when: qsfp_switch | default(false)

@@ -1,41 +1,44 @@
 ---
 # Public dummy/example values. Real values live in the same-named vault/<topic>.sops.yml of the private sops overlay.
-mikrotik_bridge_name: bridge
+mikrotik_bridge:
+  name: bridge
+  ports:
+    - interface: ether1
+      comment: "Uplink (Mikrotik CRS310-8G-2S)"
+    - interface: qsfp56-1-1
+      comment: "spark1 QSFP56 1x100G"
+    - interface: qsfp56-2-1
+      comment: "spark2 QSFP56 1x100G"
+    - interface: qsfp56-dd-1-1
+      comment: "spark3 QSFP-DD breakout lanes 1-4"
+    - interface: qsfp56-dd-1-5
+      comment: "spark4 QSFP-DD breakout lanes 5-8"
+    - interface: qsfp56-dd-2-1
+      comment: "spare QSFP-DD"
+  # No VLANs, pure L2 bridge (real values in the vault)
+  vlans: []
 
-mikrotik_bridge_ports:
-  - interface: ether1
-    comment: "Uplink (Mikrotik CRS310-8G-2S)"
-  - interface: qsfp56-1-1
-    comment: "spark1 QSFP56 1x100G"
-  - interface: qsfp56-2-1
-    comment: "spark2 QSFP56 1x100G"
-  - interface: qsfp56-dd-1-1
-    comment: "spark3 QSFP-DD breakout lanes 1-4"
-  - interface: qsfp56-dd-1-5
-    comment: "spark4 QSFP-DD breakout lanes 5-8"
-  - interface: qsfp56-dd-2-1
-    comment: "spare QSFP-DD"
+mikrotik_management:
+  interfaces: []
 
-# No VLANs — pure L2 bridge (real values in the vault)
-mikrotik_bridge_vlans: []
-mikrotik_mgmt_interfaces: []
-
-mikrotik_default_gateway: "192.168.123.2"
-mikrotik_dns_servers:
-  - "192.168.123.1"
+mikrotik_routing:
+  default_gateway: "192.168.123.2"
+  dns_servers:
+    - "192.168.123.1"
 
 # RoCE/RDMA lossless Ethernet on QSFP ports
 # egress_rate: "0" = unlimited. 98DX7335 caps shaper at 100G — useless for >=200G links.
 # advertise: optional, restricts speed negotiation (needed for breakout cables)
-mikrotik_qsfp_roce_ports:
-  - name: qsfp56-1-1
-    egress_rate: "0"
-  - name: qsfp56-2-1
-    egress_rate: "0"
-  - name: qsfp56-dd-1-1
-    egress_rate: "0"
-    advertise: "200G-baseCR4"  # breakout: restrict to max 200G (real value in vault)
-  - name: qsfp56-dd-1-5
-    egress_rate: "0"
-  - name: qsfp56-dd-2-1
-    egress_rate: "0"
+mikrotik_qsfp:
+  roce_ports:
+    - name: qsfp56-1-1
+      egress_rate: "0"
+    - name: qsfp56-2-1
+      egress_rate: "0"
+    - name: qsfp56-dd-1-1
+      egress_rate: "0"
+      advertise: "200G-baseCR4"  # breakout: restrict to max 200G (real value in vault)
+    - name: qsfp56-dd-1-5
+      egress_rate: "0"
+    - name: qsfp56-dd-2-1
+      egress_rate: "0"

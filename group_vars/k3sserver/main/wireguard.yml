@@ -1,14 +1,15 @@
 ---
 # Ops WireGuard tunnel, box side (roles/ops_wireguard) - everything off by default.
 # Real values belong in host_vars/<host>/ (private key, if not generated on the box: host_vars/<host>/vault/).
-# ops_wireguard_enabled: false
-# ops_wireguard_teardown: false
-# ops_wireguard_interface: "ops-wg"
-# ops_wireguard_hub_endpoint: "hub.example.invalid:51820"
-# ops_wireguard_hub_public_key: "<hub public key>"
-# ops_wireguard_tunnel_address: "10.200.1.2/32"
-# ops_wireguard_ops_subnet: "10.200.1.0/24"
-# ops_wireguard_keepalive: 25
-# ops_wireguard_forward_lan: false
-# ops_wireguard_forward_lans: ["10.87.0.0/24"]
-# ops_wireguard_forward_masquerade: true
+# ops_wireguard:
+#   enabled: false
+#   teardown: false
+#   interface: "ops-wg"
+#   hub_endpoint: "hub.example.invalid:51820"
+#   hub_public_key: "<hub public key>"
+#   tunnel_address: "10.200.1.2/32"
+#   ops_subnet: "10.200.1.0/24"
+#   keepalive: 25
+#   forward_lan: false
+#   forward_lans: ["10.87.0.0/24"]
+#   forward_masquerade: true

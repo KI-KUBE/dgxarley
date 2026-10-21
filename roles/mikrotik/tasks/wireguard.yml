@@ -2,90 +2,90 @@
 - name: Assert WireGuard gates
   ansible.builtin.assert:
     that:
-      - not (mikrotik_wireguard_enabled | default(false) | bool and mikrotik_wireguard_teardown | default(false) | bool)
+      - not (_mikrotik_wireguard.enabled | default(false) | bool and _mikrotik_wireguard.teardown | default(false) | bool)
       - mikrotik_object_prefix is match('^[A-Za-z0-9_-]+$')
-    fail_msg: "mikrotik_wireguard_enabled and mikrotik_wireguard_teardown are mutually exclusive; mikrotik_object_prefix allows only letters, digits, - and _"
+    fail_msg: "mikrotik_wireguard.enabled and mikrotik_wireguard.teardown are mutually exclusive; mikrotik_object_prefix allows only letters, digits, - and _"
     quiet: true
 
 # Deletes the interface and with it the private key: re-enabling yields a new public key for the hub.
 - name: Remove hub WireGuard objects
   community.routeros.command:
     commands:
-      - /ip/firewall/filter/remove [find comment~"^{{ mikrotik_wireguard_comment }}"]
-      - /ip/firewall/nat/remove [find comment~"^{{ mikrotik_wireguard_comment }}"]
-      - /ip/address/remove [find comment~"^{{ mikrotik_wireguard_comment }}"]
-      - /interface/wireguard/peers/remove [find comment~"^{{ mikrotik_wireguard_comment }}"]
-      - /interface/wireguard/remove [find comment~"^{{ mikrotik_wireguard_comment }}"]
+      - /ip/firewall/filter/remove [find comment~"^{{ _mikrotik_wireguard.comment }}"]
+      - /ip/firewall/nat/remove [find comment~"^{{ _mikrotik_wireguard.comment }}"]
+      - /ip/address/remove [find comment~"^{{ _mikrotik_wireguard.comment }}"]
+      - /interface/wireguard/peers/remove [find comment~"^{{ _mikrotik_wireguard.comment }}"]
+      - /interface/wireguard/remove [find comment~"^{{ _mikrotik_wireguard.comment }}"]
   changed_when: false
-  when: mikrotik_wireguard_teardown | default(false) | bool
+  when: _mikrotik_wireguard.teardown | default(false) | bool
 
 - name: Disable hub WireGuard interface
   community.routeros.command:
     commands:
       - >-
-        :if ([:len [/interface/wireguard/find comment="{{ mikrotik_wireguard_comment }}"]] > 0)
-        do={ /interface/wireguard/set [find comment="{{ mikrotik_wireguard_comment }}"] disabled=yes }
+        :if ([:len [/interface/wireguard/find comment="{{ _mikrotik_wireguard.comment }}"]] > 0)
+        do={ /interface/wireguard/set [find comment="{{ _mikrotik_wireguard.comment }}"] disabled=yes }
   changed_when: false
   when:
-    - not (mikrotik_wireguard_enabled | default(false) | bool)
-    - not (mikrotik_wireguard_teardown | default(false) | bool)
+    - not (_mikrotik_wireguard.enabled | default(false) | bool)
+    - not (_mikrotik_wireguard.teardown | default(false) | bool)
 
 - name: Configure hub WireGuard client
-  when: mikrotik_wireguard_enabled | default(false) | bool
+  when: _mikrotik_wireguard.enabled | default(false) | bool
   block:
     - name: Assert WireGuard parameters
       ansible.builtin.assert:
         that:
-          - mikrotik_wireguard_hub_endpoint | length > 0
-          - mikrotik_wireguard_hub_public_key | length > 0
-          - mikrotik_wireguard_tunnel_address | length > 0
-          - mikrotik_wireguard_ops_subnet | length > 0
-          - not (mikrotik_wireguard_forward_lan | default(false) | bool) or mikrotik_wireguard_forward_lans | length > 0
-          - mikrotik_wireguard_forward_lans | reject('match', '^\\d+\\.\\d+\\.\\d+\\.\\d+/\\d+$') | list | length == 0
-        fail_msg: "WireGuard: hub endpoint/key, tunnel address and ops subnet are required; forward_lan needs mikrotik_wireguard_forward_lans as IPv4 CIDRs"
+          - _mikrotik_wireguard.hub_endpoint | length > 0
+          - _mikrotik_wireguard.hub_public_key | length > 0
+          - _mikrotik_wireguard.tunnel_address | length > 0
+          - _mikrotik_wireguard.ops_subnet | length > 0
+          - not (_mikrotik_wireguard.forward_lan | default(false) | bool) or _mikrotik_wireguard.forward_lans | length > 0
+          - _mikrotik_wireguard.forward_lans | reject('match', '^\\d+\\.\\d+\\.\\d+\\.\\d+/\\d+$') | list | length == 0
+        fail_msg: "WireGuard: hub endpoint/key, tunnel address and ops subnet are required; forward_lan needs mikrotik_wireguard.forward_lans as IPv4 CIDRs"
         quiet: true
 
     - name: Ensure WireGuard interface
       community.routeros.command:
         commands:
           - >-
-            :if ([:len [/interface/wireguard/find comment="{{ mikrotik_wireguard_comment }}"]] = 0)
-            do={ /interface/wireguard/add name={{ mikrotik_wireguard_interface }}
-            comment="{{ mikrotik_wireguard_comment }}" }
-            else={ /interface/wireguard/set [find comment="{{ mikrotik_wireguard_comment }}"] disabled=no }
+            :if ([:len [/interface/wireguard/find comment="{{ _mikrotik_wireguard.comment }}"]] = 0)
+            do={ /interface/wireguard/add name={{ _mikrotik_wireguard.interface }}
+            comment="{{ _mikrotik_wireguard.comment }}" }
+            else={ /interface/wireguard/set [find comment="{{ _mikrotik_wireguard.comment }}"] disabled=no }
       changed_when: false
 
     - name: Ensure WireGuard hub peer
       community.routeros.command:
         commands:
           - >-
-            :if ([:len [/interface/wireguard/peers/find comment="{{ mikrotik_wireguard_comment }}"]] = 0)
-            do={ /interface/wireguard/peers/add interface={{ mikrotik_wireguard_interface }}
-            public-key="{{ mikrotik_wireguard_hub_public_key }}"
-            endpoint-address={{ mikrotik_wireguard_hub_endpoint.split(':')[0] }}
-            endpoint-port={{ mikrotik_wireguard_hub_endpoint.split(':')[-1] }}
-            allowed-address={{ mikrotik_wireguard_ops_subnet }}
-            persistent-keepalive={{ mikrotik_wireguard_keepalive }}
-            comment="{{ mikrotik_wireguard_comment }}" }
-            else={ /interface/wireguard/peers/set [find comment="{{ mikrotik_wireguard_comment }}"]
-            interface={{ mikrotik_wireguard_interface }}
-            public-key="{{ mikrotik_wireguard_hub_public_key }}"
-            endpoint-address={{ mikrotik_wireguard_hub_endpoint.split(':')[0] }}
-            endpoint-port={{ mikrotik_wireguard_hub_endpoint.split(':')[-1] }}
-            allowed-address={{ mikrotik_wireguard_ops_subnet }}
-            persistent-keepalive={{ mikrotik_wireguard_keepalive }} }
+            :if ([:len [/interface/wireguard/peers/find comment="{{ _mikrotik_wireguard.comment }}"]] = 0)
+            do={ /interface/wireguard/peers/add interface={{ _mikrotik_wireguard.interface }}
+            public-key="{{ _mikrotik_wireguard.hub_public_key }}"
+            endpoint-address={{ _mikrotik_wireguard.hub_endpoint.split(':')[0] }}
+            endpoint-port={{ _mikrotik_wireguard.hub_endpoint.split(':')[-1] }}
+            allowed-address={{ _mikrotik_wireguard.ops_subnet }}
+            persistent-keepalive={{ _mikrotik_wireguard.keepalive }}
+            comment="{{ _mikrotik_wireguard.comment }}" }
+            else={ /interface/wireguard/peers/set [find comment="{{ _mikrotik_wireguard.comment }}"]
+            interface={{ _mikrotik_wireguard.interface }}
+            public-key="{{ _mikrotik_wireguard.hub_public_key }}"
+            endpoint-address={{ _mikrotik_wireguard.hub_endpoint.split(':')[0] }}
+            endpoint-port={{ _mikrotik_wireguard.hub_endpoint.split(':')[-1] }}
+            allowed-address={{ _mikrotik_wireguard.ops_subnet }}
+            persistent-keepalive={{ _mikrotik_wireguard.keepalive }} }
       changed_when: false
 
     - name: Ensure WireGuard tunnel address
       community.routeros.command:
         commands:
           - >-
-            :if ([:len [/ip/address/find comment="{{ mikrotik_wireguard_comment }}"]] = 0)
-            do={ /ip/address/add address={{ mikrotik_wireguard_tunnel_address }}
-            interface={{ mikrotik_wireguard_interface }} comment="{{ mikrotik_wireguard_comment }}" }
-            else={ /ip/address/set [find comment="{{ mikrotik_wireguard_comment }}"]
-            address={{ mikrotik_wireguard_tunnel_address }}
-            interface={{ mikrotik_wireguard_interface }} }
+            :if ([:len [/ip/address/find comment="{{ _mikrotik_wireguard.comment }}"]] = 0)
+            do={ /ip/address/add address={{ _mikrotik_wireguard.tunnel_address }}
+            interface={{ _mikrotik_wireguard.interface }} comment="{{ _mikrotik_wireguard.comment }}" }
+            else={ /ip/address/set [find comment="{{ _mikrotik_wireguard.comment }}"]
+            address={{ _mikrotik_wireguard.tunnel_address }}
+            interface={{ _mikrotik_wireguard.interface }} }
       changed_when: false
 
     # Rule placement: a numeric place-before (as in `=0`) is NOT "top of the list" on RouterOS 7 (it resolves to an item id and
@@ -94,21 +94,21 @@
     # half-configured device; where that is a legitimate state (no masquerade rule at all) a plain add follows
     # on-error, everywhere else a missing anchor is a real error and the task fails.
 
-    # Before the first masquerade (the uplink's, or any from mikrotik_srcnat_rules); without one, appended.
+    # Before the first masquerade (the uplink's, or any from mikrotik_nat.srcnat_rules); without one, appended.
     - name: Ensure tunnel traffic is not NATed
       community.routeros.command:
         commands:
           - >-
-            :if ([:len [/ip/firewall/nat/find comment="{{ mikrotik_wireguard_comment }} no-nat"]] = 0)
+            :if ([:len [/ip/firewall/nat/find comment="{{ _mikrotik_wireguard.comment }} no-nat"]] = 0)
             do={ :do { /ip/firewall/nat/add chain=srcnat action=accept
-            out-interface={{ mikrotik_wireguard_interface }}
-            comment="{{ mikrotik_wireguard_comment }} no-nat"
+            out-interface={{ _mikrotik_wireguard.interface }}
+            comment="{{ _mikrotik_wireguard.comment }} no-nat"
             place-before=([/ip/firewall/nat/find chain=srcnat action=masquerade]->0) } on-error={
             /ip/firewall/nat/add chain=srcnat action=accept
-            out-interface={{ mikrotik_wireguard_interface }}
-            comment="{{ mikrotik_wireguard_comment }} no-nat" } }
-            else={ /ip/firewall/nat/set [find comment="{{ mikrotik_wireguard_comment }} no-nat"]
-            out-interface={{ mikrotik_wireguard_interface }} }
+            out-interface={{ _mikrotik_wireguard.interface }}
+            comment="{{ _mikrotik_wireguard.comment }} no-nat" } }
+            else={ /ip/firewall/nat/set [find comment="{{ _mikrotik_wireguard.comment }} no-nat"]
+            out-interface={{ _mikrotik_wireguard.interface }} }
       changed_when: false
 
     # Above the no-nat accept (accept terminates srcnat): only this traffic leaves the tunnel with the Mikrotik's
@@ -119,26 +119,26 @@
           - >-
             :if ([:len [/ip/firewall/nat/find comment="{{ _hub_nat_comment }}"]] = 0)
             do={ /ip/firewall/nat/add chain=srcnat action=masquerade
-            out-interface={{ mikrotik_wireguard_interface }}
-            dst-address={{ mikrotik_wireguard_hub_address }} protocol=tcp
-            dst-port={{ mikrotik_wireguard_hub_tcp_ports | join(',') }}
+            out-interface={{ _mikrotik_wireguard.interface }}
+            dst-address={{ _mikrotik_wireguard.hub_address }} protocol=tcp
+            dst-port={{ _mikrotik_wireguard.hub_tcp_ports | join(',') }}
             comment="{{ _hub_nat_comment }}"
-            place-before=([/ip/firewall/nat/find comment="{{ mikrotik_wireguard_comment }} no-nat"]->0) }
+            place-before=([/ip/firewall/nat/find comment="{{ _mikrotik_wireguard.comment }} no-nat"]->0) }
             else={ /ip/firewall/nat/set [find comment="{{ _hub_nat_comment }}"]
-            out-interface={{ mikrotik_wireguard_interface }}
-            dst-address={{ mikrotik_wireguard_hub_address }} protocol=tcp
-            dst-port={{ mikrotik_wireguard_hub_tcp_ports | join(',') }} }
+            out-interface={{ _mikrotik_wireguard.interface }}
+            dst-address={{ _mikrotik_wireguard.hub_address }} protocol=tcp
+            dst-port={{ _mikrotik_wireguard.hub_tcp_ports | join(',') }} }
       vars:
-        _hub_nat_comment: "{{ mikrotik_wireguard_comment }} nat tcp {{ mikrotik_wireguard_hub_tcp_ports | join(',') }}"
+        _hub_nat_comment: "{{ _mikrotik_wireguard.comment }} nat tcp {{ _mikrotik_wireguard.hub_tcp_ports | join(',') }}"
       changed_when: false
-      when: mikrotik_wireguard_hub_tcp_ports | length > 0
+      when: _mikrotik_wireguard.hub_tcp_ports | length > 0
 
     - name: Remove hub port NAT rule
       community.routeros.command:
         commands:
-          - /ip/firewall/nat/remove [find comment~"^{{ mikrotik_wireguard_comment }} nat tcp"]
+          - /ip/firewall/nat/remove [find comment~"^{{ _mikrotik_wireguard.comment }} nat tcp"]
       changed_when: false
-      when: mikrotik_wireguard_hub_tcp_ports | length == 0
+      when: _mikrotik_wireguard.hub_tcp_ports | length == 0
 
     # Drops are appended (listed first, so they exist as anchors); each accept goes right before its drop.
     - name: Ensure WireGuard filter rules
@@ -152,25 +152,25 @@
             else={ /ip/firewall/filter/set [find comment="{{ item.comment }}"]
             {{ item.rule }} }
       loop:
-        - comment: "{{ mikrotik_wireguard_comment }} forward drop from tunnel"
-          rule: "chain=forward action=drop in-interface={{ mikrotik_wireguard_interface }}"
-        - comment: "{{ mikrotik_wireguard_comment }} forward drop to tunnel"
-          rule: "chain=forward action=drop out-interface={{ mikrotik_wireguard_interface }}"
-        - comment: "{{ mikrotik_wireguard_comment }} input drop"
-          rule: "chain=input action=drop in-interface={{ mikrotik_wireguard_interface }}"
-        - comment: "{{ mikrotik_wireguard_comment }} input icmp"
-          anchor: "{{ mikrotik_wireguard_comment }} input drop"
+        - comment: "{{ _mikrotik_wireguard.comment }} forward drop from tunnel"
+          rule: "chain=forward action=drop in-interface={{ _mikrotik_wireguard.interface }}"
+        - comment: "{{ _mikrotik_wireguard.comment }} forward drop to tunnel"
+          rule: "chain=forward action=drop out-interface={{ _mikrotik_wireguard.interface }}"
+        - comment: "{{ _mikrotik_wireguard.comment }} input drop"
+          rule: "chain=input action=drop in-interface={{ _mikrotik_wireguard.interface }}"
+        - comment: "{{ _mikrotik_wireguard.comment }} input icmp"
+          anchor: "{{ _mikrotik_wireguard.comment }} input drop"
           rule: >-
             chain=input action=accept protocol=icmp
-            in-interface={{ mikrotik_wireguard_interface }}
-            src-address={{ mikrotik_wireguard_ops_subnet }}
-        - comment: "{{ mikrotik_wireguard_comment }} input mgmt"
-          anchor: "{{ mikrotik_wireguard_comment }} input drop"
+            in-interface={{ _mikrotik_wireguard.interface }}
+            src-address={{ _mikrotik_wireguard.ops_subnet }}
+        - comment: "{{ _mikrotik_wireguard.comment }} input mgmt"
+          anchor: "{{ _mikrotik_wireguard.comment }} input drop"
           rule: >-
             chain=input action=accept protocol=tcp
-            dst-port={{ mikrotik_wireguard_input_tcp_ports | join(',') }}
-            in-interface={{ mikrotik_wireguard_interface }}
-            src-address={{ mikrotik_wireguard_ops_subnet }}
+            dst-port={{ _mikrotik_wireguard.input_tcp_ports | join(',') }}
+            in-interface={{ _mikrotik_wireguard.interface }}
+            src-address={{ _mikrotik_wireguard.ops_subnet }}
       loop_control:
         label: "{{ item.comment }}"
       changed_when: false
@@ -178,7 +178,7 @@
     - name: Remove tunnel-to-LAN forward rules
       community.routeros.command:
         commands:
-          - /ip/firewall/filter/remove [find comment~"^{{ mikrotik_wireguard_comment }}-fwd"]
+          - /ip/firewall/filter/remove [find comment~"^{{ _mikrotik_wireguard.comment }}-fwd"]
       changed_when: false
 
     # The three -fwd accepts go right before the first of the two forward drops (whichever is listed first).
@@ -187,41 +187,41 @@
         commands:
           - >-
             /ip/firewall/filter/add chain=forward action=accept
-            in-interface={{ mikrotik_wireguard_interface }}
-            src-address={{ mikrotik_wireguard_ops_subnet }}
-            dst-address={{ item }} comment="{{ mikrotik_wireguard_comment }}-fwd {{ item }}"
-            place-before=([/ip/firewall/filter/find comment~"^{{ mikrotik_wireguard_comment }} forward drop"]->0)
-      loop: "{{ mikrotik_wireguard_forward_lans }}"
+            in-interface={{ _mikrotik_wireguard.interface }}
+            src-address={{ _mikrotik_wireguard.ops_subnet }}
+            dst-address={{ item }} comment="{{ _mikrotik_wireguard.comment }}-fwd {{ item }}"
+            place-before=([/ip/firewall/filter/find comment~"^{{ _mikrotik_wireguard.comment }} forward drop"]->0)
+      loop: "{{ _mikrotik_wireguard.forward_lans }}"
       changed_when: false
-      when: mikrotik_wireguard_forward_lan | default(false) | bool
+      when: _mikrotik_wireguard.forward_lan | default(false) | bool
 
     - name: Ensure hub port forward rule
       community.routeros.command:
         commands:
           - >-
             /ip/firewall/filter/add chain=forward action=accept
-            out-interface={{ mikrotik_wireguard_interface }}
-            dst-address={{ mikrotik_wireguard_hub_address }} protocol=tcp
-            dst-port={{ mikrotik_wireguard_hub_tcp_ports | join(',') }}
+            out-interface={{ _mikrotik_wireguard.interface }}
+            dst-address={{ _mikrotik_wireguard.hub_address }} protocol=tcp
+            dst-port={{ _mikrotik_wireguard.hub_tcp_ports | join(',') }}
             comment="{{ _hub_fwd_comment }}"
-            place-before=([/ip/firewall/filter/find comment~"^{{ mikrotik_wireguard_comment }} forward drop"]->0)
+            place-before=([/ip/firewall/filter/find comment~"^{{ _mikrotik_wireguard.comment }} forward drop"]->0)
       vars:
-        _hub_fwd_comment: "{{ mikrotik_wireguard_comment }}-fwd hub tcp {{ mikrotik_wireguard_hub_tcp_ports | join(',') }}"
+        _hub_fwd_comment: "{{ _mikrotik_wireguard.comment }}-fwd hub tcp {{ _mikrotik_wireguard.hub_tcp_ports | join(',') }}"
       changed_when: false
-      when: mikrotik_wireguard_hub_tcp_ports | length > 0
+      when: _mikrotik_wireguard.hub_tcp_ports | length > 0
 
     - name: Ensure tunnel return traffic rule
       community.routeros.command:
         commands:
           - >-
             /ip/firewall/filter/add chain=forward action=accept
-            out-interface={{ mikrotik_wireguard_interface }}
-            dst-address={{ mikrotik_wireguard_ops_subnet }}
+            out-interface={{ _mikrotik_wireguard.interface }}
+            dst-address={{ _mikrotik_wireguard.ops_subnet }}
             connection-state=established,related
-            comment="{{ mikrotik_wireguard_comment }}-fwd established"
-            place-before=([/ip/firewall/filter/find comment~"^{{ mikrotik_wireguard_comment }} forward drop"]->0)
+            comment="{{ _mikrotik_wireguard.comment }}-fwd established"
+            place-before=([/ip/firewall/filter/find comment~"^{{ _mikrotik_wireguard.comment }} forward drop"]->0)
       changed_when: false
-      when: mikrotik_wireguard_forward_lan | default(false) | bool
+      when: _mikrotik_wireguard.forward_lan | default(false) | bool
 
     # Anchored placement should make this hold; it is still checked, because rules moved by hand stay where
     # they are (existing rules are only `set`, never moved).
@@ -231,43 +231,43 @@
           - ':foreach i in=[/ip/firewall/filter/find chain=forward] do={ :put [/ip/firewall/filter/get $i comment] }'
           - ':foreach i in=[/ip/firewall/filter/find chain=input] do={ :put [/ip/firewall/filter/get $i comment] }'
           - ':foreach i in=[/ip/firewall/nat/find chain=srcnat] do={ :put ([/ip/firewall/nat/get $i action] . "|" . [/ip/firewall/nat/get $i comment]) }'
-      register: mikrotik_wireguard_rule_order
+      register: _wireguard_rule_order
       changed_when: false
       check_mode: false
 
     - name: Assert firewall rule order
       vars:
-        _fwd: "{{ mikrotik_wireguard_rule_order.stdout_lines[0] | map('trim') | list }}"
-        _in: "{{ mikrotik_wireguard_rule_order.stdout_lines[1] | map('trim') | list }}"
-        _nat: "{{ mikrotik_wireguard_rule_order.stdout_lines[2] | map('trim') | list }}"
-        _hub_fwd: "{{ mikrotik_wireguard_comment }}-fwd hub tcp {{ mikrotik_wireguard_hub_tcp_ports | join(',') }}"
-        _no_nat: "accept|{{ mikrotik_wireguard_comment }} no-nat"
-        _hub_nat_rule: "masquerade|{{ mikrotik_wireguard_comment }} nat tcp {{ mikrotik_wireguard_hub_tcp_ports | join(',') }}"
-        _hub_ports: "{{ mikrotik_wireguard_hub_tcp_ports | length > 0 }}"
-        _nat_masq: "{{ _nat | select('match', '^(masquerade|src-nat)\\|') | reject('match', '^masquerade\\|' ~ mikrotik_wireguard_comment ~ ' nat tcp') | list }}"
+        _fwd: "{{ _wireguard_rule_order.stdout_lines[0] | map('trim') | list }}"
+        _in: "{{ _wireguard_rule_order.stdout_lines[1] | map('trim') | list }}"
+        _nat: "{{ _wireguard_rule_order.stdout_lines[2] | map('trim') | list }}"
+        _hub_fwd: "{{ _mikrotik_wireguard.comment }}-fwd hub tcp {{ _mikrotik_wireguard.hub_tcp_ports | join(',') }}"
+        _no_nat: "accept|{{ _mikrotik_wireguard.comment }} no-nat"
+        _hub_nat_rule: "masquerade|{{ _mikrotik_wireguard.comment }} nat tcp {{ _mikrotik_wireguard.hub_tcp_ports | join(',') }}"
+        _hub_ports: "{{ _mikrotik_wireguard.hub_tcp_ports | length > 0 }}"
+        _nat_masq: "{{ _nat | select('match', '^(masquerade|src-nat)\\|') | reject('match', '^masquerade\\|' ~ _mikrotik_wireguard.comment ~ ' nat tcp') | list }}"
       ansible.builtin.assert:
         that:
-          - _in.index('{{ mikrotik_wireguard_comment }} input icmp') < _in.index('{{ mikrotik_wireguard_comment }} input drop')
-          - _in.index('{{ mikrotik_wireguard_comment }} input mgmt') < _in.index('{{ mikrotik_wireguard_comment }} input drop')
-          - _fwd[_fwd.index('{{ mikrotik_wireguard_comment }} forward drop from tunnel'):] | select('match', '^{{ mikrotik_wireguard_comment }}-fwd ') | reject('equalto', '{{ mikrotik_wireguard_comment }}-fwd established') | list | length == 0
-          - "'{{ mikrotik_wireguard_comment }}-fwd established' not in _fwd or _fwd.index('{{ mikrotik_wireguard_comment }}-fwd established') < _fwd.index('{{ mikrotik_wireguard_comment }} forward drop to tunnel')"
-          - _nat_masq | length == 0 or _nat.index('accept|{{ mikrotik_wireguard_comment }} no-nat') < _nat.index(_nat_masq[0])
-          - not _hub_ports | bool or _fwd.index(_hub_fwd) < _fwd.index('{{ mikrotik_wireguard_comment }} forward drop to tunnel')
+          - _in.index('{{ _mikrotik_wireguard.comment }} input icmp') < _in.index('{{ _mikrotik_wireguard.comment }} input drop')
+          - _in.index('{{ _mikrotik_wireguard.comment }} input mgmt') < _in.index('{{ _mikrotik_wireguard.comment }} input drop')
+          - _fwd[_fwd.index('{{ _mikrotik_wireguard.comment }} forward drop from tunnel'):] | select('match', '^{{ _mikrotik_wireguard.comment }}-fwd ') | reject('equalto', '{{ _mikrotik_wireguard.comment }}-fwd established') | list | length == 0
+          - "'{{ _mikrotik_wireguard.comment }}-fwd established' not in _fwd or _fwd.index('{{ _mikrotik_wireguard.comment }}-fwd established') < _fwd.index('{{ _mikrotik_wireguard.comment }} forward drop to tunnel')"
+          - _nat_masq | length == 0 or _nat.index('accept|{{ _mikrotik_wireguard.comment }} no-nat') < _nat.index(_nat_masq[0])
+          - not _hub_ports | bool or _fwd.index(_hub_fwd) < _fwd.index('{{ _mikrotik_wireguard.comment }} forward drop to tunnel')
           - not _hub_ports | bool or _nat.index(_hub_nat_rule) < _nat.index(_no_nat)
         fail_msg: "WireGuard firewall/NAT rules sit below their drop/masquerade/no-nat counterparts (moved by hand?); move them up on the router or remove them so the role re-creates them in place"
 
     - name: Read WireGuard public key
       community.routeros.command:
         commands:
-          - ':put [/interface/wireguard/get [find comment="{{ mikrotik_wireguard_comment }}"] public-key]'
-      register: mikrotik_wireguard_pubkey
+          - ':put [/interface/wireguard/get [find comment="{{ _mikrotik_wireguard.comment }}"] public-key]'
+      register: _wireguard_pubkey
       changed_when: false
       check_mode: false
 
     - name: Show WireGuard hub peer data
       ansible.builtin.debug:
         msg:
-          - "hub peer public key: {{ mikrotik_wireguard_pubkey.stdout[0] | trim }}"
-          - "tunnel address: {{ mikrotik_wireguard_tunnel_address }}"
-          - "hub peer LANs: {{ mikrotik_wireguard_forward_lans if mikrotik_wireguard_forward_lan | default(false) | bool else [] }}"
-          - "hub tcp ports from the LAN: {{ mikrotik_wireguard_hub_tcp_ports }} (to {{ mikrotik_wireguard_hub_address }}, src-NATed)"
+          - "hub peer public key: {{ _wireguard_pubkey.stdout[0] | trim }}"
+          - "tunnel address: {{ _mikrotik_wireguard.tunnel_address }}"
+          - "hub peer LANs: {{ _mikrotik_wireguard.forward_lans if _mikrotik_wireguard.forward_lan | default(false) | bool else [] }}"
+          - "hub tcp ports from the LAN: {{ _mikrotik_wireguard.hub_tcp_ports }} (to {{ _mikrotik_wireguard.hub_address }}, src-NATed)"

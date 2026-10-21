@@ -3,6 +3,6 @@
   community.routeros.command:
     commands:
       - >-
-        /interface/bridge/set [find name={{ mikrotik_bridge_name }}]
-        vlan-filtering={{ 'yes' if mikrotik_bridge_vlans | default([]) | length > 0 else 'no' }}
+        /interface/bridge/set [find name={{ _mikrotik_bridge.name }}]
+        vlan-filtering={{ 'yes' if _mikrotik_bridge.vlans | default([]) | length > 0 else 'no' }}
   changed_when: false

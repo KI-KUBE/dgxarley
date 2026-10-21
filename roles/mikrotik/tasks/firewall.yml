@@ -23,7 +23,7 @@
   loop_control:
     label: "{{ item.comment }}"
   changed_when: false
-  when: mikrotik_fasttrack_enabled | default(false)
+  when: _mikrotik_firewall.fasttrack_enabled | default(false)
 
 # The console echoes the command, wrapped at terminal width, into stdout; the fwd| marker separates the rule lines
 # from it without dropping rules that have no comment.
@@ -31,16 +31,16 @@
   community.routeros.command:
     commands:
       - ':foreach i in=[/ip/firewall/filter/find chain=forward dynamic=no] do={ :put ("fwd|" . [/ip/firewall/filter/get $i comment]) }'
-  register: mikrotik_fasttrack_rule_order
+  register: _fasttrack_rule_order
   changed_when: false
   check_mode: false
-  when: mikrotik_fasttrack_enabled | default(false)
+  when: _mikrotik_firewall.fasttrack_enabled | default(false)
 
 - name: Assert fasttrack rule order
   vars:
-    _fwd: "{{ mikrotik_fasttrack_rule_order.stdout_lines[0] | map('trim') | select('match', '^fwd\\|') | map('regex_replace', '^fwd\\|', '') | list }}"
+    _fwd: "{{ _fasttrack_rule_order.stdout_lines[0] | map('trim') | select('match', '^fwd\\|') | map('regex_replace', '^fwd\\|', '') | list }}"
   ansible.builtin.assert:
     that:
       - _fwd[:2] == ['fasttrack established/related', 'accept established/related']
     fail_msg: "fasttrack/accept established rules are not the first forward rules: {{ _fwd }}"
-  when: mikrotik_fasttrack_enabled | default(false)
+  when: _mikrotik_firewall.fasttrack_enabled | default(false)

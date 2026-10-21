@@ -2,56 +2,60 @@
 # file: roles/ops_wireguard/defaults/main.yml
 #
 # Box-side, OUTBOUND WireGuard tunnel to the Ops hub (the box dials out, no inbound port).
-# Counterpart of mikrotik_wireguard_* (Mikrotik-terminated variant, same names/semantics).
+# Counterpart of the mikrotik_wireguard dict (Mikrotik-terminated variant, same keys/semantics).
 # Unrelated to iswireguardhost (lab INBOUND WireGuard host in roles/common).
+#
+# Inventory sets `ops_wireguard` (partial is fine); tasks/main.yml merges it over ops_wireguard_defaults into
+# _ops_wireguard. roles/common (iptables.sh.j2) reads the raw dict, so its key defaults must match this file.
+ops_wireguard: {}
+ops_wireguard_defaults:
+  # Gate: false = role does nothing (and removes nothing). Teardown is a separate opt-in
+  # (-e '{"ops_wireguard": {"teardown": true}}'); the two are mutually exclusive.
+  enabled: false
+  teardown: false
+  # Teardown: also delete the private key file (a re-enable then yields a NEW public key for the hub).
+  teardown_remove_key: false
 
-# Gate: false = role does nothing (and removes nothing). Teardown is a separate opt-in
-# (-e ops_wireguard_teardown=true); the two are mutually exclusive.
-ops_wireguard_enabled: false
-ops_wireguard_teardown: false
+  # Interface name (<= 15 chars): /etc/wireguard/<iface>.conf, unit wg-quick@<iface>.
+  interface: "ops-wg"
 
-# Interface name (<= 15 chars): /etc/wireguard/<iface>.conf, unit wg-quick@<iface>.
-ops_wireguard_interface: "ops-wg"
+  # Ops hub: host:port of its public UDP endpoint and its WireGuard public key.
+  hub_endpoint: ""
+  hub_public_key: ""
 
-# Ops hub: host:port of its public UDP endpoint and its WireGuard public key.
-ops_wireguard_hub_endpoint: ""
-ops_wireguard_hub_public_key: ""
+  # This box's tunnel address WITH prefix (e.g. 10.200.1.2/32) and the Ops subnet it may talk to
+  # (AllowedIPs of the hub peer, e.g. 10.200.1.0/24; wg-quick installs the route from it).
+  tunnel_address: ""
+  ops_subnet: ""
+  keepalive: 25
 
-# This box's tunnel address WITH prefix (e.g. 10.200.1.2/32) and the Ops subnet it may talk to
-# (AllowedIPs of the hub peer, e.g. 10.200.1.0/24; wg-quick installs the route from it).
-ops_wireguard_tunnel_address: ""
-ops_wireguard_ops_subnet: ""
-ops_wireguard_keepalive: 25
+  # Routing mode of the AllowedIPs (ops subnet) route:
+  #   full   = plain wg-quick: the route lands in the MAIN table (terminating gateway box, forward_lan).
+  #   source = the route goes into its own table (route_table) and only packets SOURCED from the tunnel
+  #            address use it (ip rule, rule_priority). Needed on a node that is ALSO reachable via another
+  #            path (Mikrotik-terminated tunnel, or a k3smaster with forward_lan): otherwise it would answer
+  #            LAN-originated flows from ops through ITS tunnel (asymmetric routing) and the hub drops them
+  #            (source not in that peer's AllowedIPs).
+  route_mode: "full"
+  route_table: 51820
+  rule_priority: 1000
 
-# Routing mode of the AllowedIPs (ops subnet) route:
-#   full   = plain wg-quick: the route lands in the MAIN table (terminating gateway box, forward_lan).
-#   source = the route goes into its own table (route_table) and only packets SOURCED from the tunnel
-#            address use it (ip rule, rule_priority). Needed on a node that is ALSO reachable via another
-#            path (Mikrotik-terminated tunnel, or a k3smaster with forward_lan): otherwise it would answer
-#            LAN-originated flows from ops through ITS tunnel (asymmetric routing) and the hub drops them
-#            (source not in that peer's AllowedIPs).
-ops_wireguard_route_mode: "full"
-ops_wireguard_route_table: 51820
-ops_wireguard_rule_priority: 1000
+  # Let the Ops subnet reach LANs behind this box. The rules live in the common firewall
+  # (roles/common/templates/iptables.sh.j2), NOT in wg-quick hooks. Network CIDRs, e.g. 10.87.0.0/24.
+  # forward_masquerade: hide the ops source behind this box's LAN address (LAN hosts need no route back).
+  forward_lan: false
+  forward_lans: []
+  forward_masquerade: true
 
-# Let the Ops subnet reach LANs behind this box. The rules live in the common firewall
-# (roles/common/templates/iptables.sh.j2), NOT in wg-quick hooks. Network CIDRs, e.g. 10.87.0.0/24.
-# masquerade: hide the ops source behind this box's LAN address (LAN hosts need no route back).
-ops_wireguard_forward_lan: false
-ops_wireguard_forward_lans: []
-ops_wireguard_forward_masquerade: true
+  # Private key. Empty = generated ON THE HOST (wg genkey, never leaves it, 0600) when the file is
+  # missing; an existing file (e.g. from the initial setup script) is adopted unchanged.
+  # Non-empty (vault only!) = written to the key file. Never put a real key in a public file.
+  private_key: ""
+  # Empty = /etc/wireguard/<interface>.key
+  private_key_file: ""
 
-# Private key. Empty = generated ON THE HOST (wg genkey, never leaves it, 0600) when the file is
-# missing; an existing file (e.g. from the initial setup script) is adopted unchanged.
-# Non-empty (vault only!) = written to the key file. Never put a real key in a public file.
-ops_wireguard_private_key: ""
-ops_wireguard_private_key_file: "/etc/wireguard/{{ ops_wireguard_interface }}.key"
+  # Seconds to wait for the first handshake after (re)start; a timeout is reported, never fatal.
+  handshake_wait: 30
 
-# Seconds to wait for the first handshake after (re)start; a timeout is reported, never fatal.
-ops_wireguard_handshake_wait: 30
-
-# Only for the Ops hint printed when the key was generated here (add-peer <id> ...).
-ops_wireguard_customer_id: ""
-
-# Teardown: also delete the private key file (a re-enable then yields a NEW public key for the hub).
-ops_wireguard_teardown_remove_key: false
+  # Only for the Ops hint printed when the key was generated here (add-peer <id> ...).
+  customer_id: ""

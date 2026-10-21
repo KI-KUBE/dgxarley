@@ -4,14 +4,14 @@
     commands:
       - >-
         :if ([:len [/ip/route/find dst-address=0.0.0.0/0]] = 0)
-        do={ /ip/route/add dst-address=0.0.0.0/0 gateway={{ mikrotik_default_gateway }} }
-        else={ /ip/route/set [find dst-address=0.0.0.0/0] gateway={{ mikrotik_default_gateway }} }
+        do={ /ip/route/add dst-address=0.0.0.0/0 gateway={{ _mikrotik_routing.default_gateway }} }
+        else={ /ip/route/set [find dst-address=0.0.0.0/0] gateway={{ _mikrotik_routing.default_gateway }} }
   changed_when: false
-  when: mikrotik_uplink_interface | length == 0
+  when: _mikrotik_uplink.interface | length == 0
 
 - name: Ensure DNS servers
   community.routeros.command:
     commands:
-      - /ip/dns/set servers={{ mikrotik_dns_servers | join(',') }}
+      - /ip/dns/set servers={{ _mikrotik_routing.dns_servers | join(',') }}
   changed_when: false
-  when: mikrotik_dns_servers | default([]) | length > 0
+  when: _mikrotik_routing.dns_servers | default([]) | length > 0

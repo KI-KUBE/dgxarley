@@ -93,11 +93,14 @@ def test_main_cf_template() -> None:
 
 def test_mikrotik_defaults() -> None:
     d = _yaml(MIKROTIK / "defaults" / "main.yml")
-    assert d["mikrotik_wireguard_hub_tcp_ports"] == [25, 587]
-    expr = d["mikrotik_wireguard_hub_address"]
+    assert d["mikrotik_wireguard_defaults"]["hub_tcp_ports"] == [25, 587]
+    assert d["mikrotik_wireguard_defaults"]["hub_address"] == ""
+    main = _yaml(MIKROTIK / "tasks" / "main.yml")[0]["ansible.builtin.set_fact"]["_mikrotik_wireguard"]
     env = jinja2.Environment(undefined=jinja2.StrictUndefined)
     env.filters["regex_replace"] = lambda s, pat, rep: re.sub(pat, rep, s)
-    assert env.from_string(expr).render(mikrotik_wireguard_ops_subnet="10.200.7.0/24") == "10.200.7.1"
+    env.filters["combine"] = lambda a, b: {**a, **b}
+    rendered = env.from_string(main).render(_mw={"hub_address": "", "ops_subnet": "10.200.7.0/24"})
+    assert "'10.200.7.1'" in rendered
 
 
 def test_mikrotik_hub_port_rules() -> None:
@@ -107,27 +110,29 @@ def test_mikrotik_hub_port_rules() -> None:
     by_name = {t["name"]: t for t in block}
     fwd = by_name["Ensure hub port forward rule"]
     nat = by_name["Ensure hub port NAT rule"]
-    assert fwd["when"] == "mikrotik_wireguard_hub_tcp_ports | length > 0"
-    assert nat["when"] == "mikrotik_wireguard_hub_tcp_ports | length > 0"
-    assert by_name["Remove hub port NAT rule"]["when"] == "mikrotik_wireguard_hub_tcp_ports | length == 0"
+    assert fwd["when"] == "_mikrotik_wireguard.hub_tcp_ports | length > 0"
+    assert nat["when"] == "_mikrotik_wireguard.hub_tcp_ports | length > 0"
+    assert by_name["Remove hub port NAT rule"]["when"] == "_mikrotik_wireguard.hub_tcp_ports | length == 0"
     assert (
         fwd["vars"]["_hub_fwd_comment"]
-        == "{{ mikrotik_wireguard_comment }}-fwd hub tcp {{ mikrotik_wireguard_hub_tcp_ports | join(',') }}"
+        == "{{ _mikrotik_wireguard.comment }}-fwd hub tcp {{ _mikrotik_wireguard.hub_tcp_ports | join(',') }}"
     )
     assert (
         nat["vars"]["_hub_nat_comment"]
-        == "{{ mikrotik_wireguard_comment }} nat tcp {{ mikrotik_wireguard_hub_tcp_ports | join(',') }}"
+        == "{{ _mikrotik_wireguard.comment }} nat tcp {{ _mikrotik_wireguard.hub_tcp_ports | join(',') }}"
     )
     assert "chain=forward action=accept" in fwd["community.routeros.command"]["commands"][0]
     assert "chain=srcnat action=masquerade" in nat["community.routeros.command"]["commands"][0]
     for cmd in (fwd, nat):
         c = cmd["community.routeros.command"]["commands"][0]
-        assert "dst-address={{ mikrotik_wireguard_hub_address }} protocol=tcp" in c
+        assert "dst-address={{ _mikrotik_wireguard.hub_address }} protocol=tcp" in c
     # anchored by id before the rule each must precede, never a positional place-before
-    fwd_anchor = 'place-before=([/ip/firewall/filter/find comment~"^{{ mikrotik_wireguard_comment }} forward drop"]->0)'
+    fwd_anchor = (
+        'place-before=([/ip/firewall/filter/find comment~"^{{ _mikrotik_wireguard.comment }} forward drop"]->0)'
+    )
     assert fwd_anchor in fwd["community.routeros.command"]["commands"][0]
     assert (
-        'place-before=([/ip/firewall/nat/find comment="{{ mikrotik_wireguard_comment }} no-nat"]->0)'
+        'place-before=([/ip/firewall/nat/find comment="{{ _mikrotik_wireguard.comment }} no-nat"]->0)'
         in nat["community.routeros.command"]["commands"][0]
     )
     for name in ("Ensure tunnel-to-LAN forward rules", "Ensure tunnel return traffic rule"):
@@ -137,8 +142,8 @@ def test_mikrotik_hub_port_rules() -> None:
     assert "on-error=" in no_nat  # the only legitimate missing anchor: no masquerade rule at all
     filt = by_name["Ensure WireGuard filter rules"]
     anchors = {i["comment"]: i.get("anchor") for i in filt["loop"]}
-    assert anchors["{{ mikrotik_wireguard_comment }} input icmp"] == "{{ mikrotik_wireguard_comment }} input drop"
-    assert anchors["{{ mikrotik_wireguard_comment }} input mgmt"] == "{{ mikrotik_wireguard_comment }} input drop"
+    assert anchors["{{ _mikrotik_wireguard.comment }} input icmp"] == "{{ _mikrotik_wireguard.comment }} input drop"
+    assert anchors["{{ _mikrotik_wireguard.comment }} input mgmt"] == "{{ _mikrotik_wireguard.comment }} input drop"
     assert all(anchors[c] is None for c in anchors if c.endswith(" drop") or " drop " in c)
     assert "{% if item.anchor is defined %}" in filt["community.routeros.command"]["commands"][0]
     # the -fwd rule is re-created after the generic -fwd removal
@@ -146,12 +151,12 @@ def test_mikrotik_hub_port_rules() -> None:
     assert names.index("Remove tunnel-to-LAN forward rules") < names.index("Ensure hub port forward rule")
     # order assertions: hub NAT above no-nat, hub forward above the drop, hub NAT excluded from the masquerade check
     order = by_name["Assert firewall rule order"]
-    assert "reject('match', '^masquerade\\|' ~ mikrotik_wireguard_comment ~ ' nat tcp')" in order["vars"]["_nat_masq"]
+    assert "reject('match', '^masquerade\\|' ~ _mikrotik_wireguard.comment ~ ' nat tcp')" in order["vars"]["_nat_masq"]
     that = "\n".join(order["ansible.builtin.assert"]["that"])
-    assert "_fwd.index(_hub_fwd) < _fwd.index('{{ mikrotik_wireguard_comment }} forward drop to tunnel')" in that
+    assert "_fwd.index(_hub_fwd) < _fwd.index('{{ _mikrotik_wireguard.comment }} forward drop to tunnel')" in that
     assert "_nat.index(_hub_nat_rule) < _nat.index(_no_nat)" in that
     # teardown removes everything by the comment prefix, which both new comments carry
-    assert '/ip/firewall/nat/remove [find comment~"^{{ mikrotik_wireguard_comment }}"]' in text
+    assert '/ip/firewall/nat/remove [find comment~"^{{ _mikrotik_wireguard.comment }}"]' in text
     assert "hub tcp ports from the LAN" in text
 
 
@@ -161,8 +166,8 @@ def test_mikrotik_rules_anchored_not_positional() -> None:
         assert not re.search(r"place-before=\d", path.read_text()), path
     env = jinja2.Environment(undefined=jinja2.StrictUndefined)
     for fname, comment_var, loop_name in (
-        ("wireguard.yml", "mikrotik_wireguard_comment", "Ensure WireGuard filter rules"),
-        ("uplink.yml", "mikrotik_uplink_comment", "Ensure uplink filter rules"),
+        ("wireguard.yml", "_mikrotik_wireguard.comment", "Ensure WireGuard filter rules"),
+        ("uplink.yml", "_mikrotik_uplink.comment", "Ensure uplink filter rules"),
     ):
         tasks = _yaml(MIKROTIK / "tasks" / fname)
         flat = [t for t in tasks] + [t for b in tasks if "block" in b for t in b["block"]]
@@ -176,11 +181,13 @@ def test_mikrotik_rules_anchored_not_positional() -> None:
                 assert item["anchor"].endswith(" drop"), item["comment"]
                 assert item["anchor"].startswith("{{ " + comment_var + " }}")
         ctx = {
-            comment_var: "x-hub",
-            "mikrotik_wireguard_interface": "wg",
-            "mikrotik_uplink_interface": "e1",
-            "mikrotik_wireguard_ops_subnet": "10.0.0.0/24",
-            "mikrotik_wireguard_input_tcp_ports": [22],
+            "_mikrotik_wireguard": {
+                "comment": "x-hub",
+                "interface": "wg",
+                "ops_subnet": "10.0.0.0/24",
+                "input_tcp_ports": [22],
+            },
+            "_mikrotik_uplink": {"comment": "x-hub", "interface": "e1"},
         }
         rendered = [
             env.from_string(cmd).render(

@@ -1,4 +1,20 @@
 ---
+- name: Merge mikrotik settings dicts over their defaults
+  ansible.builtin.set_fact:
+    _mikrotik_bridge: "{{ mikrotik_bridge_defaults | combine(mikrotik_bridge | default({}), recursive=True) }}"
+    _mikrotik_management: "{{ mikrotik_management_defaults | combine(mikrotik_management | default({}), recursive=True) }}"
+    _mikrotik_routing: "{{ mikrotik_routing_defaults | combine(mikrotik_routing | default({}), recursive=True) }}"
+    _mikrotik_nat: "{{ mikrotik_nat_defaults | combine(mikrotik_nat | default({}), recursive=True) }}"
+    _mikrotik_dhcp: "{{ mikrotik_dhcp_defaults | combine(mikrotik_dhcp | default({}), recursive=True) }}"
+    _mikrotik_firewall: "{{ mikrotik_firewall_defaults | combine(mikrotik_firewall | default({}), recursive=True) }}"
+    _mikrotik_uplink: "{{ mikrotik_uplink_defaults | combine(mikrotik_uplink | default({}), recursive=True) }}"
+    _mikrotik_qsfp: "{{ mikrotik_qsfp_defaults | combine(mikrotik_qsfp | default({}), recursive=True) }}"
+    _mikrotik_wireguard: >-
+      {{ _mw | combine({'hub_address': _mw.hub_address
+      or (_mw.ops_subnet | regex_replace('[.][0-9]+/[0-9]+$', '.1'))}) }}
+  vars:
+    _mw: "{{ mikrotik_wireguard_defaults | combine(mikrotik_wireguard | default({}), recursive=True) }}"
+  tags: [always]
 - import_tasks: bridge.yml
   tags: [mikrotik_bridge, mikrotik]
 - import_tasks: ports.yml
@@ -9,7 +25,7 @@
   tags: [mikrotik_mgmt, mikrotik]
 - import_tasks: uplink.yml
   tags: [mikrotik_uplink, mikrotik]
-  when: mikrotik_uplink_interface | length > 0
+  when: _mikrotik_uplink.interface | length > 0
 - import_tasks: routing.yml
   tags: [mikrotik_routing, mikrotik]
 - import_tasks: dhcp.yml
