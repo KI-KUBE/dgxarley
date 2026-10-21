@@ -21,6 +21,7 @@
 
 - name: Install the JuiceFS client binary
   ansible.builtin.import_tasks: binaries_juicefs.yml
+  when: juicefs_enabled | default(false) | bool
   tags: [juicefs_bin]
 
 - name: Deploy the metadata backend (Valkey)
@@ -33,7 +34,9 @@
 
 - name: Format the JuiceFS filesystem (idempotent, once)
   ansible.builtin.import_tasks: format.yml
-  when: inventory_hostname == juicefs_primary_node
+  when:
+    - juicefs_enabled | default(false) | bool
+    - inventory_hostname == juicefs_primary_node
   tags: [juicefs_format]
 
 - name: Mount JuiceFS on mount nodes
@@ -44,9 +47,12 @@
   # in defaults/main.yml). isk3smaster is set inline for the master in hosts.yml.
   # juicefs_mount_enabled is the per-host opt-out (hosts.yml inline) for group
   # members that can't reach the backend yet (e.g. spark5 until its QSFP is cabled).
-  when: juicefs_is_mount_host | bool
+  when:
+    - juicefs_enabled | default(false) | bool
+    - juicefs_is_mount_host | bool
   tags: [juicefs_mount]
 
 - name: Configure metadata-backup cron job
   ansible.builtin.import_tasks: backup.yml
+  when: juicefs_enabled | default(false) | bool
   tags: [juicefs_backup]

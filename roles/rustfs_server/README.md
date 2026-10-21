@@ -38,10 +38,14 @@ rustfs_server_members:
 ```
 
 Per disk, `path` is always required (RustFS data dir = `<path>/rustfs`);
-`uuid`/`fstype`/`options` are consulted only when `rustfs_server_manage_fstab` is on.
+`uuid`/`fstype`/`options`/`dump`/`passno` are consulted only when `rustfs_server_manage_fstab` is on.
 Order matters (positional erasure membership; `RUSTFS_VOLUMES` is rendered
-identically on every node). The **primary** (`rustfs_server_primary_node`) must be a
-member; it is the single S3 endpoint clients dial. Redundancy level via `rustfs_server_raid_level`:
+identically on every node). The list is the sole disk source in both modes; a node absent from
+it runs no RustFS. The **primary** (`rustfs_server_primary_node`) must be a
+member; it is the single S3 endpoint clients dial (in distributed mode any member
+serves S3, the primary is just the address clients and the user tasks use).
+Every member opens `rustfs_server_s3_port` in the firewall (see Firewall). Redundancy level via
+`rustfs_server_raid_level` (default `raid5`, distributed only):
 
 | `raid_level` | `EC:M` | usable (n drives) | tolerates         |
 |--------------|--------|-------------------|-------------------|
@@ -49,7 +53,8 @@ member; it is the single S3 endpoint clients dial. Redundancy level via `rustfs_
 | `raid5`      | `EC:1` | (n−1)/n           | 1 node/disk       |
 | `raid6`      | `EC:2` | (n−2)/n           | 2 nodes/disks     |
 
-**Constraints (verified upstream):** ≥4 total drives; RAID6 needs ≥4 drives.
+**Constraints (verified upstream):** ≥4 total drives counted across all members (the example
+above has 5); RAID6 needs ≥4 drives.
 Distributing RustFS does not distribute JuiceFS metadata (Valkey stays single-node).
 
 **Mounting the disks — `rustfs_server_manage_fstab`** (default **false**):
@@ -86,7 +91,7 @@ rustfs_server_users:
 
 The role creates missing users, re-applies changed policies and resets the secret when the user no
 longer authenticates with the vault value. Buckets in `rustfs_server_protected_buckets` are refused
-(JuiceFS sets `[juicefs]`). Removing an entry does **not** delete the user or bucket.
+(JuiceFS sets it to its `juicefs_bucket`). Removing an entry does **not** delete the user or bucket.
 
 Prerequisite: the `rc` CLI (`/usr/local/bin/rc`), installed by the k3sserver role
 (`roles/k3sserver/tasks/rustfs_client.yml`, e.g. `k8s_infra`/`common` runs of that role). The users
@@ -97,7 +102,9 @@ tasks and the JuiceFS format step assert its presence and fail otherwise.
 Cross-role knobs live in `group_vars/all/main/rustfs_server.yml` (common's iptables template and
 `juicefs_storage` read them): `rustfs_server_enabled`, `rustfs_server_primary_node`,
 `rustfs_server_distributed`, `rustfs_server_members`, `rustfs_server_manage_fstab`,
-`rustfs_server_s3_port`, `rustfs_server_access_key`/`_secret_key`, `rustfs_server_users`. Real values
+`rustfs_server_s3_port`, `rustfs_server_access_key`/`_secret_key`, `rustfs_server_users`. The
+default `rustfs_server_protected_buckets: []` is set to `["{{ juicefs_bucket }}"]` in
+`group_vars/all/main/juicefs.yml` (`juicefs_bucket` is promoted there too). Real values
 go in `group_vars/all/vault/rustfs_server.sops.yml`. Everything else is in `defaults/main.yml`.
 
 ## Firewall

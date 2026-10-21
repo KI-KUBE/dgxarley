@@ -9,15 +9,10 @@ rustfs_server_primary_node: spark1
 rustfs_server_distributed: false
 # Ordered per-node disk list (order = erasure position); sole disk source in both modes.
 # uuid/fstype and the optional options/dump/passno are only used with rustfs_server_manage_fstab.
+# Distributed 4-node example: roles/rustfs_server/README.md.
 rustfs_server_members:
   - node: spark1
-    disks: [{ path: /mnt/jfs-usb, uuid: "00000000-0000-0000-0000-000000000001", fstype: ext4 }]
-  - node: spark2
-    disks: [{ path: /mnt/jfs-usb, uuid: "00000000-0000-0000-0000-000000000002", fstype: ext4 }]
-  - node: spark3
-    disks: [{ path: /mnt/jfs-usb, uuid: "00000000-0000-0000-0000-000000000003", fstype: ext4 }]
-  - node: spark4
-    disks: [{ path: /mnt/jfs-usb, uuid: "00000000-0000-0000-0000-000000000004", fstype: ext4 }]
+    disks: [{ path: /mnt/rustfs, uuid: "00000000-0000-0000-0000-000000000001", fstype: ext4 }]
 rustfs_server_manage_fstab: false
 rustfs_server_s3_port: 9000
 # Root credentials (RUSTFS_ACCESS_KEY / RUSTFS_SECRET_KEY; secret >= 8 chars).

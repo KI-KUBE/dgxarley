@@ -35,8 +35,10 @@ juicefs_mount_master: false
 # in a foreign play.
 juicefs_mount_group: dgxsparks
 
+# S3 bucket holding the JuiceFS chunks; rustfs_server_protected_buckets (foreign play) reads it.
+juicefs_bucket: juicefs
 # Keeps extra S3 users (rustfs_server_users) away from the JuiceFS bucket.
-rustfs_server_protected_buckets: [juicefs]
+rustfs_server_protected_buckets: ["{{ juicefs_bucket }}"]
 
 # Prometheus metrics for the JuiceFS stack. Pre-enabled, but every consumer
 # couples it to the master switch (juicefs_enabled AND juicefs_metrics_enabled),

@@ -17,8 +17,7 @@
     - role: rustfs_server
       tags: rustfs_server
       when: rustfs_server_enabled | default(false) | bool or rustfs_server_teardown | default(false) | bool
-    # Gated by the juicefs_enabled master switch — dummy in group_vars/all/main/juicefs.yml, real value in vault/juicefs.sops.yml:
-    # running storage.yml while it is false is a deliberate no-op.
+    # With juicefs_enabled false only the backend teardown runs.
     - role: juicefs_storage
       tags: juicefs
-      when: juicefs_enabled | default(false) | bool
+      when: juicefs_enabled | default(false) | bool or juicefs_backend_teardown | default(false) | bool

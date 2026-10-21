@@ -52,6 +52,9 @@ RustFS primary for bucket creation and extra users.
 `rustfs_server_teardown` (RustFS on hosts outside the current RustFS nodes) are independent;
 decommissioning a former combined storage node needs both:
 `ansible-playbook storage.yml -e juicefs_backend_teardown=true -e rustfs_server_teardown=true --limit <former-node>`.
+With `juicefs_enabled: true`, `juicefs_backend_teardown` tears down former metadata nodes and skips the
+current `juicefs_primary_node`; with `juicefs_enabled: false` it tears down every host in the limit,
+including the primary (full decommission).
 
 ## Monitoring (gated by `juicefs_enabled` AND `juicefs_metrics_enabled`)
 

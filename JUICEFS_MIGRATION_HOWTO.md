@@ -473,7 +473,9 @@ destroyed until you wiped the old copies in the last step.
 the leftover Valkey and RustFS from the former storage node. The two teardown flags are
 independent (`juicefs_backend_teardown` acts on hosts other than `juicefs_primary_node`,
 `rustfs_server_teardown` on hosts not in the current `rustfs_server_nodes`), so a former
-combined storage node needs both:
+combined storage node needs both.
+Keep `juicefs_enabled` and `rustfs_server_enabled` true during a move, otherwise the teardown
+removes the live backend on every host in the limit:
 
 ```bash
 ansible-playbook storage.yml -e juicefs_backend_teardown=true -e rustfs_server_teardown=true --limit <former-node>

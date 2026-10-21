@@ -5,6 +5,7 @@
 
 - name: JuiceFS backend (Valkey) — install
   when:
+    - juicefs_enabled | default(false) | bool
     - not (juicefs_backend_teardown | default(false) | bool)
     - inventory_hostname == juicefs_primary_node
   block:
@@ -126,22 +127,32 @@
     - name: Apply backend config before formatting
       ansible.builtin.meta: flush_handlers
 
-# Opt-in via -e juicefs_backend_teardown=true; skips the current juicefs_primary_node.
+# Opt-in via -e juicefs_backend_teardown=true; skips the current juicefs_primary_node unless juicefs_enabled is false.
 # Leaves the FUSE client alone; RustFS has its own teardown (rustfs_server_teardown).
 - name: JuiceFS backend — teardown (former metadata node)
   when:
     - juicefs_backend_teardown | default(false) | bool
-    - inventory_hostname != juicefs_primary_node
+    - not (juicefs_enabled | default(false) | bool) or inventory_hostname != juicefs_primary_node
   block:
-    - name: Stop and disable the backend services
-      ansible.builtin.systemd:
-        name: "{{ item }}"
-        state: stopped
-        enabled: false
+    - name: Look up the installed backend units
+      ansible.builtin.command: "systemctl list-unit-files --no-legend {{ item }}.service"
       loop:
         - "{{ juicefs_valkey_apt_package }}"
         - prometheus-redis-exporter
-      failed_when: false
+      register: _jfs_teardown_units
+      changed_when: false
+      failed_when: _jfs_teardown_units.rc not in [0, 1]
+      check_mode: false
+
+    - name: Stop and disable the backend services
+      ansible.builtin.systemd:
+        name: "{{ item.item }}"
+        state: stopped
+        enabled: false
+      loop: "{{ _jfs_teardown_units.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: item.stdout | trim | length > 0
 
     - name: Remove the backend config and credential files
       ansible.builtin.file:
@@ -182,4 +193,5 @@
     msg: "{{ inventory_hostname }} is the CURRENT metadata node, backend teardown skipped on purpose."
   when:
     - juicefs_backend_teardown | default(false) | bool
+    - juicefs_enabled | default(false) | bool
     - inventory_hostname == juicefs_primary_node

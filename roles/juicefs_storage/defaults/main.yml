@@ -125,7 +125,7 @@ juicefs_version: "1.4.1"                 # juicedata/juicefs release (arm64+amd6
 juicefs_valkey_apt_package: valkey-server  # noble: 7.2.x — sufficient for JuiceFS
 
 # --- Object store (rustfs_server role) --------------------------------------
-juicefs_bucket: juicefs
+# juicefs_bucket is PROMOTED to group_vars/all/main/juicefs.yml; do NOT redefine it here.
 
 # --- Credentials — DUMMIES. Real values go in group_vars/all/vault/juicefs.sops.yml
 # Valkey requirepass == JuiceFS META_PASSWORD.
