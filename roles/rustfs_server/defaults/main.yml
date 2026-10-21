@@ -11,7 +11,8 @@ rustfs_server_teardown: false
 rustfs_server_teardown_purge_user: false
 
 rustfs_server_nodes: >-
-  {{ (rustfs_server_members | map(attribute='node') | list)
+  {{ [] if not (rustfs_server_enabled | default(false) | bool)
+     else (rustfs_server_members | map(attribute='node') | list)
      if rustfs_server_distributed | bool
      else [rustfs_server_primary_node] }}
 

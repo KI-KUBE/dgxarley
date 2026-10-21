@@ -6,7 +6,7 @@
 #   - Valkey            -> juicefs_primary_node (metadata is single-node)
 #   - format (once)     -> the primary storage node only
 #   - FUSE mount        -> nodes in juicefs_mount_group
-#   - meta-backup timer -> the backup node (storage node by default)
+#   - meta-backup cron job -> the backup node (storage node by default)
 # Ansible runs each imported task across the batch in order, so the backend is
 # up before the format step, and the format is done before mount nodes mount.
 

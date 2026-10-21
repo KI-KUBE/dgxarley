@@ -51,16 +51,21 @@ risk for no benefit.
 
 ## 2. Prerequisites
 
-- The USB disk is physically attached to `juicefs_primary_node` and mounted at the
+- The USB disk is physically attached to `rustfs_server_primary_node` (independent of
+  `juicefs_primary_node`, though both default to the same host) and mounted at the
   `path` in that node's `rustfs_server_members` entry (`disks: [{ path, uuid, fstype }]`
   — the sole disk source in both single-node and distributed). Real values live in
-  `group_vars/all/vault/juicefs.yml` (public dummies in `group_vars/all/main/juicefs.yml`).
+  `group_vars/all/vault/rustfs_server.sops.yml` (public dummies in
+  `group_vars/all/main/rustfs_server.yml`).
   The role refuses to run if the path isn't a real mountpoint
   (`rustfs_server_require_disk_mount: true`); with `rustfs_server_manage_fstab: true` it also
   writes the UUID-keyed fstab entry and mounts the disk for you.
-- Real secrets set in `group_vars/all/vault/juicefs.yml` (they are dummies in the role
-  defaults): `rustfs_server_access_key`, `rustfs_server_secret_key`,
-  `juicefs_valkey_password`.
+- Real secrets set in the vault overlay (the public dummies live in `group_vars/all/main/`):
+  `rustfs_server_access_key` and `rustfs_server_secret_key` in
+  `group_vars/all/vault/rustfs_server.sops.yml`, `juicefs_valkey_password` in
+  `group_vars/all/vault/juicefs.sops.yml`.
+- The `rc` CLI (rustfs-cli, installed by `roles/k3sserver/tasks/rustfs_client.yml`) must be
+  present on the RustFS primary; it creates the bucket and any extra users.
 - Free space check: each spark currently has only ~200 GiB free until the old
   local `hub` copy is removed (Phase 6). Size the cache accordingly (Phase 2).
 
@@ -73,7 +78,7 @@ currently **standalone / unconsumed** — deploying it changes nothing about the
 running SGLang pods yet.
 
 ```bash
-ansible-playbook storage.yml            # binary → Valkey+RustFS → format → mount → backup
+ansible-playbook storage.yml            # rustfs_server → binary → Valkey → format → mount → backup
 ```
 
 Verify with the role's acceptance checklist (`roles/juicefs_storage/README.md`):
@@ -263,20 +268,32 @@ The host firewall (`roles/common/templates/iptables.sh.j2`) already trusts the
 (6379) and RustFS (9000/9001) traffic between sparks is **already open — no
 firewall change for the default (spark-only) migration.**
 
-**Exception — `juicefs_mount_master: true`:** the master reaches the storage node
-over the **mgmt/k3s VLAN**, where 6379/9000 are otherwise closed. This is now
-**wired**: `roles/common/templates/iptables.sh.j2` emits, **only on the storage
-node and only when `juicefs_mount_master` is on**, a rule opening 6379 + 9000
-from `k3snodes`:
+**Exception, clients arriving over the mgmt/k3s VLAN** (`juicefs_mount_master: true`,
+or a storage node without a `qsfp_ip`): there 6379/9000 are otherwise closed. This is
+**wired** as two independent rules in `roles/common/templates/iptables.sh.j2`:
 
-```
-iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 6379,9000 \
-  -m set --match-set k3snodes src -j RETURN
-```
+- Valkey: on `juicefs_primary_node` only, when `juicefs_enabled` and either
+  `juicefs_mount_master` is on or the primary has no `qsfp_ip`, 6379 from `k3snodes`:
 
-To make this possible, `juicefs_primary_node` and `juicefs_mount_master` were
-promoted to `group_vars/all/main/juicefs.yml` (the `common` role needs cross-role
-visibility). So enabling master-mount is: set `juicefs_mount_master: true`, then
+  ```
+  iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 6379 -m set --match-set k3snodes src -j RETURN
+  ```
+
+- RustFS S3: when `rustfs_server_enabled`, on `rustfs_server_primary_node` (on every
+  `rustfs_server_members` node when `rustfs_server_distributed`), `rustfs_server_s3_port`
+  (9000) from `k3snodes` and, if `cluster_cidr` is defined, from the pod CIDR (same-node
+  pods are not SNAT'd):
+
+  ```
+  iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 9000 -m set --match-set k3snodes src -j RETURN
+  iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 9000 -s <cluster_cidr> -j RETURN
+  ```
+
+Port 9001 (RustFS console) is not opened by the template.
+
+`juicefs_primary_node` and `juicefs_mount_master` live in `group_vars/all/main/juicefs.yml`
+(and the RustFS vars in `group_vars/all/main/rustfs_server.yml`) because the `common`
+role needs cross-role visibility. So enabling master-mount is: set `juicefs_mount_master: true`, then
 re-run `common.yml` (firewall) **and** `storage.yml` (mount + dual-bind).
 
 ---
@@ -320,7 +337,7 @@ the old/new storage node, `<disk-path>` = the disk `path` in the node's
 > "unformatted", so it would format a FRESH filesystem of the same name into the
 > same bucket, orphaning/colliding with every existing object. During a move,
 > restore the metadata dump FIRST; bring the backend up with
-> `--tags juicefs_bin,juicefs_backend,juicefs_backup` only.
+> `--tags rustfs_server,juicefs_bin,juicefs_backend,juicefs_backup` only.
 
 **Downtime scope (both variants):** everything under `/mnt/jfs` is unavailable
 while the backend moves. With `hf_hub_cache_on_juicefs: true`, scale the
@@ -338,7 +355,7 @@ only the delta + metadata dance needs the stop window.
    touches block devices), add an fstab entry (`UUID=... <mountpoint> ext4
    defaults,nofail 0 2`), mount it. If the mountpoint differs from the current one,
    update the node's disk `path` in `rustfs_server_members`
-   (`group_vars/all/vault/juicefs.yml`) later in step 5. (With `rustfs_server_manage_fstab:
+   (`group_vars/all/vault/rustfs_server.sops.yml`) later in step 5. (With `rustfs_server_manage_fstab:
    true` the role writes the fstab entry itself from the member's `uuid` — you just
    need the disk formatted with a known UUID.)
 2. **Live pre-sync** of the object store over QSFP (chunks are write-once, so a
@@ -364,13 +381,14 @@ only the delta + metadata dance needs the stop window.
    ```
    (`--keep-secret-key` keeps the S3 secret inside the dump so the FS is
    mountable right after load — delete the dump file once the move is verified.)
-5. **Repo:** set `juicefs_primary_node: sparkN` and update that node's
-   `rustfs_server_members` entry (node name + disk `path`/`uuid`) in
-   `group_vars/all/vault/juicefs.yml`.
-6. **Backend bring-up on sparkN** (binaries + Valkey + RustFS + backup env —
+5. **Repo:** set `juicefs_primary_node: sparkN` (`group_vars/all/vault/juicefs.sops.yml`)
+   and `rustfs_server_primary_node: sparkN`, and update that node's
+   `rustfs_server_members` entry (node name + disk `path`/`uuid`) (both in
+   `group_vars/all/vault/rustfs_server.sops.yml`).
+6. **Backend bring-up on sparkN** (RustFS + binaries + Valkey + backup env,
    deliberately WITHOUT the format/mount tags, see the warning above):
    ```bash
-   ansible-playbook storage.yml --tags juicefs_bin,juicefs_backend,juicefs_backup
+   ansible-playbook storage.yml --tags rustfs_server,juicefs_bin,juicefs_backend,juicefs_backup
    ```
    Then fix object ownership — the `rustfs` system user gets a **different UID**
    on each node, and rsync preserved the old one:
@@ -426,12 +444,13 @@ in that order:
    echo "UUID=<disk-uuid> <disk-path> ext4 defaults,nofail 0 2" >> /etc/fstab
    systemctl daemon-reload && mount <disk-path> && ls <disk-path>/rustfs
    ```
-4. **Repo:** set `juicefs_primary_node: sparkN` in `group_vars/all/vault/juicefs.yml`
-   and update the member entry's `node` to `sparkN` (its disk `path` stays unchanged).
+4. **Repo:** set `juicefs_primary_node: sparkN` in `group_vars/all/vault/juicefs.sops.yml`,
+   and `rustfs_server_primary_node: sparkN` plus the member entry's `node: sparkN` (its disk
+   `path` stays unchanged) in `group_vars/all/vault/rustfs_server.sops.yml`.
 5. **Backend bring-up on sparkN** — same as Variant A step 6, including the
    `chown -R rustfs:rustfs <disk-path>/rustfs` (different UID on the new node):
    ```bash
-   ansible-playbook storage.yml --tags juicefs_bin,juicefs_backend,juicefs_backup
+   ansible-playbook storage.yml --tags rustfs_server,juicefs_bin,juicefs_backend,juicefs_backup
    systemctl stop rustfs && chown -R rustfs:rustfs <disk-path>/rustfs && systemctl start rustfs
    ```
 6. **Restore metadata + rewrite the bucket endpoint** — same as Variant A
@@ -445,10 +464,20 @@ in that order:
 
 **Rollback of a failed move (both variants):** the old node still has the full
 Valkey data dir; Variant A additionally has the untouched old disk. Flip
-`juicefs_primary_node` back in the vault, re-plug/re-mount the disk on the old
+`juicefs_primary_node` and `rustfs_server_primary_node` back in the vault, re-plug/re-mount the disk on the old
 node (Variant B), `systemctl enable --now valkey-server rustfs` there, and run
 `ansible-playbook storage.yml` — the clients re-render back. Nothing was
 destroyed until you wiped the old copies in the last step.
+
+**Decommissioning the old node (both variants):** once the new node is healthy, remove
+the leftover Valkey and RustFS from the former storage node. The two teardown flags are
+independent (`juicefs_backend_teardown` acts on hosts other than `juicefs_primary_node`,
+`rustfs_server_teardown` on hosts not in the current `rustfs_server_nodes`), so a former
+combined storage node needs both:
+
+```bash
+ansible-playbook storage.yml -e juicefs_backend_teardown=true -e rustfs_server_teardown=true --limit <former-node>
+```
 
 ### 13.3 Variant C — move the storage node to the k3s MASTER (re-plug the disk)
 
@@ -479,17 +508,19 @@ the NFS exports and all ingress. A cold model load will saturate it.
 
 #### Repo changes (before touching hardware)
 
-1. `group_vars/all/vault/juicefs.yml`: `juicefs_primary_node: k3smaster`, and in
-   `rustfs_server_members` change the entry's `node:` to `k3smaster` (its disk
+1. `group_vars/all/vault/juicefs.sops.yml`: `juicefs_primary_node: k3smaster`; and in
+   `group_vars/all/vault/rustfs_server.sops.yml`: `rustfs_server_primary_node: k3smaster`
+   and, in `rustfs_server_members`, change the entry's `node:` to `k3smaster` (its disk
    `path`/`uuid`/`fstype` travel with the disk and stay as they are). With
    `rustfs_server_manage_fstab: true` the role then writes the UUID-keyed fstab entry on
    the master and mounts the disk itself.
 2. **Firewall gate** (`roles/common/templates/iptables.sh.j2`): already wired, see
-   the comment there. The rule opening 6379+9000 from `k3snodes` used to hang on
+   the comment there. The Valkey rule (6379 from `k3snodes`) used to hang on
    `juicefs_mount_master`, which encodes "the master is a client of a spark-hosted
    backend". With the master AS the backend it is the *sparks* that arrive over
    mgmt while `juicefs_mount_master` stays false, so the gate also fires when the
-   primary itself has no `qsfp_ip`. Nothing to edit, but the master needs
+   primary itself has no `qsfp_ip`. The separate RustFS rule (9000 from `k3snodes`
+   and the pod CIDR) is gated on `rustfs_server_enabled` and `rustfs_server_primary_node`. Nothing to edit, but the master needs
    `ansible-playbook common.yml --tags iptables --limit k3smaster` (step 6).
    The same file also carries the **same-node scrape** rules (`-s {{ cluster_cidr }}`
    next to each `k3snodes` metrics rule). They exist because of this move: the
@@ -554,12 +585,12 @@ storage node's QSFP IP, `<disk-path>` = the disk `path` from `rustfs_server_memb
    (see the warning at the top of §13: an empty Valkey looks unformatted and a
    plain full run would format a FRESH filesystem into the populated bucket):
    ```bash
-   ansible-playbook storage.yml --tags juicefs_bin,juicefs_backend,juicefs_backup
+   ansible-playbook storage.yml --tags rustfs_server,juicefs_bin,juicefs_backend,juicefs_backup
    ```
    If you skipped the UID pre-seed:
    `systemctl stop rustfs && chown -R rustfs:rustfs <disk-path>/rustfs && systemctl start rustfs`.
-6. **Firewall** (opens 6379 for the spark clients; 9000 may already be open via an
-   unrelated `localnets` rule, do not rely on that):
+6. **Firewall** (opens 6379 on `juicefs_primary_node` and 9000 on
+   `rustfs_server_primary_node` for the spark clients; both are now the master):
    ```bash
    ansible-playbook common.yml --tags iptables --limit k3smaster
    ```
@@ -664,7 +695,7 @@ on this cluster after the move: 400 MiB at 2.1 GB/s, 107 hits, 0 misses, 0 GETs.
 
 **Rollback:** identical to §13.2 (the old node still has its full Valkey data dir),
 plus revert the `host_vars/k3smaster` knobs. Move the disk back, flip
-`juicefs_primary_node` in the vault, `systemctl enable --now valkey-server rustfs`
+`juicefs_primary_node` and `rustfs_server_primary_node` in the vault, `systemctl enable --now valkey-server rustfs`
 on the old node, `ansible-playbook storage.yml`, and re-run
 `common.yml --tags iptables --limit k3smaster` so the now-pointless open ports
 close again.
@@ -673,8 +704,9 @@ close again.
 
 ## 14. Open decisions before starting
 
-- **Storage node placement:** `juicefs_primary_node` (real value in vault)
-  holds the USB disk and runs Valkey+RustFS — single point of failure for the
+- **Storage node placement:** `juicefs_primary_node` (Valkey) and
+  `rustfs_server_primary_node` (RustFS and the USB disk), real values in the vault, default to the
+  same host and run Valkey+RustFS — single point of failure for the
   metadata engine (mitigated by the meta-backup timer, not eliminated). §13
   documents how to relocate it.
 - **JuiceFS scope:** HF-cache-only (Phase 4a recommended path) vs. general

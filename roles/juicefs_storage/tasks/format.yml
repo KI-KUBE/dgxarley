@@ -10,6 +10,17 @@
     fail_msg: JuiceFS needs the rustfs_server role (rustfs_server_enabled) as its object store.
     quiet: true
 
+- name: Stat the rc binary
+  ansible.builtin.stat:
+    path: /usr/local/bin/rc
+  register: _rustfs_rc
+
+- name: Assert rc is installed
+  ansible.builtin.assert:
+    that: _rustfs_rc.stat.exists
+    fail_msg: /usr/local/bin/rc is missing, install it with roles/k3sserver/tasks/rustfs_client.yml (k3sserver role) first.
+    quiet: true
+
 - name: Wait for the RustFS S3 endpoint to answer
   ansible.builtin.uri:
     url: "http://{{ juicefs_s3_address }}:{{ rustfs_server_s3_port }}/"

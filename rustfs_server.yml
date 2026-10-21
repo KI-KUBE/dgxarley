@@ -9,4 +9,4 @@
   roles:
     - role: rustfs_server
       tags: rustfs_server
-      when: rustfs_server_enabled | default(false) | bool
+      when: rustfs_server_enabled | default(false) | bool or rustfs_server_teardown | default(false) | bool

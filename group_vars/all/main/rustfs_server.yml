@@ -8,7 +8,7 @@ rustfs_server_primary_node: spark1
 # Erasure-coded cluster across rustfs_server_members (>= 4 drives); NOT an in-place switch from single-node.
 rustfs_server_distributed: false
 # Ordered per-node disk list (order = erasure position); sole disk source in both modes.
-# uuid/fstype are only used with rustfs_server_manage_fstab.
+# uuid/fstype and the optional options/dump/passno are only used with rustfs_server_manage_fstab.
 rustfs_server_members:
   - node: spark1
     disks: [{ path: /mnt/jfs-usb, uuid: "00000000-0000-0000-0000-000000000001", fstype: ext4 }]

@@ -3,12 +3,17 @@
 - name: RustFS teardown (former node)
   when: inventory_hostname not in rustfs_server_nodes
   block:
+    - name: Stat the rustfs unit
+      ansible.builtin.stat:
+        path: /etc/systemd/system/rustfs.service
+      register: _rustfs_unit_stat
+
     - name: Stop and disable rustfs
       ansible.builtin.systemd:
         name: rustfs
         state: stopped
         enabled: false
-      failed_when: false
+      when: _rustfs_unit_stat.stat.exists
 
     - name: Remove the RustFS unit, config, credentials and binary
       ansible.builtin.file:

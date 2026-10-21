@@ -1,23 +1,4 @@
 ---
-- name: Preflight, validate distributed RustFS topology
-  ansible.builtin.assert:
-    that:
-      - rustfs_server_raid_level in ['raid0', 'raid5', 'raid6']
-      - rustfs_server_primary_node in (rustfs_server_members | map(attribute='node') | list)
-      - (rustfs_server_total_drives | int) >= 4
-      - (rustfs_server_parity | int) * 2 <= (rustfs_server_set_drive_count | int)
-      - (rustfs_server_total_drives | int) % (rustfs_server_set_drive_count | int) == 0
-    fail_msg: >-
-      Invalid distributed RustFS topology. Requires: raid_level in raid0/raid5/raid6;
-      the primary (rustfs_server_primary_node={{ rustfs_server_primary_node }}) present among
-      rustfs_server_members; >=4 total drives (have {{ rustfs_server_total_drives }});
-      parity*2 <= set_drive_count ({{ rustfs_server_parity }}*2 vs
-      {{ rustfs_server_set_drive_count }}); and total drives an integer multiple
-      of set_drive_count.
-  when:
-    - rustfs_server_distributed | bool
-    - inventory_hostname == rustfs_server_primary_node
-
 - name: Assert this RustFS node has a disk entry in rustfs_server_members
   ansible.builtin.assert:
     that: rustfs_server_local_disks | length > 0

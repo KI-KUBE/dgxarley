@@ -7,7 +7,7 @@
 #   ansible-playbook storage.yml
 #   ansible-playbook storage.yml --tags juicefs_mount   # mounts only
 #
-# Set the placement + secrets first (see roles/juicefs_storage/defaults/main.yml):
+# Set the placement + secrets first (RustFS vars: group_vars/all/main/rustfs_server.yml; JuiceFS: roles/juicefs_storage/defaults/main.yml):
 #   rustfs_server_primary_node, rustfs_server_members (disk topology), juicefs_primary_node,
 #   juicefs_cache_size_mib, and the real credentials in group_vars/all/vault/{rustfs_server,juicefs}.sops.yml.
 - name: JuiceFS distributed storage layer
@@ -16,7 +16,7 @@
   roles:
     - role: rustfs_server
       tags: rustfs_server
-      when: rustfs_server_enabled | default(false) | bool
+      when: rustfs_server_enabled | default(false) | bool or rustfs_server_teardown | default(false) | bool
     # Gated by the juicefs_enabled master switch — dummy in group_vars/all/main/juicefs.yml, real value in vault/juicefs.sops.yml:
     # running storage.yml while it is false is a deliberate no-op.
     - role: juicefs_storage

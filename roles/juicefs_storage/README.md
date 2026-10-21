@@ -28,8 +28,10 @@ directly to Valkey + RustFS, so nothing is routed through a coordinator.
 - `juicefs_primary_node` — **the placement knob**: which node runs Valkey + the format.
 - Object store: `rustfs_server_*` (see `roles/rustfs_server/README.md`); `juicefs_bucket`
   is the bucket JuiceFS formats into.
-- `juicefs_storage_address` / `juicefs_s3_address` — Valkey / S3 address mounts use;
-  the QSFP IP of the respective node (spark → 200GbE) or its k3s VLAN IP (master).
+- `juicefs_storage_address`: Valkey address each mount resolves per client; the QSFP IP
+  of the node (spark → 200GbE) or its k3s VLAN IP (master).
+- `juicefs_s3_address`: S3 address fixed into the metadata at `juicefs format` time (like
+  the root keys); changing it later needs `juicefs config --bucket/--access-key/--secret-key`.
 - `juicefs_cache_dir` / `juicefs_cache_size_mib` — per-node NVMe cache (MiB).
 - `juicefs_valkey_password` is a **dummy here** — the real value lives in
   `group_vars/all/vault/juicefs.sops.yml`.
@@ -39,9 +41,17 @@ directly to Valkey + RustFS, so nothing is routed through a coordinator.
 ```bash
 ansible-playbook storage.yml                      # full
 ansible-playbook storage.yml --tags juicefs_mount # mounts only
+ansible-playbook rustfs_server.yml                # RustFS standalone
 ```
 
 Order: `rustfs_server` role first, then binary → backend → format → mount → backup.
+The `rc` CLI (rustfs-cli, `roles/k3sserver/tasks/rustfs_client.yml`) must be present on the
+RustFS primary for bucket creation and extra users.
+
+`juicefs_backend_teardown` (Valkey on hosts other than `juicefs_primary_node`) and
+`rustfs_server_teardown` (RustFS on hosts outside the current RustFS nodes) are independent;
+decommissioning a former combined storage node needs both:
+`ansible-playbook storage.yml -e juicefs_backend_teardown=true -e rustfs_server_teardown=true --limit <former-node>`.
 
 ## Monitoring (gated by `juicefs_enabled` AND `juicefs_metrics_enabled`)
 

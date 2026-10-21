@@ -1,4 +1,46 @@
 ---
+- name: Validate RustFS member disks
+  ansible.builtin.assert:
+    that:
+      - item.disks is defined and item.disks is sequence and item.disks | length > 0
+      - item.disks | rejectattr('path', 'defined') | list | length == 0
+      - (item.disks | map(attribute='path') | list | unique | length) == (item.disks | length)
+    fail_msg: "rustfs_server_members entry {{ item.node }} needs a non-empty disks list, each disk with a unique path."
+    quiet: true
+  loop: "{{ rustfs_server_members }}"
+  loop_control:
+    label: "{{ item.node }}"
+  run_once: true
+  when:
+    - rustfs_server_enabled | default(false) | bool
+    - not (rustfs_server_teardown | bool)
+  tags: [rustfs_server_install, rustfs_server_users]
+
+- name: Validate RustFS topology
+  ansible.builtin.assert:
+    that:
+      - rustfs_server_primary_node in (rustfs_server_members | map(attribute='node') | list)
+      - (rustfs_server_members | map(attribute='node') | list | unique | length) == (rustfs_server_members | length)
+      - >-
+        rustfs_server_distributed | bool
+        or ((rustfs_server_members | selectattr('node', 'equalto', rustfs_server_primary_node)
+             | map(attribute='disks') | first | length) == 1)
+      - not (rustfs_server_distributed | bool) or rustfs_server_raid_level in ['raid0', 'raid5', 'raid6']
+      - not (rustfs_server_distributed | bool) or (rustfs_server_total_drives | int) >= 4
+      - not (rustfs_server_distributed | bool) or (rustfs_server_parity | int) * 2 <= (rustfs_server_set_drive_count | int)
+      - not (rustfs_server_distributed | bool) or (rustfs_server_total_drives | int) % (rustfs_server_set_drive_count | int) == 0
+    fail_msg: >-
+      Invalid RustFS topology. Requires: primary ({{ rustfs_server_primary_node }}) is a member;
+      unique node names; single-node has exactly one primary disk; distributed has raid_level in
+      raid0/raid5/raid6, >=4 total drives (have {{ rustfs_server_total_drives }}),
+      parity*2 <= set_drive_count and total drives a multiple of set_drive_count.
+    quiet: true
+  run_once: true
+  when:
+    - rustfs_server_enabled | default(false) | bool
+    - not (rustfs_server_teardown | bool)
+  tags: [rustfs_server_install, rustfs_server_users]
+
 - name: Install RustFS
   ansible.builtin.import_tasks: install.yml
   when:

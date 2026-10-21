@@ -88,6 +88,10 @@ The role creates missing users, re-applies changed policies and resets the secre
 longer authenticates with the vault value. Buckets in `rustfs_server_protected_buckets` are refused
 (JuiceFS sets `[juicefs]`). Removing an entry does **not** delete the user or bucket.
 
+Prerequisite: the `rc` CLI (`/usr/local/bin/rc`), installed by the k3sserver role
+(`roles/k3sserver/tasks/rustfs_client.yml`, e.g. `k8s_infra`/`common` runs of that role). The users
+tasks and the JuiceFS format step assert its presence and fail otherwise.
+
 ## Key variables
 
 Cross-role knobs live in `group_vars/all/main/rustfs_server.yml` (common's iptables template and
@@ -107,7 +111,36 @@ mode) from `k3snodes` and from `cluster_cidr` (same-node pods arrive with their 
 ```bash
 ansible-playbook rustfs_server.yml                              # install + users
 ansible-playbook rustfs_server.yml --tags rustfs_server_users   # users only
+```
+
+Before install the role validates `rustfs_server_members` once (primary is a member, unique node
+names, non-empty disk lists with unique paths, exactly one primary disk in single-node mode, and the
+raid/drive-count constraints in distributed mode).
+
+## Teardown
+
+`rustfs_server_teardown=true` stops and removes the unit, config, credentials, state dir and binary.
+Object data on the disks and the fstab entries are never touched. Install and users tasks do not run
+while it is set. Two modes:
+
+| Mode                              | Precondition                             | Effect                                                               |
+|-----------------------------------|------------------------------------------|----------------------------------------------------------------------|
+| **Former node, cluster stays on** | `rustfs_server_enabled: true`            | hosts still in `rustfs_server_nodes` are skipped                     |
+| **Full decommission**             | set `rustfs_server_enabled: false` first | `rustfs_server_nodes` is empty, every host in the limit is torn down |
+
+```bash
+# former node while the cluster stays enabled
 ansible-playbook rustfs_server.yml -e rustfs_server_teardown=true --limit <former-node>
+
+# full decommission (after setting rustfs_server_enabled: false)
+ansible-playbook rustfs_server.yml -e rustfs_server_teardown=true
+```
+
+`juicefs_backend_teardown` (Valkey, role `juicefs_storage`) and `rustfs_server_teardown` are
+independent flags. Decommissioning a former combined storage node needs both:
+
+```bash
+ansible-playbook storage.yml -e juicefs_backend_teardown=true -e rustfs_server_teardown=true --limit <former-node>
 ```
 
 RustFS has no native `/metrics` endpoint (OTel push only, rustfs#3154).
