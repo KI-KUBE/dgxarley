@@ -11,6 +11,7 @@
       - ":put [/system/identity/get name]"
   register: _mikrotik_identity_current
   changed_when: false
+  check_mode: false
 
 - name: Set system identity
   community.routeros.command:

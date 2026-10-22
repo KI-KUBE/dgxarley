@@ -18,10 +18,12 @@ mikrotik_management_defaults:
   interfaces: []
 
 # default_gateway is also used by the static uplink; without an uplink it becomes the default route.
+# allow_remote_dns_requests: null = not managed; true also drops port 53 input on every interface but the bridge.
 mikrotik_routing: {}
 mikrotik_routing_defaults:
   default_gateway: ""
   dns_servers: []
+  allow_remote_dns_requests: null
 
 mikrotik_nat: {}
 mikrotik_nat_defaults:

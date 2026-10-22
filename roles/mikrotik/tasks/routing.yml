@@ -15,3 +15,37 @@
       - /ip/dns/set servers={{ _mikrotik_routing.dns_servers | join(',') }}
   changed_when: false
   when: _mikrotik_routing.dns_servers | default([]) | length > 0
+
+- name: Ensure DNS remote requests
+  community.routeros.command:
+    commands:
+      - /ip/dns/set allow-remote-requests={{ 'yes' if _mikrotik_routing.allow_remote_dns_requests | bool else 'no' }}
+  changed_when: false
+  when: _mikrotik_routing.allow_remote_dns_requests is not none
+
+# The resolver answers on every interface with an address; only the bridge (internal LAN) may query it.
+- name: Ensure DNS input drop outside the bridge
+  community.routeros.command:
+    commands:
+      - >-
+        :if ([:len [/ip/firewall/filter/find comment="{{ _comment }}"]] = 0)
+        do={ :local top [:pick [/ip/firewall/filter/find chain=input dynamic=no] 0];
+        :if ([:typeof $top] = "nil")
+        do={ /ip/firewall/filter/add {{ _rule }} comment="{{ _comment }}" }
+        else={ /ip/firewall/filter/add {{ _rule }} comment="{{ _comment }}" place-before=$top } }
+        else={ /ip/firewall/filter/set [find comment="{{ _comment }}"] {{ _rule }} }
+  vars:
+    _comment: "{{ mikrotik_object_prefix }}-dns input drop {{ item }}"
+    _rule: "chain=input action=drop protocol={{ item }} dst-port=53 in-interface=!{{ _mikrotik_bridge.name }}"
+  loop: [udp, tcp]
+  changed_when: false
+  when: _mikrotik_routing.allow_remote_dns_requests | bool
+
+- name: Remove DNS input drop
+  community.routeros.command:
+    commands:
+      - /ip/firewall/filter/remove [find comment~"^{{ mikrotik_object_prefix }}-dns input drop "]
+  changed_when: false
+  when:
+    - _mikrotik_routing.allow_remote_dns_requests is not none
+    - not _mikrotik_routing.allow_remote_dns_requests | bool

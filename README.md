@@ -399,7 +399,7 @@ ansible-playbook site.yml -e 'clevis_luks_passphrase=YOUR_PASSPHRASE'
 
 ## Prerequisites
 
-- SSH keys distributed to all nodes (`ansible_ssh_user: root`)
+- SSH keys distributed to all nodes (`ansible_user: root`)
 - Interface names verified on actual hardware (`hw_iface`, `qsfp_interfaces`)
 - `openwebui_secret_key` and `openwebui_admin_password` override via vault in production
 - Multus: nothing to do by hand. `roles/k8s_dgx/files/multus-daemonset-thick.yml` ships pre-patched for the

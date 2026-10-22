@@ -1,6 +1,6 @@
 ---
 # Public dummy/example values. Real values live in group_vars/all/vault/<topic>.sops.yml of the private sops overlay.
-ansible_ssh_user: root
+ansible_user: root
 
 fail2ban_recipient: "fail2ban@example.com"
 fail2ban_ignoreips:
