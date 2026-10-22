@@ -22,7 +22,7 @@ mikrotik_management:
   interfaces: []
 
 mikrotik_routing:
-  default_gateway: "192.168.123.2"
+  default_gateway: "192.168.123.1"
   dns_servers:
     - "192.168.123.1"
 

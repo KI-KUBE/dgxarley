@@ -3,6 +3,9 @@
 mikrotik_object_prefix: ansible
 mikrotik_internal_list: "{{ mikrotik_object_prefix }}-internal"
 
+# /system identity; empty = not managed. Same rule as mikrotik_bootstrap.py --identity (NAME_RE).
+mikrotik_identity: ""
+
 # Settings dicts: inventory sets <name> (partial is fine), tasks/main.yml merges it over <name>_defaults into _<name>.
 mikrotik_bridge: {}
 mikrotik_bridge_defaults:

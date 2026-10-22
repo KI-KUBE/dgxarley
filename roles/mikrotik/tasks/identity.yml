@@ -1,0 +1,19 @@
+---
+- name: Validate mikrotik_identity
+  ansible.builtin.assert:
+    that:
+      - mikrotik_identity is match('^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')
+    fail_msg: "mikrotik_identity: 1-64 chars of [A-Za-z0-9._-], starting with a letter or digit"
+
+- name: Read system identity
+  community.routeros.command:
+    commands:
+      - ":put [/system/identity/get name]"
+  register: _mikrotik_identity_current
+  changed_when: false
+
+- name: Set system identity
+  community.routeros.command:
+    commands:
+      - /system/identity/set name="{{ mikrotik_identity }}"
+  when: _mikrotik_identity_current.stdout[0] | trim != mikrotik_identity

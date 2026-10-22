@@ -15,6 +15,9 @@
   vars:
     _mw: "{{ mikrotik_wireguard_defaults | combine(mikrotik_wireguard | default({}), recursive=True) }}"
   tags: [always]
+- import_tasks: identity.yml
+  tags: [mikrotik_identity, mikrotik]
+  when: mikrotik_identity | length > 0
 - import_tasks: bridge.yml
   tags: [mikrotik_bridge, mikrotik]
 - import_tasks: ports.yml

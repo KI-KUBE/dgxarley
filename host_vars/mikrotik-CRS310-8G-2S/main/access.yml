@@ -2,7 +2,7 @@
 # Public dummy/example values. Real values live in the same-named vault/<topic>.sops.yml of the private sops overlay.
 ansible_host: "192.168.123.2"
 ansible_password: "changeme"
-serial_number: "CHANGEME"
+serial_number: "CHANGEME"  # informational only, not read by any role
 # ansible_private_key_file: "~/.ssh/id_ed25519"
 # ansible_network_cli_ssh_type: libssh
-ansible_ssh_user: "mikrotikadmin"
+ansible_user: "admin"
