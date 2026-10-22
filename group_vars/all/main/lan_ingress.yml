@@ -1,0 +1,12 @@
+---
+# Public dummy/example values. Real values live in group_vars/all/vault/<topic>.sops.yml of the private sops overlay.
+# One gate for customer-LAN ingress: the router dst-nats tcp_ports to target_address and keeps the client source.
+# Derived from it: mikrotik_uplink.port_forwards, iptables_public_tcp_ports (on target_host only) and
+# traefik_internal_allowlist (+ networks). networks must not be in localnets (that would open ssh, NFS, k3s API).
+# An explicit overlay value for one of the derived variables still wins. tcp_ports: at most 15.
+lan_ingress:
+  enabled: false
+  target_host: k3smaster
+  target_address: ""
+  tcp_ports: [80, 443]
+  networks: []

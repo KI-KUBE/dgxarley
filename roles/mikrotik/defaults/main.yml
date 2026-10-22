@@ -33,8 +33,8 @@ mikrotik_firewall_defaults:
   fasttrack_enabled: false
 
 # Routed uplink into the upstream LAN (tasks/uplink.yml); empty interface = not managed.
-# port_forwards: dst-nat from the uplink address to LAN hosts, [{to_address, tcp_ports (max 15)}]; the target host
-# opens the ports itself (common: iptables_public_tcp_ports), the forwarded packets keep the client's source address.
+# port_forwards: dst-nat from the uplink address to LAN hosts, [{to_address, tcp_ports (max 15)}]; derived from lan_ingress
+# (group_vars/all/main/lan_ingress.yml), which also opens the ports on the target and allowlists the networks in Traefik.
 mikrotik_uplink: {}
 mikrotik_uplink_defaults:
   interface: ""
@@ -42,7 +42,7 @@ mikrotik_uplink_defaults:
   address: ""
   comment: "{{ mikrotik_object_prefix }}-uplink"
   use_peer_dns: true
-  port_forwards: []
+  port_forwards: "{{ [{'to_address': lan_ingress.target_address, 'tcp_ports': lan_ingress.tcp_ports}] if lan_ingress.enabled | default(false) | bool else [] }}"
 
 # RoCE/RDMA lossless Ethernet, only active when qsfp_switch: true
 mikrotik_qsfp: {}

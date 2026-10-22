@@ -186,9 +186,9 @@
                   # The standard image starts as root then drops to this uid/gid
                   # and chowns /data — keeps the hostPath volume writable.
                   - name: USER_UID
-                    value: "{{ forgejo.uid }}"
+                    value: "{{ forgejo.uid | string }}"
                   - name: USER_GID
-                    value: "{{ forgejo.gid }}"
+                    value: "{{ forgejo.gid | string }}"
                   - name: TZ
                     value: "{{ forgejo.time_zone }}"
                   # --- server ---
@@ -415,7 +415,7 @@
     namespace: "{{ forgejo.namespace }}"
     pod: "{{ forgejo_pod_name }}"
     command: |
-      bash -c '
+      su git -s /bin/bash -c '
         set -e
         if forgejo admin user list 2>/dev/null | awk "NR>1 {print \$2}" | grep -qx "{{ forgejo.admin.username }}"; then
           echo "admin {{ forgejo.admin.username }}: exists"

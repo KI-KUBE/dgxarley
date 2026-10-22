@@ -6,3 +6,10 @@
   ansible.builtin.systemd:
     name: "wg-quick@{{ _ops_wireguard.interface }}"
     state: restarted
+
+# Re-applies the .network files; addresses and routes of managed links stay in place.
+- name: restart systemd-networkd
+  ansible.builtin.systemd:
+    name: systemd-networkd
+    state: restarted
+  when: _ops_wireguard_networkd.stdout | default('') == 'active'

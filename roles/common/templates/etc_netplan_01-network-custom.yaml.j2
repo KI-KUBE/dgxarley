@@ -23,7 +23,7 @@ network:
       link-local: [ ipv6 ]
       {% if wifi_iface is defined -%}optional: true{% endif +%}
 {% endif %}
-    {% if hw_iface2 is defined -%}
+{% if hw_iface2 is defined %}
     {{ hw_iface2 }}:
       dhcp4: false
       dhcp6: false
@@ -31,4 +31,4 @@ network:
       optional: true
       addresses:
         - {{ hw_iface2_address }}
-    {% endif +%}
+{% endif %}

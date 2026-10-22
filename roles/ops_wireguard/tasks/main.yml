@@ -165,6 +165,43 @@
         state: absent
       when: not _ops_wireguard.forward_lan | bool
 
+    - name: Check for systemd-networkd
+      ansible.builtin.command: systemctl is-active systemd-networkd
+      register: _ops_wireguard_networkd
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    # netplan apply / networkctl reconfigure delete the ip rule otherwise (networkd ManageForeignRoutingPolicyRules=yes).
+    - name: Ensure /etc/systemd/networkd.conf.d (route_mode source)
+      ansible.builtin.file:
+        path: /etc/systemd/networkd.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+      when: _ops_wireguard.route_mode == 'source'
+
+    - name: Keep networkd off foreign policy rules (route_mode source)
+      ansible.builtin.copy:
+        content: |
+          # Managed by Ansible (roles/ops_wireguard)
+          [Network]
+          ManageForeignRoutingPolicyRules=no
+        dest: /etc/systemd/networkd.conf.d/90-ops-wireguard.conf
+        owner: root
+        group: root
+        mode: "0644"
+      when: _ops_wireguard.route_mode == 'source'
+      notify: restart systemd-networkd
+
+    - name: Remove the networkd drop-in (route_mode full)
+      ansible.builtin.file:
+        path: /etc/systemd/networkd.conf.d/90-ops-wireguard.conf
+        state: absent
+      when: _ops_wireguard.route_mode != 'source'
+      notify: restart systemd-networkd
+
     # Make sure a restart requested above happens before we look at the handshake.
     - name: Apply pending restarts
       ansible.builtin.meta: flush_handlers
@@ -174,6 +211,20 @@
         name: "wg-quick@{{ _ops_wireguard.interface }}"
         enabled: true
         state: started
+
+    - name: Check the policy rule (route_mode source)
+      ansible.builtin.command: >-
+        ip -4 rule show from {{ _ops_wireguard.tunnel_address.split('/')[0] }} lookup {{ _ops_wireguard.route_table }}
+      register: _ops_wireguard_rule
+      changed_when: false
+      check_mode: false
+      when: _ops_wireguard.route_mode == 'source'
+
+    - name: Re-add the policy rule
+      ansible.builtin.command: >-
+        ip -4 rule add from {{ _ops_wireguard.tunnel_address.split('/')[0] }}
+        lookup {{ _ops_wireguard.route_table }} priority {{ _ops_wireguard.rule_priority }}
+      when: _ops_wireguard.route_mode == 'source' and (_ops_wireguard_rule.stdout | default('') | trim | length == 0)
 
     - name: Show the interface
       ansible.builtin.command: "wg show {{ _ops_wireguard.interface }}"
@@ -246,13 +297,14 @@
       register: _ops_wireguard_stop
       failed_when: _ops_wireguard_stop.failed | default(false) and 'Could not find' not in (_ops_wireguard_stop.msg | default(''))
 
-    - name: Remove tunnel config and sysctl drop-in
+    - name: Remove tunnel config and drop-ins
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
       loop:
         - "/etc/wireguard/{{ _ops_wireguard.interface }}.conf"
         - /etc/sysctl.d/90-ops-wireguard.conf
+        - /etc/systemd/networkd.conf.d/90-ops-wireguard.conf
 
     - name: Remove the private key (teardown_remove_key)
       ansible.builtin.file:

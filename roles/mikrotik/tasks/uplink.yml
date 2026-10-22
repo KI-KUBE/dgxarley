@@ -18,6 +18,15 @@
     fail_msg: "uplink: mode must be dhcp or static (static needs mikrotik_uplink.address + mikrotik_routing.default_gateway); the uplink port must not be in mikrotik_bridge.ports; mikrotik_object_prefix allows only letters, digits, - and _; port forwards need one entry per IPv4 to_address with 1-15 tcp_ports"
     quiet: true
 
+- name: Assert lan_ingress is covered by the uplink port forwards
+  ansible.builtin.assert:
+    that:
+      - _mikrotik_uplink.port_forwards | selectattr('to_address', 'equalto', lan_ingress.target_address) | selectattr('tcp_ports', 'superset', lan_ingress.tcp_ports) | list | length > 0
+      - lan_ingress.networks | reject('match', '^\\d+\\.\\d+\\.\\d+\\.\\d+/\\d+$') | list | length == 0
+    fail_msg: "lan_ingress: mikrotik_uplink.port_forwards needs an entry for lan_ingress.target_address covering lan_ingress.tcp_ports; lan_ingress.networks must be IPv4 CIDRs"
+    quiet: true
+  when: lan_ingress.enabled | default(false) | bool
+
 - name: Take the uplink port out of the bridge
   community.routeros.command:
     commands:
@@ -182,6 +191,7 @@
       - _fwd.index('{{ _mikrotik_uplink.comment }} forward established') < _fwd.index('{{ _mikrotik_uplink.comment }} forward drop')
       - _mikrotik_uplink.port_forwards | length == 0 or _fwd.index('{{ _mikrotik_uplink.comment }} forward dstnat') < _fwd.index('{{ _mikrotik_uplink.comment }} forward drop')
     fail_msg: "uplink accept rules ended up below their drop rule; move them up on the router"
+  when: not ansible_check_mode
 
 - name: Restrict MAC access and neighbor discovery to the internal side
   community.routeros.command:

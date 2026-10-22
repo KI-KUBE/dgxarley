@@ -9,6 +9,26 @@
   when:
     - skip_common_rclocal is not defined or not skip_common_rclocal
 
+- name: Assert lan_ingress ports are open on the target host
+  tags: iptables
+  ansible.builtin.assert:
+    that:
+      - lan_ingress.tcp_ports | difference(iptables_public_tcp_ports) | length == 0
+    fail_msg: "lan_ingress.tcp_ports must be in iptables_public_tcp_ports on {{ inventory_hostname }}"
+    quiet: true
+  when:
+    - lan_ingress.enabled | default(false) | bool
+    - inventory_hostname == lan_ingress.target_host
+
+- name: Assert lan_ingress networks are not in localnets
+  tags: iptables
+  ansible.builtin.assert:
+    that:
+      - lan_ingress.networks | intersect((localnets | default([]) + localnets_k3sserver | default([])) | map(attribute='cidr') | list) | length == 0
+    fail_msg: "lan_ingress.networks must not be in localnets or localnets_k3sserver"
+    quiet: true
+  when: lan_ingress.enabled | default(false) | bool
+
 - name: copy iptables.sh from templates
   tags: iptables
   template:

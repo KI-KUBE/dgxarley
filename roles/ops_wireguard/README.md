@@ -20,7 +20,8 @@ ansible-playbook common.yml --tags ops_wireguard -e '{"ops_wireguard": {"teardow
 4. Renders `/etc/wireguard/<iface>.conf` (0600) WITHOUT the private key: `PostUp = wg set %i private-key <keyfile>` loads it at runtime. No `wg-forward.sh` hooks
 5. `systemctl enable --now wg-quick@<iface>`, restart on conf/key change
 6. `forward_lan`: `/etc/sysctl.d/90-ops-wireguard.conf` (`net.ipv4.ip_forward=1`); removed again when `forward_lan` is off. The role's own drop-in is used, `roles/common`'s `ip_forward` task (gated on `wantsopenvswitch`) is left unchanged
-7. Verification (non-fatal): `wg show`, waits up to `handshake_wait` s for a handshake. When the key was generated here, the public key and the hub command `add-peer <customer> <pubkey> <tunnel-address>[ <lan>]` are printed
+7. `route_mode: source`: `/etc/systemd/networkd.conf.d/90-ops-wireguard.conf` (`ManageForeignRoutingPolicyRules=no`, networkd restarted on change) so `netplan apply` / `networkctl reconfigure` keep the `ip rule`; after the unit start a missing rule is re-added. Removed again with `route_mode: full`
+8. Verification (non-fatal): `wg show`, waits up to `handshake_wait` s for a handshake. When the key was generated here, the public key and the hub command `add-peer <customer> <pubkey> <tunnel-address>[ <lan>]` are printed
 
 ## Adopting the bootstrap tunnel
 
@@ -31,6 +32,7 @@ The external initial setup script creates the same tunnel by hand (`/etc/wiregua
 - `full` (default): plain wg-quick, the `AllowedIPs` route (ops subnet) lands in the main table. For the terminating gateway box (`forward_lan`).
 - `source`: `Table = <route_table>` in the conf (wg-quick puts the ops route into that table only) plus `PostUp/PostDown = ip -4 rule add|del from <tunnel ip> lookup <table> priority <prio>`. Only packets sourced from the tunnel address use the tunnel. Reason: a node that is ALSO reachable another way (Mikrotik-terminated tunnel into its LAN, or via the k3smaster with `forward_lan`) would otherwise answer ops flows that arrived over the LAN path through its OWN tunnel; the hub drops those (source address not in that peer's AllowedIPs) = asymmetric routing.
 - `forward_lan` requires `full` (asserted).
+- `source` also installs the networkd drop-in `ManageForeignRoutingPolicyRules=no`: with the default `yes`, every `netplan apply` or `networkctl reconfigure` deletes the foreign `ip rule`; the tunnel then still handshakes but nothing sourced from the tunnel address uses table `<route_table>` (unreachable from the hub).
 
 ## Firewall semantics
 
@@ -68,7 +70,7 @@ IPv4 only (`ip6tables_setup.sh.j2` is not touched). Rerun `common.yml --tags ipt
 
 ## Teardown
 
-`-e '{"ops_wireguard": {"teardown": true, "enabled": false}}'`: stops/disables `wg-quick@<iface>`, removes the conf, the sysctl drop-in and the `HTOPSWG*` firewall chains; the key only with `ops_wireguard.teardown_remove_key`. Afterwards rerun `common.yml --tags iptables` (drops the INPUT rule) and run `remove-peer <customer>` on the hub. `ip_forward` stays 1 until reboot.
+`-e '{"ops_wireguard": {"teardown": true, "enabled": false}}'`: stops/disables `wg-quick@<iface>`, removes the conf, the sysctl and networkd drop-ins and the `HTOPSWG*` firewall chains; the key only with `ops_wireguard.teardown_remove_key`. Afterwards rerun `common.yml --tags iptables` (drops the INPUT rule) and run `remove-peer <customer>` on the hub. `ip_forward` stays 1 until reboot.
 
 ## Examples
 

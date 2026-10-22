@@ -1,4 +1,8 @@
 ---
+- name: lan_ingress preflight
+  ansible.builtin.import_tasks: preflight.yml
+  tags: always
+
 # Load per-model profile files from model_profiles/ and merge them into
 # the sglang_model_profiles dict. Each file defines _model_profile with
 # one key (the model name) — we combine_dict them all together.

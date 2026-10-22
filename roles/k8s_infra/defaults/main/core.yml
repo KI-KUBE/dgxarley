@@ -8,7 +8,7 @@ k8s_infra_data_base: "/var/lib/k8s-data"
 postgresql_postgres_password: "changeme"
 postgresql_openwebui_password: "changeme"
 postgresql_forgejo_password: "changeme"
-traefik_internal_allowlist:
-  - "192.168.123.0/24"
-  - "192.168.124.0/24"
+traefik_internal_allowlist: >-
+  {{ ((localnets | default([]) + localnets_k3sserver | default([])) | map(attribute='cidr') | list)
+     + (lan_ingress.networks | default([]) if lan_ingress.enabled | default(false) | bool else []) }}
 traefik_dashboard_password: "changeme"

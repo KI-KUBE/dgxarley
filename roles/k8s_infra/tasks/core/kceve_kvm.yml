@@ -82,7 +82,7 @@
                     exec tini -s -- kceve-kvm-web -d "{{ kceve_kvm_serial_device }}" -p 8080 -t 6
                 env:
                   - name: KCEVE_KVM_PORTS
-                    value: "{{ kceve_kvm_num_ports }}"
+                    value: "{{ kceve_kvm_num_ports | string }}"
                 resources:
                   requests:
                     cpu: 50m

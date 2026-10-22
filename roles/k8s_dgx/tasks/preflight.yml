@@ -1,0 +1,9 @@
+---
+- name: Assert lan_ingress networks are allowlisted in Traefik
+  ansible.builtin.assert:
+    that:
+      - lan_ingress.networks | length > 0
+      - lan_ingress.networks | difference(traefik_internal_allowlist) | length == 0
+    fail_msg: "lan_ingress.networks must be non-empty and contained in traefik_internal_allowlist"
+    quiet: true
+  when: lan_ingress.enabled | default(false) | bool

@@ -1,4 +1,8 @@
 ---
+- name: lan_ingress preflight
+  import_tasks: core/preflight.yml
+  tags: always
+
 - name: debug k8s_infra role start
   debug:
     msg: "DONE k8s_infra ON: {{ inventory_hostname }}"
