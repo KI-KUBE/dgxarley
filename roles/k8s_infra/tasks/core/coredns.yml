@@ -179,7 +179,7 @@
                   variant: master
               spec:
                 nodeSelector:
-                  node-role: k3smaster   # NOT kubernetes.io/hostname (that is elite800)
+                  node-role: k3smaster   # NOT kubernetes.io/hostname (changes with a host rename)
                 tolerations:
                   - key: CriticalAddonsOnly
                     operator: Exists

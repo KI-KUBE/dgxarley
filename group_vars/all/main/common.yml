@@ -1,6 +1,8 @@
 ---
 # Public dummy/example values. Real values live in group_vars/all/vault/<topic>.sops.yml of the private sops overlay.
 ansible_user: root
+# OS hostname and therefore the k8s node name; changing it on a k3s node forces a node re-registration.
+system_hostname: "{{ inventory_hostname }}"
 
 fail2ban_recipient: "fail2ban@example.com"
 fail2ban_ignoreips:
