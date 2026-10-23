@@ -7,3 +7,19 @@
     fail_msg: "lan_ingress.networks must be non-empty and contained in traefik_internal_allowlist"
     quiet: true
   when: lan_ingress.enabled | default(false) | bool
+
+- name: Assert app exposure values are lan or public
+  ansible.builtin.assert:
+    that:
+      - app_exposure_default in ['lan', 'public']
+      - app_exposure.values() | list | difference(['lan', 'public']) | length == 0
+    fail_msg: "app_exposure_default and every app_exposure value must be lan or public"
+    quiet: true
+
+- name: Assert public apps have the hub ingress bind
+  ansible.builtin.assert:
+    that:
+      - hub_ingress.enabled | default(false) | bool
+    fail_msg: "public apps need the hub ingress bind (hub_ingress.enabled)"
+    quiet: true
+  when: (app_exposure.values() | list + [app_exposure_default]) is contains('public')
