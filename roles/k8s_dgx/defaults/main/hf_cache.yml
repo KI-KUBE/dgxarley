@@ -27,7 +27,7 @@ hf_token: "hf_CHANGEME"
 #      The hf-cache hostPath below is type Directory when JuiceFS-backed, so
 #      without /mnt/jfs on the master the pod stays unschedulable/failed.
 #   2. The image must be amd64-capable (see hf_preload_image).
-# Label is node-role, NOT kubernetes.io/hostname (that one reads "elite800").
+# Label is node-role, NOT kubernetes.io/hostname (changes with a host rename).
 # To move it back onto a spark: {kubernetes.io/arch: arm64, spark-id: "2"}.
 hf_preload_node_selector:
   node-role: k3smaster
