@@ -14,8 +14,8 @@ postfix_queue_lifetime: "5d"
 # Clients allowed to relay (besides loopback): the networks the firewall trusts, never the port-forwarded customer LAN.
 postfix_mynetworks: "{{ (localnets | default([]) + localnets_k3sserver | default([])) | map(attribute='cidr') | list }}"
 
-# docker-ce-cli (needs Docker's apt repo; set false on hosts without it, e.g. Ubuntu 26.04)
-install_docker_cli: true
+# docker-ce-cli needs Docker's apt repo
+install_docker_cli: false
 
 # AppArmor removal - set to true for cloud/dns servers
 deinstall_apparmor: false

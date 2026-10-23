@@ -174,13 +174,12 @@
   tags:
     - installbasicpackages
 
-# docker-ce-cli needs Docker's apt repo, which is absent on hosts without it
-# (e.g. Ubuntu 26.04) -- set install_docker_cli: false there.
+# docker-ce-cli needs Docker's apt repo.
 - name: install docker-ce-cli
   apt:
     pkg: docker-ce-cli
     state: present
-  when: install_docker_cli | default(true) | bool
+  when: install_docker_cli | default(false) | bool
   tags:
     - installbasicpackages
 
