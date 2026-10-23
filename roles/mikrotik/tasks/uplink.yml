@@ -26,9 +26,9 @@
 - name: Assert lan_ingress is covered by the uplink port forwards
   ansible.builtin.assert:
     that:
-      - _mikrotik_uplink.port_forwards | selectattr('to_address', 'equalto', lan_ingress.target_address) | selectattr('tcp_ports', 'superset', lan_ingress.tcp_ports) | list | length > 0
+      - _mikrotik_uplink.port_forwards | selectattr('to_address', 'equalto', lan_ingress_target_address) | selectattr('tcp_ports', 'superset', lan_ingress.tcp_ports) | list | length > 0
       - lan_ingress.networks | reject('match', '^\\d+\\.\\d+\\.\\d+\\.\\d+/\\d+$') | list | length == 0
-    fail_msg: "lan_ingress: mikrotik_uplink.port_forwards needs an entry for lan_ingress.target_address covering lan_ingress.tcp_ports; lan_ingress.networks must be IPv4 CIDRs"
+    fail_msg: "lan_ingress: mikrotik_uplink.port_forwards needs an entry for lan_ingress_target_address covering lan_ingress.tcp_ports; lan_ingress.networks must be IPv4 CIDRs"
     quiet: true
   when: lan_ingress.enabled | default(false) | bool
 
