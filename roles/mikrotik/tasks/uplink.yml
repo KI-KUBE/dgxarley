@@ -184,12 +184,13 @@
   vars:
     _in: "{{ _uplink_rule_order.stdout_lines[0] | map('trim') | list }}"
     _fwd: "{{ _uplink_rule_order.stdout_lines[1] | map('trim') | list }}"
+    _c: "{{ _mikrotik_uplink.comment }}"
   ansible.builtin.assert:
     that:
-      - _in.index('{{ _mikrotik_uplink.comment }} input established') < _in.index('{{ _mikrotik_uplink.comment }} input drop')
-      - _in.index('{{ _mikrotik_uplink.comment }} input icmp') < _in.index('{{ _mikrotik_uplink.comment }} input drop')
-      - _fwd.index('{{ _mikrotik_uplink.comment }} forward established') < _fwd.index('{{ _mikrotik_uplink.comment }} forward drop')
-      - _mikrotik_uplink.port_forwards | length == 0 or _fwd.index('{{ _mikrotik_uplink.comment }} forward dstnat') < _fwd.index('{{ _mikrotik_uplink.comment }} forward drop')
+      - _in.index(_c ~ ' input established') < _in.index(_c ~ ' input drop')
+      - _in.index(_c ~ ' input icmp') < _in.index(_c ~ ' input drop')
+      - _fwd.index(_c ~ ' forward established') < _fwd.index(_c ~ ' forward drop')
+      - _mikrotik_uplink.port_forwards | length == 0 or _fwd.index(_c ~ ' forward dstnat') < _fwd.index(_c ~ ' forward drop')
     fail_msg: "uplink accept rules ended up below their drop rule; move them up on the router"
   when: not ansible_check_mode
 

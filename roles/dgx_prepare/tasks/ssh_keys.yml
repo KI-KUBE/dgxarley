@@ -1,6 +1,31 @@
 ---
-# Keygen + fetch run on ALL sparks (delegate_to bypasses --limit),
+# Keygen + fetch run on ALL reachable sparks (delegate_to bypasses --limit),
 # so the authorize step always has every key available.
+
+# ignore_unreachable does not survive a delegated run_once loop, hence a port probe from the controller.
+- name: Probe SSH port of all sparks
+  ansible.builtin.wait_for:
+    host: "{{ hostvars[item].ansible_host | default(item) }}"
+    port: "{{ hostvars[item].ansible_port | default(22) }}"
+    timeout: 5
+  delegate_to: localhost
+  become: false
+  loop: "{{ groups['dgxsparks'] }}"
+  run_once: true
+  failed_when: false
+  check_mode: false
+  register: _spark_ssh_probe
+
+- name: Collect reachable sparks
+  ansible.builtin.set_fact:
+    _ssh_key_sparks: "{{ _spark_ssh_probe.results | selectattr('state', 'defined') | map(attribute='item') | list }}"
+  run_once: true
+
+- name: Warn about unreachable sparks
+  ansible.builtin.debug:
+    msg: "SSH cross-trust skips unreachable sparks: {{ groups['dgxsparks'] | difference(_ssh_key_sparks) | join(', ') }}"
+  when: groups['dgxsparks'] | difference(_ssh_key_sparks) | length > 0
+  run_once: true
 
 - name: Ensure /root/.ssh directory exists on all sparks
   ansible.builtin.file:
@@ -10,7 +35,7 @@
     owner: root
     group: root
   delegate_to: "{{ item }}"
-  loop: "{{ groups['dgxsparks'] }}"
+  loop: "{{ _ssh_key_sparks }}"
   run_once: true
 
 - name: Generate ed25519 SSH key if not present on all sparks
@@ -18,7 +43,7 @@
     cmd: ssh-keygen -t ed25519 -f /root/.ssh/id_ed25519 -N ""
     creates: /root/.ssh/id_ed25519
   delegate_to: "{{ item }}"
-  loop: "{{ groups['dgxsparks'] }}"
+  loop: "{{ _ssh_key_sparks }}"
   run_once: true
 
 - name: Fetch public key from all sparks to controller
@@ -27,8 +52,9 @@
     dest: /tmp/dgxarley_spark_pubkeys/{{ item }}.pub
     flat: true
   delegate_to: "{{ item }}"
-  loop: "{{ groups['dgxsparks'] }}"
+  loop: "{{ _ssh_key_sparks }}"
   run_once: true
+  check_mode: false
 
 - name: Authorize all spark keys on all sparks
   ansible.posix.authorized_key:
@@ -36,7 +62,7 @@
     key: "{{ lookup('file', '/tmp/dgxarley_spark_pubkeys/' + item.1 + '.pub') }}"
     state: present
   delegate_to: "{{ item.0 }}"
-  loop: "{{ groups['dgxsparks'] | product(groups['dgxsparks']) | list }}"
+  loop: "{{ _ssh_key_sparks | product(_ssh_key_sparks) | list }}"
   loop_control:
     label: "{{ item.1 }} -> {{ item.0 }}"
   run_once: true

@@ -245,14 +245,15 @@
         _hub_nat_rule: "masquerade|{{ _mikrotik_wireguard.comment }} nat tcp {{ _mikrotik_wireguard.hub_tcp_ports | join(',') }}"
         _hub_ports: "{{ _mikrotik_wireguard.hub_tcp_ports | length > 0 }}"
         _nat_masq: "{{ _nat | select('match', '^(masquerade|src-nat)\\|') | reject('match', '^masquerade\\|' ~ _mikrotik_wireguard.comment ~ ' nat tcp') | list }}"
+        _c: "{{ _mikrotik_wireguard.comment }}"
       ansible.builtin.assert:
         that:
-          - _in.index('{{ _mikrotik_wireguard.comment }} input icmp') < _in.index('{{ _mikrotik_wireguard.comment }} input drop')
-          - _in.index('{{ _mikrotik_wireguard.comment }} input mgmt') < _in.index('{{ _mikrotik_wireguard.comment }} input drop')
-          - _fwd[_fwd.index('{{ _mikrotik_wireguard.comment }} forward drop from tunnel'):] | select('match', '^{{ _mikrotik_wireguard.comment }}-fwd ') | reject('equalto', '{{ _mikrotik_wireguard.comment }}-fwd established') | list | length == 0
-          - "'{{ _mikrotik_wireguard.comment }}-fwd established' not in _fwd or _fwd.index('{{ _mikrotik_wireguard.comment }}-fwd established') < _fwd.index('{{ _mikrotik_wireguard.comment }} forward drop to tunnel')"
-          - _nat_masq | length == 0 or _nat.index('accept|{{ _mikrotik_wireguard.comment }} no-nat') < _nat.index(_nat_masq[0])
-          - not _hub_ports | bool or _fwd.index(_hub_fwd) < _fwd.index('{{ _mikrotik_wireguard.comment }} forward drop to tunnel')
+          - _in.index(_c ~ ' input icmp') < _in.index(_c ~ ' input drop')
+          - _in.index(_c ~ ' input mgmt') < _in.index(_c ~ ' input drop')
+          - _fwd[_fwd.index(_c ~ ' forward drop from tunnel'):] | select('match', '^' ~ _c ~ '-fwd ') | reject('equalto', _c ~ '-fwd established') | list | length == 0
+          - (_c ~ '-fwd established') not in _fwd or _fwd.index(_c ~ '-fwd established') < _fwd.index(_c ~ ' forward drop to tunnel')
+          - _nat_masq | length == 0 or _nat.index(_no_nat) < _nat.index(_nat_masq[0])
+          - not _hub_ports | bool or _fwd.index(_hub_fwd) < _fwd.index(_c ~ ' forward drop to tunnel')
           - not _hub_ports | bool or _nat.index(_hub_nat_rule) < _nat.index(_no_nat)
         fail_msg: "WireGuard firewall/NAT rules sit below their drop/masquerade/no-nat counterparts (moved by hand?); move them up on the router or remove them so the role re-creates them in place"
 
