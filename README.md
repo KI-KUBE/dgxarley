@@ -167,18 +167,20 @@ via the primary gateway.
 
 ### App exposure (Traefik allowlists)
 
-| Variable                     | Default                                        | Meaning                                                                             |
-| ---------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `traefik_internal_allowlist` | localnets + k3s CIDRs + `lan_ingress.networks` | Source ranges allowed for `lan` apps                                                |
-| `app_exposure_default`       | `lan`                                          | Exposure of apps not listed in `app_exposure` (`lan` or `public`)                   |
-| `app_exposure`               | `{}`                                           | Per app label override, e.g. `{ matrix: public, hermes: public }`                   |
-| `traefik_public_allowlist`   | `["0.0.0.0/0", "::/0"]`                        | Source ranges allowed for `public` apps (every source)                              |
-| `hub_ingress.enabled`        | `false`                                        | Enables the PROXY-protocol bind on the k3s master (required when any app is public) |
-| `hub_ingress.bind_address`   | `""`                                           | Master tunnel address the hub connects to, e.g. `10.200.2.10`                       |
-| `hub_ingress.port`           | `8443`                                         | TCP port of the bind (HAProxy `accept-proxy`, then Traefik websecure)               |
-| `hub_ingress.source_ips`     | `[]`                                           | Hub peers allowed to connect (iptables INPUT accept), e.g. `["10.200.2.1/32"]`      |
+| Variable                     | Default                                        | Meaning                                                                                    |
+| ---------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `traefik_internal_allowlist` | localnets + k3s CIDRs + `lan_ingress.networks` | Source ranges allowed for `lan` apps                                                       |
+| `app_exposure_default`       | `lan`                                          | Exposure of apps not listed in `app_exposure` (`lan` or `public`)                          |
+| `app_exposure`               | `{}`                                           | Per app label override, e.g. `{ matrix: public, hermes: public }`                          |
+| `tenants`                    | `{}`                                           | Tenant map `key: { domain, issuer? }`; hermes users with `tenant` get names below `domain` |
+| `tenant_tls_issuer`          | `letsencrypt-tenant`                           | ClusterIssuer for the tenant wildcard certs (TSIG key limited to the tenant domains)       |
+| `traefik_public_allowlist`   | `["0.0.0.0/0", "::/0"]`                        | Source ranges allowed for `public` apps (every source)                                     |
+| `hub_ingress.enabled`        | `false`                                        | Enables the PROXY-protocol bind on the k3s master (required when any app is public)        |
+| `hub_ingress.bind_address`   | `""`                                           | Master tunnel address the hub connects to, e.g. `10.200.2.10`                              |
+| `hub_ingress.port`           | `8443`                                         | TCP port of the bind (HAProxy `accept-proxy`, then Traefik websecure)                      |
+| `hub_ingress.source_ips`     | `[]`                                           | Hub peers allowed to connect (iptables INPUT accept), e.g. `["10.200.2.1/32"]`             |
 
-`public` apps allow every source in Traefik and are reachable only through the kikube hub, which delivers the real client IP via PROXY protocol on `hub_ingress`. `lan` apps accept only the customer LAN, ops tunnel peers and k3s CIDRs, so a client arriving through the hub is blocked by Traefik.
+`public` apps allow every source in Traefik and are reachable only through the kikube hub, which delivers the real client IP via PROXY protocol on `hub_ingress`. `lan` apps accept only the customer LAN, ops tunnel peers and k3s CIDRs, so a client arriving through the hub is blocked by Traefik. Tenant hostnames (`tenants`, `hermes_users[*].tenant`) are served with per-tenant wildcard certs from `tenant_tls_issuer`; they need `app_exposure.hermes: public` and the hub's wildcard A records.
 
 ## K8s Infrastructure (`k8s_infra` role)
 

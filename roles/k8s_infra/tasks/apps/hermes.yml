@@ -14,8 +14,11 @@
 # Per-user gates (in hermes_users entry):
 #   dashboard_enabled (default true)  → deploy hermes-agent pod + ingress
 #   webui_enabled     (default false) → deploy hermes-webui pod + ingress
+#   tenant            (optional)      → extra <username>.hermes[-webui].<tenants[tenant].domain> routes,
+#                                        wildcard cert per tenant via tenant_tls_issuer (tag hermes_tenant)
 
 - name: Filter enabled hermes users
+  tags: [hermes_tenant]
   ansible.builtin.set_fact:
     _hermes_active_users: "{{ hermes_users | selectattr('enabled', 'true') | list }}"
 
@@ -30,6 +33,32 @@
   loop: "{{ _hermes_active_users }}"
   loop_control:
     label: "{{ item.username }}"
+
+- name: Assert hermes tenants are defined, FQDNs and publicly exposed
+  tags: [hermes_tenant]
+  ansible.builtin.assert:
+    that:
+      - _hermes_active_users | selectattr('tenant', 'defined') | map(attribute='tenant') | difference(tenants.keys() | list) | length == 0
+      - tenants.values() | map(attribute='domain') | reject('match', '^([a-z0-9-]+\\.)+[a-z]{2,}$') | list | length == 0
+      - (_hermes_active_users | selectattr('tenant', 'defined') | list | length == 0) or ((app_exposure.hermes | default(app_exposure_default)) == 'public')
+    fail_msg: "hermes_users[*].tenant must be a key of tenants, tenant domains must be FQDNs, and app_exposure.hermes must be public when a tenant is used"
+    quiet: true
+
+- name: Collect tenants referenced by enabled hermes dashboards and webuis
+  tags: [hermes_tenant]
+  ansible.builtin.set_fact:
+    _hermes_tenants_agent: >-
+      {%- set out = [] -%}
+      {%- for u in _hermes_active_users if u.tenant is defined and (u.dashboard_enabled | default(hermes.agent.dashboard_enabled_default)) -%}
+      {%- set _ = out.append(u.tenant) -%}
+      {%- endfor -%}
+      {{ out | unique | list }}
+    _hermes_tenants_webui: >-
+      {%- set out = [] -%}
+      {%- for u in _hermes_active_users if u.tenant is defined and (u.webui_enabled | default(hermes.webui.enabled_default)) -%}
+      {%- set _ = out.append(u.tenant) -%}
+      {%- endfor -%}
+      {{ out | unique | list }}
 
 # --- Per-namespace NetworkPolicies for the Hermes pods (gated by
 # hermes_network_policies_enabled, default OFF). One egress + one ingress policy,
@@ -691,6 +720,7 @@
   when: not (item.dashboard_enabled | default(hermes.agent.dashboard_enabled_default))
 
 - name: Create hermes ip allowlist middleware
+  tags: [hermes_tenant]
   kubernetes.core.k8s:
     state: present
     definition:
@@ -930,3 +960,113 @@
   loop: "{{ _hermes_active_users }}"
   loop_control:
     label: "{{ item.username }}"
+
+# --- Tenant hostnames: one wildcard cert per tenant and kind, one extra IngressRoute per user and tenant.
+# The kikube hub routes *.hermes.<domain> / *.hermes-webui.<domain> here by SNI; it owns the A records.
+- name: Apply hermes-agent wildcard Certificate per tenant
+  tags: [hermes_tenant]
+  kubernetes.core.k8s:
+    state: "{{ 'present' if item.key in _hermes_tenants_agent else 'absent' }}"
+    apply: true
+    definition:
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: "hermes-tenant-{{ item.key }}-agent-tls"
+        namespace: "{{ hermes.namespace }}"
+      spec:
+        dnsNames:
+          - "*.{{ hermes.agent.subdomain }}.{{ item.value.domain }}"
+        secretName: "hermes-tenant-{{ item.key }}-agent-tls"
+        issuerRef:
+          name: "{{ item.value.issuer | default(tenant_tls_issuer) }}"
+          kind: ClusterIssuer
+  loop: "{{ tenants | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Apply hermes-webui wildcard Certificate per tenant
+  tags: [hermes_tenant]
+  kubernetes.core.k8s:
+    state: "{{ 'present' if item.key in _hermes_tenants_webui else 'absent' }}"
+    apply: true
+    definition:
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: "hermes-tenant-{{ item.key }}-webui-tls"
+        namespace: "{{ hermes.namespace }}"
+      spec:
+        dnsNames:
+          - "*.{{ hermes.webui.subdomain }}.{{ item.value.domain }}"
+        secretName: "hermes-tenant-{{ item.key }}-webui-tls"
+        issuerRef:
+          name: "{{ item.value.issuer | default(tenant_tls_issuer) }}"
+          kind: ClusterIssuer
+  loop: "{{ tenants | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Apply per-user hermes-agent IngressRoute for the tenant hostname
+  tags: [hermes_tenant]
+  kubernetes.core.k8s:
+    state: "{{ 'present' if (item.0.tenant | default('') == item.1.key and (item.0.dashboard_enabled | default(hermes.agent.dashboard_enabled_default))) else 'absent' }}"
+    apply: true
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: IngressRoute
+      metadata:
+        name: "hermes-agent-{{ item.0.username }}-{{ item.1.key }}"
+        namespace: "{{ hermes.namespace }}"
+      spec:
+        entryPoints:
+          - websecure
+        routes:
+          - kind: Rule
+            match: "Host(`{{ item.0.username }}.{{ hermes.agent.subdomain }}.{{ item.1.value.domain }}`)"
+            priority: 10
+            services:
+              - kind: Service
+                name: "hermes-agent-{{ item.0.username }}"
+                passHostHeader: true
+                port: "{{ hermes.agent.dashboard_port }}"
+            middlewares:
+              - name: hermes-ip-allowlist
+                namespace: "{{ hermes.namespace }}"
+        tls:
+          secretName: "hermes-tenant-{{ item.1.key }}-agent-tls"
+  loop: "{{ _hermes_active_users | product(tenants | dict2items) | list }}"
+  loop_control:
+    label: "{{ item.0.username }}/{{ item.1.key }}"
+
+- name: Apply per-user hermes-webui IngressRoute for the tenant hostname
+  tags: [hermes_tenant]
+  kubernetes.core.k8s:
+    state: "{{ 'present' if (item.0.tenant | default('') == item.1.key and (item.0.webui_enabled | default(hermes.webui.enabled_default))) else 'absent' }}"
+    apply: true
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: IngressRoute
+      metadata:
+        name: "hermes-webui-{{ item.0.username }}-{{ item.1.key }}"
+        namespace: "{{ hermes.namespace }}"
+      spec:
+        entryPoints:
+          - websecure
+        routes:
+          - kind: Rule
+            match: "Host(`{{ item.0.username }}.{{ hermes.webui.subdomain }}.{{ item.1.value.domain }}`)"
+            priority: 10
+            services:
+              - kind: Service
+                name: "hermes-webui-{{ item.0.username }}"
+                passHostHeader: true
+                port: "{{ hermes.webui.port }}"
+            middlewares:
+              - name: hermes-ip-allowlist
+                namespace: "{{ hermes.namespace }}"
+        tls:
+          secretName: "hermes-tenant-{{ item.1.key }}-webui-tls"
+  loop: "{{ _hermes_active_users | product(tenants | dict2items) | list }}"
+  loop_control:
+    label: "{{ item.0.username }}/{{ item.1.key }}"

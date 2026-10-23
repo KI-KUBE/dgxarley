@@ -21,12 +21,17 @@ certmanager_letsencrypt_email: "admin@example.com"
 certmanager_secondary_dns_zone: "example.eu"
 certmanager_secondary_tsig_key_name: "ddns-key.example.eu"
 certmanager_secondary_tsig_key_secret: "CHANGEME_BASE64_TSIG_KEY"
+# Narrow key for the tenant wildcards (tenants.yml): TXT under the tenant domains only, UPDATE zone = their parent.
+certmanager_tenant_dns_zone: "example.com"
+certmanager_tenant_tsig_key_name: "acme-tenants.example.com"
+certmanager_tenant_tsig_key_secret: "CHANGEME_BASE64_TSIG_KEY"
 
 # Named DNS (RFC2136/nsupdate) backends — one bundle of {server, zone, TSIG,
 # ttl, ingress_ip} per authoritative server/zone. NO secret is literal here: each
 # field references a vaulted scalar via Jinja. `primary` wraps the flat nsupdate_*
 # scalars above (the cluster backend, still used directly by the ~26 nsupdate
-# record consumers); `secondary` is the extra external zone. certmanager_acme_issuers
+# record consumers); `secondary` is the extra external zone, `tenant` the narrow
+# key for the tenant wildcards. certmanager_acme_issuers
 # entries point at a backend by key. NOTE: `.zone` is the RFC2136 UPDATE zone
 # (e.g. the parent zone for A-records), which is NOT necessarily a cert's hostname
 # suffix — cert-manager selector zones stay on the issuer entry (`dns_zones`).
@@ -47,6 +52,14 @@ nsupdate_servers:
     tsig_algorithm: "hmac-sha256"
     ttl: 900
     ingress_ip: "{{ nsupdate_ingress_ip }}"
+  tenant:
+    server: "{{ nsupdate_server }}"
+    zone: "{{ certmanager_tenant_dns_zone }}"
+    tsig_key_name: "{{ certmanager_tenant_tsig_key_name }}"
+    tsig_key_secret: "{{ certmanager_tenant_tsig_key_secret }}"
+    tsig_algorithm: "hmac-sha256"
+    ttl: 60
+    ingress_ip: "{{ nsupdate_ingress_ip }}"    # unused: the hub owns the tenant A records
 
 # cert-manager ACME (Let's Encrypt) DNS01 ClusterIssuers — created generically by
 # looping over this list in roles/k8s_infra/tasks/core/certmanager.yml. Each entry
@@ -73,3 +86,9 @@ certmanager_acme_issuers:
     dns_zones: ["{{ certmanager_secondary_dns_zone }}"]
     tsig_secret_name: tsig-secret-secondary
     private_key_ref: elasticc-issuer-key-secondary
+  # dns_zones derive from tenants (tenants.yml); an empty list skips the issuer in certmanager.yml.
+  - name: letsencrypt-tenant
+    nsupdate: tenant
+    dns_zones: "{{ tenants.values() | map(attribute='domain') | unique | list }}"
+    tsig_secret_name: tsig-secret-tenant
+    private_key_ref: elasticc-issuer-key-tenant

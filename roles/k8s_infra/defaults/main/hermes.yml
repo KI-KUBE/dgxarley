@@ -229,6 +229,7 @@ hermes:
 #           litellm_model?, basicauth_password?, webui_password?,
 #           dashboard_enabled? (default true),
 #           webui_enabled?     (default false),
+#           tenant?            (key of tenants → extra <username>.hermes[-webui].<tenants[tenant].domain>),
 #           hermes_debug?      (default false),
 #           email?: {           (default disabled — omit block to skip)
 #               enabled,        (default hermes.email.enabled_default)
@@ -257,5 +258,5 @@ hermes:
 #               memory_limit?   '500m'/'512Mi')
 #           },
 #           enabled }
-# Hostnames: <username>.hermes-dashboard.<dns> (original)  +  <username>.hermes.<dns> (webui)
+# Hostnames: <username>.hermes.<dns> (dashboard) + <username>.hermes-webui.<dns> (webui), plus the same labels under tenants[tenant].domain
 hermes_users: []

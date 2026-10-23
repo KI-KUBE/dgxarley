@@ -1,0 +1,8 @@
+---
+# Public dummy/example values. Real values live in group_vars/all/vault/<topic>.sops.yml of the private sops overlay.
+# key = value of hermes_users[*].tenant; domain = FQDN whose *.hermes / *.hermes-webui wildcards the kikube hub routes
+# to this cluster (the hub owns the A records; the cluster only solves ACME challenges there).
+# issuer (optional) = ClusterIssuer whose dns_zones cover domain, default tenant_tls_issuer.
+tenants: {}
+#  emelags: { domain: emelags.clients.example.com }
+tenant_tls_issuer: letsencrypt-tenant

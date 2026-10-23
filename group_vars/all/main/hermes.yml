@@ -7,8 +7,9 @@
 # `enabled: false` on every entry keeps it inert even if the vault copy is missing.
 #
 # Per-user gates (independent):
-#   dashboard_enabled  → official `hermes dashboard` pod  (<u>.hermes-dashboard.<dns>)
-#   webui_enabled      → ghcr.io/nesquena/hermes-webui pod (<u>.hermes.<dns>)
+#   dashboard_enabled  → official `hermes dashboard` pod  (<u>.hermes.<dns>)
+#   webui_enabled      → ghcr.io/nesquena/hermes-webui pod (<u>.hermes-webui.<dns>)
+#   tenant             → key of tenants (main/tenants.yml); adds <u>.hermes[-webui].<tenants[tenant].domain>
 #   email.enabled      → `hermes gateway run` sidecar inside the webui pod
 #                        (implies webui_enabled; reads EMAIL_* from /opt/data/.env)
 hermes_users:
@@ -21,6 +22,7 @@ hermes_users:
     webui_password: "changeme"         # defaults to basicauth_password if unset
     dashboard_enabled: false
     webui_enabled: true
+    tenant: ""                         # key of tenants; unset/empty → LAN hostnames only
     hermes_debug: false                # true → logging.level=DEBUG in config.yaml
     # Required for every active user once hermes.outline.enabled is true; generated into the vault, provisioned by --tags outline.
     outline:

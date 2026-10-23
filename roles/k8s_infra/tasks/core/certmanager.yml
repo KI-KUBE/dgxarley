@@ -177,6 +177,7 @@
   loop: "{{ certmanager_acme_issuers }}"
   loop_control:
     label: "{{ item.name }}"
+  when: item.dns_zones | length > 0
 
 - name: Create ACME DNS01 ClusterIssuers
   kubernetes.core.k8s:
@@ -206,3 +207,4 @@
   loop: "{{ certmanager_acme_issuers }}"
   loop_control:
     label: "{{ item.name }}"
+  when: item.dns_zones | length > 0
