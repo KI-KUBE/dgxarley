@@ -16,7 +16,7 @@
 # Uncomment and adjust KERNELS values:
 #
 
-# elite800: port 1-4 = greencell (600W), port 1-1 = greencell2 (2000VA 1200W)
+# k3smaster: port 1-4 = greencell (600W), port 1-1 = greencell2 (2000VA 1200W)
 ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="{{ nut_ups_vendorid }}", ATTR{idProduct}=="{{ nut_ups_productid }}", KERNELS=="1-4", SYMLINK+="ups-1", MODE="0660", GROUP="nut", RUN+="/bin/sh -c 'for iface in /sys$devpath:*; do [ -e \"$iface/driver/unbind\" ] && echo $(basename $iface) > $iface/driver/unbind; done; true'"
 ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="{{ nut_ups_vendorid }}", ATTR{idProduct}=="{{ nut_ups_productid }}", KERNELS=="1-1", SYMLINK+="ups-2", MODE="0660", GROUP="nut", RUN+="/bin/sh -c 'for iface in /sys$devpath:*; do [ -e \"$iface/driver/unbind\" ] && echo $(basename $iface) > $iface/driver/unbind; done; true'"
 
