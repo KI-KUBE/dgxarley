@@ -11,6 +11,12 @@ service-cidr: "{{ service_cidr }}"
 node-ip: "{{ k3s_node_ip }}"
 bind-address: "{{ k3s_node_ip }}"
 node-external-ip: "{{ k3s_node_ip }}"
+{% if k3s_tls_san | length > 0 %}
+tls-san:
+{% for san in k3s_tls_san %}
+  - "{{ san }}"
+{% endfor %}
+{% endif %}
 # node-name: "{{ inventory_hostname }}"
 service-node-port-range: "22-32767"
 flannel-ipv6-masq: false

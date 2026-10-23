@@ -8,6 +8,9 @@ k3s_version: "v1.37.1+k3s1"
 
 k3s_node_ip: "{{ ansible_facts.default_ipv4.address }}"
 
+# Extra API server cert SANs (IPs or DNS names) on the master; changes need a k3s restart.
+k3s_tls_san: []
+
 # false = kube-router NetworkPolicy controller runs (NetworkPolicies are enforced).
 # Changing this requires a restart of ALL nodes (k3s + k3s-agent).
 k3s_disable_network_policy: false

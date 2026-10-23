@@ -3,3 +3,6 @@
 k3s_node_ip: "192.168.124.100"
 # Flannel VTEP must use the K3s cluster VLAN interface, not the default route interface
 k3s_flannel_iface: "br0.124"
+k3s_tls_san:
+  - "192.168.123.37"
+  - "k3smaster.example.com"
