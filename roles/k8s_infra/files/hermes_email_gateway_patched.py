@@ -2,8 +2,8 @@
 receives, SMTP sends. Configured via EMAIL_* env vars or ``platforms.email`` in config.yaml (see website docs).
 
 ------------------------------------------------------------------------------
-LOCAL PATCH (dgxarley) — synced to upstream tag v0.22.0
-(plugins/platforms/email/adapter.py, 60105 bytes, blob d983fd81c7). Must move in
+LOCAL PATCH (dgxarley) — synced to upstream tag v0.22.4
+(plugins/platforms/email/adapter.py, 61613 bytes, blob 49abaf5f6a). Must move in
 lockstep with hermes.image_tag: the baseline calls base-class methods that only
 exist from its own tag on. Re-sync procedure: HERMES_EMAIL_UPSTREAM.md.
 
@@ -113,6 +113,7 @@ from gateway.platforms._shared import (
     decode_json_list_literal,
     send_error,
 )
+from gateway.platforms.send_targets import StandaloneSendPolicy, regex_stripped_parser
 
 logger = logging.getLogger(__name__)
 
@@ -751,6 +752,7 @@ def _attach_file(msg: MIMEMultipart, path: Path, filename: str) -> None:
 class EmailAdapter(BasePlatformAdapter):
     """Email gateway adapter using IMAP (receive) and SMTP (send)."""
 
+    serial_receive_loop = True  # the IMAP poll loop awaits each message before dispatching the next
     # One email carries the whole body, so cron delivery hands over the full payload untruncated.
     splits_long_messages = True
 
@@ -1825,22 +1827,45 @@ def _is_connected(config) -> bool:
     return bool((gateway_mod.get_env_value("EMAIL_ADDRESS") or "").strip())
 
 
+# System-prompt platform hint (PlatformEntry.platform_hint); cached-prompt bytes, keep stable.
+_PLATFORM_HINT = (
+    "You are communicating via email. Write clear, well-structured responses suitable for email. Use "
+    "plain text formatting (no markdown). Keep responses concise but complete. You can send file "
+    "attachments — include MEDIA:/absolute/path/to/file in your response. The subject line is preserved "
+    "for threading. Do not include greetings or sign-offs unless contextually appropriate."
+)
+
+
+_SEND_TARGET_RE = re.compile(r"^\s*[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\s*$")
+
+
 def register(ctx) -> None:
     """Plugin entry point — called by the Hermes plugin system."""
+    from . import gateway_env  # env -> GatewayConfig bridge (gateway.config_env)
+
     ctx.register_platform(
+        target_ref_syntax_fn=regex_stripped_parser(_SEND_TARGET_RE),
+        standalone_send=StandaloneSendPolicy(text_direct=True),
         name="email",
         label="Email",
         adapter_factory=EmailAdapter,
         check_fn=check_email_requirements,
         is_connected=_is_connected,
+        dashboard_description="Talk to Hermes through an IMAP/SMTP mailbox.",
+        docs_url="https://hermes-agent.nousresearch.com/docs/user-guide/messaging/",
+        dashboard_env_vars=("EMAIL_ADDRESS", "EMAIL_PASSWORD", "EMAIL_IMAP_HOST", "EMAIL_SMTP_HOST"),
+        dashboard_required_env=("EMAIL_ADDRESS", "EMAIL_PASSWORD", "EMAIL_IMAP_HOST", "EMAIL_SMTP_HOST"),
         required_env=["EMAIL_ADDRESS", "EMAIL_PASSWORD", "EMAIL_SMTP_HOST"],
         install_hint="Email uses the Python stdlib (smtplib/imaplib) — no extra deps",
-        allowed_users_env="EMAIL_ALLOWED_USERS",
-        allow_all_env="EMAIL_ALLOW_ALL_USERS",
         cron_deliver_env_var="EMAIL_HOME_ADDRESS",
         standalone_sender_fn=_standalone_send,
         max_message_length=50_000,
         pii_safe=True,
         emoji="📧",
         allow_update_command=True,
+        platform_hint=_PLATFORM_HINT,
+        display_tier="minimal",
+        env_overrides=gateway_env.ENV_OVERRIDES,
+        env_enable_credentials=gateway_env.ENV_ENABLE_CREDENTIALS,
+        **gateway_env.AUTHZ,
     )
