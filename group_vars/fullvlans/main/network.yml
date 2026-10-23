@@ -1,9 +1,10 @@
 ---
 # Public dummy/example values. Real values live in the same-named vault/<topic>.sops.yml of the private sops overlay.
-# DNS server and gateway for VLAN 123 + 124 (overridden by the vault copy)
+# DNS server and gateway for VLAN 123 + 124; only read via ovs_vlans (wantsopenvswitch: true).
 fullvlans_dns_server: "192.168.123.1"
 fullvlans_gateway: "192.168.123.1"
 
+# Rendered only when wantsopenvswitch is true (roles/common/tasks/installnetplan.yml).
 ovs_vlans:
   - id: 123
     link_local: "[ ipv6 ]"

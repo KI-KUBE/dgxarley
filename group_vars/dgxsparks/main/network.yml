@@ -7,10 +7,11 @@ disable_wifi_iface: "wlP9s9"
 wantsopenvswitch: true
 ovs_bridge_name: "br0"
 
-# Network (overridden by the vault copy)
+# Only read via ovs_vlans (wantsopenvswitch: true); non-OVS hosts use static_ip/static_gateway/static_dns.
 dgxsparks_dns_server: "192.168.123.1"
 dgxsparks_gateway: "192.168.124.1"
 
+# Rendered only when wantsopenvswitch is true (roles/common/tasks/installnetplan.yml).
 ovs_vlans:
   - id: 124
     primary: true
