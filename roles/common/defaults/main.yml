@@ -20,6 +20,9 @@ install_docker_cli: false
 # AppArmor removal - set to true for cloud/dns servers
 deinstall_apparmor: false
 
+# Opt-in OVS removal on hosts with wantsopenvswitch false: -e openvswitch_teardown=true (refuses while bridges exist).
+openvswitch_teardown: false
+
 # bottom (btm) system monitor — NOT in Ubuntu apt, installed from the GitHub
 # release .deb. Pin the version here (tag has no leading "v"). Asset naming is
 # `bottom-musl_<version>-1_<arch>.deb`; arch is derived from ansible_architecture
@@ -42,7 +45,7 @@ iptables_xosrc_ips: []
 iptables_lifeline_ips: []
 iptables_k3s_external_ips: []
 # TCP ports open to every source (the router's port forwards); localnets stays the internal LAN.
-iptables_public_tcp_ports: "{{ lan_ingress.tcp_ports | default([]) if (lan_ingress.enabled | default(false) | bool and inventory_hostname == lan_ingress.target_host | default('')) else [] }}"
+iptables_public_tcp_ports: "{{ lan_ingress.tcp_ports | default([]) + lan_ingress.tcp_port_map | default([]) | map(attribute='to_port') | list if (lan_ingress.enabled | default(false) | bool and inventory_hostname == lan_ingress.target_host | default('')) else [] }}"
 iptables_static_dns_ips: []
 # Host-level SGLang from scripts/run_standalone.sh (podman --network=host), opened to localnets
 standalone_sglang_firewall_enabled: false

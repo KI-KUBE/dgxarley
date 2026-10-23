@@ -36,7 +36,7 @@ iptables_xosrc_ips: []
 iptables_lifeline_ips: []
 iptables_k3s_external_ips: []
 # TCP ports open to every source (the router's port forwards); localnets stays the internal LAN.
-iptables_public_tcp_ports: "{{ lan_ingress.tcp_ports | default([]) if (lan_ingress.enabled | default(false) | bool and inventory_hostname == lan_ingress.target_host | default('')) else [] }}"
+iptables_public_tcp_ports: "{{ lan_ingress.tcp_ports | default([]) + lan_ingress.tcp_port_map | default([]) | map(attribute='to_port') | list if (lan_ingress.enabled | default(false) | bool and inventory_hostname == lan_ingress.target_host | default('')) else [] }}"
 iptables_static_dns_ips: []
 
 # Clevis / Tang NBDE: every enabled host with providestang except the client itself; t=1 = any one tang unlocks.

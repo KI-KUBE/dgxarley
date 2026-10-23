@@ -14,7 +14,8 @@
   ansible.builtin.assert:
     that:
       - lan_ingress.tcp_ports | difference(iptables_public_tcp_ports) | length == 0
-    fail_msg: "lan_ingress.tcp_ports must be in iptables_public_tcp_ports on {{ inventory_hostname }}"
+      - lan_ingress.tcp_port_map | default([]) | map(attribute='to_port') | difference(iptables_public_tcp_ports) | length == 0
+    fail_msg: "lan_ingress.tcp_ports and tcp_port_map to_ports must be in iptables_public_tcp_ports on {{ inventory_hostname }}"
     quiet: true
   when:
     - lan_ingress.enabled | default(false) | bool

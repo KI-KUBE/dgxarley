@@ -1,12 +1,89 @@
 ---
 - name: install netplan.io if needed
   apt:
-    pkg:
-      - netplan.io
-      - networkd-dispatcher
-      - openvswitch-switch
+    pkg: "{{ ['netplan.io', 'networkd-dispatcher'] + (['openvswitch-switch'] if (wantsopenvswitch | default(false)) else []) }}"
     state: present
   register: netplaninstalled
+
+- name: Assert openvswitch gates
+  ansible.builtin.assert:
+    that:
+      - not (wantsopenvswitch | default(false) and openvswitch_teardown | bool)
+    fail_msg: "wantsopenvswitch and openvswitch_teardown are mutually exclusive"
+    quiet: true
+
+# Opt-in via -e openvswitch_teardown=true; netplan files of OVS mode are already removed by the tasks below.
+- name: Open vSwitch teardown (non-OVS host)
+  when: openvswitch_teardown | bool
+  block:
+    - name: List remaining OVS bridges
+      ansible.builtin.command: ovs-vsctl --timeout=5 list-br
+      register: _ovs_teardown_bridges
+      changed_when: false
+      failed_when: false
+      check_mode: false
+
+    - name: Refuse teardown while OVS bridges exist
+      ansible.builtin.assert:
+        that:
+          - _ovs_teardown_bridges.rc != 0 or (_ovs_teardown_bridges.stdout | trim | length == 0)
+        fail_msg: "OVS bridges still present on {{ inventory_hostname }}: {{ _ovs_teardown_bridges.stdout_lines | join(', ') }}"
+        quiet: true
+
+    - name: Look up the installed OVS units
+      ansible.builtin.command: "systemctl list-unit-files --no-legend {{ item }}.service"
+      loop:
+        - openvswitch-switch
+        - ovs-vswitchd
+        - ovsdb-server
+      register: _ovs_teardown_units
+      changed_when: false
+      failed_when: _ovs_teardown_units.rc not in [0, 1]
+      check_mode: false
+
+    - name: Stop and disable the OVS services
+      ansible.builtin.systemd:
+        name: "{{ item.item }}"
+        state: stopped
+        enabled: "{{ omit if item.item != 'openvswitch-switch' else false }}"
+      loop: "{{ _ovs_teardown_units.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: item.stdout | trim | length > 0
+
+    - name: Find netplan-ovs systemd drop-ins
+      ansible.builtin.find:
+        paths: /etc/systemd/system
+        patterns: "netplan-ovs-*.service.d"
+        file_type: directory
+      register: _ovs_teardown_dropins
+
+    - name: Remove netplan-ovs systemd drop-ins
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ _ovs_teardown_dropins.files | map(attribute='path') | list }}"
+
+    - name: Purge the OVS packages
+      ansible.builtin.apt:
+        name:
+          - openvswitch-switch
+          - openvswitch-common
+          - python3-openvswitch
+        state: absent
+        purge: true
+        autoremove: false
+      register: _ovs_teardown_purge
+
+    - name: Reload systemd so netplan drops its netplan-ovs-cleanup unit
+      ansible.builtin.systemd:
+        daemon_reload: true
+
+    - name: Teardown reminders
+      ansible.builtin.debug:
+        msg:
+          - "{{ inventory_hostname }}: OVS packages purged: {{ _ovs_teardown_purge.changed }}"
+          - "Rerun 'storage.yml' on the JuiceFS metadata node so the Valkey drop-in loses its openvswitch-switch Wants=."
 
 - name: Check if /etc/netplan/50-cloud-init.yaml
   stat:

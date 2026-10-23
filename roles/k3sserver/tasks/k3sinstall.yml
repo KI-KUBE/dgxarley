@@ -32,11 +32,10 @@
     owner: root
     group: root
     mode: "0644"
+  notify: restart k3s
 
 # Node-swap KubeletConfiguration (KEP-2400). Only when k3s_node_swap_enabled;
-# referenced from config.yaml via kubelet-arg config=. NOTE: neither this nor the
-# config.yaml task restarts k3s — k3s reads both only at startup. Restart
-# k3s/k3s-agent manually (with consent) after a swap device exists on the node.
+# referenced from config.yaml via kubelet-arg config=.
 - name: copy template kubelet-config.yaml (node swap)
   template:
     src: "etc_rancher_k3s_kubelet-config.yaml.j2"
@@ -44,12 +43,14 @@
     owner: root
     group: root
     mode: "0644"
+  notify: restart k3s
   when: k3s_node_swap_enabled | default(false)
 
 - name: remove kubelet-config.yaml when node swap disabled
   ansible.builtin.file:
     path: "{{ k3s_kubelet_config_path }}"
     state: absent
+  notify: restart k3s
   when: not (k3s_node_swap_enabled | default(false))
 
 - name: Populate service facts

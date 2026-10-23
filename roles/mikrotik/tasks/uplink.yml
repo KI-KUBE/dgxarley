@@ -15,8 +15,13 @@
       - _mikrotik_uplink.port_forwards | rejectattr('tcp_ports', 'defined') | list | length == 0
       - _mikrotik_uplink.port_forwards | map(attribute='tcp_ports') | map('length') | select('gt', 15) | list | length == 0
       - _mikrotik_uplink.port_forwards | map(attribute='tcp_ports') | map('length') | select('eq', 0) | list | length == 0
-    fail_msg: "uplink: mode must be dhcp or static (static needs mikrotik_uplink.address + mikrotik_routing.default_gateway); the uplink port must not be in mikrotik_bridge.ports; mikrotik_object_prefix allows only letters, digits, - and _; port forwards need one entry per IPv4 to_address with 1-15 tcp_ports"
+      - _maps | map(attribute='from_port') | unique | length == _maps | length
+      - _maps | map(attribute='from_port') | intersect(_mikrotik_uplink.port_forwards | map(attribute='tcp_ports') | flatten) | length == 0
+      - _maps | map(attribute='to_port') | select('integer') | length == _maps | length
+    fail_msg: "uplink: mode must be dhcp or static (static needs mikrotik_uplink.address + mikrotik_routing.default_gateway); the uplink port must not be in mikrotik_bridge.ports; mikrotik_object_prefix allows only letters, digits, - and _; port forwards need one entry per IPv4 to_address with 1-15 tcp_ports; tcp_port_map from_ports must be unique and not in any tcp_ports"
     quiet: true
+  vars:
+    _maps: "{{ _mikrotik_uplink.port_forwards | map(attribute='tcp_port_map', default=[]) | flatten }}"
 
 - name: Assert lan_ingress is covered by the uplink port forwards
   ansible.builtin.assert:
@@ -95,6 +100,23 @@
     label: "{{ item.to_address }}: {{ item.tcp_ports | join(',') }}"
   changed_when: false
 
+- name: Ensure uplink port maps
+  community.routeros.command:
+    commands:
+      - >-
+        :if ([:len [/ip/firewall/nat/find comment="{{ _comment }}"]] = 0)
+        do={ /ip/firewall/nat/add {{ _rule }} comment="{{ _comment }}" }
+        else={ /ip/firewall/nat/set [find comment="{{ _comment }}"] {{ _rule }} }
+  vars:
+    _comment: "{{ _mikrotik_uplink.comment }} dstnat port {{ item.1.from_port }}"
+    _rule: >-
+      chain=dstnat action=dst-nat in-interface={{ _mikrotik_uplink.interface }} dst-address-type=local
+      protocol=tcp dst-port={{ item.1.from_port }} to-addresses={{ item.0.to_address }} to-ports={{ item.1.to_port }}
+  loop: "{{ _mikrotik_uplink.port_forwards | subelements('tcp_port_map', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.1.from_port }} -> {{ item.0.to_address }}:{{ item.1.to_port }}"
+  changed_when: false
+
 # The console echoes the command, wrapped at terminal width, into stdout; the dnat| marker separates the lines.
 - name: Read uplink port forwards
   community.routeros.command:
@@ -113,7 +135,10 @@
        | map('regex_replace', '^dnat\|', '') | reject('in', _wanted) | list }}
   vars:
     _prefix: "{{ _mikrotik_uplink.comment }} dstnat "
-    _wanted: "{{ _mikrotik_uplink.port_forwards | map(attribute='to_address') | map('regex_replace', '^', _prefix) | list }}"
+    _wanted: >-
+      {{ _mikrotik_uplink.port_forwards | map(attribute='to_address') | map('regex_replace', '^', _prefix) | list
+         + _mikrotik_uplink.port_forwards | map(attribute='tcp_port_map', default=[]) | flatten
+           | map(attribute='from_port') | map('string') | map('regex_replace', '^', _prefix ~ 'port ') | list }}
   changed_when: true
 
 # Drops are appended and listed first; each accept is placed right before its drop by id

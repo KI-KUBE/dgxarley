@@ -52,7 +52,7 @@
     #     `systemd-networkd-wait-online --any -i heidk8.101 -i <usb-nic>`, so the
     #     target can be reached while the OVS VLAN interface carrying the storage
     #     address is still unconfigured. It is NOT the interface we need.
-    #   * openvswitch-switch.service — its completion means ovsdb-server +
+    #   * openvswitch-switch.service (only when wantsopenvswitch) — its completion means ovsdb-server +
     #     ovs-vswitchd are up, i.e. the bridge/port CAN exist; the address is then
     #     configured by systemd-networkd a moment later.
     # There is no "address X is up" unit to order against, so the actual safety
@@ -74,8 +74,8 @@
           # Managed by Ansible (juicefs_storage) — do not edit.
           # See tasks/backend.yml for the rationale.
           [Unit]
-          After=network-online.target openvswitch-switch.service
-          Wants=network-online.target openvswitch-switch.service
+          After=network-online.target{{ ' openvswitch-switch.service' if (wantsopenvswitch | default(false)) else '' }}
+          Wants=network-online.target{{ ' openvswitch-switch.service' if (wantsopenvswitch | default(false)) else '' }}
           StartLimitIntervalSec=0
 
           [Service]

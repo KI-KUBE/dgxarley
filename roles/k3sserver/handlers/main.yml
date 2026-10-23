@@ -12,3 +12,10 @@
 
 - name: sysctl reload
   command: sysctl -p
+
+# One node at a time; KillMode=process keeps the containers running across the restart.
+- name: restart k3s
+  service:
+    name: "{{ 'k3s' if isk3smaster | default(false) else 'k3s-agent' }}"
+    state: restarted
+  throttle: 1
