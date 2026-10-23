@@ -31,9 +31,11 @@ mikrotik_nat: {}
 mikrotik_nat_defaults:
   srcnat_rules: []
 
+# static_leases: [{name, mac, address, server}]; adopts the lease with that MAC (dynamic ones are made static), removes stale managed ones.
 mikrotik_dhcp: {}
 mikrotik_dhcp_defaults:
   servers: []
+  static_leases: []
 
 mikrotik_firewall: {}
 mikrotik_firewall_defaults:

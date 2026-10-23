@@ -7,6 +7,8 @@
 # traefik_internal_allowlist) live in group_vars/all/main/.
 # ============================================================================
 
+# false only skips the install; an existing deployment is left untouched.
+openwebui_enabled: true
 openwebui_namespace: "openwebui"
 
 openwebui_image: "ghcr.io/open-webui/open-webui:main"

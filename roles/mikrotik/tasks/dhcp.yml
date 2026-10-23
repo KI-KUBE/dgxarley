@@ -38,3 +38,51 @@
   loop_control:
     label: "{{ item.name }}"
   changed_when: false
+
+- name: Assert static DHCP leases
+  ansible.builtin.assert:
+    that:
+      - _mikrotik_dhcp.static_leases | map(attribute='name') | reject('match', '^[A-Za-z0-9][A-Za-z0-9.-]*$') | list | length == 0
+      - _mikrotik_dhcp.static_leases | map(attribute='mac') | reject('match', '^([0-9A-F]{2}:){5}[0-9A-F]{2}$') | list | length == 0
+      - _mikrotik_dhcp.static_leases | map(attribute='address') | reject('match', '^\\d+\\.\\d+\\.\\d+\\.\\d+$') | list | length == 0
+      - _mikrotik_dhcp.static_leases | selectattr('server', 'undefined') | list | length == 0
+      - _mikrotik_dhcp.static_leases | map(attribute='name') | unique | length == _mikrotik_dhcp.static_leases | length
+      - _mikrotik_dhcp.static_leases | map(attribute='mac') | unique | length == _mikrotik_dhcp.static_leases | length
+    fail_msg: "static_leases: unique name (letters, digits, . and -), unique upper-case MAC, IPv4 address and server per entry"
+    quiet: true
+
+- name: Ensure static DHCP leases
+  community.routeros.command:
+    commands:
+      - >-
+        :local id [/ip/dhcp-server/lease/find mac-address={{ item.mac }}];
+        :if ([:len $id] = 0)
+        do={ /ip/dhcp-server/lease/add mac-address={{ item.mac }} address={{ item.address }} server={{ item.server }} comment="{{ _comment }}" }
+        else={ :if ([/ip/dhcp-server/lease/get ($id->0) dynamic]) do={ /ip/dhcp-server/lease/make-static ($id->0) };
+        /ip/dhcp-server/lease/set ($id->0) address={{ item.address }} server={{ item.server }} comment="{{ _comment }}" }
+  vars:
+    _comment: "{{ mikrotik_object_prefix }}-dhcp lease {{ item.name }}"
+  loop: "{{ _mikrotik_dhcp.static_leases }}"
+  loop_control:
+    label: "{{ item.name }}: {{ item.mac }} {{ item.address }}"
+  changed_when: false
+
+- name: Read static DHCP leases
+  community.routeros.command:
+    commands:
+      - ':foreach i in=[/ip/dhcp-server/lease/find comment~"^{{ mikrotik_object_prefix }}-dhcp lease "] do={ :put ("lease|" . [/ip/dhcp-server/lease/get $i comment]) }'
+  register: _dhcp_leases
+  changed_when: false
+  check_mode: false
+
+- name: Remove stale static DHCP leases
+  community.routeros.command:
+    commands:
+      - /ip/dhcp-server/lease/remove [find comment="{{ item }}"]
+  loop: >-
+    {{ _dhcp_leases.stdout_lines[0] | map('trim') | select('match', '^lease\|' ~ (_prefix | regex_escape))
+       | map('regex_replace', '^lease\|', '') | reject('in', _wanted) | list }}
+  vars:
+    _prefix: "{{ mikrotik_object_prefix }}-dhcp lease "
+    _wanted: "{{ _mikrotik_dhcp.static_leases | map(attribute='name') | map('regex_replace', '^', _prefix) | list }}"
+  changed_when: true

@@ -1,4 +1,6 @@
 ---
+# false only skips the install; an existing deployment is left untouched.
+kceve_kvm_enabled: true
 # KCEVE KVM RS232 serial device on k3smaster (USB-to-RS232 adapter)
 kceve_kvm_serial_device: "/dev/ttyACM0"
 # Number of ports on the KCEVE KVM switch (4-port and 10-port variants exist).

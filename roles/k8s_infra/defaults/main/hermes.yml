@@ -24,6 +24,8 @@ hermes_network_policies_enabled: false
 # forgejo: to duplicate every key across three files. Access as hermes.<group>.
 # <key> in templates/tasks. NOTE: hermes_users stays a SEPARATE top-level var
 # (it lives in vault) — see the comment on it below.
+# false only skips the install; an existing deployment is left untouched.
+hermes_enabled: true
 hermes:
   namespace: "hermes"
   # Image contract: ENTRYPOINT /init (s6-overlay) + docker/main-wrapper.sh; never set command:, only args:.

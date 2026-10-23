@@ -246,6 +246,7 @@
   when:
     - isk3smaster is defined
     - isk3smaster
+    - kceve_kvm_enabled | bool
 
 # Install + teardown both live in the component file (gated inside on
 # <x>_enabled / <x>_teardown), so the import is gated only on isk3smaster —
@@ -274,6 +275,7 @@
   when:
     - isk3smaster is defined
     - isk3smaster
+    - openwebui_enabled | bool
 
 - name: Deploy Pipelines
   import_tasks: apps/pipelines.yml
@@ -302,6 +304,7 @@
   when:
     - isk3smaster is defined
     - isk3smaster
+    - hermes_enabled | bool
 
 - name: Deploy Matrix Synapse homeserver + Cinny/Element web clients (gated install/teardown)
   import_tasks: apps/matrix.yml
