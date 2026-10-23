@@ -9,6 +9,7 @@
 # used by Seafile to sign session cookies + JWT for the internal
 # notification/seadoc endpoints.
 seafile:
+  enabled: true  # false only skips the install; an existing deployment is left untouched.
   data_base: "/mnt/nfs/seafile-data"
   mariadb_data_base: "/var/lib/k8s-data/seafile-mariadb"
   namespace: "seafile"

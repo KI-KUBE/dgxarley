@@ -159,6 +159,7 @@
   when:
     - isk3smaster is defined
     - isk3smaster
+    - seafile.enabled | default(true) | bool
 
 - name: import forgejo.yml if isk3smaster is defined and true
   import_tasks: databases/forgejo.yml
@@ -167,6 +168,7 @@
   when:
     - isk3smaster is defined
     - isk3smaster
+    - forgejo.enabled | default(true) | bool
 
 # === MONITORING ===
 

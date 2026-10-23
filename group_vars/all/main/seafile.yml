@@ -7,6 +7,7 @@
 # DB has its own root + per-app user; admin login is auto-bootstrapped on
 # first start of the seafile-server pod via INIT_SEAFILE_ADMIN_* env vars.
 seafile:
+  enabled: true
   data_base: "/mnt/nfs/seafile-data"
   mariadb_data_base: "/var/lib/k8s-data/seafile-mariadb"
   namespace: "seafile"

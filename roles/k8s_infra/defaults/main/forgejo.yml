@@ -10,6 +10,7 @@
 #                    across restarts or encrypted data (2FA/OAuth/sessions) is lost.
 #   admin.*        — first admin, bootstrapped once via `forgejo admin user create`.
 forgejo:
+  enabled: true  # false only skips the install; an existing deployment is left untouched.
   data_base: "/mnt/nfs/forgejo-data"
   namespace: "forgejo"
   hostname: "forgejo.{{ dns_external_domain_suffix }}"
