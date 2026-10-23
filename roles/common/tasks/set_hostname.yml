@@ -8,7 +8,7 @@
     src: /etc/hosts
   register: _etc_hosts_raw
 
-- name: Remove stale 127.0.0.1 lines with old hostnames (keep localhost)
+- name: Remove stale 127.0.0.1 lines with old hostnames (keep localhost and the k3smaster alias)
   ansible.builtin.lineinfile:
     path: /etc/hosts
     line: "{{ item }}"
@@ -17,6 +17,7 @@
     {{ (_etc_hosts_raw.content | b64decode).splitlines()
        | select('match', '^127\.0\.0\.1\s')
        | reject('search', '\blocalhost\b')
+       | reject('search', '\bk3smaster\b')
        | list }}
 
 - name: Ensure hostname in /etc/hosts (127.0.1.1 line)
