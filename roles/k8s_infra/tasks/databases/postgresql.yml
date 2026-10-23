@@ -383,3 +383,8 @@
                   items:
                     - key: custom.conf
                       path: custom.conf
+
+- name: import postgresql_extensions_update.yml
+  import_tasks: postgresql_extensions_update.yml
+  tags:
+    - postgresql_extensions

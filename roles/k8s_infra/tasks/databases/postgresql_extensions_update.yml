@@ -1,0 +1,59 @@
+---
+- name: Wait for postgresql deployment to be ready
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    namespace: postgresql
+    name: postgresql-deployment
+    wait: true
+    wait_timeout: 120
+
+- name: Get running PostgreSQL pod for extension check
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: postgresql
+    label_selectors:
+      - app=postgresql
+    field_selectors:
+      - status.phase=Running
+  register: postgresql_ext_pods
+
+- name: Set PostgreSQL pod name fact for extension check
+  ansible.builtin.set_fact:
+    postgresql_ext_pod_name: "{{ (postgresql_ext_pods.resources | rejectattr('metadata.deletionTimestamp', 'defined') | first).metadata.name }}"
+
+# k8s_exec runs even in --check mode
+- name: Find outdated PostgreSQL extensions in all databases
+  kubernetes.core.k8s_exec:
+    namespace: postgresql
+    pod: "{{ postgresql_ext_pod_name }}"
+    command: |
+      bash -c '
+        set -e
+        for db in $(psql -U postgres -Atc "SELECT datname FROM pg_database WHERE datallowconn"); do
+          psql -U postgres -d "$db" -Atc "SELECT current_database(), e.extname, e.extversion, a.default_version FROM pg_extension e JOIN pg_available_extensions a ON a.name = e.extname WHERE e.extversion <> a.default_version"
+        done
+      '
+  register: postgresql_ext_outdated
+  changed_when: false
+
+- name: Report outdated PostgreSQL extensions (db|extension|installed|available)
+  ansible.builtin.debug:
+    msg: "{{ postgresql_ext_outdated.stdout_lines | select | list or 'all extensions up to date' }}"
+
+- name: Update outdated PostgreSQL extensions
+  kubernetes.core.k8s_exec:
+    namespace: postgresql
+    pod: "{{ postgresql_ext_pod_name }}"
+    command: >-
+      psql -U postgres -d {{ ext[0] }} -v ON_ERROR_STOP=1 -1
+      -c 'ALTER EXTENSION "{{ ext[1] }}" UPDATE'
+      -Atc "SELECT extversion FROM pg_extension WHERE extname = '{{ ext[1] }}'"
+  vars:
+    ext: "{{ item.split('|') }}"
+  loop: "{{ postgresql_ext_outdated.stdout_lines | select | list }}"
+  loop_control:
+    label: "{{ ext[0] }}: {{ ext[1] }} {{ ext[2] }} -> {{ ext[3] }}"
+  when: not ansible_check_mode
+  changed_when: true
