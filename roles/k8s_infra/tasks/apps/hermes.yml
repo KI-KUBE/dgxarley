@@ -690,14 +690,25 @@
     label: "{{ item.username }}"
   when: not (item.dashboard_enabled | default(hermes.agent.dashboard_enabled_default))
 
+- name: Create hermes ip allowlist middleware
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: hermes-ip-allowlist
+        namespace: "{{ hermes.namespace }}"
+      spec:
+        ipAllowList:
+          sourceRange: "{{ traefik_public_allowlist if (app_exposure.hermes | default(app_exposure_default)) == 'public' else traefik_internal_allowlist }}"
+
 - name: Apply per-user hermes-agent IngressRoute (auth via hermes BasicAuthProvider)
   # Traefik terminates TLS and forwards straight to the dashboard port.
   # Authentication is hermes' OWN built-in BasicAuthProvider (engaged by the
   # 0.0.0.0 bind); WS/PTY/events are authorised in-app via hermes' single-use
   # ?ticket= mechanism (dashboard_auth/ws_tickets.py), so no auth proxy is
-  # needed in front. NOTE: this route has no ip-allowlist/redirect
-  # middleware — the hermes login IS the access gate now (same as when Caddy was
-  # the gate). Add an ip-allowlist middleware here if defence-in-depth is wanted.
+  # needed in front. The hermes login is the gate; hermes-ip-allowlist limits the source.
   kubernetes.core.k8s:
     state: present
     apply: true
@@ -719,6 +730,9 @@
                 name: "hermes-agent-{{ item.username }}"
                 passHostHeader: true
                 port: "{{ hermes.agent.dashboard_port }}"
+            middlewares:
+              - name: hermes-ip-allowlist
+                namespace: "{{ hermes.namespace }}"
         tls:
           secretName: "hermes-agent-{{ item.username }}-tls"
   loop: "{{ _hermes_active_users }}"
@@ -879,6 +893,9 @@
                 name: "hermes-webui-{{ item.username }}"
                 passHostHeader: true
                 port: "{{ hermes.webui.port }}"
+            middlewares:
+              - name: hermes-ip-allowlist
+                namespace: "{{ hermes.namespace }}"
         tls:
           secretName: "hermes-webui-{{ item.username }}-tls"
   loop: "{{ _hermes_active_users }}"

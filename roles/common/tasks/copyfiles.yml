@@ -29,6 +29,16 @@
     quiet: true
   when: lan_ingress.enabled | default(false) | bool
 
+- name: Assert hub_ingress is complete when enabled
+  tags: iptables
+  ansible.builtin.assert:
+    that:
+      - hub_ingress.bind_address | length > 0
+      - hub_ingress.source_ips | length > 0
+    fail_msg: "hub_ingress.enabled requires bind_address and source_ips"
+    quiet: true
+  when: hub_ingress.enabled | default(false) | bool
+
 - name: copy iptables.sh from templates
   tags: iptables
   template:

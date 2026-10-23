@@ -68,6 +68,15 @@ frontend k3s_https_front
     default_backend k3s_https_back
 
 
+{% if hub_ingress.enabled | default(false) | bool and isk3smaster | default(false) | bool %}
+# kikube hub ingress: client address arrives via PROXY header and is re-emitted towards Traefik.
+frontend hub_ingress_https
+    bind {{ hub_ingress.bind_address }}:{{ hub_ingress.port }} accept-proxy
+    mode tcp
+    option tcplog
+    default_backend k3s_https_back
+
+{% endif %}
 # ---------------------------------------------------------------------
 # Backend für HTTP
 # send-proxy-v2 aktiviert das Proxy Protocol für Traefik

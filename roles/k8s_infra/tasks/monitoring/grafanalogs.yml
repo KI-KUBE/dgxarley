@@ -209,7 +209,7 @@
             namespace: loki
           spec:
             ipAllowList:
-              sourceRange: "{{ traefik_internal_allowlist }}"
+              sourceRange: "{{ traefik_public_allowlist if (app_exposure.grafanalogs | default(app_exposure_default)) == 'public' else traefik_internal_allowlist }}"
 
     - name: Create http to https redirect middleware
       kubernetes.core.k8s:
