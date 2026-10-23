@@ -207,6 +207,12 @@ iptables -A HTSTUFFIN -p udp --dport 55660 -j RETURN
 iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport 80,443 -j RETURN
 {% endif %}
 
+{% if hub_ingress.enabled | default(false) | bool and isk3smaster | default(false) | bool %}
+{% for _src in hub_ingress.source_ips %}
+iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport {{ hub_ingress.port }} -s {{ _src }} -j RETURN
+{% endfor %}
+{% endif %}
+
 {% for _ports in iptables_public_tcp_ports | default([]) | batch(15) %}
 # public: open to every source, exposure is decided upstream (Mikrotik dst-nat)
 iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport {{ _ports | join(',') }} -j RETURN

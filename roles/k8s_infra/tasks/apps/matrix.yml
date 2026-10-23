@@ -771,13 +771,21 @@
             namespace: "{{ matrix.namespace }}"
           spec:
             ipAllowList:
-              # traefik_internal_allowlist covers only RFC1918 — that is enough for
-              # internal clients, which pihole (sister repo, 14-meine-ips.conf) points
-              # straight at the cluster ingress. Remote colleagues arrive via the
-              # wireguard-host nginx, so Traefik sees THAT proxy's public source IP and
-              # would 403 without this entry. Same value that the public A record points
-              # at, hence the shared ingress_ip stanza rather than a second literal.
-              sourceRange: "{{ traefik_internal_allowlist + [matrix.dns.ingress_ip | default(nsupdate_ingress_ip) ~ '/32'] }}"
+              sourceRange: "{{ traefik_public_allowlist if (app_exposure.matrix | default(app_exposure_default)) == 'public' else traefik_internal_allowlist }}"
+
+    # Synapse admin API stays LAN-only regardless of app_exposure.matrix.
+    - name: Create matrix admin ip allowlist Middleware
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: traefik.io/v1alpha1
+          kind: Middleware
+          metadata:
+            name: matrix-admin-ip-allowlist
+            namespace: "{{ matrix.namespace }}"
+          spec:
+            ipAllowList:
+              sourceRange: "{{ traefik_internal_allowlist }}"
 
     - name: Create TLS certificates for the matrix hosts
       kubernetes.core.k8s:
@@ -857,6 +865,17 @@
                     port: 8008
                 middlewares:
                   - name: matrix-ip-allowlist
+              - kind: Rule
+                match: "Host(`matrix.{{ matrix.base_domain }}`) && PathPrefix(`/_synapse/admin`)"
+                priority: 20
+                services:
+                  - kind: Service
+                    name: synapse
+                    namespace: "{{ matrix.namespace }}"
+                    passHostHeader: true
+                    port: 8008
+                middlewares:
+                  - name: matrix-admin-ip-allowlist
             tls:
               secretName: "matrix.{{ matrix.base_domain }}"
 
@@ -1260,8 +1279,8 @@
 # Deleted per client: Deployment, Service, ConfigMap, both IngressRoutes, the
 # Certificate AND its TLS secret (cert-manager does NOT garbage-collect the
 # secret when the Certificate goes), plus the A record.
-# NOT deleted: the shared middlewares redirect-myhttps / matrix-ip-allowlist
-# (Synapse's own routes reference them) and the namespace.
+# NOT deleted: the shared middlewares redirect-myhttps / matrix-ip-allowlist /
+# matrix-admin-ip-allowlist (Synapse's own routes reference them) and the namespace.
 # Uses only kubernetes.core.k8s / nsupdate (no bare kubectl — dgxarley rule).
 # ===========================================================================
 

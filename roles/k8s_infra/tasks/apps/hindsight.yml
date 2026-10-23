@@ -545,7 +545,7 @@
             namespace: "{{ hindsight_namespace }}"
           spec:
             ipAllowList:
-              sourceRange: "{{ traefik_internal_allowlist }}"
+              sourceRange: "{{ traefik_public_allowlist if (app_exposure.hindsight | default(app_exposure_default)) == 'public' else traefik_internal_allowlist }}"
 
 
     - name: Create hindsight http to https redirect middleware
