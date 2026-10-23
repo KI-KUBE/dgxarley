@@ -111,6 +111,19 @@
 
 
 
+- name: Create uptimekuma ip allowlist middleware
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: uptimekuma-ip-allowlist
+        namespace: "uptimekuma"
+      spec:
+        ipAllowList:
+          sourceRange: "{{ traefik_public_allowlist if (app_exposure.uptimekuma | default(app_exposure_default)) == 'public' else traefik_internal_allowlist }}"
+
 - name: Create uptimekuma ingressroute HTTPS
   kubernetes.core.k8s:
     state: present
@@ -133,6 +146,9 @@
                 namespace: uptimekuma
                 passHostHeader: true
                 port: 3001
+            middlewares:
+              - name: uptimekuma-ip-allowlist
+                namespace: uptimekuma
         tls:
           secretName: "uptimekuma.{{ dns_external_domain_suffix }}"
 
@@ -160,6 +176,9 @@
                 namespace: uptimekuma
                 passHostHeader: true
                 port: 3001
+            middlewares:
+              - name: uptimekuma-ip-allowlist
+                namespace: uptimekuma
 
 - name: Register DNS A record for uptimekuma
   community.general.nsupdate:
