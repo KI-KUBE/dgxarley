@@ -123,6 +123,7 @@
       - ethtool
       - ebtables
       - jq
+      - apache2-utils
       - locales
       - fail2ban
       - mutt
