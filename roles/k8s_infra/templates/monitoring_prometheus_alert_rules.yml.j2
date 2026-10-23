@@ -15,8 +15,8 @@ groups:
 # suppresses those per-exporter alerts while this one fires, matched on
 # the shared `instance` label. That join is the reason the node-exporter,
 # dcgm-exporter and juicefs jobs all relabel `instance` to the NODE name
-# (see the juicefs jobs' k3s_master_node_hostname mapping above: the
-# master's inventory name and its k8s node name differ).
+# (the juicefs jobs map inventory names to system_hostname: inventory
+# name and k8s node name may differ).
 - name: node-alerts
   rules:
   - alert: NodeDown
