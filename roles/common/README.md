@@ -121,11 +121,14 @@ ansible-playbook common.yml --tags netplan
 | `hw_iface`                    | string     | Physical hardware NIC                                                                                                                     |
 | `hw_iface2`                   | string     | Secondary hardware NIC (optional)                                                                                                         |
 | `hw_iface2_address`           | string     | Secondary interface IP/CIDR (optional)                                                                                                    |
+| `static_ip`                   | string     | Static IP/CIDR on `hw_iface` in `01-network-custom.yaml` (optional, DHCP if unset)                                                        |
+| `static_gateway`              | string     | Default gateway for `static_ip` (required if `static_ip`)                                                                                 |
+| `static_dns`                  | list(str)  | Nameservers for `static_ip` (required if `static_ip`)                                                                                     |
 | `default_route_iface`         | string     | Routable interface (computed from OVS/hw_iface, can be overridden)                                                                        |
 | `wantsopenvswitch`            | bool       | Enable Open vSwitch bridge networking (optional)                                                                                          |
 | `ovs_bridge_iface`            | string     | Physical NIC for OVS bridge port (required if `wantsopenvswitch`)                                                                         |
 | `ovs_bridge_name`             | string     | OVS bridge name (required if `wantsopenvswitch`)                                                                                          |
-| `ovs_vlans`                   | list(dict) | VLAN definitions; one must have `primary: true`, at most one may have `untagged: true` or `native: true` (required if `wantsopenvswitch`) |
+| `ovs_vlans`                   | list(dict) | VLAN definitions; one `primary: true`, at most one `untagged`/`native` (required if `wantsopenvswitch`, ignored otherwise)                |
 | `wifi_iface`                  | string     | WiFi interface name (optional)                                                                                                            |
 | `wifi_access_points`          | list(dict) | WiFi access points `{ssid, password}` for netplan (optional)                                                                              |
 | `mailname`                    | string     | Hostname for Postfix                                                                                                                      |
