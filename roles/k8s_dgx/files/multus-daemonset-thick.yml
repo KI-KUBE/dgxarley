@@ -38,7 +38,7 @@
 #    pods starting at once exceed the cgroup limit. The daemon is OOMKilled (137),
 #    all ADDs fail, pods stay Unknown, multus CrashLoopBackOffs and meets the same
 #    herd again — a deadlock that does not clear by itself (seen 2026-07-28 on
-#    elite800 after a reboot). CPU stays at 100m.
+#    the k3smaster after a reboot). CPU stays at 100m.
 #
 # 6. image tag: snapshot-thick → v4.3.1-thick.
 #    Upstream hardcodes the rolling snapshot-thick tag in every manifest, release
