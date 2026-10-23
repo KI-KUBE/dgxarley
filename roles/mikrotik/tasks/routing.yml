@@ -50,12 +50,23 @@
     - _mikrotik_routing.allow_remote_dns_requests is not none
     - not _mikrotik_routing.allow_remote_dns_requests | bool
 
+- name: Expand static DNS aliases
+  ansible.builtin.set_fact:
+    _mikrotik_dns_records: >-
+      {%- set out = [] -%}
+      {%- for e in _mikrotik_routing.dns_static -%}
+      {%- for n in [e.name] + (e.aliases | default([])) -%}
+      {%- set _ = out.append({'name': n, 'address': e.address}) -%}
+      {%- endfor -%}
+      {%- endfor -%}
+      {{ out }}
+
 - name: Assert static DNS entries
   ansible.builtin.assert:
     that:
-      - _mikrotik_routing.dns_static | map(attribute='name') | reject('match', '^[A-Za-z0-9][A-Za-z0-9.-]*$') | list | length == 0
-      - _mikrotik_routing.dns_static | map(attribute='address') | reject('match', '^\\d+\\.\\d+\\.\\d+\\.\\d+$') | list | length == 0
-      - _mikrotik_routing.dns_static | map(attribute='name') | unique | length == _mikrotik_routing.dns_static | length
+      - _mikrotik_dns_records | map(attribute='name') | reject('match', '^[A-Za-z0-9][A-Za-z0-9.-]*$') | list | length == 0
+      - _mikrotik_dns_records | map(attribute='address') | reject('match', '^\\d+\\.\\d+\\.\\d+\\.\\d+$') | list | length == 0
+      - _mikrotik_dns_records | map(attribute='name') | unique | length == _mikrotik_dns_records | length
     fail_msg: "dns_static: one entry per name (letters, digits, . and -) with an IPv4 address"
     quiet: true
 
@@ -68,7 +79,7 @@
         else={ /ip/dns/static/set [find name="{{ item.name }}"] type=A address={{ item.address }} comment="{{ _comment }}" }
   vars:
     _comment: "{{ mikrotik_object_prefix }}-dns static {{ item.name }}"
-  loop: "{{ _mikrotik_routing.dns_static }}"
+  loop: "{{ _mikrotik_dns_records }}"
   loop_control:
     label: "{{ item.name }}: {{ item.address }}"
   changed_when: false
@@ -91,5 +102,5 @@
        | map('regex_replace', '^dns\|', '') | reject('in', _wanted) | list }}
   vars:
     _prefix: "{{ mikrotik_object_prefix }}-dns static "
-    _wanted: "{{ _mikrotik_routing.dns_static | map(attribute='name') | map('regex_replace', '^', _prefix) | list }}"
+    _wanted: "{{ _mikrotik_dns_records | map(attribute='name') | map('regex_replace', '^', _prefix) | list }}"
   changed_when: true
