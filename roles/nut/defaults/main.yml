@@ -92,7 +92,7 @@ nut_monitor_password: "changeme"
 # NOTIFYCMD (drain + remote shutdown), the local host stays up.
 nut_ups_powers_self: "greencell"
 
-# Map UPS name → K8s nodes to drain + hosts to SSH-shutdown on FSD.
+# Map UPS name → inventory hosts to drain (as their system_hostname) + hosts to SSH-shutdown on FSD.
 # Override in vault with actual node/host assignments per UPS.
 nut_ups_shutdown_map:
   greencell:
