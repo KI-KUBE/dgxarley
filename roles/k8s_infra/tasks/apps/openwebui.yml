@@ -361,7 +361,7 @@
         namespace: "{{ openwebui_namespace }}"
       spec:
         ipAllowList:
-          sourceRange: "{{ traefik_internal_allowlist }}"
+          sourceRange: "{{ traefik_public_allowlist if (app_exposure.openwebui | default(app_exposure_default)) == 'public' else traefik_internal_allowlist }}"
 
 - name: Create http to https redirect middleware for openwebui
   kubernetes.core.k8s:
