@@ -85,7 +85,7 @@ fluentbit_teardown: false
 fluentbit_image: "fluent/fluent-bit:5.1"
 # Canary rollout: pin the fluent-bit DaemonSet to a node subset while comparing
 # its labels against promtail's in Grafana. Empty = all nodes (normal state).
-# e.g. {"kubernetes.io/hostname": "elite800"}
+# e.g. {"kubernetes.io/hostname": "k3smaster"}
 fluentbit_node_selector: {}
 # Pod labels promoted to Loki stream labels, as an explicit ALLOWLIST.
 #
