@@ -64,7 +64,7 @@
           spec:
             restartPolicy: Always
             nodeSelector:
-              kubernetes.io/hostname: elite800
+              node-role: k3smaster
             dnsConfig:
               options:
                 - name: ndots
