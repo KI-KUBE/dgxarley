@@ -34,10 +34,9 @@
 #   - Auth: local password auth + closed registration; admin + bot_users created
 #     via register_new_matrix_user. Optional synapse-token-authenticator jwt
 #     module (HS512, symmetric secret) for Hermes-agent Matrix bots — no OIDC.
-#   - Federation needs matrix.<base> reachable publicly on 443, so the matrix
-#     IngressRoute carries NO ip-allowlist. Cinny and Element (convenience web
-#     clients) are behind the internal allowlist — flip by removing the middleware
-#     line from the respective route.
+#   - Reachability of matrix.<base> and the web clients follows
+#     app_exposure.matrix (matrix-ip-allowlist); /_synapse/admin stays on
+#     traefik_internal_allowlist regardless (matrix-admin-ip-allowlist).
 #   - Gated install + in-file teardown (matrix_enabled / matrix_teardown), same
 #     pattern as honcho/hindsight. teardown deletes the namespace but PRESERVES
 #     the synapse Postgres DB (holds rooms/messages) — drop it by hand to abandon.
@@ -742,9 +741,6 @@
 
     # =======================================================================
     # Ingress (Traefik) + TLS. Shared middlewares, then per-host cert + routes.
-    # matrix.<base> is PUBLIC (federation/clients need it) — no ip-allowlist.
-    # cinny.<base> sits behind the internal allowlist (remove its middleware
-    # line below to expose Cinny publicly too).
     # =======================================================================
 
     - name: Create matrix redirect-myhttps Middleware
@@ -809,7 +805,7 @@
               kind: ClusterIssuer
       loop: "{{ _matrix_hosts }}"
 
-    # --- Synapse (public) ---
+    # --- Synapse ---
     - name: Create synapse http IngressRoute (redirect to https)
       kubernetes.core.k8s:
         state: present
@@ -835,13 +831,9 @@
                 middlewares:
                   - name: redirect-myhttps
 
-    # Unlike the sister repo's homeserver, this one does NOT federate, so nothing
-    # outside needs to reach Synapse directly: remote clients come in through the
-    # wireguard-host nginx (whose IP the allowlist carries) and internal ones are
-    # pointed at the cluster ingress by pihole. The allowlist therefore closes the
-    # direct-to-Traefik path without costing any legitimate client. Enabling
-    # federation later means dropping the middleware from the https route below.
-    - name: Create synapse https IngressRoute (allowlisted — no federation)
+    # Exposure follows app_exposure.matrix via matrix-ip-allowlist; /_synapse/admin
+    # is pinned to the internal allowlist by the higher-priority second route.
+    - name: Create synapse https IngressRoute
       kubernetes.core.k8s:
         state: present
         definition:
@@ -879,7 +871,7 @@
             tls:
               secretName: "matrix.{{ matrix.base_domain }}"
 
-    # --- Cinny (internal allowlist) ---
+    # --- Cinny ---
     - name: Create cinny http IngressRoute (redirect to https)
       kubernetes.core.k8s:
         state: present
@@ -935,7 +927,7 @@
               secretName: "cinny.{{ matrix.base_domain }}"
       when: _matrix_cinny_install | bool
 
-    # --- Element (internal allowlist, same as cinny) ---
+    # --- Element ---
     - name: Create element http IngressRoute (redirect to https)
       kubernetes.core.k8s:
         state: present

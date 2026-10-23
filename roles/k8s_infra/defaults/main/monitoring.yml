@@ -62,28 +62,11 @@ loki_networkpolicy_extra_namespaces: []
 # !! REPLACES a list wholesale instead of merging, so an entry appended here is
 # !! silently ignored. What remains below is documentation of intent plus the
 # !! fallback for a deployment without this repo's group_vars.
-# Promtail is EOL since 2026-03-02 (LTS from 2025-02, commercial support ended
-# 2026-02-28) — `fluentbit` is the successor deployed here. Grafana's own
-# recommendation is Alloy; Fluent Bit was chosen for its much smaller footprint
-# on the ARM64 sparks, at the cost of rebuilding promtail's relabel semantics
-# by hand (see the label-parity notes in tasks/monitoring/loki.yml).
-#
-# The two collectors are gated INDEPENDENTLY, same shape as every other
-# component in this role. `<x>_enabled: false` only skips the install, it
-# deletes nothing; removal is the opt-in
-#   ansible-playbook k8s_infra.yml --tags loki -e promtail_teardown=true
-#
-# Independent flags mean BOTH can be on. In normal operation exactly one should
-# be — two collectors tail the same files and write every line to Loki twice,
-# into the same stream, with nothing in the labels revealing it. The task file
-# warns in that case, and also when a DaemonSet is still running although its
-# flag is off (turning a flag off does not remove anything).
-# Both on IS correct for one situation: the shadow-canary phase of
-# FLUENTBIT_VALIDATE.md, with fluentbit_node_selector pinning fluent-bit to one
-# node and a temporary `collector` label keeping the streams apart.
+# Promtail (EOL 2026-03-02) was removed; fluent-bit is the only collector.
+# `fluentbit_enabled: false` only skips the install, it deletes nothing;
+# removal is the opt-in
+#   ansible-playbook k8s_infra.yml --tags loki -e fluentbit_teardown=true
 fluentbit_enabled: true
-promtail_enabled: false
-promtail_teardown: false
 fluentbit_teardown: false
 # Pin the MOVING MINOR tag — Fluent Bit's config format drifts across majors
 # (classic .conf vs YAML), so keel (force + match-tag + poll) must only walk
@@ -137,9 +120,8 @@ fluentbit_pod_labels:
 # templates/hermes/hermes_agent_deployment.yaml.j2 and are app-specific, and
 # `hermes-user` grows with the number of hermes users. Both remain queryable via
 # structured metadata (see fluentbit_pod_labels_structured_metadata below).
-# Escape hatch: `on` promotes every pod label, i.e. byte-exact promtail
-# parity, INCLUDING the churn documented above. Only worth it if a rollback to
-# promtail has to be label-comparable. When true, fluentbit_pod_labels is
+# Escape hatch: `on` promotes every pod label, INCLUDING the churn documented
+# above. When true, fluentbit_pod_labels is
 # ignored (auto covers a superset of it).
 fluentbit_auto_kubernetes_labels: false
 # Send the FULL pod-label map as Loki structured metadata, so the churn labels

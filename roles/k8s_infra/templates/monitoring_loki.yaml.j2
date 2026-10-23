@@ -51,7 +51,5 @@ limits_config:
   # that were deliberately dropped from the stream labels.
   allow_structured_metadata: true
   volume_enabled: true
-  # Raised because promtail promotes EVERY pod label to a stream label. The
-  # fluent-bit default uses a curated allowlist (13 labels) and no longer needs
-  # this headroom, but it stays for the promtail rollback path.
+  # Headroom for fluentbit_auto_kubernetes_labels (every pod label becomes a stream label).
   max_label_names_per_series: 30

@@ -28,16 +28,12 @@ alertmanager_gotify_url: "https://gotify.example.com"
 # wholesale rather than merging, so appending an entry to the role default is
 # silently ineffective. Same trap as litellm_model_list_append.
 #
-# The two collectors are gated independently. `<x>_enabled: false` only skips
-# the install, it deletes nothing — removal is `-e <x>_teardown=true`. Both
-# enabled at once duplicates every log line in Loki and is only correct for the
-# shadow-canary phase of FLUENTBIT_VALIDATE.md.
-# The teardown flags are normally driven as `-e` extra-vars (which beat
-# group_vars); they are listed here so the resting state is explicit.
+# `fluentbit_enabled: false` only skips the install, it deletes nothing —
+# removal is `-e fluentbit_teardown=true`. The teardown flag is normally driven
+# as an `-e` extra-var (which beats group_vars); it is listed here so the
+# resting state is explicit. Promtail was removed (EOL 2026-03-02).
 fluentbit_enabled: true
-promtail_enabled: false
 fluentbit_teardown: false
-promtail_teardown: false
 fluentbit_image: "fluent/fluent-bit:5.1"
 fluentbit_node_selector: {}
 fluentbit_pod_labels:
