@@ -305,8 +305,8 @@ scrape_configs:
   # and break the YAML. The comment right below the tags absorbs the
   # residual whitespace.
   {% set _jfs_targets = [] %}
-  {% for h in groups[juicefs_mount_group] | default([]) if hostvars[h].juicefs_mount_enabled | default(true) | bool %}{% set _ = _jfs_targets.append({'targets': [hostvars[h].k3s_node_ip ~ ':' ~ juicefs_metrics_port], 'labels': {'node': h}}) %}{% endfor %}
-  {% if juicefs_mount_master | default(false) | bool %}{% for h in groups['k3sserver'] | default([]) if hostvars[h].isk3smaster | default(false) %}{% set _ = _jfs_targets.append({'targets': [hostvars[h].k3s_node_ip ~ ':' ~ juicefs_metrics_port], 'labels': {'node': k3s_master_node_hostname}}) %}{% endfor %}{% endif %}
+  {% for h in groups[juicefs_mount_group] | default([]) if hostvars[h].juicefs_mount_enabled | default(true) | bool %}{% set _ = _jfs_targets.append({'targets': [hostvars[h].k3s_node_ip ~ ':' ~ juicefs_metrics_port], 'labels': {'node': hostvars[h].system_hostname}}) %}{% endfor %}
+  {% if juicefs_mount_master | default(false) | bool %}{% for h in groups['k3sserver'] | default([]) if hostvars[h].isk3smaster | default(false) %}{% set _ = _jfs_targets.append({'targets': [hostvars[h].k3s_node_ip ~ ':' ~ juicefs_metrics_port], 'labels': {'node': hostvars[h].system_hostname}}) %}{% endfor %}{% endif %}
   # (targets: every enabled mount node, plus the master when
   #  juicefs_mount_master is on)
   - job_name: 'juicefs'
@@ -317,16 +317,15 @@ scrape_configs:
 
   # Valkey (JuiceFS metadata engine) via prometheus-redis-exporter on
   # the storage node — bare-metal apt install, like the backend itself.
-  # `node` (→ instance) is the K8S NODE NAME, not the inventory name:
-  # for the sparks the two are identical, for the master they are NOT
-  # (k3smaster vs k3s_master_node_hostname). The NodeDown inhibit_rule
+  # `node` (→ instance) is the K8S NODE NAME (system_hostname), not the
+  # inventory name. The NodeDown inhibit_rule
   # joins on `instance`, so a master-hosted backend (JUICEFS_MIGRATION_HOWTO.md
   # §13.3) would otherwise keep alerting while its node is already down.
   - job_name: 'juicefs-valkey'
     static_configs:
       - targets: ['{{ hostvars[juicefs_primary_node].k3s_node_ip }}:{{ juicefs_valkey_exporter_port }}']
         labels:
-          node: '{{ k3s_master_node_hostname if hostvars[juicefs_primary_node].isk3smaster | default(false) | bool else juicefs_primary_node }}'
+          node: '{{ hostvars[juicefs_primary_node].system_hostname }}'
     relabel_configs:
       - source_labels: [node]
         target_label: instance
