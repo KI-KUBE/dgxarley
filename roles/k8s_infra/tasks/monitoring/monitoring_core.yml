@@ -23,7 +23,7 @@
           namespace: monitoring
         spec:
           ipAllowList:
-            sourceRange: "{{ traefik_internal_allowlist }}"
+            sourceRange: "{{ traefik_public_allowlist if (app_exposure.monitoring | default(app_exposure_default)) == 'public' else traefik_internal_allowlist }}"
       - apiVersion: traefik.io/v1alpha1
         kind: Middleware
         metadata:
