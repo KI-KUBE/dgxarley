@@ -81,11 +81,13 @@
         namespace: postgresql
         label_selectors:
           - app=postgresql
+        field_selectors:
+          - status.phase=Running
       register: matrix_postgresql_pods
 
     - name: Set PostgreSQL pod name fact
       ansible.builtin.set_fact:
-        matrix_postgresql_pod_name: "{{ matrix_postgresql_pods.resources[0].metadata.name }}"
+        matrix_postgresql_pod_name: "{{ (matrix_postgresql_pods.resources | rejectattr('metadata.deletionTimestamp', 'defined') | first).metadata.name }}"
 
     - name: Ensure synapse user and C-collated database exist in PostgreSQL
       kubernetes.core.k8s_exec:

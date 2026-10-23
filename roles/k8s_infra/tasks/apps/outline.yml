@@ -46,14 +46,20 @@
         namespace: postgresql
         label_selectors:
           - app=postgresql
+        field_selectors:
+          - status.phase=Running
       register: outline_postgresql_pods
+
+    - name: Set PostgreSQL pod name fact
+      ansible.builtin.set_fact:
+        outline_postgresql_pod_name: "{{ (outline_postgresql_pods.resources | rejectattr('metadata.deletionTimestamp', 'defined') | first).metadata.name }}"
 
     # k8s_exec runs for real under --check.
     - name: Ensure outline user and database exist in PostgreSQL
       when: not ansible_check_mode
       kubernetes.core.k8s_exec:
         namespace: postgresql
-        pod: "{{ outline_postgresql_pods.resources[0].metadata.name }}"
+        pod: "{{ outline_postgresql_pod_name }}"
         command: |
           bash -c '
             set -e
@@ -337,7 +343,7 @@
       when: not ansible_check_mode
       kubernetes.core.k8s_exec:
         namespace: postgresql
-        pod: "{{ outline_postgresql_pods.resources[0].metadata.name }}"
+        pod: "{{ outline_postgresql_pod_name }}"
         command: psql -U postgres -d outline -tAc "SELECT count(*) FROM teams"
       register: outline_team_count
       changed_when: false
@@ -549,7 +555,7 @@
       when: not ansible_check_mode
       kubernetes.core.k8s_exec:
         namespace: postgresql
-        pod: "{{ outline_postgresql_pods.resources[0].metadata.name }}"
+        pod: "{{ outline_postgresql_pod_name }}"
         command: >-
           bash -c {{ _outline_key_sql | quote }} _
           {{ _outline_api_keys[0].email | quote }} {{ _outline_api_keys[0].key_name | quote }}
@@ -588,7 +594,7 @@
       when: not ansible_check_mode
       kubernetes.core.k8s_exec:
         namespace: postgresql
-        pod: "{{ outline_postgresql_pods.resources[0].metadata.name }}"
+        pod: "{{ outline_postgresql_pod_name }}"
         command: >-
           bash -c {{ _outline_key_sql | quote }} _
           {{ item.email | quote }} {{ item.key_name | quote }}

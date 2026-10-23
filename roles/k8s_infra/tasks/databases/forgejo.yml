@@ -57,11 +57,13 @@
     namespace: postgresql
     label_selectors:
       - app=postgresql
+    field_selectors:
+      - status.phase=Running
   register: forgejo_postgresql_pods
 
 - name: Set PostgreSQL pod name fact
   ansible.builtin.set_fact:
-    forgejo_postgresql_pod_name: "{{ forgejo_postgresql_pods.resources[0].metadata.name }}"
+    forgejo_postgresql_pod_name: "{{ (forgejo_postgresql_pods.resources | rejectattr('metadata.deletionTimestamp', 'defined') | first).metadata.name }}"
 
 - name: Ensure forgejo user and database exist in PostgreSQL
   kubernetes.core.k8s_exec:
