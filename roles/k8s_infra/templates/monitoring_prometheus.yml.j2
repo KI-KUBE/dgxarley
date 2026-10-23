@@ -269,6 +269,7 @@ scrape_configs:
       - targets: ['litellm.litellm.svc.cluster.local:{{ litellm_port }}']
   {% endif %}
 
+  {% if nut_exporter_enabled | default(true) | bool %}
   # NUT exporter — multi-target scrape (one target per UPS)
   # druggeri/nut_exporter doesn't emit a ups label natively,
   # so we pass ?ups=<name> per target and inject the label via static_configs.
@@ -290,6 +291,7 @@ scrape_configs:
       - targets: ['nut-exporter.monitoring.svc.cluster.local:9199']
         labels:
           ups: '{{ nut_ups_secondary_name }}'
+  {% endif %}
   {% endif %}
 
   {% if juicefs_enabled | default(false) | bool and juicefs_metrics_enabled | default(false) | bool %}
