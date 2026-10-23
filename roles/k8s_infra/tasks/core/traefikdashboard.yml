@@ -136,6 +136,19 @@
 # https://doc.traefik.io/traefik/routing/providers/kubernetes-crd/#kind-ingressroutetcp
 
 
+- name: Create traefik ip allowlist middleware
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: traefik-ip-allowlist
+        namespace: "kube-system"
+      spec:
+        ipAllowList:
+          sourceRange: "{{ traefik_public_allowlist if (app_exposure.traefik | default(app_exposure_default)) == 'public' else traefik_internal_allowlist }}"
+
 - name: Create traefik-dashboard HTTPS ingressroute
   kubernetes.core.k8s:
     state: present
@@ -164,6 +177,8 @@
 #                passHostHeader: true
 #                port: 9000
             middlewares:
+              - name: traefik-ip-allowlist
+                namespace: kube-system
               - name: traefik-auth
                 namespace: kube-system
         tls:
