@@ -9,7 +9,7 @@ logger -t nut-shutdown "SHUTDOWNCMD — {{ nut_ups_powers_self }} critical, init
 
 {% set self_targets = nut_ups_shutdown_map.get(nut_ups_powers_self, {}) %}
 {% for node in self_targets.get('drain_nodes', []) %}
-kubectl drain {{ hostvars[node].system_hostname | default(node) }} --ignore-daemonsets --delete-emptydir-data --timeout=60s 2>&1 | logger -t nut-shutdown || true
+kubectl drain {{ node }} --ignore-daemonsets --delete-emptydir-data --timeout=60s 2>&1 | logger -t nut-shutdown || true
 {% endfor %}
 {% if self_targets.get('drain_nodes', []) %}
 

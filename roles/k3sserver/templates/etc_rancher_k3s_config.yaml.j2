@@ -17,7 +17,7 @@ tls-san:
   - "{{ san }}"
 {% endfor %}
 {% endif %}
-# node-name: "{{ inventory_hostname }}"
+node-name: "{{ inventory_hostname }}"
 service-node-port-range: "22-32767"
 flannel-ipv6-masq: false
 {% if k3s_flannel_iface is defined %}
@@ -45,7 +45,7 @@ node-label:
 node-ip: "{{ k3s_node_ip }}"
 # bind-address: "{{ k3s_node_ip }}"
 node-external-ip: "{{ k3s_node_ip }}"
-# node-name: "{{ inventory_hostname }}"
+node-name: "{{ inventory_hostname }}"
 kubelet-arg:
   - "image-gc-high-threshold={{ kubelet_image_gc_high_threshold }}"
   - "image-gc-low-threshold={{ kubelet_image_gc_low_threshold }}"

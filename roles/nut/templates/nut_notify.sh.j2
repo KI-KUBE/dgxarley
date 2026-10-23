@@ -18,7 +18,7 @@ case "$NOTIFYTYPE" in
       {{ ups_name }})
         logger -t nut-notify "FSD on {{ ups_name }} — draining nodes and shutting down hosts"
 {% for node in targets.get('drain_nodes', []) %}
-        kubectl drain {{ hostvars[node].system_hostname | default(node) }} --ignore-daemonsets --delete-emptydir-data --timeout=60s 2>&1 | logger -t nut-notify || true
+        kubectl drain {{ node }} --ignore-daemonsets --delete-emptydir-data --timeout=60s 2>&1 | logger -t nut-notify || true
 {% endfor %}
 {% if targets.get('drain_nodes', []) %}
         sleep 5
