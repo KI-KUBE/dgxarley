@@ -162,6 +162,18 @@
 # Jinja, so no private zone/key appears here). Each backend's TSIG key MUST be
 # authorized for its zone on the RFC2136/PowerDNS server. tsigAlgorithm is derived
 # from the backend's nsupdate-style name (hmac-sha256 → cert-manager's HMACSHA256).
+- name: Validate DNS backends and ACME issuers
+  ansible.builtin.assert:
+    that:
+      - certmanager_acme_issuers | map(attribute='nsupdate') | difference(nsupdate_servers.keys() | list) | length == 0
+      - certmanager_acme_issuers | map(attribute='name') | unique | length == certmanager_acme_issuers | length
+      - certmanager_acme_issuers | selectattr('dns_zones', 'string') | list | length == 0
+      - nsupdate_servers | dict2items | map(attribute='value') | map('dict2items') | map('map', attribute='key') | map('difference', ['server', 'zone', 'tsig_key_name', 'tsig_key_secret', 'tsig_algorithm', 'ttl', 'ingress_ip']) | map('length') | select('gt', 0) | list | length == 0
+      - nsupdate_servers | dict2items | map(attribute='value') | map('dict2items') | map('map', attribute='key') | map('symmetric_difference', ['server', 'zone', 'tsig_key_name', 'tsig_key_secret', 'tsig_algorithm', 'ttl', 'ingress_ip']) | map('length') | select('gt', 0) | list | length == 0
+      - nsupdate_default_backend in nsupdate_servers
+    fail_msg: "nsupdate_servers / certmanager_acme_issuers: every issuer must reference an existing backend by name, names unique, dns_zones a list, every backend exactly the keys server/zone/tsig_key_name/tsig_key_secret/tsig_algorithm/ttl/ingress_ip (the vault copy replaces the whole map), nsupdate_default_backend must exist"
+    quiet: true
+
 - name: Create TSIG secrets for ACME DNS01 issuers
   kubernetes.core.k8s:
     state: present
@@ -178,6 +190,7 @@
   loop_control:
     label: "{{ item.name }}"
   when: item.dns_zones | length > 0
+  no_log: true
 
 - name: Create ACME DNS01 ClusterIssuers
   kubernetes.core.k8s:
