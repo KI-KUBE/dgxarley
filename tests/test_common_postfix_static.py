@@ -153,7 +153,7 @@ def test_mikrotik_hub_port_rules() -> None:
     order = by_name["Assert firewall rule order"]
     assert "reject('match', '^masquerade\\|' ~ _mikrotik_wireguard.comment ~ ' nat tcp')" in order["vars"]["_nat_masq"]
     that = "\n".join(order["ansible.builtin.assert"]["that"])
-    assert "_fwd.index(_hub_fwd) < _fwd.index('{{ _mikrotik_wireguard.comment }} forward drop to tunnel')" in that
+    assert "_fwd.index(_hub_fwd) < _fwd.index(_c ~ ' forward drop to tunnel')" in that
     assert "_nat.index(_hub_nat_rule) < _nat.index(_no_nat)" in that
     # teardown removes everything by the comment prefix, which both new comments carry
     assert '/ip/firewall/nat/remove [find comment~"^{{ _mikrotik_wireguard.comment }}"]' in text
