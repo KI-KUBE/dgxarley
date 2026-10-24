@@ -74,6 +74,8 @@ matrix_teardown: false
 # dns_zones cover <base_domain>. A standalone scalar (not inside the matrix dict,
 # which is hash_behaviour=replace) so it needs no vault duplication.
 matrix_tls_issuer: "letsencrypt-secondary"
+# nsupdate_servers backend for the matrix A records (base_domain usually lives in its own zone).
+matrix_dns_backend: "{{ nsupdate_default_backend }}"
 
 # --- Web clients (Cinny, Element) -------------------------------------------
 # Two interchangeable clients against the SAME homeserver and the same local
@@ -217,12 +219,6 @@ matrix:
   data_base: "/mnt/nfs/matrix-synapse"
   time_zone: "Europe/Berlin"
   manage_dns: true
-  # Optional per-matrix nsupdate overrides. A base_domain in its own zone, separate
-  # from the cluster domain, usually needs its own DNS server / TSIG key / ingress IP.
-  # Any omitted key falls back to the cluster-wide nsupdate_* var. Keys:
-  #   server, zone, tsig_key_name, tsig_key_secret, tsig_algorithm, ttl, ingress_ip
-  # Real values (TSIG secret!) belong in vault. Leave {} to inherit cluster values.
-  dns: {}
   enable_registration: false
   enable_token_authenticator: true
   email:
