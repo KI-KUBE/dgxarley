@@ -91,8 +91,8 @@ ip6tables -A OUTPUT -p icmpv6 --icmpv6-type router-solicitation -m hl --hl-eq 25
 
 # If we're acting like a router, this could be a sign of problems.
 
-#ip6tables -A OUTPUT -p icmpv6 --icmpv6-type router-advertisement -j LOG --log-prefix "IP6TABLES_DROP_OUTPUT_ra ICMPv6 type " --log-level 4
-ip6tables -A OUTPUT -p icmpv6 --icmpv6-type redirect -j LOG --log-prefix "IP6TABLES_DROP_OUTPUT_redirect ICMPv6 type " --log-level 4
+#ip6tables -A OUTPUT -p icmpv6 --icmpv6-type router-advertisement -j LOG --log-prefix "IP6TABLES_DROP_OUTPUT_ra " --log-level 4
+ip6tables -A OUTPUT -p icmpv6 --icmpv6-type redirect -j LOG --log-prefix "IP6TABLES_DROP_OUTPUT_redir " --log-level 4
 #ip6tables -A OUTPUT -p icmpv6 --icmpv6-type router-advertisement -j REJECT
 ip6tables -A OUTPUT -p icmpv6 --icmpv6-type redirect -j REJECT
 

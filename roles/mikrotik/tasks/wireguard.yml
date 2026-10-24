@@ -185,30 +185,22 @@
       changed_when: false
 
     # Input drops keep their rule when present (set); only drops of networks no longer listed are removed.
-    - name: Remove stale VPN user input drops
+    - name: Remove VPN user input drops
       community.routeros.command:
         commands:
-          - >-
-            /ip/firewall/filter/remove [find comment~"^{{ _mikrotik_wireguard.comment }} input vpn drop"
-            {%- for _n in _vpn_nets %} and comment!="{{ _mikrotik_wireguard.comment }} input vpn drop {{ _n }}"{% endfor %}]
+          - /ip/firewall/filter/remove [find comment~"^{{ _mikrotik_wireguard.comment }} input vpn drop"]
       changed_when: false
 
-    # Above the icmp/mgmt accepts: the user block lies inside ops_subnet, which those accepts match.
+    # Above whichever of the icmp/mgmt accepts comes first: both match the whole ops_subnet, which contains the user block.
     - name: Ensure VPN user input drops
       community.routeros.command:
         commands:
           - >-
-            :if ([:len [/ip/firewall/filter/find comment="{{ _c }}"]] = 0)
-            do={ /ip/firewall/filter/add chain=input action=drop
+            /ip/firewall/filter/add chain=input action=drop
             in-interface={{ _mikrotik_wireguard.interface }}
             src-address={{ item }}
-            comment="{{ _c }}"
-            place-before=([/ip/firewall/filter/find comment="{{ _mikrotik_wireguard.comment }} input icmp"]->0) }
-            else={ /ip/firewall/filter/set [find comment="{{ _c }}"]
-            in-interface={{ _mikrotik_wireguard.interface }}
-            src-address={{ item }} }
-      vars:
-        _c: "{{ _mikrotik_wireguard.comment }} input vpn drop {{ item }}"
+            comment="{{ _mikrotik_wireguard.comment }} input vpn drop {{ item }}"
+            place-before=([/ip/firewall/filter/find comment~"^{{ _mikrotik_wireguard.comment }} input (icmp|mgmt)"]->0)
       loop: "{{ _vpn_nets }}"
       changed_when: false
 

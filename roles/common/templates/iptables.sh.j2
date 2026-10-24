@@ -369,7 +369,7 @@ iptables -A HTSTUFFIN -p tcp --tcp-flags SYN SYN -m state --state NEW -m set --m
 iptables -A HTSTUFFIN -p tcp ! --syn -m set --match-set k3snodes src -j RETURN
 
 # allow INVALID localnets traffic (orphaned packets after conntrack entry expiry)
-iptables -A HTSTUFFIN -m limit --limit 10/min -m state --state INVALID -m set --match-set k3snodes src -j LOG --log-prefix "HTSTUFFIN_INVALID_K3SNODES_GRACEFUL_OK " --log-level 4
+iptables -A HTSTUFFIN -m limit --limit 10/min -m state --state INVALID -m set --match-set k3snodes src -j LOG --log-prefix "HTSTUFFIN_INVAL_K3SNODES_OK " --log-level 4
 iptables -A HTSTUFFIN -m state --state INVALID -m set --match-set k3snodes src -j RETURN
 
 #iptables -A HTSTUFFIN -m limit --limit 10/min -m set --match-set localnets src -j LOG --log-prefix "IPTABLES_REJECT_HTSTUFFIN " --log-level 4
@@ -385,7 +385,7 @@ iptables -A HTSTUFFIN -p udp --dport 137 -m set --match-set localnets src -j DRO
 
 iptables -A HTSTUFFIN -m limit --limit 10/min -m set --match-set geoblocklist src -j LOG --log-prefix "REJECT_HTSTUFFIN_GEOBLOCK " --log-level 4
 iptables -A HTSTUFFIN -m set --match-set geoblocklist src -j DROP
-iptables -A HTSTUFFIN -m limit --limit 10/min -m set \! --match-set geoallowlist src -j LOG --log-prefix "REJECT_HTSTUFFIN_NOT_GEOALLOW " --log-level 4
+iptables -A HTSTUFFIN -m limit --limit 10/min -m set \! --match-set geoallowlist src -j LOG --log-prefix "REJECT_HTSTUFFIN_NOGEOALLOW " --log-level 4
 iptables -A HTSTUFFIN -m set \! --match-set geoallowlist src -j DROP
 
 iptables -A HTSTUFFIN -m limit --limit 10/min  -j LOG --log-prefix "IPTABLES_REJECT_HTSTUFFIN " --log-level 4
@@ -405,7 +405,7 @@ iptables -A HTSTUFFIN -j DROP
 #iptables -A OUTPUT -s 192.168.1.0/24 -d 192.168.1.0/24 -p tcp -m tcp --sport 1024:65535 --dport 1024:65535 -m conntrack --ctstate ESTABLISHED -j ACCEPT
 
 
-#iptables -A HTSTUFFIN -m state --state NEW,INVALID -m set \! --match-set geoblocklist src -m limit --limit 10/min -j LOG --log-prefix "IPTABLES_DROP_HTSTUFFIN_ALLOW " --log-level 4
+#iptables -A HTSTUFFIN -m state --state NEW,INVALID -m set \! --match-set geoblocklist src -m limit --limit 10/min -j LOG --log-prefix "IPTABLES_DROP_HTSTUFFIN_ALW " --log-level 4
 #iptables -A HTSTUFFIN -m state --state NEW,INVALID -m set \! --match-set geoblocklist src -j DROP
 
 #iptables -A HTSTUFFIN -m limit --limit 10/min -j LOG --log-prefix "IPTABLES_DROP_HTSTUFFIN " --log-level 4
