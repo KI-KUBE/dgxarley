@@ -47,6 +47,8 @@ iptables_k3s_external_ips: []
 # TCP ports open to every source (the router's port forwards); localnets stays the internal LAN.
 iptables_public_tcp_ports: "{{ lan_ingress.tcp_ports | default([]) + lan_ingress.tcp_port_map | default([]) | map(attribute='to_port') | list if (lan_ingress.enabled | default(false) | bool and inventory_hostname == lan_ingress.target_host | default('')) else [] }}"
 iptables_static_dns_ips: []
+# Sources the ops tunnel may open connections from (CIDRs); [] = the whole ops_wireguard.ops_subnet (hub peer included).
+ops_wireguard_trusted_sources: []
 # Host-level SGLang from scripts/run_standalone.sh (podman --network=host), opened to localnets
 standalone_sglang_firewall_enabled: false
 standalone_sglang_port: 30000
