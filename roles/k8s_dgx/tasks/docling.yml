@@ -246,15 +246,9 @@
 
     - name: Register DNS A record for docling
       community.general.nsupdate:
-        server: "{{ nsupdate_server }}"
-        zone: "{{ nsupdate_zone }}"
-        key_name: "{{ nsupdate_tsig_key_name }}"
-        key_secret: "{{ nsupdate_tsig_key_secret }}"
-        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
         record: "docling.{{ dns_external_domain_suffix }}."
         type: A
-        ttl: "{{ nsupdate_ttl }}"
-        value: "{{ nsupdate_ingress_ip }}"
+        value: "{{ nsupdate_default.ingress_ip }}"
         state: present
 
 - name: Docling-serve — teardown (opt-in `-e docling_teardown=true`)
@@ -268,11 +262,6 @@
         name: docling
     - name: Remove docling DNS A record
       community.general.nsupdate:
-        server: "{{ nsupdate_server }}"
-        zone: "{{ nsupdate_zone }}"
-        key_name: "{{ nsupdate_tsig_key_name }}"
-        key_secret: "{{ nsupdate_tsig_key_secret }}"
-        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
         record: "docling.{{ dns_external_domain_suffix }}."
         type: A
         state: absent

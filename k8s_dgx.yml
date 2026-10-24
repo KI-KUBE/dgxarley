@@ -8,5 +8,12 @@
   module_defaults:
     group/kubernetes.core.k8s:
       context: "{{ kubeconfig_context_name }}"
+    community.general.nsupdate:
+      server: "{{ nsupdate_default.server }}"
+      zone: "{{ nsupdate_default.zone }}"
+      key_name: "{{ nsupdate_default.tsig_key_name }}"
+      key_secret: "{{ nsupdate_default.tsig_key_secret }}"
+      key_algorithm: "{{ nsupdate_default.tsig_algorithm }}"
+      ttl: "{{ nsupdate_default.ttl }}"
   roles:
     - k8s_dgx

@@ -1435,15 +1435,9 @@
 
 - name: Manage DNS A record for sglang ({{ inst.prefix }}, external_enabled)
   community.general.nsupdate:
-    server: "{{ nsupdate_server }}"
-    zone: "{{ nsupdate_zone }}"
-    key_name: "{{ nsupdate_tsig_key_name }}"
-    key_secret: "{{ nsupdate_tsig_key_secret }}"
-    key_algorithm: "{{ nsupdate_tsig_algorithm }}"
     record: "{{ inst.hostname }}.{{ dns_external_domain_suffix }}."
     type: A
-    ttl: "{{ nsupdate_ttl }}"
-    value: "{{ nsupdate_ingress_ip }}"
+    value: "{{ nsupdate_default.ingress_ip }}"
     state: "{{ 'present' if inst.external_enabled | bool else 'absent' }}"
   ignore_errors: true
   register: dns_result

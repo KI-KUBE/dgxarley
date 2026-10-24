@@ -1,26 +1,12 @@
 ---
-# DNS A records for k8s_dgx-owned (GPU/inference-layer) ingress services.
-# App/infra-layer records (openwebui, searxng, traefik, prometheus, promgrafana,
-# uptimekuma, policy-reporter, seafile) are registered by the k8s_infra role's
-# dns.yml.
+# Only names without a record task of their own; every other app registers its record where it is deployed.
 - name: Register DNS A records via nsupdate
   community.general.nsupdate:
-    server: "{{ nsupdate_server }}"
-    zone: "{{ nsupdate_zone }}"
-    key_name: "{{ nsupdate_tsig_key_name }}"
-    key_secret: "{{ nsupdate_tsig_key_secret }}"
-    key_algorithm: "{{ nsupdate_tsig_algorithm }}"
     record: "{{ item }}.{{ dns_external_domain_suffix }}."
     type: A
-    ttl: "{{ nsupdate_ttl }}"
-    value: "{{ nsupdate_ingress_ip }}"
+    value: "{{ nsupdate_default.ingress_ip }}"
     state: present
   loop:
-    - ollama
-    - ollama-embed
     - sglang
-    - vllm
-    - docling
-    - litellm
   loop_control:
     label: "{{ item }}.{{ dns_external_domain_suffix }}"

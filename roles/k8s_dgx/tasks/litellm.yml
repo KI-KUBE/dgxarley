@@ -434,15 +434,9 @@
 
 - name: Register DNS A record for litellm
   community.general.nsupdate:
-    server: "{{ nsupdate_server }}"
-    zone: "{{ nsupdate_zone }}"
-    key_name: "{{ nsupdate_tsig_key_name }}"
-    key_secret: "{{ nsupdate_tsig_key_secret }}"
-    key_algorithm: "{{ nsupdate_tsig_algorithm }}"
     record: "litellm.{{ dns_external_domain_suffix }}."
     type: A
-    ttl: "{{ nsupdate_ttl }}"
-    value: "{{ nsupdate_ingress_ip }}"
+    value: "{{ nsupdate_default.ingress_ip }}"
     state: present
 
 # Node-RED virtual key: value comes from vault (nodered_litellm_api_key), so create/update is idempotent.

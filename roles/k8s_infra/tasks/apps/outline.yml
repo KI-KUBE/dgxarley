@@ -479,15 +479,9 @@
 
     - name: Register DNS A record for outline
       community.general.nsupdate:
-        server: "{{ nsupdate_server }}"
-        zone: "{{ nsupdate_zone }}"
-        key_name: "{{ nsupdate_tsig_key_name }}"
-        key_secret: "{{ nsupdate_tsig_key_secret }}"
-        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
         record: "{{ outline_hostname }}."
         type: A
-        ttl: "{{ nsupdate_ttl }}"
-        value: "{{ nsupdate_ingress_ip }}"
+        value: "{{ nsupdate_default.ingress_ip }}"
         state: present
 
     - name: Wait for Outline to answer on its public URL (cert + DNS) before using the API
@@ -718,11 +712,6 @@
 
     - name: Remove DNS A record for outline
       community.general.nsupdate:
-        server: "{{ nsupdate_server }}"
-        zone: "{{ nsupdate_zone }}"
-        key_name: "{{ nsupdate_tsig_key_name }}"
-        key_secret: "{{ nsupdate_tsig_key_secret }}"
-        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
         record: "{{ outline_hostname }}."
         type: A
         state: absent

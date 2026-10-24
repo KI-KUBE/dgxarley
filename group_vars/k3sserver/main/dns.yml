@@ -22,5 +22,3 @@ coredns_master_replica_enabled: true
 # the live k3s coredns Deployment so both stay in lockstep across k3s upgrades.
 # This is only the fallback for a first run where that Deployment is absent.
 coredns_image_fallback: "rancher/mirrored-coredns-coredns:1.14.4"
-# Cert-manager TSIG secret
-tsig_secret_key: "CHANGEME_BASE64_TSIG_KEY_HERE"

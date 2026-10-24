@@ -300,15 +300,9 @@
 
     - name: Register DNS A record for grafanalogs
       community.general.nsupdate:
-        server: "{{ nsupdate_server }}"
-        zone: "{{ nsupdate_zone }}"
-        key_name: "{{ nsupdate_tsig_key_name }}"
-        key_secret: "{{ nsupdate_tsig_key_secret }}"
-        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
         record: "grafanalogs.{{ dns_external_domain_suffix }}."
         type: A
-        ttl: "{{ nsupdate_ttl }}"
-        value: "{{ nsupdate_ingress_ip }}"
+        value: "{{ nsupdate_default.ingress_ip }}"
         state: present
       when: grafanalogs_manage_dns | default(true) | bool
 
@@ -346,11 +340,6 @@
 
     - name: Remove DNS A record for grafanalogs
       community.general.nsupdate:
-        server: "{{ nsupdate_server }}"
-        zone: "{{ nsupdate_zone }}"
-        key_name: "{{ nsupdate_tsig_key_name }}"
-        key_secret: "{{ nsupdate_tsig_key_secret }}"
-        key_algorithm: "{{ nsupdate_tsig_algorithm }}"
         record: "grafanalogs.{{ dns_external_domain_suffix }}."
         type: A
         state: absent
