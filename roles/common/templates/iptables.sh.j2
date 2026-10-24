@@ -224,6 +224,10 @@ iptables -A HTSTUFFIN{{ ' ! -i ' ~ kwg_if if kwg_on else '' }} -m state --state 
 
 {% if kwg_on %}
 {% set kwg_ops = kwg.ops_subnet | mandatory %}
+{% if hub_ingress.enabled | default(false) | bool and isk3smaster | default(false) | bool %}
+# accept-proxy bind: tunnel sources other than hub_ingress.source_ips (RETURN above) must never reach it.
+iptables -A HTSTUFFIN -i {{ kwg_if }} -m state --state NEW -p tcp --dport {{ hub_ingress.port }} -j DROP
+{% endif %}
 # Ops WireGuard tunnel (roles/ops_wireguard, outbound to the Ops hub): the trusted sources (ops peers, or the
 # whole ops subnet when ops_wireguard_trusted_sources is empty) may reach this box through the tunnel only.
 # ACCEPT (not RETURN): no later HTSTUFFIN rule may veto it; return traffic is covered by ESTABLISHED,RELATED.

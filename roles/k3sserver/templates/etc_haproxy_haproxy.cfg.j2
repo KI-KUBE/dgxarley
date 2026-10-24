@@ -74,6 +74,8 @@ frontend hub_ingress_https
     bind {{ hub_ingress.bind_address }}:{{ hub_ingress.port }} accept-proxy
     mode tcp
     option tcplog
+    # connection-stage rules see the TCP peer; content-stage rules would see the PROXY header address.
+    tcp-request connection reject unless { src {{ hub_ingress.source_ips | join(' ') }} }
     default_backend k3s_https_back
 
 {% endif %}

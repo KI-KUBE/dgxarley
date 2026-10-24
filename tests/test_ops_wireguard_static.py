@@ -75,8 +75,9 @@ def _render_iptables(**extra: Any) -> str:
         "group_names": [],
         "inventory_hostname": "k3smaster",
         "ansible_facts": {"default_ipv4": {"address": "192.0.2.10"}},
+        "hub_ingress": {"enabled": False, "bind_address": "", "port": 8443, "source_ips": []},
     }
-    return _render(IPTABLES_TPL, **base, **extra)
+    return _render(IPTABLES_TPL, **{**base, **extra})
 
 
 def test_syntax_check() -> None:
@@ -193,6 +194,41 @@ def test_firewall_without_forward_or_masquerade() -> None:
     no_masq = _render_iptables(ops_wireguard={**WG_DICT, "forward_masquerade": False})
     assert "HTOPSWG -i" in no_masq
     assert "MASQUERADE" not in no_masq
+
+
+HUB_INGRESS: dict[str, Any] = {
+    "enabled": True,
+    "bind_address": "10.200.1.10",
+    "port": 8443,
+    "source_ips": ["10.200.1.1/32"],
+}
+
+
+def test_firewall_hub_ingress_drop_sits_between_hub_return_and_ops_accept() -> None:
+    out = _render_iptables(**WG_VARS, hub_ingress=HUB_INGRESS, isk3smaster=True)
+    hub = "iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 8443 -s 10.200.1.1/32 -j RETURN"
+    drop = "iptables -A HTSTUFFIN -i ops-wg -m state --state NEW -p tcp --dport 8443 -j DROP"
+    ops = "iptables -A HTSTUFFIN -i ops-wg -s 10.200.1.0/24 -j ACCEPT"
+    assert out.index(hub) < out.index(drop) < out.index(ops)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"hub_ingress": HUB_INGRESS},
+        {"hub_ingress": {**HUB_INGRESS, "enabled": False}, "isk3smaster": True},
+        {},
+    ],
+)
+def test_firewall_no_hub_ingress_rules_unless_enabled_on_master(extra: dict[str, Any]) -> None:
+    out = _render_iptables(**WG_VARS, **extra)
+    assert "--dport 8443" not in out
+
+
+def test_firewall_hub_ingress_drop_needs_the_ops_tunnel() -> None:
+    out = _render_iptables(hub_ingress=HUB_INGRESS, isk3smaster=True)
+    assert "--dport 8443 -s 10.200.1.1/32 -j RETURN" in out
+    assert "--dport 8443 -j DROP" not in out
 
 
 def test_firewall_rendered_script_is_valid_bash() -> None:
