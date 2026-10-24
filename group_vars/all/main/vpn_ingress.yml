@@ -1,0 +1,11 @@
+---
+# Public dummy/example values. Real values live in group_vars/all/vault/<topic>.sops.yml of the private sops overlay.
+# One gate for WireGuard user peers arriving via the hub: the master admits networks only to tcp_ports of vpn_ingress_target_address.
+# Derived from it: the master's per-source HTSTUFFIN filter (on target_host only), the MikroTik hub forward/input filter and
+# traefik_internal_allowlist (+ networks). networks must not be in localnets (that would open ssh, NFS, k3s API).
+vpn_ingress:
+  enabled: false
+  target_host: k3smaster
+  tcp_ports: [443]
+  networks: []
+vpn_ingress_target_address: "{{ hostvars[vpn_ingress.target_host].k3s_node_ip | default(hostvars[vpn_ingress.target_host].ansible_host) }}"

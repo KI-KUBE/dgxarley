@@ -30,6 +30,21 @@
     quiet: true
   when: lan_ingress.enabled | default(false) | bool
 
+- name: Assert vpn_ingress is well-formed on the target host
+  tags: iptables
+  ansible.builtin.assert:
+    that:
+      - vpn_ingress.tcp_ports | length > 0
+      - vpn_ingress.tcp_ports | map('type_debug') | unique | list == ['int']
+      - vpn_ingress.networks | length > 0
+      - vpn_ingress.networks | reject('match', '^\\d+\\.\\d+\\.\\d+\\.\\d+/\\d+$') | list | length == 0
+      - vpn_ingress.networks | intersect((localnets | default([]) + localnets_k3sserver | default([])) | map(attribute='cidr') | list) | length == 0
+    fail_msg: "vpn_ingress.tcp_ports must be non-empty ints; vpn_ingress.networks must be non-empty IPv4 CIDRs outside localnets and localnets_k3sserver"
+    quiet: true
+  when:
+    - vpn_ingress.enabled | default(false) | bool
+    - inventory_hostname == vpn_ingress.target_host
+
 - name: Assert hub_ingress is complete when enabled
   tags: iptables
   ansible.builtin.assert:

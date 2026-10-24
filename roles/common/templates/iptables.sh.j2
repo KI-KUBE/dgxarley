@@ -213,6 +213,15 @@ iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport {{ hub_ingress.port }}
 {% endfor %}
 {% endif %}
 
+{% if (vpn_ingress | default({})).enabled | default(false) | bool and inventory_hostname == vpn_ingress.target_host %}
+{% for _net in vpn_ingress.networks %}
+{% for _ports in vpn_ingress.tcp_ports | batch(15) %}
+iptables -A HTSTUFFIN -s {{ _net }} -m state --state NEW -p tcp -m multiport --dport {{ _ports | join(',') }} -j RETURN
+{% endfor %}
+iptables -A HTSTUFFIN -s {{ _net }} -m state --state NEW -j DROP
+{% endfor %}
+{% endif %}
+
 {% set kwg = ops_wireguard | default({}) %}
 {% set kwg_on = kwg.enabled | default(false) | bool %}
 {# role defaults of ops_wireguard are NOT loaded in the common play: every default below must match roles/ops_wireguard/defaults/main.yml #}

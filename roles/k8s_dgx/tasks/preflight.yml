@@ -8,6 +8,15 @@
     quiet: true
   when: lan_ingress.enabled | default(false) | bool
 
+- name: Assert vpn_ingress networks are allowlisted in Traefik
+  ansible.builtin.assert:
+    that:
+      - vpn_ingress.networks | length > 0
+      - vpn_ingress.networks | difference(traefik_internal_allowlist) | length == 0
+    fail_msg: "vpn_ingress.networks must be non-empty and contained in traefik_internal_allowlist"
+    quiet: true
+  when: vpn_ingress.enabled | default(false) | bool
+
 - name: Assert app exposure values are lan or public
   ansible.builtin.assert:
     that:

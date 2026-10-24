@@ -269,3 +269,40 @@ def test_root_readme_role_table_aligned() -> None:
     for ln in table:
         assert [m.start() for m in re.finditer(r"\|", ln)] == bars, ln
     assert any(ln.startswith("| `ops_wireguard`") for ln in table)
+
+
+VPN_INGRESS: dict[str, Any] = {
+    "enabled": True,
+    "target_host": "k3smaster",
+    "tcp_ports": [443],
+    "networks": ["10.200.2.128/26"],
+}
+VPN_ACCEPT = "iptables -A HTSTUFFIN -s 10.200.2.128/26 -m state --state NEW -p tcp -m multiport --dport 443 -j RETURN"
+VPN_DROP = "iptables -A HTSTUFFIN -s 10.200.2.128/26 -m state --state NEW -j DROP"
+
+
+def test_firewall_vpn_ingress_rules_precede_public_ports() -> None:
+    out = _render_iptables(vpn_ingress=VPN_INGRESS, iptables_public_tcp_ports=[22, 6443])
+    lines = out.splitlines()
+    public = next(i for i, ln in enumerate(lines) if "multiport --dport 22,6443 -j RETURN" in ln)
+    assert lines.index(VPN_ACCEPT) + 1 == lines.index(VPN_DROP) < public
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {},
+        {"vpn_ingress": {**VPN_INGRESS, "enabled": False}},
+        {"vpn_ingress": {**VPN_INGRESS, "target_host": "other"}},
+    ],
+)
+def test_firewall_no_vpn_ingress_rules_unless_enabled_on_target(extra: dict[str, Any]) -> None:
+    out = _render_iptables(**extra)
+    assert "10.200.2.128/26" not in out
+    assert out == _render_iptables()
+
+
+def test_firewall_vpn_ingress_batches_ports_by_15() -> None:
+    ports = list(range(1000, 1016))
+    out = _render_iptables(vpn_ingress={**VPN_INGRESS, "tcp_ports": ports})
+    assert out.count("-s 10.200.2.128/26 -m state --state NEW -p tcp -m multiport") == 2

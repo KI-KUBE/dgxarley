@@ -201,3 +201,16 @@ def test_mikrotik_rules_anchored_not_positional() -> None:
         assert len(with_anchor) == sum("anchor" in i for i in task["loop"])
         for r in with_anchor:
             assert re.search(r'place-before=\(\[/ip/firewall/filter/find comment="x-hub [a-z ]*drop"\]->0\) \}', r), r
+
+
+def test_mikrotik_vpn_user_rules_precede_lan_accepts() -> None:
+    tasks = _yaml(MIKROTIK / "tasks" / "wireguard.yml")
+    block = next(t for t in tasks if "block" in t)["block"]
+    names = [t["name"] for t in block]
+    assert names.index("Remove tunnel-to-LAN forward rules") < names.index("Ensure VPN user forward rules")
+    assert names.index("Ensure VPN user forward rules") < names.index("Ensure tunnel-to-LAN forward rules")
+    assert names.index("Ensure WireGuard filter rules") < names.index("Ensure VPN user input drops")
+    fwd = next(t for t in block if t["name"] == "Ensure VPN user forward rules")
+    cmds = fwd["community.routeros.command"]["commands"]
+    assert "action=accept" in cmds[0] and "action=drop" in cmds[1]
+    assert "-fwd vpn drop " in cmds[1]

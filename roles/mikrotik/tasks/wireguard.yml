@@ -32,6 +32,13 @@
 
 - name: Configure hub WireGuard client
   when: _mikrotik_wireguard.enabled | default(false) | bool
+  vars:
+    _vpn_on: "{{ (vpn_ingress | default({})).enabled | default(false) | bool }}"
+    _vpn_nets: "{{ vpn_ingress.networks if _vpn_on | bool else [] }}"
+    _vpn_ports: "{{ vpn_ingress.tcp_ports | default([]) | join(',') if _vpn_on | bool else '' }}"
+    _vpn_acc: "{{ _vpn_nets | map('regex_replace', '^(.*)$', _mikrotik_wireguard.comment ~ '-fwd vpn \\1') | list }}"
+    _vpn_drop: "{{ _vpn_nets | map('regex_replace', '^(.*)$', _mikrotik_wireguard.comment ~ '-fwd vpn drop \\1') | list }}"
+    _vpn_in: "{{ _vpn_nets | map('regex_replace', '^(.*)$', _mikrotik_wireguard.comment ~ ' input vpn drop \\1') | list }}"
   block:
     - name: Assert WireGuard parameters
       ansible.builtin.assert:
@@ -42,7 +49,9 @@
           - _mikrotik_wireguard.ops_subnet | length > 0
           - not (_mikrotik_wireguard.forward_lan | default(false) | bool) or _mikrotik_wireguard.forward_lans | length > 0
           - _mikrotik_wireguard.forward_lans | reject('match', '^\\d+\\.\\d+\\.\\d+\\.\\d+/\\d+$') | list | length == 0
-        fail_msg: "WireGuard: hub endpoint/key, tunnel address and ops subnet are required; forward_lan needs mikrotik_wireguard.forward_lans as IPv4 CIDRs"
+          - not _vpn_on | bool or (_vpn_nets | length > 0 and _vpn_nets | reject('match', '^\\d+\\.\\d+\\.\\d+\\.\\d+/\\d+$') | list | length == 0)
+          - not _vpn_on | bool or (vpn_ingress.tcp_ports | length > 0 and vpn_ingress.tcp_ports | length <= 15)
+        fail_msg: "WireGuard: hub endpoint/key, tunnel address and ops subnet are required; forward_lan needs mikrotik_wireguard.forward_lans as IPv4 CIDRs; vpn_ingress needs IPv4 CIDR networks and 1-15 tcp_ports"
         quiet: true
 
     - name: Ensure WireGuard interface
@@ -175,10 +184,58 @@
         label: "{{ item.comment }}"
       changed_when: false
 
+    # Input drops keep their rule when present (set); only drops of networks no longer listed are removed.
+    - name: Remove stale VPN user input drops
+      community.routeros.command:
+        commands:
+          - >-
+            /ip/firewall/filter/remove [find comment~"^{{ _mikrotik_wireguard.comment }} input vpn drop"
+            {%- for _n in _vpn_nets %} and comment!="{{ _mikrotik_wireguard.comment }} input vpn drop {{ _n }}"{% endfor %}]
+      changed_when: false
+
+    # Above the icmp/mgmt accepts: the user block lies inside ops_subnet, which those accepts match.
+    - name: Ensure VPN user input drops
+      community.routeros.command:
+        commands:
+          - >-
+            :if ([:len [/ip/firewall/filter/find comment="{{ _c }}"]] = 0)
+            do={ /ip/firewall/filter/add chain=input action=drop
+            in-interface={{ _mikrotik_wireguard.interface }}
+            src-address={{ item }}
+            comment="{{ _c }}"
+            place-before=([/ip/firewall/filter/find comment="{{ _mikrotik_wireguard.comment }} input icmp"]->0) }
+            else={ /ip/firewall/filter/set [find comment="{{ _c }}"]
+            in-interface={{ _mikrotik_wireguard.interface }}
+            src-address={{ item }} }
+      vars:
+        _c: "{{ _mikrotik_wireguard.comment }} input vpn drop {{ item }}"
+      loop: "{{ _vpn_nets }}"
+      changed_when: false
+
     - name: Remove tunnel-to-LAN forward rules
       community.routeros.command:
         commands:
           - /ip/firewall/filter/remove [find comment~"^{{ _mikrotik_wireguard.comment }}-fwd"]
+      changed_when: false
+
+    # Placed first, so they end up above the tunnel-to-LAN accepts (which match the whole ops_subnet).
+    - name: Ensure VPN user forward rules
+      community.routeros.command:
+        commands:
+          - >-
+            /ip/firewall/filter/add chain=forward action=accept
+            in-interface={{ _mikrotik_wireguard.interface }}
+            src-address={{ item }} dst-address={{ vpn_ingress_target_address }}
+            protocol=tcp dst-port={{ _vpn_ports }}
+            comment="{{ _mikrotik_wireguard.comment }}-fwd vpn {{ item }}"
+            place-before=([/ip/firewall/filter/find comment~"^{{ _mikrotik_wireguard.comment }} forward drop"]->0)
+          - >-
+            /ip/firewall/filter/add chain=forward action=drop
+            in-interface={{ _mikrotik_wireguard.interface }}
+            src-address={{ item }}
+            comment="{{ _mikrotik_wireguard.comment }}-fwd vpn drop {{ item }}"
+            place-before=([/ip/firewall/filter/find comment~"^{{ _mikrotik_wireguard.comment }} forward drop"]->0)
+      loop: "{{ _vpn_nets }}"
       changed_when: false
 
     # The three -fwd accepts go right before the first of the two forward drops (whichever is listed first).
@@ -246,8 +303,16 @@
         _hub_ports: "{{ _mikrotik_wireguard.hub_tcp_ports | length > 0 }}"
         _nat_masq: "{{ _nat | select('match', '^(masquerade|src-nat)\\|') | reject('match', '^masquerade\\|' ~ _mikrotik_wireguard.comment ~ ' nat tcp') | list }}"
         _c: "{{ _mikrotik_wireguard.comment }}"
+        _vpn_seq: "{{ _vpn_acc | zip(_vpn_drop) | map('list') | list | flatten }}"
+        _fwd_rules: "{{ _fwd | select('match', '^' ~ _c ~ '-fwd ') | list }}"
       ansible.builtin.assert:
         that:
+          - _fwd_rules[:_vpn_seq | length] == _vpn_seq
+          - _vpn_seq | length == 0 or _fwd.index(_vpn_seq[-1]) < _fwd.index(_c ~ ' forward drop from tunnel')
+          - _vpn_seq | length == 0 or _fwd.index(_vpn_seq[-1]) < _fwd.index(_c ~ ' forward drop to tunnel')
+          - _vpn_in | difference(_in[:_in.index(_c ~ ' input icmp')]) | length == 0
+          - _vpn_in | difference(_in[:_in.index(_c ~ ' input mgmt')]) | length == 0
+          - _in | select('match', '^' ~ _c ~ ' input vpn drop ') | list | sort == _vpn_in | sort
           - _in.index(_c ~ ' input icmp') < _in.index(_c ~ ' input drop')
           - _in.index(_c ~ ' input mgmt') < _in.index(_c ~ ' input drop')
           - _fwd[_fwd.index(_c ~ ' forward drop from tunnel'):] | select('match', '^' ~ _c ~ '-fwd ') | reject('equalto', _c ~ '-fwd established') | list | length == 0
