@@ -213,21 +213,23 @@ iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport {{ hub_ingress.port }}
 {% endfor %}
 {% endif %}
 
-{% for _ports in iptables_public_tcp_ports | default([]) | batch(15) %}
-# public: open to every source, exposure is decided upstream (Mikrotik dst-nat)
-iptables -A HTSTUFFIN -m state --state NEW -p tcp -m multiport --dport {{ _ports | join(',') }} -j RETURN
-{% endfor %}
-
 {% set kwg = ops_wireguard | default({}) %}
-{% if kwg.enabled | default(false) | bool %}
+{% set kwg_on = kwg.enabled | default(false) | bool %}
 {# role defaults of ops_wireguard are NOT loaded in the common play: every default below must match roles/ops_wireguard/defaults/main.yml #}
 {% set kwg_if = kwg.interface | default('ops-wg') %}
+{% for _ports in iptables_public_tcp_ports | default([]) | batch(15) %}
+# public: open to every source, exposure is decided upstream (Mikrotik dst-nat); never via the ops tunnel.
+iptables -A HTSTUFFIN{{ ' ! -i ' ~ kwg_if if kwg_on else '' }} -m state --state NEW -p tcp -m multiport --dport {{ _ports | join(',') }} -j RETURN
+{% endfor %}
+
+{% if kwg_on %}
 {% set kwg_ops = kwg.ops_subnet | mandatory %}
-# Ops WireGuard tunnel (roles/ops_wireguard, outbound to the Ops hub):
-# the ops subnet may reach this box (ssh, 6443, ...) through the tunnel interface only.
-# ACCEPT (not RETURN): trusted subnet, no later HTSTUFFIN rule may veto it. Return traffic of
-# connections WE open towards ops is covered by the ESTABLISHED,RELATED rules further down.
-iptables -A HTSTUFFIN -i {{ kwg_if }} -s {{ kwg_ops }} -j ACCEPT
+# Ops WireGuard tunnel (roles/ops_wireguard, outbound to the Ops hub): the trusted sources (ops peers, or the
+# whole ops subnet when ops_wireguard_trusted_sources is empty) may reach this box through the tunnel only.
+# ACCEPT (not RETURN): no later HTSTUFFIN rule may veto it; return traffic is covered by ESTABLISHED,RELATED.
+{% for _src in (ops_wireguard_trusted_sources | default([]) or [kwg_ops]) %}
+iptables -A HTSTUFFIN -i {{ kwg_if }} -s {{ _src }} -j ACCEPT
+{% endfor %}
 
 {% endif %}
 # iptables -A HTSTUFFIN -i docker0 -j RETURN
