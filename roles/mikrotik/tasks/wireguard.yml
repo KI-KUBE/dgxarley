@@ -303,6 +303,23 @@
         _hub_ports: "{{ _mikrotik_wireguard.hub_tcp_ports | length > 0 }}"
         _nat_masq: "{{ _nat | select('match', '^(masquerade|src-nat)\\|') | reject('match', '^masquerade\\|' ~ _mikrotik_wireguard.comment ~ ' nat tcp') | list }}"
         _c: "{{ _mikrotik_wireguard.comment }}"
+      ansible.builtin.assert:
+        that:
+          - _in.index(_c ~ ' input icmp') < _in.index(_c ~ ' input drop')
+          - _in.index(_c ~ ' input mgmt') < _in.index(_c ~ ' input drop')
+          - _fwd[_fwd.index(_c ~ ' forward drop from tunnel'):] | select('match', '^' ~ _c ~ '-fwd ') | reject('equalto', _c ~ '-fwd established') | list | length == 0
+          - (_c ~ '-fwd established') not in _fwd or _fwd.index(_c ~ '-fwd established') < _fwd.index(_c ~ ' forward drop to tunnel')
+          - _nat_masq | length == 0 or _nat.index(_no_nat) < _nat.index(_nat_masq[0])
+          - not _hub_ports | bool or _fwd.index(_hub_fwd) < _fwd.index(_c ~ ' forward drop to tunnel')
+          - not _hub_ports | bool or _nat.index(_hub_nat_rule) < _nat.index(_no_nat)
+        fail_msg: "WireGuard firewall/NAT rules sit below their drop/masquerade/no-nat counterparts (moved by hand?); move them up on the router or remove them so the role re-creates them in place"
+
+    # Check mode skips the writes above, so the VPN rules exist on the router only after a real run.
+    - name: Assert VPN user rule order
+      vars:
+        _fwd: "{{ _wireguard_rule_order.stdout_lines[0] | map('trim') | list }}"
+        _in: "{{ _wireguard_rule_order.stdout_lines[1] | map('trim') | list }}"
+        _c: "{{ _mikrotik_wireguard.comment }}"
         _vpn_seq: "{{ _vpn_acc | zip(_vpn_drop) | map('list') | list | flatten }}"
         _fwd_rules: "{{ _fwd | select('match', '^' ~ _c ~ '-fwd ') | list }}"
       ansible.builtin.assert:
@@ -313,14 +330,8 @@
           - _vpn_in | difference(_in[:_in.index(_c ~ ' input icmp')]) | length == 0
           - _vpn_in | difference(_in[:_in.index(_c ~ ' input mgmt')]) | length == 0
           - _in | select('match', '^' ~ _c ~ ' input vpn drop ') | list | sort == _vpn_in | sort
-          - _in.index(_c ~ ' input icmp') < _in.index(_c ~ ' input drop')
-          - _in.index(_c ~ ' input mgmt') < _in.index(_c ~ ' input drop')
-          - _fwd[_fwd.index(_c ~ ' forward drop from tunnel'):] | select('match', '^' ~ _c ~ '-fwd ') | reject('equalto', _c ~ '-fwd established') | list | length == 0
-          - (_c ~ '-fwd established') not in _fwd or _fwd.index(_c ~ '-fwd established') < _fwd.index(_c ~ ' forward drop to tunnel')
-          - _nat_masq | length == 0 or _nat.index(_no_nat) < _nat.index(_nat_masq[0])
-          - not _hub_ports | bool or _fwd.index(_hub_fwd) < _fwd.index(_c ~ ' forward drop to tunnel')
-          - not _hub_ports | bool or _nat.index(_hub_nat_rule) < _nat.index(_no_nat)
-        fail_msg: "WireGuard firewall/NAT rules sit below their drop/masquerade/no-nat counterparts (moved by hand?); move them up on the router or remove them so the role re-creates them in place"
+        fail_msg: "VPN user rules must sit first among the -fwd accepts and above the input icmp/mgmt accepts; remove them on the router so the role re-creates them in place"
+      when: not ansible_check_mode
 
     - name: Read WireGuard public key
       community.routeros.command:
