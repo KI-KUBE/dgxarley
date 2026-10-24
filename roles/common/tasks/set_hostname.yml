@@ -1,7 +1,7 @@
 ---
 - name: Set hostname via hostnamectl
   ansible.builtin.hostname:
-    name: "{{ system_hostname }}"
+    name: "{{ system_hostname.split('.')[0] }}"
 
 - name: Read current /etc/hosts
   ansible.builtin.slurp:
@@ -24,5 +24,21 @@
   ansible.builtin.lineinfile:
     path: /etc/hosts
     regexp: '^127\.0\.1\.1\s'
-    line: "127.0.1.1 {{ system_hostname }}"
+    line: "127.0.1.1 {{ [system_hostname, system_hostname.split('.')[0]] | unique | join(' ') }}"
     insertafter: '^127\.0\.0\.1'
+
+- name: Check for cloud-init config dir
+  ansible.builtin.stat:
+    path: /etc/cloud/cloud.cfg.d
+  register: _hostname_cloudinit_cfg_dir
+  check_mode: false
+
+# cloud-init otherwise resets hostname and /etc/hosts to the provider's server name on every boot.
+- name: Keep cloud-init from touching hostname and /etc/hosts
+  ansible.builtin.copy:
+    dest: /etc/cloud/cloud.cfg.d/99-preserve-hostname.cfg
+    content: "preserve_hostname: true\nmanage_etc_hosts: false\n"
+    owner: root
+    group: root
+    mode: '0644'
+  when: _hostname_cloudinit_cfg_dir.stat.exists

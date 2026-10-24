@@ -213,7 +213,7 @@ nut_exporter_teardown: false
 # change stays attributable without decrypting. _username/_password MUST match
 # nut_monitor_user/nut_monitor_password of the `nut` role, which is what
 # upsd.users contains; they are separate variables and can drift silently.
-nut_exporter_server: "192.168.124.100"
+nut_exporter_server: "k3smaster"
 nut_exporter_username: "monuser"
 nut_exporter_password: "changeme"
 # nut_ups_name, nut_ups_secondary_name — defined in group_vars/all/main/nut.yml

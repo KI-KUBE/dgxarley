@@ -11,7 +11,7 @@ nut_admin_password: "changeme"
 nut_monitor_user: "monuser"
 nut_monitor_password: "changeme"
 # NUT exporter (k8s_infra)
-nut_exporter_server: "192.168.124.100"
+nut_exporter_server: "k3smaster"
 # Must match the upsd user the `nut` role creates from nut_monitor_user
 # (roles/nut/templates/etc_nut_upsd.users.j2 renders `[{{ nut_monitor_user }}]`)
 # — and nut_exporter_password must match nut_monitor_password, otherwise the
