@@ -126,29 +126,20 @@
     - isk3smaster
   # notify: restart k3s
 
-- name: copy metrics-server-extend.yaml to k3smaster
-  copy:
-    src: "metrics-server-extend.yaml"
-    dest: "/var/lib/rancher/k3s/server/manifests/metrics-server-extend.yaml"
+# coredns, metrics-server and local-storage are flat Addons, HelmChartConfig has no effect; see k8s_infra tags coredns + k3s_addons.
+- name: remove inert HelmChartConfig manifests
+  file:
+    path: "/var/lib/rancher/k3s/server/manifests/{{ item }}"
+    state: absent
+  loop:
+    - metrics-server-extend.yaml
+    - local-path-provisioner-extend.yaml
+    - coredns-extend.yaml
   tags:
-    - metrics-server-extend
+    - extend-cleanup
   when:
     - isk3smaster is defined
     - isk3smaster
-
-- name: copy local-path-provisioner-extend.yaml to k3smaster
-  copy:
-    src: "local-path-provisioner-extend.yaml"
-    dest: "/var/lib/rancher/k3s/server/manifests/local-path-provisioner-extend.yaml"
-  tags:
-    - local-path-provisioner-extend
-  when:
-    - isk3smaster is defined
-    - isk3smaster
-
-# coredns-extend.yaml removed: CoreDNS is a flat Addon, not a HelmChart.
-# HelmChartConfig has no effect. Replicas are managed via k8s_infra role
-# (coredns.yml), anti-affinity is upstream topologySpreadConstraints.
 
 - name: slurp node-token from k3s-master
   slurp:

@@ -1,0 +1,38 @@
+---
+# k3s re-applies its flat addon manifests on every server start; the 3-way merge only resets fields present in the manifest.
+- name: patch resources of k3s flat addons
+  kubernetes.core.k8s:
+    state: patched
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: "{{ item.key }}"
+        namespace: kube-system
+      spec:
+        template:
+          spec:
+            containers:
+              - name: "{{ item.key }}"
+                resources: "{{ item.value }}"
+  loop: "{{ k3s_addon_resources | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+# k3s never removes an Addon whose manifest file vanished; the HelmChartConfigs never matched a HelmChart
+- name: remove inert HelmChartConfig addons
+  kubernetes.core.k8s:
+    state: absent
+    api_version: "{{ item.api_version }}"
+    kind: "{{ item.kind }}"
+    name: "{{ item.name }}"
+    namespace: kube-system
+  loop:
+    - { api_version: k3s.cattle.io/v1, kind: Addon, name: coredns-extend }
+    - { api_version: k3s.cattle.io/v1, kind: Addon, name: metrics-server-extend }
+    - { api_version: k3s.cattle.io/v1, kind: Addon, name: local-path-provisioner-extend }
+    - { api_version: helm.cattle.io/v1, kind: HelmChartConfig, name: coredns }
+    - { api_version: helm.cattle.io/v1, kind: HelmChartConfig, name: metrics-server }
+    - { api_version: helm.cattle.io/v1, kind: HelmChartConfig, name: local-path-provisioner }
+  loop_control:
+    label: "{{ item.kind }}/{{ item.name }}"

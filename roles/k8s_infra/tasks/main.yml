@@ -17,6 +17,14 @@
     - isk3smaster is defined
     - isk3smaster
 
+- name: patch k3s flat addons
+  import_tasks: core/k3s_addons.yml
+  tags:
+    - k3s_addons
+  when:
+    - isk3smaster is defined
+    - isk3smaster
+
 - name: import certmanager.yml if isk3smaster is defined and true
   import_tasks: core/certmanager.yml
   tags: certmanager

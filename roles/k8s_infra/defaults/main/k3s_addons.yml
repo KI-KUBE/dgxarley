@@ -1,0 +1,14 @@
+---
+# Only fields absent from the k3s manifest are durable: metrics-server ships requests (100m/70Mi), local-storage ships none.
+k3s_addon_resources:
+  metrics-server:
+    limits:
+      cpu: 1000m
+      memory: 256Mi
+  local-path-provisioner:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi

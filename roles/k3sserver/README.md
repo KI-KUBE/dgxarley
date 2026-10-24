@@ -126,14 +126,11 @@ Agent nodes set `node-ip`, `node-external-ip`, and the same `kube-proxy-arg: nod
 
 ## Helm Extension Files
 
-These YAML files are placed in `/var/lib/rancher/k3s/server/manifests/` where K3s auto-deploys them as HelmChartConfig resources.
+These YAML files are placed in `/var/lib/rancher/k3s/server/manifests/` where K3s auto-deploys them as HelmChartConfig resources. Only Traefik is a HelmChart; CoreDNS, metrics-server and local-storage are flat Addons and are patched from the `k8s_infra` role instead (tags `coredns`, `k3s_addons`).
 
-| File                                 | Component              | Key Settings                                                                                                                                                                                                              |
-|--------------------------------------|------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `traefik-extend.yaml`                | Traefik ingress        | 2 replicas with pod anti-affinity pinned to peekaboos, PROXY protocol on web/websecure/MQTT ports, fixed NodePorts, `/ping` health endpoint on `traefik` entryPoint (NodePort 30808), JSON access logs, dashboard enabled |
-| `metrics-server-extend.yaml`         | Metrics Server         | Resource limits (50m-1000m CPU, 64-256Mi memory)                                                                                                                                                                          |
-| `local-path-provisioner-extend.yaml` | Local Path Provisioner | Resource limits (50m-200m CPU, 64-256Mi memory)                                                                                                                                                                           |
-| `coredns-extend.yaml`                | CoreDNS                | Resource limits (100m-300m CPU, 70-170Mi memory)                                                                                                                                                                          |
+| File                  | Component       | Key Settings                                                                                                                                                                                                              |
+|-----------------------|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `traefik-extend.yaml` | Traefik ingress | 2 replicas with pod anti-affinity pinned to peekaboos, PROXY protocol on web/websecure/MQTT ports, fixed NodePorts, `/ping` health endpoint on `traefik` entryPoint (NodePort 30808), JSON access logs, dashboard enabled |
 
 ### Traefik Port Mapping
 
@@ -241,9 +238,6 @@ roles/k3sserver/
 │   └── etc_haproxy_haproxy.cfg.j2         # HAProxy configuration
 ├── files/
 │   ├── traefik-extend.yaml                # Traefik Helm overrides
-│   ├── metrics-server-extend.yaml         # Metrics Server overrides
-│   ├── local-path-provisioner-extend.yaml # Local Path Provisioner overrides
-│   ├── coredns-extend.yaml                # CoreDNS overrides
 │   ├── dumpclusterstate.sh                # Cluster backup script
 │   ├── updatepihole.sh                    # Pi-hole command wrapper
 │   ├── updatemosquittos.sh                # Mosquitto TLS sync
