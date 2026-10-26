@@ -32,6 +32,13 @@
     - isk3smaster is defined
     - isk3smaster
 
+- name: import traefik.yml if isk3smaster is defined and true
+  import_tasks: core/traefik.yml
+  tags: traefik
+  when:
+    - isk3smaster is defined
+    - isk3smaster
+
 - name: import traefikdashboard.yml if isk3smaster is defined and true
   import_tasks: core/traefikdashboard.yml
   tags: traefikdashboard

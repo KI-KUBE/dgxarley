@@ -5,6 +5,7 @@ cluster-init: true
 {% if isk3smaster is defined and isk3smaster %}
 disable:
   - servicelb
+  - traefik
 disable-network-policy: {{ k3s_disable_network_policy | bool | lower }}
 cluster-cidr: "{{ cluster_cidr }}"
 service-cidr: "{{ service_cidr }}"

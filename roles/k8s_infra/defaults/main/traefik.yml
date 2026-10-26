@@ -1,0 +1,6 @@
+---
+traefik:
+  namespace: traefik
+  # files/traefik/<version>_kubernetes-crd-definition-v1.yml must match this version
+  version: "v3.7.13"
+  node_role: k3smaster

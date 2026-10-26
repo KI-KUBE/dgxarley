@@ -119,4 +119,4 @@ backend iot_ap_mqtt_back
     server mosquitto 127.0.0.1:{{ mosquitto_proxied_nodeport | default(31882) }} send-proxy-v2
 {% endif %}
 
-# check roles/k3sserver/files/traefik-extend.yaml for ports/proxy_protocol enabled ports there
+# check roles/k8s_infra/tasks/core/traefik.yml for ports/proxy_protocol enabled ports there

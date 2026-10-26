@@ -115,53 +115,46 @@
     - isk3smaster is defined
     - isk3smaster
 
-- name: copy traefik-extend.yaml to k3smaster
-  template:
-    src: "traefik-extend.yaml.j2"
-    dest: "/var/lib/rancher/k3s/server/manifests/traefik-extend.yaml"
-  tags:
-    - traefik-extend
-  when:
-    - isk3smaster is defined
-    - isk3smaster
-  # notify: restart k3s
-
-# helm upgrade does not reliably remove the Service when it is disabled
-- name: delete traefik Service
-  command: k3s kubectl -n kube-system delete svc traefik --ignore-not-found
-  register: traefik_svc_delete
-  changed_when: traefik_svc_delete.stdout | length > 0
-  tags:
-    - traefik-extend
-  when:
-    - isk3smaster is defined
-    - isk3smaster
-    - not ansible_check_mode
-
-# Traefik runs on hostPorts: a Service is unnecessary, its NodePorts would collide with their DNAT on 127.0.0.1
-- name: assert traefik has no Service
-  command: k3s kubectl -n kube-system get svc traefik --ignore-not-found -o name
-  register: traefik_svc
-  until: traefik_svc.stdout == ''
-  retries: 36
-  delay: 5
+- name: check whether k3s still ships its traefik HelmChart
+  command: k3s kubectl -n kube-system get helmchart traefik --ignore-not-found -o name
+  register: k3s_traefik_helmchart
   changed_when: false
+  check_mode: false
   tags:
-    - traefik-extend
+    - traefik-legacy-cleanup
   when:
     - isk3smaster is defined
     - isk3smaster
-    - not ansible_check_mode
 
-- name: copy traefik-netpol.yaml to k3smaster
-  copy:
-    src: "traefik-netpol.yaml"
-    dest: "/var/lib/rancher/k3s/server/manifests/traefik-netpol.yaml"
+# only once k3s has removed its traefik: otherwise k3s redeploys it with default values when the HelmChartConfig is gone
+- name: remove legacy traefik manifests from k3smaster
+  file:
+    path: "/var/lib/rancher/k3s/server/manifests/{{ item }}"
+    state: absent
+  loop:
+    - traefik-extend.yaml
+    - traefik-netpol.yaml
   tags:
-    - traefik-netpol
+    - traefik-legacy-cleanup
   when:
     - isk3smaster is defined
     - isk3smaster
+    - k3s_traefik_helmchart.stdout == ''
+
+- name: delete legacy traefik HelmChartConfig and addon objects
+  command: "k3s kubectl -n kube-system delete {{ item }} --ignore-not-found"
+  loop:
+    - helmchartconfig/traefik
+    - addon/traefik-extend
+  register: traefik_legacy_delete
+  changed_when: traefik_legacy_delete.stdout | length > 0
+  tags:
+    - traefik-legacy-cleanup
+  when:
+    - isk3smaster is defined
+    - isk3smaster
+    - k3s_traefik_helmchart.stdout == ''
+    - not ansible_check_mode
 
 # coredns, metrics-server and local-storage are flat Addons, HelmChartConfig has no effect; see k8s_infra tags coredns + k3s_addons.
 - name: remove inert HelmChartConfig manifests
