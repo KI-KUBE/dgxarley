@@ -43,6 +43,39 @@
   when:
   notify: restart sshd
 
+- name: deploy Ansible-owned sshd PasswordAuthentication drop-in
+  ansible.builtin.copy:
+    dest: /etc/ssh/sshd_config.d/00-ansible-ssh.conf
+    content: "PasswordAuthentication {{ 'yes' if common_ssh_password_auth | bool else 'no' }}\n"
+    owner: root
+    group: root
+    mode: '0644'
+  notify: restart sshd
+
+- name: Remove cloud-init sshd drop-in
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d/50-cloud-init.conf
+    state: absent
+  when: "'hetzner' not in group_names"
+  notify: restart sshd
+
+- name: Find unexpected cloud-init sshd drop-ins
+  ansible.builtin.find:
+    paths: /etc/ssh/sshd_config.d
+    patterns: '*cloud-init*.conf'
+    # --check does not remove the file above
+    excludes: '50-cloud-init.conf'
+  when: "'hetzner' not in group_names"
+  register: common_cloudinit_sshd_dropins
+
+- name: Assert no further cloud-init sshd drop-in remains
+  ansible.builtin.assert:
+    that: common_cloudinit_sshd_dropins.matched == 0
+    fail_msg: >-
+      Unexpected cloud-init sshd drop-in(s): {{ common_cloudinit_sshd_dropins.files | map(attribute='path') | list }}.
+      PasswordAuthentication is owned by 00-ansible-ssh.conf; sshd_config.d/ must carry no cloud-init file.
+  when: "'hetzner' not in group_names"
+
 
 
 #- hosts: all

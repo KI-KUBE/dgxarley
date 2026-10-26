@@ -101,3 +101,6 @@ podman_apt_purge: false
 # Define in host_vars/<host>/vault/ (e.g. host_vars/k3smaster/vault/nfs.sops.yml).
 nfs_exports: []
 nfs_exports_default_options: "rw,sync,no_subtree_check,no_root_squash"
+
+# 00- drop-in wins via sshd first-match over installer drop-ins
+common_ssh_password_auth: false
