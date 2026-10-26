@@ -128,15 +128,16 @@ Agent nodes set `node-ip`, `node-external-ip`, and the same `kube-proxy-arg: nod
 
 These YAML files are placed in `/var/lib/rancher/k3s/server/manifests/` where K3s auto-deploys them as HelmChartConfig resources. Only Traefik is a HelmChart; CoreDNS, metrics-server and local-storage are flat Addons and are patched from the `k8s_infra` role instead (tags `coredns`, `k3s_addons`).
 
-| File                  | Component       | Key Settings                                                                                                                                                                                                              |
-|-----------------------|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `traefik-extend.yaml` | Traefik ingress | 2 replicas with pod anti-affinity pinned to peekaboos, PROXY protocol on web/websecure/MQTT ports, fixed NodePorts, `/ping` health endpoint on `traefik` entryPoint (NodePort 30808), JSON access logs, dashboard enabled |
+| File                  | Component       | Key Settings                                                                                                                                                                                                                          |
+|-----------------------|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `traefik-extend.yaml` | Traefik ingress | 2 replicas with pod anti-affinity pinned to peekaboos, PROXY protocol on web/websecure/MQTT ports, no Service, fixed hostPorts, `/ping` health endpoint on `traefik` entryPoint (hostPort 30808), JSON access logs, dashboard enabled |
+| `traefik-netpol.yaml` | Traefik ingress | NetworkPolicy: other pods may only reach `metrics`; node-local traffic (HAProxy, kubelet probes) is always allowed by kube-router                                                                                                     |
 
 ### Traefik Port Mapping
 
-Traefik listens on non-standard ports because HAProxy handles the standard ports. Each port has a fixed NodePort for use by peekaboo HAProxy instances (see edgeservices role). A `/ping` health endpoint is enabled on the default `traefik` entryPoint (8080, NodePort 30808) for keepalived tracking — this port has no PROXY protocol, so plain `curl` health checks work directly.
+Traefik listens on non-standard ports because HAProxy handles the standard ports. Each port has a fixed hostPort on `127.0.0.1` for the HAProxy on the same node; portmap forwards it only to the local Traefik pod, so `traefik-netpol.yaml` can lock out every other pod. A `/ping` health endpoint is enabled on the default `traefik` entryPoint (8080, hostPort 30808) for keepalived tracking — this port has no PROXY protocol, so plain `curl` health checks work directly.
 
-| Standard Port      | Traefik Port | NodePort | Protocol                  |
+| Standard Port      | Traefik Port | hostPort | Protocol                  |
 |--------------------|--------------|----------|---------------------------|
 | -- (ping/API)      | 8080         | 30808    | HTTP (no PROXY protocol)  |
 | 80 (via HAProxy)   | 8181         | 30080    | HTTP + PROXY protocol     |
@@ -144,7 +145,21 @@ Traefik listens on non-standard ports because HAProxy handles the standard ports
 | 1883 (via HAProxy) | 1882         | 31882    | MQTT + PROXY protocol     |
 | 8883 (via HAProxy) | 8882         | 38882    | MQTT TLS + PROXY protocol |
 
-NodePorts are restricted to localhost via `kube-proxy-arg: nodeport-addresses=127.0.0.0/8` (both master and agent nodes), so they are not reachable from LAN IPs. LoadBalancer and ClusterIP access is unaffected.
+Traefik has no Service at all (`service.enabled: false`): HAProxy uses the hostPorts and Prometheus scrapes via pod service discovery. Other NodePort Services are restricted to localhost via `kube-proxy-arg: nodeport-addresses=127.0.0.0/8` (both master and agent nodes), so they are not reachable from LAN IPs. LoadBalancer and ClusterIP access is unaffected.
+
+#### hostPort vs. NodePort
+
+|                        | hostPort                                                                        | NodePort                                                                   |
+|------------------------|---------------------------------------------------------------------------------|----------------------------------------------------------------------------|
+| Defined on             | the pod (`containers[].ports[].hostPort`, optional `hostIP`)                    | the Service (`spec.ports[].nodePort`)                                      |
+| Implemented by         | CNI `portmap` plugin (iptables DNAT, chains `CNI-HOSTPORT-*`)                   | kube-proxy (iptables DNAT, chains `KUBE-NODEPORTS`/`KUBE-SVC-*`)           |
+| Exists on              | only the node(s) running such a pod                                             | every node                                                                 |
+| Forwards to            | the pod on this node, nothing else                                              | any endpoint in the cluster, load-balanced, also across nodes              |
+| Traffic from 127.0.0.1 | masqueraded to `cni0` (`.1` of the node's pod CIDR)                             | masqueraded and sent cluster-wide even with `externalTrafficPolicy: Local` |
+| Scheduling             | at most one pod per node per hostIP:port (scheduler enforces)                   | no effect                                                                  |
+| Port range             | any port; not visible in `ss -ltn`, shadows a host listener on the same IP:port | `service-node-port-range` (here `22-32767`), auto-allocated if unset       |
+
+Rollouts: with a hostPort a surge pod cannot start on the node that still runs the old pod, hence `maxSurge: 0` / `maxUnavailable: 1`. Since `service-node-port-range` includes the hostPorts, a NodePort auto-allocated later for another Service could collide with them.
 
 ## Maintenance Scripts
 

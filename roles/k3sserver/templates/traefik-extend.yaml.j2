@@ -1,3 +1,5 @@
+{# portmap masquerades HAProxy -> 127.0.0.1:hostPort to cni0, so the sender is in cluster_cidr; traefik-netpol.yaml locks out pods #}
+{% set traefik_proxy_trusted_ips = [cluster_cidr] %}
 ---
 # kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.6/docs/content/reference/dynamic-configuration/kubernetes-crd-rbac.yml
 # kubectl apply -f https://raw.githubusercontent.com/traefik/traefik/v3.6/docs/content/reference/dynamic-configuration/kubernetes-crd-definition-v1.yml
@@ -16,6 +18,14 @@ spec:
   valuesContent: |-
     deployment:
       replicas: 1
+      # the chart uses ports.traefik.hostIP as probe host: without this port the kubelet probes 127.0.0.1:8080 on the node
+      healthchecksPort: 30808
+    updateStrategy:
+      type: RollingUpdate
+      rollingUpdate:
+        # a surge pod can never get the hostPort on the same node -> rollout would hang
+        maxSurge: 0
+        maxUnavailable: 1
     affinity:
       podAntiAffinity:
         preferredDuringSchedulingIgnoredDuringExecution:
@@ -47,14 +57,8 @@ spec:
         enabled: true
         format: json  # common or json
     service:
-      # Chart >= v41: Service-Felder nur unter spec, auf oberster Ebene werden sie still ignoriert
-      spec:
-        # servicelb ist aus: ein LoadBalancer-Status bliebe stale, kube-proxy DNATet dessen IPs an der Host-Firewall vorbei
-        type: NodePort
-        #externalTrafficPolicy: local
-        ipFamilies:
-          - IPv4
-        ipFamilyPolicy: SingleStack
+      # HAProxy uses the hostPorts, Prometheus the pod SD
+      enabled: false
     ingressRoute:
       dashboard:
         # -- Create an IngressRoute for the dashboard
@@ -70,18 +74,20 @@ spec:
       traefik:
         port: 8080
         exposedPort: 8080
-        nodePort: 30808
+        hostPort: 30808
+        hostIP: 127.0.0.1
         expose:
           default: true
       web:
         port: 8181
         exposedPort: 8181
-        nodePort: 30080
+        hostPort: 30080
+        hostIP: 127.0.0.1
         proxyProtocol:
-          insecure: true
+          trustedIPs: {{ traefik_proxy_trusted_ips | to_json }}
           #trustedIPs: [ ]
           #  - <proxy-ip>
-          #  - 127.0.0.1
+          #  - 127.0.0.1  # never matches: Traefik sees the sender masqueraded by portmap (cni0)
         # forwardedHeaders.insecure: true would let ANY peer claim an arbitrary client
         # IP via X-Forwarded-For. Use the explicit traefik_forwarded_trusted_ips
         # allowlist instead. Omitted entirely when the list is empty (the main/ dummy),
@@ -94,9 +100,10 @@ spec:
       websecure:
         port: 4430
         exposedPort: 4430
-        nodePort: 30443
+        hostPort: 30443
+        hostIP: 127.0.0.1
         proxyProtocol:
-          insecure: true
+          trustedIPs: {{ traefik_proxy_trusted_ips | to_json }}
         # Same allowlist as web: without it Traefik discards the edge's X-Forwarded-For
         # and every remote client looks like the proxy IP to the backend.
 {% if traefik_forwarded_trusted_ips | default([]) | length > 0 %}

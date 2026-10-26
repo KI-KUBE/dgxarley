@@ -1,0 +1,17 @@
+---
+# proxyProtocol.trustedIPs = cluster_cidr: other pods may only reach metrics, otherwise they could forge PROXY headers
+# kube-router always allows node-local traffic (HAProxy -> hostPort, kubelet probes)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: traefik-ingress-node-local-only
+  namespace: kube-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: metrics
