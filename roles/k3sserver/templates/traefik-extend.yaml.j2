@@ -47,10 +47,14 @@ spec:
         enabled: true
         format: json  # common or json
     service:
-      #externalTrafficPolicy: local
-      ipFamilies:
-        - IPv4
-      ipFamilyPolicy: SingleStack
+      # Chart >= v41: Service-Felder nur unter spec, auf oberster Ebene werden sie still ignoriert
+      spec:
+        # servicelb ist aus: ein LoadBalancer-Status bliebe stale, kube-proxy DNATet dessen IPs an der Host-Firewall vorbei
+        type: NodePort
+        #externalTrafficPolicy: local
+        ipFamilies:
+          - IPv4
+        ipFamilyPolicy: SingleStack
     ingressRoute:
       dashboard:
         # -- Create an IngressRoute for the dashboard
