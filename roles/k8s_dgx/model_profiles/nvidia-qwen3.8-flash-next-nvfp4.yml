@@ -64,6 +64,10 @@ _model_profile:
     # Value the TP=4 RadixArk run of the same architecture settled on. This is a
     # post-weight KV reserve, not a fraction of total.
     mem_fraction_static: "0.82"
+    # Drop the host page cache once the weights are loaded: on GB10 unified memory CUDA
+    # counts only MemFree, so a cache full of weight files blocks a second CUDA context
+    # (sglang-embed on spark2) from initialising.
+    weight_loader_drop_cache_after_load: true
     # Forced to 64 by _qwen4_exp_overrides (compressed QSA addresses the cache as
     # full_slot // compress_ratio), which is also why extra_buffer below is
     # mandatory rather than an optimisation.
