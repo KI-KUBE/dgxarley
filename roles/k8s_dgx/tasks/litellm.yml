@@ -448,9 +448,9 @@
     that:
       - item.hostname is defined
       - item.hostname | length > 0
-      - item.dns_backend | default('') in nsupdate_servers
+      - (item.dns_backend | default('')) == '' or item.dns_backend in nsupdate_servers
       - item.tls_issuer | default('') | length > 0
-    fail_msg: "litellm_extra_hosts: every entry needs hostname, dns_backend (key of nsupdate_servers) and tls_issuer"
+    fail_msg: "litellm_extra_hosts: every entry needs hostname and tls_issuer; dns_backend is a key of nsupdate_servers or empty (A record owned elsewhere, e.g. by the kikube hub for tenant domains)"
   loop: "{{ litellm_extra_hosts }}"
   loop_control:
     label: "{{ item.hostname | default('?') }}"
@@ -551,6 +551,7 @@
   loop: "{{ litellm_extra_hosts }}"
   loop_control:
     label: "{{ item.hostname }}"
+  when: item.dns_backend | default('') | length > 0
 
 # Node-RED virtual key: value comes from vault (nodered_litellm_api_key), so create/update is idempotent.
 - name: Provision Node-RED LiteLLM virtual key
