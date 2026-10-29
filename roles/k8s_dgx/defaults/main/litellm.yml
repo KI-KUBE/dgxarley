@@ -352,3 +352,8 @@ litellm_guardrails: []
 
 # Hermes / Honcho / Hindsight config moved to roles/k8s_infra/defaults/main/{hermes,honcho,hindsight}.yml
 # (those services moved to the k8s_infra role).
+
+# Admin API base for team/key provisioning (tasks/litellm.yml, tasks/litellm_vkey.yml).
+# The external URL is used because the playbook runs on the control node, where
+# cluster-internal service DNS does not resolve.
+litellm_admin_url: "https://litellm.{{ dns_external_domain_suffix }}"

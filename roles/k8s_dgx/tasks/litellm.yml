@@ -481,104 +481,161 @@
 
 
 # ============================================================================
-# Virtual Key Provisioning (DISABLED — kept for reference)
+# Teams and virtual keys (declarative, idempotent, no proxy restart)
 # ============================================================================
-# LiteLLM virtual keys live in the DB, not in config.yaml. The tasks below
-# look up keys by key_alias — if a key with that alias already exists it is
-# reused, otherwise a new one is generated via /key/generate. The returned
-# sk-... token is written to a per-key K8s Secret in the litellm namespace so
-# consumer pods (openwebui, pipelines, CLI users) can pull it via
-# envFrom/volume.
-#
-# Currently disabled — consumers pass the master_key (or a hand-provisioned
-# virtual key from vault) directly via plain variables. Uncomment the block
-# below when you want Ansible to manage the key lifecycle idempotently.
-# Define the key list as litellm_virtual_keys in group_vars/all/main/litellm.yml (or
-# vault if metadata is sensitive).
-#
-# - name: Wait for litellm /health/readiness before provisioning keys
-#   ansible.builtin.uri:
-#     url: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/health/readiness"
-#     status_code: 200
-#   register: _litellm_ready
-#   until: _litellm_ready.status == 200
-#   retries: 30
-#   delay: 5
-#   when: litellm_virtual_keys | default([]) | length > 0
-#
-# - name: Read litellm master_key from in-cluster Secret
-#   kubernetes.core.k8s_info:
-#     api_version: v1
-#     kind: Secret
-#     name: litellm-env
-#     namespace: "{{ litellm_namespace }}"
-#   register: _litellm_env
-#   when: litellm_virtual_keys | default([]) | length > 0
-#
-# - name: Set litellm master_key fact
-#   ansible.builtin.set_fact:
-#     _litellm_master_key: "{{ _litellm_env.resources[0].data.LITELLM_MASTER_KEY | b64decode }}"
-#   when: litellm_virtual_keys | default([]) | length > 0
-#
-# # /key/info returns 404 if alias not found — use check-mode-ish logic via
-# # status_code: [200, 404] and branch on the response.
-# - name: Check which virtual keys already exist (by key_alias)
-#   ansible.builtin.uri:
-#     url: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/key/info?key_alias={{ item.key_alias }}"
-#     method: GET
-#     headers:
-#       Authorization: "Bearer {{ _litellm_master_key }}"
-#     status_code: [200, 404]
-#   loop: "{{ litellm_virtual_keys | default([]) }}"
-#   register: _litellm_existing_keys
-#   when: litellm_virtual_keys | default([]) | length > 0
-#
-# - name: Generate missing virtual keys via /key/generate
-#   ansible.builtin.uri:
-#     url: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/key/generate"
-#     method: POST
-#     headers:
-#       Authorization: "Bearer {{ _litellm_master_key }}"
-#       Content-Type: "application/json"
-#     body_format: json
-#     body:
-#       key_alias: "{{ item.item.key_alias }}"
-#       user_id: "{{ item.item.user_id | default(omit) }}"
-#       team_id: "{{ item.item.team_id | default(omit) }}"
-#       max_budget: "{{ item.item.max_budget | default(omit) }}"
-#       budget_duration: "{{ item.item.budget_duration | default(omit) }}"
-#       tpm_limit: "{{ item.item.tpm_limit | default(omit) }}"
-#       rpm_limit: "{{ item.item.rpm_limit | default(omit) }}"
-#       models: "{{ item.item.models | default(omit) }}"
-#       metadata: "{{ item.item.metadata | default(omit) }}"
-#     status_code: 200
-#   loop: "{{ _litellm_existing_keys.results | default([]) }}"
-#   when:
-#     - litellm_virtual_keys | default([]) | length > 0
-#     - item.status is defined
-#     - item.status == 404
-#   register: _litellm_generated_keys
-#   no_log: true   # response body contains the sk-... token
-#
-# # Store each returned key as a K8s Secret named litellm-vkey-<alias>. Consumer
-# # pods mount it via envFrom → LITELLM_API_KEY. Re-running the play is a no-op
-# # because the /key/info branch returns 200 and this task is skipped.
-# - name: Persist generated keys as K8s Secrets
-#   kubernetes.core.k8s:
-#     state: present
-#     definition:
-#       apiVersion: v1
-#       kind: Secret
-#       metadata:
-#         name: "litellm-vkey-{{ item.item.item.key_alias }}"
-#         namespace: "{{ litellm_namespace }}"
-#       type: Opaque
-#       stringData:
-#         LITELLM_API_KEY: "{{ item.json.key }}"
-#         LITELLM_API_BASE: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
-#   loop: "{{ _litellm_generated_keys.results | default([]) }}"
-#   when:
-#     - item.skipped is not defined or not item.skipped
-#     - item.json is defined
-#   no_log: true
+# Teams and keys live in the LiteLLM DB, not in config.yaml, so nothing here
+# touches the ConfigMap or the Deployment. Teams come from litellm_teams, keys
+# from litellm_virtual_keys (group_vars/all/main/litellm.yml). Keys are looked up
+# by key_alias via GET /key/list (GET /key/info?key_alias= ignores the alias and
+# always returns 404). A new key's sk-... token is stored once in the Secret
+# litellm-vkey-<alias>; existing keys are never rotated.
+# 0 or null for tpm_limit/rpm_limit/max_budget means unlimited (the value 0 is
+# never sent, LiteLLM would block all requests).
+- name: Provision LiteLLM teams and virtual keys
+  when:
+    - litellm_enabled | bool
+    - (litellm_teams | default([]) | length > 0) or (litellm_virtual_keys | default([]) | length > 0)
+  tags: [litellm, litellm_keys]
+  block:
+    - name: Wait for litellm readiness before provisioning teams and keys
+      ansible.builtin.uri:
+        url: "{{ litellm_admin_url }}/health/readiness"
+        status_code: 200
+      register: _litellm_ready_keys
+      until: _litellm_ready_keys.status == 200
+      retries: 60
+      delay: 10
+      check_mode: false
 
+    - name: Read existing litellm teams
+      ansible.builtin.uri:
+        url: "{{ litellm_admin_url }}/team/list"
+        headers:
+          Authorization: "Bearer {{ litellm_master_key }}"
+        status_code: 200
+      register: _litellm_team_list
+      check_mode: false
+      changed_when: false
+      no_log: true
+
+    - name: Index existing litellm teams by team_alias
+      ansible.builtin.set_fact:
+        _litellm_teams_by_alias: >-
+          {{ dict(_litellm_team_list.json | selectattr('team_alias', 'string') | map(attribute='team_alias')
+                  | zip(_litellm_team_list.json | selectattr('team_alias', 'string'))) }}
+      no_log: true
+
+    - name: Create missing litellm teams
+      ansible.builtin.uri:
+        url: "{{ litellm_admin_url }}/team/new"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ litellm_master_key }}"
+        body_format: json
+        body: >-
+          {{ {'team_alias': item.team_alias,
+              'models': item.models | default([], true),
+              'max_budget': (item.max_budget | default(0, true) | float) or none,
+              'budget_duration': item.budget_duration | default(none, true),
+              'tpm_limit': (item.tpm_limit | default(0, true) | int) or none,
+              'rpm_limit': (item.rpm_limit | default(0, true) | int) or none,
+              'metadata': item.metadata | default({}, true)}
+             | dict2items | rejectattr('value', 'none') | items2dict }}
+        status_code: 200
+      loop: "{{ litellm_teams | default([]) }}"
+      loop_control:
+        label: "{{ item.team_alias }}"
+      when:
+        - not ansible_check_mode
+        - item.team_alias not in _litellm_teams_by_alias
+      register: _litellm_team_created
+      no_log: true
+
+    - name: Update litellm teams whose models, limits or metadata differ
+      ansible.builtin.uri:
+        url: "{{ litellm_admin_url }}/team/update"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ litellm_master_key }}"
+        body_format: json
+        body:
+          team_id: "{{ _t_ex.team_id }}"
+          models: "{{ item.models | default([], true) }}"
+          max_budget: "{{ _t_want.max_budget }}"
+          budget_duration: "{{ _t_want.budget_duration }}"
+          tpm_limit: "{{ _t_want.tpm_limit }}"
+          rpm_limit: "{{ _t_want.rpm_limit }}"
+          metadata: "{{ _t_ex.metadata | default({}, true) | combine(item.metadata | default({}, true)) }}"
+        status_code: 200
+      vars:
+        _t_ex: "{{ _litellm_teams_by_alias[item.team_alias] | default({}) }}"
+        _t_want:
+          models: "{{ item.models | default([], true) | reject('equalto', 'all-proxy-models') | sort | list }}"
+          max_budget: "{{ (item.max_budget | default(0, true) | float) or none }}"
+          budget_duration: "{{ item.budget_duration | default(none, true) }}"
+          tpm_limit: "{{ (item.tpm_limit | default(0, true) | int) or none }}"
+          rpm_limit: "{{ (item.rpm_limit | default(0, true) | int) or none }}"
+        _t_have:
+          models: "{{ _t_ex.models | default([], true) | reject('equalto', 'all-proxy-models') | sort | list }}"
+          max_budget: "{{ (_t_ex.max_budget | default(0, true) | float) or none }}"
+          budget_duration: "{{ _t_ex.budget_duration | default(none, true) }}"
+          tpm_limit: "{{ (_t_ex.tpm_limit | default(0, true) | int) or none }}"
+          rpm_limit: "{{ (_t_ex.rpm_limit | default(0, true) | int) or none }}"
+      loop: "{{ litellm_teams | default([]) }}"
+      loop_control:
+        label: "{{ item.team_alias }}"
+      when:
+        - not ansible_check_mode
+        - item.team_alias in _litellm_teams_by_alias
+        - (_t_want != _t_have) or ((_t_ex.metadata | default({}, true) | combine(item.metadata | default({}, true))) != (_t_ex.metadata | default({}, true)))
+      no_log: true
+
+    - name: Read litellm teams again to resolve team_id
+      ansible.builtin.uri:
+        url: "{{ litellm_admin_url }}/team/list"
+        headers:
+          Authorization: "Bearer {{ litellm_master_key }}"
+        status_code: 200
+      register: _litellm_team_list_final
+      check_mode: false
+      changed_when: false
+      no_log: true
+
+    - name: Resolve litellm team_alias to team_id
+      ansible.builtin.set_fact:
+        _litellm_team_ids: >-
+          {{ dict(_litellm_team_list_final.json | selectattr('team_alias', 'string') | map(attribute='team_alias')
+                  | zip(_litellm_team_list_final.json | selectattr('team_alias', 'string') | map(attribute='team_id'))) }}
+      no_log: true
+
+    - name: Show litellm team plan
+      ansible.builtin.debug:
+        msg: >-
+          team {{ item.team_alias }}:
+          {{ 'create' if item.team_alias not in _litellm_teams_by_alias else 'exists (updated only if models/limits/metadata differ)' }}
+      loop: "{{ litellm_teams | default([]) }}"
+      loop_control:
+        label: "{{ item.team_alias }}"
+
+    - name: Check that every key references a known team
+      ansible.builtin.assert:
+        that:
+          - >-
+            item.team_alias | default('', true) == ''
+            or item.team_alias in _litellm_team_ids
+            or item.team_alias in (litellm_teams | default([]) | map(attribute='team_alias') | list)
+        fail_msg: "litellm key {{ item.key_alias }}: team_alias {{ item.team_alias | default('') }} is neither in litellm_teams nor in LiteLLM"
+        quiet: true
+      loop: "{{ litellm_virtual_keys | default([]) }}"
+      loop_control:
+        label: "{{ item.key_alias }}"
+
+    - name: Provision litellm virtual key
+      ansible.builtin.include_tasks:
+        file: litellm_vkey.yml
+        apply:
+          tags: [litellm, litellm_keys]
+      loop: "{{ litellm_virtual_keys | default([]) }}"
+      loop_control:
+        loop_var: _vkey
+        label: "{{ _vkey.key_alias }}"

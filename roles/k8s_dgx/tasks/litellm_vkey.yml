@@ -1,0 +1,161 @@
+---
+# Per-key provisioning, included from litellm.yml with loop_var _vkey.
+# Create or update only; an existing key is never rotated.
+- name: Read litellm key {{ _vkey.key_alias }}
+  ansible.builtin.uri:
+    url: "{{ litellm_admin_url }}/key/list?return_full_object=true&size=100&key_alias={{ _vkey.key_alias | urlencode }}"
+    headers:
+      Authorization: "Bearer {{ litellm_master_key }}"
+    status_code: 200
+  register: _litellm_key_list
+  check_mode: false
+  changed_when: false
+  no_log: true
+
+- name: Read Secret litellm-vkey-{{ _vkey.key_alias }}
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Secret
+    name: "litellm-vkey-{{ _vkey.key_alias }}"
+    namespace: "{{ litellm_namespace }}"
+  register: _litellm_key_secret
+  no_log: true
+
+- name: Derive litellm key state for {{ _vkey.key_alias }}
+  ansible.builtin.set_fact:
+    _k_ex: "{{ (_litellm_key_list.json['keys'] | default([]) | selectattr('key_alias', 'equalto', _vkey.key_alias) | list | first) | default({}) }}"
+    _k_secret_present: "{{ (_litellm_key_secret.resources | default([]) | length) > 0 }}"
+    _k_team_id: >-
+      {{ (_litellm_team_ids[_vkey.team_alias] | default('<new team ' ~ _vkey.team_alias ~ '>'))
+         if (_vkey.team_alias | default('', true)) != '' else none }}
+  no_log: true
+
+- name: Derive wanted and current litellm key spec for {{ _vkey.key_alias }}
+  ansible.builtin.set_fact:
+    _k_want:
+      team_id: "{{ _k_team_id }}"
+      user_id: "{{ _vkey.user_id | default(none, true) }}"
+      models: "{{ _vkey.models | default([], true) | sort | list }}"
+      max_budget: "{{ (_vkey.max_budget | default(0, true) | float) or none }}"
+      budget_duration: "{{ _vkey.budget_duration | default(none, true) }}"
+      tpm_limit: "{{ (_vkey.tpm_limit | default(0, true) | int) or none }}"
+      rpm_limit: "{{ (_vkey.rpm_limit | default(0, true) | int) or none }}"
+    _k_have:
+      team_id: "{{ _k_ex.team_id | default(none, true) }}"
+      user_id: "{{ (_k_ex.user_id | default(none, true)) if (_vkey.user_id | default('', true)) != '' else none }}"
+      models: "{{ _k_ex.models | default([], true) | sort | list }}"
+      max_budget: "{{ (_k_ex.max_budget | default(0, true) | float) or none }}"
+      budget_duration: "{{ _k_ex.budget_duration | default(none, true) }}"
+      tpm_limit: "{{ (_k_ex.tpm_limit | default(0, true) | int) or none }}"
+      rpm_limit: "{{ (_k_ex.rpm_limit | default(0, true) | int) or none }}"
+  no_log: true
+
+- name: Decide litellm key action for {{ _vkey.key_alias }}
+  ansible.builtin.set_fact:
+    _k_action: >-
+      {{ 'create' if _k_ex | length == 0
+         else 'update' if (_k_want != _k_have)
+              or ((_k_ex.metadata | default({}, true) | combine(_vkey.metadata | default({}, true))) != (_k_ex.metadata | default({}, true)))
+         else 'noop' }}
+
+- name: Show litellm key plan for {{ _vkey.key_alias }}
+  ansible.builtin.debug:
+    msg: >-
+      key {{ _vkey.key_alias }}: {{ _k_action }}
+      (team {{ _vkey.team_alias | default('-') }}, secret {{ 'present' if _k_secret_present else 'missing' }})
+
+- name: Warn about litellm key without Secret {{ _vkey.key_alias }}
+  ansible.builtin.debug:
+    msg: >-
+      WARNUNG: key {{ _vkey.key_alias }} exists in LiteLLM but no Secret litellm-vkey-{{ _vkey.key_alias }};
+      rotate via /key/regenerate or delete the key
+  when:
+    - _k_action != 'create'
+    - not _k_secret_present
+
+- name: Update litellm key {{ _vkey.key_alias }}
+  ansible.builtin.uri:
+    url: "{{ litellm_admin_url }}/key/update"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ litellm_master_key }}"
+    body_format: json
+    body: >-
+      {{ {'key': _k_ex.token,
+          'team_id': _k_want.team_id,
+          'models': _k_want.models,
+          'max_budget': _k_want.max_budget,
+          'budget_duration': _k_want.budget_duration,
+          'tpm_limit': _k_want.tpm_limit,
+          'rpm_limit': _k_want.rpm_limit,
+          'metadata': _k_ex.metadata | default({}, true) | combine(_vkey.metadata | default({}, true))}
+         | combine({'user_id': _k_want.user_id} if _k_want.user_id else {}) }}
+    status_code: 200
+  when:
+    - not ansible_check_mode
+    - _k_action == 'update'
+  no_log: true
+
+- name: Generate litellm key and store it as Secret
+  when:
+    - not ansible_check_mode
+    - _k_action == 'create'
+  block:
+    - name: Generate litellm key {{ _vkey.key_alias }}
+      ansible.builtin.uri:
+        url: "{{ litellm_admin_url }}/key/generate"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ litellm_master_key }}"
+        body_format: json
+        body: >-
+          {{ {'key_alias': _vkey.key_alias,
+              'team_id': _k_want.team_id,
+              'user_id': _k_want.user_id,
+              'models': _k_want.models,
+              'max_budget': _k_want.max_budget,
+              'budget_duration': _k_want.budget_duration,
+              'tpm_limit': _k_want.tpm_limit,
+              'rpm_limit': _k_want.rpm_limit,
+              'metadata': _vkey.metadata | default({}, true)}
+             | dict2items | rejectattr('value', 'none') | items2dict }}
+        status_code: 200
+      register: _litellm_key_generated
+      changed_when: true
+      no_log: true
+
+    - name: Store litellm key {{ _vkey.key_alias }} as Secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: "litellm-vkey-{{ _vkey.key_alias }}"
+            namespace: "{{ litellm_namespace }}"
+            labels:
+              app.kubernetes.io/managed-by: ansible
+              litellm/key-alias: "{{ _vkey.key_alias }}"
+          type: Opaque
+          stringData:
+            LITELLM_API_KEY: "{{ _litellm_key_generated.json.key }}"
+            LITELLM_API_BASE: "http://litellm.{{ litellm_namespace }}.svc.cluster.local:{{ litellm_port }}/v1"
+      no_log: true
+
+  rescue:
+    - name: Delete the litellm key again when its Secret could not be written
+      ansible.builtin.uri:
+        url: "{{ litellm_admin_url }}/key/delete"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ litellm_master_key }}"
+        body_format: json
+        body:
+          key_aliases: ["{{ _vkey.key_alias }}"]
+        status_code: 200
+      when: _litellm_key_generated is defined and _litellm_key_generated.json is defined
+      no_log: true
+
+    - name: Fail after rolling back litellm key {{ _vkey.key_alias }}
+      ansible.builtin.fail:
+        msg: "litellm key {{ _vkey.key_alias }}: generating or storing the Secret failed; the key was deleted again, rerun the play"

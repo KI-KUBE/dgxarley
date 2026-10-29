@@ -25,10 +25,35 @@ litellm_salt_key: "changeme-salt-key"
 litellm_ui_username: "admin"
 litellm_ui_password: "changeme"
 
-# LiteLLM virtual keys — metadata only. Actual sk-... tokens are generated at
-# runtime by the /key/generate API and persisted as K8s Secrets
-# litellm-vkey-<alias>. Consumer roles read these Secrets directly; nothing
-# sensitive leaks into git.
+# LiteLLM teams and virtual keys, provisioned declaratively by
+# roles/k8s_dgx/tasks/litellm.yml (run with --tags litellm_keys; the proxy is not
+# restarted, teams and keys live in the LiteLLM DB).
+#
+# litellm_teams: one entry per team, matched by team_alias (required). Created via
+# /team/new when missing; an existing team is updated via /team/update only when
+# models, limits or metadata differ.
+#   models          list of model names the team may use; [] = all models
+#   max_budget, budget_duration, tpm_limit, rpm_limit
+#                   null or 0 = unlimited (0 is never sent to LiteLLM)
+#   metadata        free-form dict, merged into the existing metadata
+litellm_teams:
+  - team_alias: "example-team"
+    models: []
+    max_budget:
+    budget_duration: "30d"
+    tpm_limit: 0
+    rpm_limit: 0
+    metadata: {}
+
+# litellm_virtual_keys: matched by key_alias (required). Actual sk-... tokens are
+# generated at runtime by /key/generate and persisted ONCE as K8s Secret
+# litellm-vkey-<alias> (data LITELLM_API_KEY, LITELLM_API_BASE) in litellm_namespace.
+# Existing keys are never rotated; if the key exists but the Secret is gone the
+# play only warns. Consumers read the Secret directly; nothing sensitive leaks into git.
+# Optional fields: team_alias (resolved to team_id; the key inherits the team's
+# models when models is []), user_id, models, max_budget, budget_duration,
+# tpm_limit, rpm_limit (null or 0 = unlimited), metadata (dict).
+# An existing key is updated via /key/update when team, models, limits or metadata differ.
 litellm_virtual_keys:
   - key_alias: "openwebui-chat"
     user_id: "openwebui-chat"
