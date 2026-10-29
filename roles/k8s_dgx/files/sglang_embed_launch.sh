@@ -82,14 +82,14 @@ fi
 if [ -n "${SGLANG_SCHEDULE_POLICY:-}" ]; then
   args+=(--schedule-policy "$SGLANG_SCHEDULE_POLICY")
 fi
-# page_size / cuda_graph_max_bs use 0 as the "no override" sentinel (defaults).
+# page_size / cuda_graph_max_bs use 0 as the "no override" sentinel (defaults); SGLang >= 0.5.21 names the flag --cuda-graph-max-bs-decode.
 if [ -n "${SGLANG_PAGE_SIZE:-}" ] && [ "${SGLANG_PAGE_SIZE}" != "0" ]; then
   args+=(--page-size "$SGLANG_PAGE_SIZE")
 fi
 if [ "${SGLANG_DISABLE_CUDA_GRAPH:-false}" = "true" ]; then
   args+=(--disable-cuda-graph)
 elif [ -n "${SGLANG_CUDA_GRAPH_MAX_BS:-}" ] && [ "${SGLANG_CUDA_GRAPH_MAX_BS}" != "0" ]; then
-  args+=(--cuda-graph-max-bs "$SGLANG_CUDA_GRAPH_MAX_BS")
+  args+=(--cuda-graph-max-bs-decode "$SGLANG_CUDA_GRAPH_MAX_BS")
 fi
 # dtype: "auto" (the resolver default) == SGLang's own default → skip to avoid
 # clutter; only pass when the profile forces a specific dtype.
