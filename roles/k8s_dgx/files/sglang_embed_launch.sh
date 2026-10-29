@@ -29,6 +29,12 @@ set -e
 # tini for correct signal handling / zombie reaping (not in the sglang image).
 apt-get update -qq && apt-get install -y -qq tini >/dev/null 2>&1
 
+# GB10 unified memory: cudaMemGetInfo "free" == MemFree, excluding reclaimable page
+# cache, and CUDA context init fails with "out of memory" when a co-tenant's
+# weight-load cache has eaten MemFree. Drop clean cache first (privileged pod; best effort).
+sync || true
+echo 1 > /proc/sys/vm/drop_caches 2>/dev/null || true
+
 # HF id resolves against the mounted HF cache (HF_HUB_OFFLINE=1 from the ConfigMap;
 # the model-download initContainer has already populated /root/.cache/huggingface).
 model_path="$SGLANG_MODEL"
