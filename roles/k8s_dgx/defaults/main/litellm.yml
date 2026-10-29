@@ -357,3 +357,13 @@ litellm_guardrails: []
 # The external URL is used because the playbook runs on the control node, where
 # cluster-internal service DNS does not resolve.
 litellm_admin_url: "https://litellm.{{ dns_external_domain_suffix }}"
+
+# Extra hostnames for the same LiteLLM service, e.g. a tenant alias such as
+# litellm.<tenant>.clients.kikube.io. Per entry the role creates a Certificate
+# (ClusterIssuer tls_issuer), an http redirect route, an https route (same
+# litellm-ip-allowlist middleware as the main host) and an A record through
+# nsupdate_servers[dns_backend]. The main host above stays as it is.
+#   - hostname: litellm.mzs-demo.clients.kikube.io
+#     dns_backend: tenant          # key of nsupdate_servers
+#     tls_issuer: letsencrypt-tenant
+litellm_extra_hosts: []
