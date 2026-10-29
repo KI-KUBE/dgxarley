@@ -1,0 +1,62 @@
+---
+- name: Set {{ app.name }} teardown scope
+  ansible.builtin.set_fact:
+    _app_delete_namespace: "{{ custom_app_purge | bool or app.volumes | selectattr('pvc', 'defined') | length == 0 }}"
+
+- name: Delete {{ app.name }} namespace (cascades, hostPath data stays on disk)
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Namespace
+    name: "{{ app.namespace }}"
+  when: _app_delete_namespace | bool
+
+- name: Find {{ app.name }} managed resources (namespace + PVCs are kept)
+  kubernetes.core.k8s_info:
+    api_version: "{{ item.api_version }}"
+    kind: "{{ item.kind }}"
+    namespace: "{{ app.namespace }}"
+    label_selectors:
+      - "kikube.io/custom-app={{ app.name }}"
+  loop:
+    - {api_version: apps/v1, kind: Deployment}
+    - {api_version: v1, kind: Service}
+    - {api_version: traefik.io/v1alpha1, kind: IngressRoute}
+    - {api_version: traefik.io/v1alpha1, kind: Middleware}
+    - {api_version: cert-manager.io/v1, kind: Certificate}
+    - {api_version: networking.k8s.io/v1, kind: NetworkPolicy}
+    - {api_version: v1, kind: ConfigMap}
+    - {api_version: v1, kind: Secret}
+  loop_control:
+    label: "{{ item.kind }}"
+  register: _app_managed
+  when: not (_app_delete_namespace | bool)
+
+- name: Delete {{ app.name }} managed resources
+  kubernetes.core.k8s:
+    state: absent
+    api_version: "{{ item.apiVersion }}"
+    kind: "{{ item.kind }}"
+    namespace: "{{ app.namespace }}"
+    name: "{{ item.metadata.name }}"
+  loop: "{{ _app_managed.results | default([]) | map(attribute='resources', default=[]) | flatten }}"
+  loop_control:
+    label: "{{ item.kind }}/{{ item.metadata.name }}"
+  when: not (_app_delete_namespace | bool)
+
+- name: Remove DNS A record for {{ app.name }}
+  vars:
+    _dns: "{{ nsupdate_servers[app.ingress.dns_backend] }}"
+  community.general.nsupdate:
+    server: "{{ _dns.server }}"
+    zone: "{{ _dns.zone }}"
+    key_name: "{{ _dns.tsig_key_name }}"
+    key_secret: "{{ _dns.tsig_key_secret }}"
+    key_algorithm: "{{ _dns.tsig_algorithm }}"
+    ttl: "{{ _dns.ttl }}"
+    record: "{{ app.ingress.hostname }}."
+    type: A
+    state: absent
+  when:
+    - app.ingress.enabled | bool
+    - app.ingress.dns | bool

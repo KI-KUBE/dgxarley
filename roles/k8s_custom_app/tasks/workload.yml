@@ -1,0 +1,5 @@
+---
+- name: Create {{ app.name }} service and deployment
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ lookup('ansible.builtin.template', 'custom_app_workload.yaml.j2') | from_yaml_all | select | list }}"

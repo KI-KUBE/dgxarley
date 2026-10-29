@@ -1,0 +1,168 @@
+{#- Service + Deployment for one custom app; consumed by tasks/workload.yml via from_yaml_all. -#}
+{% set uid = app.security.run_as_user %}
+{% set gid = app.security.run_as_group if app.security.run_as_group is not none else uid %}
+{% set gpu = app.placement.gpu | int %}
+{% set host_paths = app.volumes | selectattr('host_path', 'defined') | list %}
+{% set node_selector = {'kubernetes.io/hostname': app.placement.node} if app.placement.node | length > 0 else app.placement.node_selector %}
+{% set limits = app.resources.limits | combine({'nvidia.com/gpu': gpu | string} if gpu > 0 else {}) %}
+{% if app.port | int > 0 %}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ app.name }}
+  namespace: {{ app.namespace }}
+  labels: {{ _app_labels | to_json }}
+spec:
+  selector:
+    app: {{ app.name }}
+  ports:
+    - name: http
+      port: {{ app.port | int }}
+      targetPort: {{ app.port | int }}
+      protocol: TCP
+{% for p in app.extra_ports %}
+    - name: {{ p.name }}
+      port: {{ p.port | int }}
+      targetPort: {{ p.port | int }}
+      protocol: {{ p.protocol | default('TCP') }}
+{% endfor %}
+---
+{% endif %}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ app.name }}
+  namespace: {{ app.namespace }}
+  labels: {{ _app_labels | to_json }}
+{% if app.keel | bool %}
+  annotations:
+    keel.sh/policy: force
+    keel.sh/match-tag: "true"
+    keel.sh/pollSchedule: "@every 24h"
+    keel.sh/trigger: poll
+{% endif %}
+spec:
+  replicas: {{ app.replicas | int }}
+  strategy:
+    type: {{ 'Recreate' if gpu > 0 else app.strategy }}
+  selector:
+    matchLabels:
+      app: {{ app.name }}
+  template:
+    metadata:
+      labels: {{ _app_labels | to_json }}
+      annotations:
+        checksum/config: {{ _app_checksum }}
+    spec:
+{% if node_selector | length > 0 %}
+      nodeSelector: {{ node_selector | to_json }}
+{% endif %}
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "{{ app.ndots }}"
+{% if app.image_pull_secret | length > 0 %}
+      imagePullSecrets:
+        - name: {{ app.name }}-pull
+{% endif %}
+{% if uid is not none %}
+      securityContext:
+        runAsUser: {{ uid }}
+        runAsGroup: {{ gid }}
+        runAsNonRoot: {{ (uid | int > 0) | to_json }}
+{% if host_paths | length > 0 %}
+      initContainers:
+        - name: fix-perms
+          image: {{ custom_app_busybox_image }}
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+          command: ["sh", "-c", "chown {{ uid }}:{{ gid }} {{ host_paths | map(attribute='mount') | map('quote') | join(' ') }}"]
+          volumeMounts:
+{% for v in host_paths %}
+            - name: {{ v.name }}
+              mountPath: {{ v.mount }}
+{% endfor %}
+{% endif %}
+{% endif %}
+      containers:
+        - name: {{ app.name }}
+          image: {{ app.image }}
+          imagePullPolicy: {{ app.image_pull_policy }}
+{% if app.command | length > 0 %}
+          command: {{ app.command | to_json }}
+{% endif %}
+{% if app.args | length > 0 %}
+          args: {{ app.args | to_json }}
+{% endif %}
+{% if app.port | int > 0 %}
+          ports:
+            - name: http
+              containerPort: {{ app.port | int }}
+              protocol: TCP
+{% for p in app.extra_ports %}
+            - name: {{ p.name }}
+              containerPort: {{ p.port | int }}
+              protocol: {{ p.protocol | default('TCP') }}
+{% endfor %}
+{% endif %}
+          envFrom:
+            - configMapRef:
+                name: {{ app.name }}-env
+            - secretRef:
+                name: {{ app.name }}-env
+          resources:
+            requests: {{ app.resources.requests | to_json }}
+            limits: {{ limits | to_json }}
+{% if app.security.privileged | bool or gpu > 0 %}
+          securityContext:
+            privileged: true
+{% endif %}
+{% if app.probes.enabled | bool and app.port | int > 0 %}
+{% if app.probes.path | length > 0 %}
+{% set probe = {'httpGet': {'path': app.probes.path, 'port': 'http'}} %}
+{% else %}
+{% set probe = {'tcpSocket': {'port': 'http'}} %}
+{% endif %}
+          readinessProbe: {{ probe | combine({'initialDelaySeconds': app.probes.initial_delay | int, 'periodSeconds': app.probes.period | int}) | to_json }}
+          livenessProbe: {{ probe | combine({'initialDelaySeconds': app.probes.liveness_initial_delay | int, 'periodSeconds': (app.probes.period | int) * 2}) | to_json }}
+{% endif %}
+          volumeMounts:
+{% for path in app.files %}
+            - name: files
+              mountPath: {{ path }}
+              subPath: {{ path | regex_replace('^/', '') | regex_replace('[^-._a-zA-Z0-9]', '_') }}
+              readOnly: true
+{% endfor %}
+{% for path in app.secret_files %}
+            - name: secret-files
+              mountPath: {{ path }}
+              subPath: {{ path | regex_replace('^/', '') | regex_replace('[^-._a-zA-Z0-9]', '_') }}
+              readOnly: true
+{% endfor %}
+{% for v in app.volumes %}
+            - name: {{ v.name }}
+              mountPath: {{ v.mount }}
+{% endfor %}
+      restartPolicy: Always
+      volumes:
+        - name: files
+          configMap:
+            name: {{ app.name }}-files
+        - name: secret-files
+          secret:
+            secretName: {{ app.name }}-files
+{% for v in app.volumes %}
+        - name: {{ v.name }}
+{% if v.host_path is defined %}
+          hostPath:
+            path: {{ v.host_path }}
+            type: DirectoryOrCreate
+{% elif v.pvc is defined %}
+          persistentVolumeClaim:
+            claimName: {{ app.name }}-{{ v.name }}
+{% else %}
+          emptyDir: {{ v.empty_dir | default({}) | to_json }}
+{% endif %}
+{% endfor %}

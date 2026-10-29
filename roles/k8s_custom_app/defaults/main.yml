@@ -1,0 +1,83 @@
+---
+# === k8s_custom_app: apps owned by the inventory overlay, one directory each under custom_apps_dir ===
+# <name>/<name>.yml (spec), <name>/vault/<name>.sops.yml (secret keys, same shape, merged over the spec),
+# <name>/templates/, <name>/files/, <name>/tasks/post.yml (after the generic install), <name>/tasks/main.yml
+# (replaces it), <name>/tasks/teardown.yml (replaces the generic teardown). Tags: custom_apps, <name>.
+custom_apps_dir: "{{ playbook_dir }}/custom_apps"
+# `-e custom_app_teardown=<name>` tears one app down without editing its spec.
+custom_app_teardown: ""
+# Teardown keeps hostPath data and, for apps with PVCs, namespace + PVCs; `-e custom_app_purge=true` deletes those too.
+custom_app_purge: false
+custom_app_busybox_image: "busybox:1.38"
+# "" = the cluster default StorageClass
+custom_app_default_storage_class: ""
+# Pods without placement.node or placement.node_selector land here.
+custom_app_default_node_selector:
+  node-role: k3smaster
+
+# Spec defaults; <name>.yml and the vault file override per key (recursive merge, lists replace).
+custom_app_spec_defaults:
+  enabled: true
+  teardown: false
+  image: ""
+  image_pull_policy: IfNotPresent
+  # {registry, username, password}
+  image_pull_secret: {}
+  command: []
+  args: []
+  # 0 = no Service, no ingress
+  port: 0
+  # [{name, port, protocol}]
+  extra_ports: []
+  replicas: 1
+  strategy: Recreate
+  # ConfigMap <name>-env
+  env: {}
+  # Secret <name>-env
+  secret_env: {}
+  # "/path/in/pod": {template: x.j2} | {file: y} | {content: "..."}; templates/ and files/ are the app's own
+  files: {}
+  secret_files: {}
+  # {name, mount, host_path} | {name, mount, pvc: {size, storage_class, access_mode}} | {name, mount, empty_dir: {}}
+  volumes: []
+  placement:
+    # kubernetes.io/hostname pin; "" = node_selector, both unset = custom_app_default_node_selector
+    node: ""
+    node_selector: {}
+    # > 0 sets the nvidia.com/gpu limit, privileged and strategy Recreate
+    gpu: 0
+  security:
+    run_as_user: null
+    run_as_group: null
+    privileged: false
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits: {}
+  probes:
+    enabled: true
+    # "" = TCP probe on port
+    path: ""
+    initial_delay: 10
+    period: 15
+    liveness_initial_delay: 60
+  ndots: 1
+  keel: false
+  ingress:
+    enabled: true
+    # "" = <name>.<dns_external_domain_suffix>
+    hostname: ""
+    # "" = app_exposure[<name>] | app_exposure_default
+    exposure: ""
+    tls_issuer: letsencrypt-production
+    dns: true
+    # "" = nsupdate_default_backend
+    dns_backend: ""
+  network_policies:
+    enabled: true
+    internet: true
+    egress_namespaces: []
+    ingress_namespaces: []
+  # raw objects applied in the app namespace after the Deployment
+  extra_manifests: []

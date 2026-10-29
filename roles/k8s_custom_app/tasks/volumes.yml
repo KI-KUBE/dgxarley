@@ -1,0 +1,21 @@
+---
+- name: Create {{ app.name }} PVCs
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: "{{ app.name }}-{{ item.name }}"
+        namespace: "{{ app.namespace }}"
+        labels: "{{ _app_labels }}"
+      spec:
+        accessModes:
+          - "{{ item.pvc.access_mode | default('ReadWriteOnce') }}"
+        storageClassName: "{{ item.pvc.storage_class | default(custom_app_default_storage_class, true) | default(omit, true) }}"
+        resources:
+          requests:
+            storage: "{{ item.pvc.size }}"
+  loop: "{{ app.volumes | selectattr('pvc', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.name }}"

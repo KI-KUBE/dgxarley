@@ -1,0 +1,15 @@
+---
+- name: Register DNS A record for {{ app.name }}
+  vars:
+    _dns: "{{ nsupdate_servers[app.ingress.dns_backend] }}"
+  community.general.nsupdate:
+    server: "{{ _dns.server }}"
+    zone: "{{ _dns.zone }}"
+    key_name: "{{ _dns.tsig_key_name }}"
+    key_secret: "{{ _dns.tsig_key_secret }}"
+    key_algorithm: "{{ _dns.tsig_algorithm }}"
+    ttl: "{{ _dns.ttl }}"
+    record: "{{ app.ingress.hostname }}."
+    type: A
+    value: "{{ _dns.ingress_ip }}"
+    state: present

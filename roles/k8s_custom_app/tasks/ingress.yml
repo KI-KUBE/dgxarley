@@ -1,0 +1,101 @@
+---
+- name: Create {{ app.name }} ip-allowlist middleware
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: "{{ app.name }}-ip-allowlist"
+        namespace: "{{ app.namespace }}"
+        labels: "{{ _app_labels }}"
+      spec:
+        ipAllowList:
+          sourceRange: "{{ traefik_public_allowlist if app.ingress.exposure == 'public' else traefik_internal_allowlist }}"
+
+- name: Create {{ app.name }} http to https redirect middleware
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: Middleware
+      metadata:
+        name: redirect-myhttps
+        namespace: "{{ app.namespace }}"
+        labels: "{{ _app_labels }}"
+      spec:
+        redirectScheme:
+          scheme: https
+
+- name: Create {{ app.name }} TLS certificate
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: cert-manager.io/v1
+      kind: Certificate
+      metadata:
+        name: "{{ app.ingress.hostname }}"
+        namespace: "{{ app.namespace }}"
+        labels: "{{ _app_labels }}"
+      spec:
+        dnsNames:
+          - "{{ app.ingress.hostname }}"
+        secretName: "{{ app.ingress.hostname }}"
+        issuerRef:
+          name: "{{ app.ingress.tls_issuer }}"
+          kind: ClusterIssuer
+
+- name: Create {{ app.name }} http ingressroute with redirect
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: IngressRoute
+      metadata:
+        name: "{{ app.name }}-ingress"
+        namespace: "{{ app.namespace }}"
+        labels: "{{ _app_labels }}"
+      spec:
+        entryPoints:
+          - web
+        routes:
+          - kind: Rule
+            match: "Host(`{{ app.ingress.hostname }}`)"
+            priority: 10
+            services:
+              - kind: Service
+                name: "{{ app.name }}"
+                namespace: "{{ app.namespace }}"
+                passHostHeader: true
+                port: "{{ app.port | int }}"
+            middlewares:
+              - name: redirect-myhttps
+              - name: "{{ app.name }}-ip-allowlist"
+
+- name: Create {{ app.name }} https ingressroute
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: traefik.io/v1alpha1
+      kind: IngressRoute
+      metadata:
+        name: "{{ app.name }}-https-ingress"
+        namespace: "{{ app.namespace }}"
+        labels: "{{ _app_labels }}"
+      spec:
+        entryPoints:
+          - websecure
+        routes:
+          - kind: Rule
+            match: "Host(`{{ app.ingress.hostname }}`)"
+            priority: 10
+            middlewares:
+              - name: "{{ app.name }}-ip-allowlist"
+            services:
+              - kind: Service
+                name: "{{ app.name }}"
+                namespace: "{{ app.namespace }}"
+                passHostHeader: true
+                port: "{{ app.port | int }}"
+        tls:
+          secretName: "{{ app.ingress.hostname }}"

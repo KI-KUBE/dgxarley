@@ -1,0 +1,26 @@
+---
+- name: Stat custom_apps_dir
+  ansible.builtin.stat:
+    path: "{{ custom_apps_dir }}"
+  register: _custom_apps_dir_stat
+  tags: always
+
+- name: Find custom app directories
+  ansible.builtin.find:
+    paths: "{{ custom_apps_dir }}"
+    file_type: directory
+    recurse: false
+  register: _custom_app_find
+  when: _custom_apps_dir_stat.stat.isdir | default(false)
+  tags: always
+
+- name: Deploy custom apps
+  ansible.builtin.include_tasks:
+    file: app.yml
+    apply:
+      tags: ["custom_apps", "{{ _app_dir | basename }}"]
+  loop: "{{ _custom_app_find.files | default([]) | map(attribute='path') | sort }}"
+  loop_control:
+    loop_var: _app_dir
+    label: "{{ _app_dir | basename }}"
+  tags: always

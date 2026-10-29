@@ -1,0 +1,87 @@
+---
+# include_vars/load_vars rank below set_fact, so the loaded vars get per-app names instead of a reset.
+- name: Reset per-app state
+  ansible.builtin.set_fact:
+    _app_id: "{{ _app_dir | basename | replace('-', '_') }}"
+    _app_files: {}
+    _app_secret_files: {}
+
+- name: Assert {{ _app_dir | basename }} spec file exists
+  ansible.builtin.assert:
+    that: (_app_dir ~ '/' ~ (_app_dir | basename) ~ '.yml') is file
+    fail_msg: "{{ _app_dir }}: missing {{ _app_dir | basename }}.yml"
+    quiet: true
+
+- name: Load {{ _app_dir | basename }} spec
+  ansible.builtin.include_vars:
+    file: "{{ _app_dir }}/{{ _app_dir | basename }}.yml"
+    name: "_app_spec_{{ _app_id }}"
+
+- name: Load {{ _app_dir | basename }} vault
+  community.sops.load_vars:
+    file: "{{ _app_dir }}/vault/{{ _app_dir | basename }}.sops.yml"
+    name: "_app_vault_{{ _app_id }}"
+    expressions: evaluate-on-load
+  when: (_app_dir ~ '/vault/' ~ (_app_dir | basename) ~ '.sops.yml') is file
+
+- name: Merge {{ _app_dir | basename }} spec
+  ansible.builtin.set_fact:
+    _app_raw: "{{ lookup('vars', '_app_spec_' ~ _app_id) | combine(lookup('vars', '_app_vault_' ~ _app_id, default={}), recursive=True) }}"
+
+- name: Apply {{ _app_dir | basename }} spec defaults
+  ansible.builtin.set_fact:
+    app: "{{ custom_app_spec_defaults | combine(_app_raw, {'name': _app_dir | basename, 'dir': _app_dir}, recursive=True) }}"
+
+- name: Derive {{ app.name }} settings
+  ansible.builtin.set_fact:
+    app: >-
+      {{ app | combine({
+           'namespace': app.namespace | default(app.name, true),
+           'placement': {
+             'node_selector': _app_raw.placement.node_selector | default({} if app.placement.node | length > 0 else custom_app_default_node_selector)
+           },
+           'ingress': {
+             'hostname': app.ingress.hostname | default('', true) or (app.name ~ '.' ~ dns_external_domain_suffix),
+             'exposure': app.ingress.exposure | default('', true) or (app_exposure[app.name] | default(app_exposure_default)),
+             'dns_backend': app.ingress.dns_backend | default('', true) or nsupdate_default_backend
+           }
+         }, recursive=True) }}
+    _app_teardown: "{{ app.teardown | bool or custom_app_teardown == app.name }}"
+    _app_labels:
+      app: "{{ app.name }}"
+      kikube.io/custom-app: "{{ app.name }}"
+    _app_custom_install: "{{ (app.dir ~ '/tasks/main.yml') is file }}"
+
+- name: Validate {{ app.name }} spec
+  ansible.builtin.assert:
+    that:
+      - app.name is match('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+      - app.image | length > 0 or _app_custom_install | bool
+      - not (app.ingress.enabled | bool) or app.port | int > 0
+      - app.ingress.exposure in ['lan', 'public']
+      - app.ingress.dns_backend in nsupdate_servers
+      - app.volumes | map(attribute='name') | unique | length == app.volumes | length
+      - app.volumes | selectattr('host_path', 'defined') | length == 0
+        or app.placement.node | length > 0 or app.placement.node_selector | length > 0
+      - app.volumes | selectattr('pvc', 'defined') | map(attribute='pvc') | selectattr('size', 'undefined') | length == 0
+      - app.files.values() | selectattr('template', 'undefined') | selectattr('file', 'undefined') | selectattr('content', 'undefined') | length == 0
+      - app.secret_files.values() | selectattr('template', 'undefined') | selectattr('file', 'undefined') | selectattr('content', 'undefined') | length == 0
+      - app.image_pull_secret | length == 0 or (app.image_pull_secret.registry is defined and app.image_pull_secret.username is defined and app.image_pull_secret.password is defined)
+    fail_msg: "{{ app.name }}: invalid spec (name, image, port/ingress, exposure, dns_backend, volumes, files or image_pull_secret)"
+    quiet: true
+
+- name: Install {{ app.name }}
+  ansible.builtin.include_tasks:
+    file: "{{ _app_custom_install | bool | ternary(app.dir ~ '/tasks/main.yml', 'install.yml') }}"
+    apply:
+      tags: ["custom_apps", "{{ app.name }}"]
+  when:
+    - app.enabled | bool
+    - not (_app_teardown | bool)
+
+- name: Tear down {{ app.name }}
+  ansible.builtin.include_tasks:
+    file: "{{ ((app.dir ~ '/tasks/teardown.yml') is file) | ternary(app.dir ~ '/tasks/teardown.yml', 'teardown.yml') }}"
+    apply:
+      tags: ["custom_apps", "{{ app.name }}"]
+  when: _app_teardown | bool

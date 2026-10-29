@@ -1,0 +1,82 @@
+---
+# ConfigMap/Secret keys are the pod path with "/" mapped to "_" (/etc/app/x.yml -> etc_app_x.yml).
+- name: Render {{ app.name }} files
+  ansible.builtin.set_fact:
+    _app_files: "{{ _app_files | combine({item.key | regex_replace('^/', '') | regex_replace('[^-._a-zA-Z0-9]', '_'): _content}) }}"
+  vars:
+    _content: >-
+      {{ item.value.content if item.value.content is defined
+         else lookup('ansible.builtin.template', app.dir ~ '/templates/' ~ item.value.template) if item.value.template is defined
+         else lookup('ansible.builtin.file', app.dir ~ '/files/' ~ item.value.file, rstrip=False) }}
+  loop: "{{ app.files | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Render {{ app.name }} secret files
+  ansible.builtin.set_fact:
+    _app_secret_files: "{{ _app_secret_files | combine({item.key | regex_replace('^/', '') | regex_replace('[^-._a-zA-Z0-9]', '_'): _content}) }}"
+  vars:
+    _content: >-
+      {{ item.value.content if item.value.content is defined
+         else lookup('ansible.builtin.template', app.dir ~ '/templates/' ~ item.value.template) if item.value.template is defined
+         else lookup('ansible.builtin.file', app.dir ~ '/files/' ~ item.value.file, rstrip=False) }}
+  loop: "{{ app.secret_files | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  no_log: true
+
+- name: Compute {{ app.name }} config checksum
+  ansible.builtin.set_fact:
+    _app_checksum: "{{ ([app.env, app.secret_env, _app_files, _app_secret_files, app.image_pull_secret] | to_json) | hash('sha256') }}"
+
+- name: Create {{ app.name }} env configmap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "{{ app.name }}-env"
+        namespace: "{{ app.namespace }}"
+        labels: "{{ _app_labels }}"
+      data: "{{ dict(app.env.keys() | zip(app.env.values() | map('string'))) }}"
+
+- name: Create {{ app.name }} env secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ app.name }}-env"
+        namespace: "{{ app.namespace }}"
+        labels: "{{ _app_labels }}"
+      type: Opaque
+      stringData: "{{ dict(app.secret_env.keys() | zip(app.secret_env.values() | map('string'))) }}"
+  no_log: true
+
+- name: Create {{ app.name }} files configmap
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "{{ app.name }}-files"
+        namespace: "{{ app.namespace }}"
+        labels: "{{ _app_labels }}"
+      data: "{{ _app_files }}"
+
+- name: Create {{ app.name }} files secret
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Secret
+      metadata:
+        name: "{{ app.name }}-files"
+        namespace: "{{ app.namespace }}"
+        labels: "{{ _app_labels }}"
+      type: Opaque
+      stringData: "{{ _app_secret_files }}"
+  no_log: true

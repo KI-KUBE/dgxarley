@@ -1,0 +1,38 @@
+---
+- ansible.builtin.import_tasks: namespace.yml
+
+- ansible.builtin.import_tasks: pull_secret.yml
+  when: app.image_pull_secret | length > 0
+
+- ansible.builtin.import_tasks: config.yml
+
+- ansible.builtin.import_tasks: volumes.yml
+
+- ansible.builtin.import_tasks: netpol.yml
+  when: app.network_policies.enabled | bool
+
+- ansible.builtin.import_tasks: workload.yml
+
+- ansible.builtin.import_tasks: ingress.yml
+  when: app.ingress.enabled | bool
+
+- ansible.builtin.import_tasks: dns.yml
+  when:
+    - app.ingress.enabled | bool
+    - app.ingress.dns | bool
+
+- name: Apply {{ app.name }} extra manifests
+  kubernetes.core.k8s:
+    state: present
+    namespace: "{{ app.namespace }}"
+    definition: "{{ item }}"
+  loop: "{{ app.extra_manifests }}"
+  loop_control:
+    label: "{{ item.kind | default('?') }}/{{ item.metadata.name | default('?') }}"
+
+- name: Run {{ app.name }} post hook
+  ansible.builtin.include_tasks:
+    file: "{{ app.dir }}/tasks/post.yml"
+    apply:
+      tags: ["custom_apps", "{{ app.name }}"]
+  when: (app.dir ~ '/tasks/post.yml') is file

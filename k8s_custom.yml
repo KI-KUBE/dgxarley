@@ -1,0 +1,25 @@
+---
+- name: Deploy overlay-owned custom apps
+  hosts: k3smaster
+  connection: local
+  become: false
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  module_defaults:
+    group/kubernetes.core.k8s:
+      context: "{{ kubeconfig_context_name }}"
+    community.general.nsupdate:
+      server: "{{ nsupdate_default.server }}"
+      zone: "{{ nsupdate_default.zone }}"
+      key_name: "{{ nsupdate_default.tsig_key_name }}"
+      key_secret: "{{ nsupdate_default.tsig_key_secret }}"
+      key_algorithm: "{{ nsupdate_default.tsig_algorithm }}"
+      ttl: "{{ nsupdate_default.ttl }}"
+  pre_tasks:
+    - name: lan_ingress preflight
+      ansible.builtin.import_role:
+        name: k8s_infra
+        tasks_from: core/preflight.yml
+      tags: always
+  roles:
+    - k8s_custom_app

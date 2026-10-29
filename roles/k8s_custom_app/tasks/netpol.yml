@@ -1,0 +1,79 @@
+---
+- name: Create {{ app.name }} egress NetworkPolicy
+  vars:
+    _dns_rule:
+      to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    _ns_peers: >-
+      {{ app.network_policies.egress_namespaces
+         | map('community.general.dict_kv', 'kubernetes.io/metadata.name')
+         | map('community.general.dict_kv', 'matchLabels')
+         | map('community.general.dict_kv', 'namespaceSelector') | list }}
+    _internet_rule:
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - "{{ cluster_cidr }}"
+              - "{{ service_cidr }}"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: "{{ app.name }}-egress"
+        namespace: "{{ app.namespace }}"
+        labels: "{{ _app_labels }}"
+      spec:
+        podSelector:
+          matchLabels:
+            app: "{{ app.name }}"
+        policyTypes:
+          - Egress
+        egress: >-
+          {{ [_dns_rule]
+             + ([{'to': _ns_peers}] if _ns_peers | length > 0 else [])
+             + ([_internet_rule] if app.network_policies.internet | bool else []) }}
+
+- name: Create {{ app.name }} ingress NetworkPolicy
+  vars:
+    _traefik_peer:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: "{{ traefik.namespace }}"
+        podSelector:
+          matchLabels:
+            app.kubernetes.io/name: traefik
+    _ns_peers: >-
+      {{ app.network_policies.ingress_namespaces
+         | map('community.general.dict_kv', 'kubernetes.io/metadata.name')
+         | map('community.general.dict_kv', 'matchLabels')
+         | map('community.general.dict_kv', 'namespaceSelector') | list }}
+    _from: "{{ (_traefik_peer if app.ingress.enabled | bool else []) + _ns_peers }}"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: "{{ app.name }}-ingress"
+        namespace: "{{ app.namespace }}"
+        labels: "{{ _app_labels }}"
+      spec:
+        podSelector:
+          matchLabels:
+            app: "{{ app.name }}"
+        policyTypes:
+          - Ingress
+        ingress: "{{ [{'from': _from}] if _from | length > 0 else [] }}"
