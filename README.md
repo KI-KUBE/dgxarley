@@ -398,6 +398,11 @@ ansible-playbook k8s_dgx.yml
 # K8s infrastructure (after K3s is running)
 ansible-playbook k8s_infra.yml
 
+# Overlay-owned custom apps (see "Custom apps")
+ansible-playbook k8s_custom.yml
+ansible-playbook k8s_custom.yml --tags myapp
+ansible-playbook k8s_custom.yml --tags myapp -e custom_app_teardown=myapp
+
 # Individual roles
 ansible-playbook common.yml
 ansible-playbook dgx.yml
@@ -415,6 +420,64 @@ ansible-playbook k8s_infra.yml --tags postgresql
 # Clevis (requires LUKS passphrase)
 ansible-playbook site.yml -e 'clevis_luks_passphrase=YOUR_PASSPHRASE'
 ```
+
+## Custom apps
+
+`k8s_custom.yml` (role `k8s_custom_app`) deploys apps that are NOT part of this repo: each one is a directory
+`custom_apps/<name>/` next to the playbook, owned by the private inventory overlay (`../kikube-dgx-config/custom_apps/`,
+copied by its `sync.sh`). The directory name is the app name, namespace default, Deployment/Service name and the
+Ansible tag; `--tags custom_apps` selects all of them.
+
+```
+custom_apps/<name>/
+  <name>.yml              # spec (plain values)
+  vault/<name>.sops.yml   # secret keys, same shape, merged over the spec (sops + age, like every vault file)
+  templates/              # Jinja2 files referenced from the spec: files: {"/etc/x.yml": {template: x.yml.j2}}
+  files/                  # static files:                            files: {"/etc/y":     {file: y}}
+  tasks/post.yml          # optional: runs after the generic install (extra CRs, Jobs, a Helm release)
+  tasks/main.yml          # optional: replaces the generic install (operators, multi-workload apps)
+  tasks/teardown.yml      # optional: replaces the generic teardown
+```
+
+The generic install renders Namespace, image pull Secret, env ConfigMap/Secret (`envFrom`), file ConfigMap/Secret
+(`subPath` mounts), PVCs, egress/ingress NetworkPolicies, Service, Deployment, Traefik IP-allowlist + redirect
+Middlewares, cert-manager Certificate, both IngressRoutes and the nsupdate A record, then `extra_manifests` and the
+post hook. Every building block is a default that the spec can switch off (`ingress.enabled`,
+`network_policies.enabled`, `probes.enabled`, `ingress.dns`, `port: 0` for no Service). The merged spec is
+available to templates and hooks as `app` (`app.name`, `app.namespace`, `app.dir`, `app.ingress.hostname`, ...).
+Spec keys and defaults: `roles/k8s_custom_app/defaults/main.yml`.
+
+```yaml
+# custom_apps/myapp/myapp.yml
+image: ghcr.io/acme/myapp:1.4.2
+port: 8080
+env:
+  LOG_LEVEL: info
+files:
+  /etc/myapp/config.yml: {template: config.yml.j2}
+volumes:
+  - {name: data, mount: /data, host_path: /mnt/nfs/myapp}
+  - {name: cache, mount: /cache, pvc: {size: 20Gi}}
+security:
+  run_as_user: 1000
+probes:
+  path: /healthz
+network_policies:
+  egress_namespaces: [litellm, postgresql]
+# custom_apps/myapp/vault/myapp.sops.yml
+secret_env:
+  API_KEY: "..."
+image_pull_secret: {registry: ghcr.io, username: bot, password: "..."}
+```
+
+Rules enforced by the role: a `host_path` volume needs a pin (`placement.node` or a `placement.node_selector`;
+unset placement pins to `node-role: k3smaster`), `ingress.exposure` must be `lan` or `public` (default from
+`app_exposure.<name>` / `app_exposure_default`, same preflight as `k8s_infra.yml`), `placement.gpu > 0` sets the
+`nvidia.com/gpu` limit plus `privileged` and `Recreate` like the k8s_dgx workloads. Teardown
+(`teardown: true` in the spec or `-e custom_app_teardown=<name>`) deletes the namespace and the DNS record but keeps
+hostPath data; an app with PVCs keeps namespace + PVCs and only loses its managed objects, `-e custom_app_purge=true`
+deletes those too. Future worker nodes get a label via `k3s_node_labels` and apps target it with
+`placement.node_selector`.
 
 ## Prerequisites
 
