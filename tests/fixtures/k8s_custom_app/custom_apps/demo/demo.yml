@@ -1,0 +1,51 @@
+---
+image: ghcr.io/example/demo:1.2.3
+image_pull_secret:
+  registry: ghcr.io
+  username: bot
+  password: not-a-real-token
+port: 8080
+extra_ports:
+  - name: metrics
+    port: 9090
+env:
+  LOG_LEVEL: info
+  WORKERS: 4
+secret_env:
+  API_KEY: dummy-api-key
+files:
+  /etc/demo/config.yml:
+    template: config.yml.j2
+  /etc/demo/motd:
+    content: "hello\n"
+  /etc/demo/static.txt:
+    file: static.txt
+secret_files:
+  /etc/demo/creds.json:
+    content: '{"token": "x"}'
+volumes:
+  - name: data
+    mount: /data
+    host_path: /mnt/nfs/demo
+  - name: cache
+    mount: /cache
+    pvc:
+      size: 5Gi
+  - name: tmp
+    mount: /tmp
+    empty_dir: {}
+security:
+  run_as_user: 1000
+probes:
+  path: /healthz
+keel: true
+network_policies:
+  egress_namespaces:
+    - litellm
+extra_manifests:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: demo-extra
+    data:
+      k: v

@@ -1,0 +1,4 @@
+---
+enabled: false
+image: ghcr.io/example/off:1
+port: 80

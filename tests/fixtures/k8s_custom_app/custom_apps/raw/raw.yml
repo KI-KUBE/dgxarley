@@ -1,0 +1,6 @@
+---
+placement:
+  node: spark1
+  gpu: 1
+ingress:
+  enabled: false

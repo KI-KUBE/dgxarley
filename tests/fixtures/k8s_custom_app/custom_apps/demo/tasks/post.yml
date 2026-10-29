@@ -1,0 +1,4 @@
+---
+- name: demo post hook marker
+  ansible.builtin.set_fact:
+    demo_post_hook_ran: true

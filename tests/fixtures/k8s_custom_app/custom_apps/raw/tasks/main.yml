@@ -1,0 +1,6 @@
+---
+- name: Dump merged raw spec
+  ansible.builtin.copy:
+    content: "{{ app | to_nice_json }}"
+    dest: "{{ custom_app_test_dump }}"
+    mode: "0600"
