@@ -9,9 +9,9 @@ REPO = Path(__file__).resolve().parent.parent
 HAPROXY_TPL = REPO / "roles" / "k3sserver" / "templates" / "etc_haproxy_haproxy.cfg.j2"
 HUB_INGRESS: dict[str, Any] = {
     "enabled": True,
-    "bind_address": "10.200.1.10",
+    "bind_address": "10.20.50.10",
     "port": 8443,
-    "source_ips": ["10.200.1.1/32", "10.200.1.9/32"],
+    "source_ips": ["10.20.50.1/32", "10.20.50.9/32"],
 }
 
 
@@ -23,8 +23,8 @@ def _render_haproxy(**extra: Any) -> str:
 def test_hub_ingress_frontend_rejects_foreign_tcp_peers_at_connection_stage() -> None:
     out = _render_haproxy(hub_ingress=HUB_INGRESS, isk3smaster=True)
     frontend = out.split("frontend hub_ingress_https", 1)[1].split("backend", 1)[0]
-    assert "bind 10.200.1.10:8443 accept-proxy" in frontend
-    assert "tcp-request connection reject unless { src 10.200.1.1/32 10.200.1.9/32 }" in frontend
+    assert "bind 10.20.50.10:8443 accept-proxy" in frontend
+    assert "tcp-request connection reject unless { src 10.20.50.1/32 10.20.50.9/32 }" in frontend
     assert "tcp-request content" not in frontend
 
 

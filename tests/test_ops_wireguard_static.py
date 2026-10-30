@@ -20,15 +20,15 @@ WG_DICT: dict[str, Any] = {
     "interface": "ops-wg",
     "hub_endpoint": "hub.example.invalid:51820",
     "hub_public_key": "HUBPUBKEY=",
-    "tunnel_address": "10.200.1.2/32",
-    "ops_subnet": "10.200.1.0/24",
+    "tunnel_address": "10.20.50.2/32",
+    "ops_subnet": "10.20.50.0/24",
     "keepalive": 25,
     "route_mode": "full",
     "route_table": 51820,
     "rule_priority": 1000,
     "private_key_file": "/etc/wireguard/ops-wg.key",
     "forward_lan": True,
-    "forward_lans": ["10.87.0.0/24"],
+    "forward_lans": ["10.40.0.0/24"],
     "forward_masquerade": True,
 }
 WG_VARS: dict[str, Any] = {"ops_wireguard": WG_DICT}
@@ -136,9 +136,9 @@ def test_conf_template_has_no_secret(forward: bool) -> None:
     assert not re.search(r"^PrivateKey\s*=", out, re.M)
     assert "PostUp = wg set %i private-key /etc/wireguard/ops-wg.key" in out
     assert "wg-forward.sh" not in out
-    assert "AllowedIPs = 10.200.1.0/24" in out
+    assert "AllowedIPs = 10.20.50.0/24" in out
     assert "PersistentKeepalive = 25" in out
-    assert "Address = 10.200.1.2/32" in out
+    assert "Address = 10.20.50.2/32" in out
     assert "Endpoint = hub.example.invalid:51820" in out
     assert "PublicKey = HUBPUBKEY=" in out
 
@@ -149,8 +149,8 @@ def test_conf_route_modes() -> None:
     assert "Table =" not in full and "ip -4 rule" not in full
     src = _render(tpl, **_conf_vars(route_mode="source", forward_lan=False))
     assert "Table = 51820" in src
-    assert "PostUp = ip -4 rule add from 10.200.1.2 lookup 51820 priority 1000" in src
-    assert "PostDown = ip -4 rule del from 10.200.1.2 lookup 51820 priority 1000" in src
+    assert "PostUp = ip -4 rule add from 10.20.50.2 lookup 51820 priority 1000" in src
+    assert "PostDown = ip -4 rule del from 10.20.50.2 lookup 51820 priority 1000" in src
     assert "PostUp = wg set %i private-key /etc/wireguard/ops-wg.key" in src
     assert not re.search(r"^PrivateKey\s*=", src, re.M)
 
@@ -179,17 +179,17 @@ def test_firewall_unchanged_when_flag_off() -> None:
 
 def test_firewall_rules_when_enabled() -> None:
     out = _render_iptables(**WG_VARS)
-    assert "iptables -A HTSTUFFIN -i ops-wg -s 10.200.1.0/24 -j ACCEPT" in out
-    assert "iptables -A HTOPSWG -i ops-wg -s 10.200.1.0/24 -d 10.87.0.0/24 -j ACCEPT" in out
+    assert "iptables -A HTSTUFFIN -i ops-wg -s 10.20.50.0/24 -j ACCEPT" in out
+    assert "iptables -A HTOPSWG -i ops-wg -s 10.20.50.0/24 -d 10.40.0.0/24 -j ACCEPT" in out
     assert "iptables -A HTOPSWG -o ops-wg -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT" in out
-    assert "iptables -t nat -A HTOPSWGNAT -s 10.200.1.0/24 -d 10.87.0.0/24 ! -o ops-wg -j MASQUERADE" in out
+    assert "iptables -t nat -A HTOPSWGNAT -s 10.20.50.0/24 -d 10.40.0.0/24 ! -o ops-wg -j MASQUERADE" in out
     # INPUT rule sits before the generic localnets ssh rule and the chain's final DROP
-    assert out.index("-i ops-wg -s 10.200.1.0/24 -j ACCEPT") < out.index("-m set --match-set xosrc src -j RETURN")
+    assert out.index("-i ops-wg -s 10.20.50.0/24 -j ACCEPT") < out.index("-m set --match-set xosrc src -j RETURN")
 
 
 def test_firewall_without_forward_or_masquerade() -> None:
     no_fwd = _render_iptables(ops_wireguard={**WG_DICT, "forward_lan": False})
-    assert "-i ops-wg -s 10.200.1.0/24 -j ACCEPT" in no_fwd
+    assert "-i ops-wg -s 10.20.50.0/24 -j ACCEPT" in no_fwd
     assert "HTOPSWG" not in no_fwd
     no_masq = _render_iptables(ops_wireguard={**WG_DICT, "forward_masquerade": False})
     assert "HTOPSWG -i" in no_masq
@@ -198,17 +198,17 @@ def test_firewall_without_forward_or_masquerade() -> None:
 
 HUB_INGRESS: dict[str, Any] = {
     "enabled": True,
-    "bind_address": "10.200.1.10",
+    "bind_address": "10.20.50.10",
     "port": 8443,
-    "source_ips": ["10.200.1.1/32"],
+    "source_ips": ["10.20.50.1/32"],
 }
 
 
 def test_firewall_hub_ingress_drop_sits_between_hub_return_and_ops_accept() -> None:
     out = _render_iptables(**WG_VARS, hub_ingress=HUB_INGRESS, isk3smaster=True)
-    hub = "iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 8443 -s 10.200.1.1/32 -j RETURN"
+    hub = "iptables -A HTSTUFFIN -m state --state NEW -p tcp --dport 8443 -s 10.20.50.1/32 -j RETURN"
     drop = "iptables -A HTSTUFFIN -i ops-wg -m state --state NEW -p tcp --dport 8443 -j DROP"
-    ops = "iptables -A HTSTUFFIN -i ops-wg -s 10.200.1.0/24 -j ACCEPT"
+    ops = "iptables -A HTSTUFFIN -i ops-wg -s 10.20.50.0/24 -j ACCEPT"
     assert out.index(hub) < out.index(drop) < out.index(ops)
 
 
@@ -227,7 +227,7 @@ def test_firewall_no_hub_ingress_rules_unless_enabled_on_master(extra: dict[str,
 
 def test_firewall_hub_ingress_drop_needs_the_ops_tunnel() -> None:
     out = _render_iptables(hub_ingress=HUB_INGRESS, isk3smaster=True)
-    assert "--dport 8443 -s 10.200.1.1/32 -j RETURN" in out
+    assert "--dport 8443 -s 10.20.50.1/32 -j RETURN" in out
     assert "--dport 8443 -j DROP" not in out
 
 

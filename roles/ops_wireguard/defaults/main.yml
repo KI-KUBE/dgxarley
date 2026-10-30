@@ -23,8 +23,8 @@ ops_wireguard_defaults:
   hub_endpoint: ""
   hub_public_key: ""
 
-  # This box's tunnel address WITH prefix (e.g. 10.200.1.2/32) and the Ops subnet it may talk to
-  # (AllowedIPs of the hub peer, e.g. 10.200.1.0/24; wg-quick installs the route from it).
+  # This box's tunnel address WITH prefix (e.g. 10.20.50.2/32) and the Ops subnet it may talk to
+  # (AllowedIPs of the hub peer, e.g. 10.20.50.0/24; wg-quick installs the route from it).
   tunnel_address: ""
   ops_subnet: ""
   keepalive: 25
@@ -41,7 +41,7 @@ ops_wireguard_defaults:
   rule_priority: 1000
 
   # Let the Ops subnet reach LANs behind this box. The rules live in the common firewall
-  # (roles/common/templates/iptables.sh.j2), NOT in wg-quick hooks. Network CIDRs, e.g. 10.87.0.0/24.
+  # (roles/common/templates/iptables.sh.j2), NOT in wg-quick hooks. Network CIDRs, e.g. 10.40.0.0/24.
   # forward_masquerade: hide the ops source behind this box's LAN address (LAN hosts need no route back).
   forward_lan: false
   forward_lans: []

@@ -53,14 +53,14 @@ IPv4 only (`ip6tables_setup.sh.j2` is not touched). Rerun `common.yml --tags ipt
 | `ops_wireguard.interface`           | `ops-wg`                     | Interface name (max 15 chars); unit `wg-quick@<iface>`                                                                   |
 | `ops_wireguard.hub_endpoint`        | `""`                         | Hub `host:port` (required)                                                                                               |
 | `ops_wireguard.hub_public_key`      | `""`                         | Hub public key (required)                                                                                                |
-| `ops_wireguard.tunnel_address`      | `""`                         | This box's address with prefix, e.g. `10.200.1.2/32` (required)                                                          |
-| `ops_wireguard.ops_subnet`          | `""`                         | AllowedIPs of the hub peer = ops subnet, e.g. `10.200.1.0/24` (required)                                                 |
+| `ops_wireguard.tunnel_address`      | `""`                         | This box's address with prefix, e.g. `10.20.50.2/32` (required)                                                          |
+| `ops_wireguard.ops_subnet`          | `""`                         | AllowedIPs of the hub peer = ops subnet, e.g. `10.20.50.0/24` (required)                                                 |
 | `ops_wireguard.keepalive`           | `25`                         | `PersistentKeepalive` in seconds                                                                                         |
 | `ops_wireguard.route_mode`          | `full`                       | `full` = plain wg-quick (main table); `source` = own table + `ip rule` for the tunnel source address (see Routing modes) |
 | `ops_wireguard.route_table`         | `51820`                      | Routing table used by `source` mode                                                                                      |
 | `ops_wireguard.rule_priority`       | `1000`                       | `ip rule` priority used by `source` mode                                                                                 |
 | `ops_wireguard.forward_lan`         | `false`                      | Let the ops subnet reach `forward_lans` through this box (sysctl + firewall rules)                                       |
-| `ops_wireguard.forward_lans`        | `[]`                         | LAN network CIDRs reachable from ops, e.g. `10.87.0.0/24`                                                                |
+| `ops_wireguard.forward_lans`        | `[]`                         | LAN network CIDRs reachable from ops, e.g. `10.40.0.0/24`                                                                |
 | `ops_wireguard.forward_masquerade`  | `true`                       | MASQUERADE ops traffic towards those LANs                                                                                |
 | `ops_wireguard.private_key`         | `""`                         | Vault only. Empty = key generated on the host; set = written to the key file                                             |
 | `ops_wireguard.private_key_file`    | `/etc/wireguard/<iface>.key` | Key file on the host (0600)                                                                                              |
@@ -84,21 +84,21 @@ ops_wireguard:
   customer_id: acme
   hub_endpoint: hub.example.invalid:51820
   hub_public_key: "<hub public key>"
-  tunnel_address: 10.200.1.2/32
-  ops_subnet: 10.200.1.0/24
+  tunnel_address: 10.20.50.2/32
+  ops_subnet: 10.20.50.0/24
   forward_lan: true
-  forward_lans: ["10.87.0.0/24"]
+  forward_lans: ["10.40.0.0/24"]
 ```
 
 ```yaml
-# host_vars/spark1/main/wireguard.yml (spark2: tunnel address 10.200.1.4/32)
+# host_vars/spark1/main/wireguard.yml (spark2: tunnel address 10.20.50.4/32)
 ops_wireguard:
   enabled: true
   customer_id: acme
   hub_endpoint: hub.example.invalid:51820
   hub_public_key: "<hub public key>"
-  tunnel_address: 10.200.1.3/32
-  ops_subnet: 10.200.1.0/24
+  tunnel_address: 10.20.50.3/32
+  ops_subnet: 10.20.50.0/24
   route_mode: source
 ```
 

@@ -7,9 +7,9 @@
 #   interface: "ops-wg"
 #   hub_endpoint: "hub.example.invalid:51820"
 #   hub_public_key: "<hub public key>"
-#   tunnel_address: "10.200.1.2/32"
-#   ops_subnet: "10.200.1.0/24"
+#   tunnel_address: "10.20.50.2/32"
+#   ops_subnet: "10.20.50.0/24"
 #   keepalive: 25
 #   forward_lan: false
-#   forward_lans: ["10.87.1.0/24"]
+#   forward_lans: ["10.40.1.0/24"]
 #   forward_masquerade: true
