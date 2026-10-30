@@ -549,9 +549,11 @@ raw litellm-24965.json "https://grafana.com/api/dashboards/24965/revisions/lates
     # (litellm_model_name, model_id, api_base) -> drops the pod-identity labels.
     # Same dedup idea as the sglang/dcgm dashboards. (The instance selector was
     # already stripped above; this wraps whatever expr remains.)
+    # api_base!="": pre-routing failures set state=1 under the alias name (no api_base) and no success ever resets it.
     | .panels |= map(
         if .id == 1 then
-          .targets |= map(.expr |= "max by (litellm_model_name, model_id, api_base) (" + . + ")")
+          .targets |= map(.expr |= "max by (litellm_model_name, model_id, api_base) ("
+            + gsub("litellm_deployment_state\\{"; "litellm_deployment_state{api_base!=\"\", ") + ")")
         else . end
       )
     # SECOND Y-AXIS (panel id=8 "Tokens Rate"): INPUT (refId A) and OUTPUT
