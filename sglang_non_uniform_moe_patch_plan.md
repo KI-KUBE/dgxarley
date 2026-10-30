@@ -277,7 +277,7 @@ No deploy without explicit go (standing rule); steps 3-5 each need approval.
   should be unaffected; keep `disable_cuda_graph: true` for step 3 anyway to
   keep the bring-up crash surface minimal.
 - **hf_preload / JuiceFS**: 321.6 GB over the USB-HDD-backed JuiceFS is a
-  ~15h+ cold pull (known bottleneck, see memory on the intenso backend);
+  ~15h+ cold pull (known bottleneck, see memory on the USB-HDD backend);
   schedule the download before any test window, with `HF_HUB_DISABLE_XET=1`
   if the hex-hash bug resurfaces.
 - **Upstreaming**: this is a clean, generic feature (any non-uniform REAP cut

@@ -20,7 +20,7 @@ hf_token: "hf_CHANGEME"
 # --- HF preload Job placement + image ---------------------------------------
 # Node placement for the preload Job. Moved off spark2 onto the k3s master
 # 2026-08-03: the master hosts the JuiceFS backend (Valkey + RustFS on
-# /mnt/intenso, relocated there 2026-07-30), so with hf_hub_cache_on_juicefs
+# its USB HDD, relocated there 2026-07-30), so with hf_hub_cache_on_juicefs
 # the object-write leg becomes loopback instead of a spark -> master hop over
 # the network. Two hard prerequisites, both easy to get wrong:
 #   1. juicefs_mount_master MUST be true (group_vars/all/vault/juicefs.sops.yml).

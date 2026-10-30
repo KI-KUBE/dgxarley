@@ -49,7 +49,7 @@
     # ORDERING NARROWS THE WINDOW, THE RETRY LOOP CLOSES IT. Neither ordering
     # anchor is a guarantee that the address exists:
     #   * network-online.target — measured on this master, netplan invokes
-    #     `systemd-networkd-wait-online --any -i heidk8.101 -i <usb-nic>`, so the
+    #     `systemd-networkd-wait-online --any -i <ovs-bridge>.<vlan> -i <usb-nic>`, so the
     #     target can be reached while the OVS VLAN interface carrying the storage
     #     address is still unconfigured. It is NOT the interface we need.
     #   * openvswitch-switch.service (only when wantsopenvswitch) — its completion means ovsdb-server +

@@ -665,7 +665,7 @@ on this cluster after the move: 400 MiB at 2.1 GB/s, 107 hits, 0 misses, 0 GETs.
   - `Wants=` pulls a unit into the transaction, `After=` orders behind it. They are
     orthogonal; either alone is useless.
   - **Neither anchor guarantees the address exists.** Measured on this master,
-    netplan invokes `systemd-networkd-wait-online --any -i heidk8.101 -i <usb-nic>`,
+    netplan invokes `systemd-networkd-wait-online --any -i <ovs-bridge>.<vlan> -i <usb-nic>`,
     so `network-online.target` can be reached while the OVS VLAN interface holding
     the storage address is still unconfigured — that interface is not in the wait
     list at all, regardless of what `networkctl status` reports as

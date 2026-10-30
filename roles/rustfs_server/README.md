@@ -26,15 +26,15 @@ each listing its USB disk(s) as dicts; heterogeneous paths and disk counts allow
 ```yaml
 rustfs_server_members:
   - node: spark1
-    disks: [{ path: /mnt/intenso, uuid: "<blkid-UUID>", fstype: ext4 }]
+    disks: [{ path: /mnt/rustfs, uuid: "<blkid-UUID>", fstype: ext4 }]
   - node: spark2                                        # two disks on this node
     disks:
       - { path: /mnt/usb-a, uuid: "<uuid>", fstype: ext4 }
       - { path: /mnt/usb-b, uuid: "<uuid>", fstype: ext4 }
   - node: spark3
-    disks: [{ path: /mnt/intenso, uuid: "<uuid>", fstype: ext4 }]
+    disks: [{ path: /mnt/rustfs, uuid: "<uuid>", fstype: ext4 }]
   - node: spark4
-    disks: [{ path: /mnt/intenso, uuid: "<uuid>", fstype: ext4 }]
+    disks: [{ path: /mnt/rustfs, uuid: "<uuid>", fstype: ext4 }]
 ```
 
 Per disk, `path` is always required (RustFS data dir = `<path>/rustfs`);
@@ -60,7 +60,7 @@ Distributing RustFS does not distribute JuiceFS metadata (Valkey stays single-no
 **Mounting the disks — `rustfs_server_manage_fstab`** (default **false**):
 
 - **OFF:** you own `/etc/fstab` (mount each USB by hand, e.g.
-  `UUID=… /mnt/intenso ext4 defaults,nofail 0 2`); the role only verifies the
+  `UUID=… /mnt/rustfs ext4 defaults,nofail 0 2`); the role only verifies the
   mountpoints and fails if one is missing.
 - **ON:** the role writes a **UUID-keyed** fstab entry (via `ansible.posix.mount`,
   `state: mounted`, opts default `defaults,nofail`) and mounts each disk that
