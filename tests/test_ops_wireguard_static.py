@@ -275,10 +275,10 @@ VPN_INGRESS: dict[str, Any] = {
     "enabled": True,
     "target_host": "k3smaster",
     "tcp_ports": [443],
-    "networks": ["10.200.2.128/26"],
+    "networks": ["10.20.30.128/26"],
 }
-VPN_ACCEPT = "iptables -A HTSTUFFIN -s 10.200.2.128/26 -m state --state NEW -p tcp -m multiport --dport 443 -j RETURN"
-VPN_DROP = "iptables -A HTSTUFFIN -s 10.200.2.128/26 -m state --state NEW -j DROP"
+VPN_ACCEPT = "iptables -A HTSTUFFIN -s 10.20.30.128/26 -m state --state NEW -p tcp -m multiport --dport 443 -j RETURN"
+VPN_DROP = "iptables -A HTSTUFFIN -s 10.20.30.128/26 -m state --state NEW -j DROP"
 
 
 def test_firewall_vpn_ingress_rules_precede_public_ports() -> None:
@@ -298,11 +298,11 @@ def test_firewall_vpn_ingress_rules_precede_public_ports() -> None:
 )
 def test_firewall_no_vpn_ingress_rules_unless_enabled_on_target(extra: dict[str, Any]) -> None:
     out = _render_iptables(**extra)
-    assert "10.200.2.128/26" not in out
+    assert "10.20.30.128/26" not in out
     assert out == _render_iptables()
 
 
 def test_firewall_vpn_ingress_batches_ports_by_15() -> None:
     ports = list(range(1000, 1016))
     out = _render_iptables(vpn_ingress={**VPN_INGRESS, "tcp_ports": ports})
-    assert out.count("-s 10.200.2.128/26 -m state --state NEW -p tcp -m multiport") == 2
+    assert out.count("-s 10.20.30.128/26 -m state --state NEW -p tcp -m multiport") == 2

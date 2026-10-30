@@ -19,7 +19,7 @@ was used. Its comment does not start with `<prefix>-uplink dstnat`, so the stale
 
 ```
 # router
-/ip/firewall/nat/add chain=dstnat action=dst-nat in-interface=vlan101-uplink dst-address-type=local \
+/ip/firewall/nat/add chain=dstnat action=dst-nat in-interface=<uplink-vlan-iface> dst-address-type=local \
     protocol=tcp dst-port=5201 to-addresses=<k3smaster> comment="tmp iperf"
 
 # k3smaster

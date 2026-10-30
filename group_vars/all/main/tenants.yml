@@ -4,5 +4,5 @@
 # to this cluster (the hub owns the A records; the cluster only solves ACME challenges there).
 # issuer (optional) = ClusterIssuer whose dns_zones cover domain, default tenant_tls_issuer.
 tenants: {}
-#  emelags: { domain: emelags.clients.example.com }
+#  acme: { domain: acme.clients.example.com }
 tenant_tls_issuer: letsencrypt-tenant
