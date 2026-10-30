@@ -424,7 +424,7 @@ ansible-playbook site.yml -e 'clevis_luks_passphrase=YOUR_PASSPHRASE'
 ## Custom apps
 
 `k8s_custom.yml` (role `k8s_custom_app`) deploys apps that are NOT part of this repo: each one is a directory
-`custom_apps/<name>/` next to the playbook, owned by the private inventory overlay (`../kikube-dgx-config/custom_apps/`,
+`custom_apps/<name>/` next to the playbook, owned by the private inventory overlay (its `custom_apps/`,
 copied by its `sync.sh`). The directory name is the app name, namespace default, Deployment/Service name and the
 Ansible tag; `--tags custom_apps` selects all of them.
 

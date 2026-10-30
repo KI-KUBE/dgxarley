@@ -450,7 +450,7 @@
       - item.hostname | length > 0
       - (item.dns_backend | default('')) == '' or item.dns_backend in nsupdate_servers
       - item.tls_issuer | default('') | length > 0
-    fail_msg: "litellm_extra_hosts: every entry needs hostname and tls_issuer; dns_backend is a key of nsupdate_servers or empty (A record owned elsewhere, e.g. by the kikube hub for tenant domains)"
+    fail_msg: "litellm_extra_hosts: every entry needs hostname and tls_issuer; dns_backend is a key of nsupdate_servers or empty (A record owned elsewhere, e.g. by an upstream DNS hub for tenant domains)"
   loop: "{{ litellm_extra_hosts }}"
   loop_control:
     label: "{{ item.hostname | default('?') }}"

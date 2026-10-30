@@ -359,13 +359,13 @@ litellm_guardrails: []
 litellm_admin_url: "https://litellm.{{ dns_external_domain_suffix }}"
 
 # Extra hostnames for the same LiteLLM service, e.g. a tenant alias such as
-# litellm.<tenant>.clients.kikube.io. Per entry the role creates a Certificate
+# litellm.<tenant>.clients.example.com. Per entry the role creates a Certificate
 # (ClusterIssuer tls_issuer), an http redirect route, an https route (same
 # litellm-ip-allowlist middleware as the main host) and an A record through
 # nsupdate_servers[dns_backend] when dns_backend is set. Leave dns_backend empty
-# for tenant domains: the kikube hub owns their wildcard A records and the tenant
+# for tenant domains: the upstream DNS hub owns their wildcard A records and the tenant
 # TSIG key only solves ACME challenges (see group_vars/all/main/tenants.yml).
-#   - hostname: litellm.mzs-demo.clients.kikube.io
+#   - hostname: litellm.demo-tenant.clients.example.com
 #     tls_issuer: letsencrypt-tenant
 #     dns_backend: ""              # or a key of nsupdate_servers for own zones
 litellm_extra_hosts: []
