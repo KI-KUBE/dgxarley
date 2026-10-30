@@ -1,6 +1,6 @@
 ---
 # Public dummy/example values. Real values live in group_vars/all/vault/<topic>.sops.yml of the private sops overlay.
-# Gate for the PROXY-protocol bind on the k3s master: the kikube hub connects here and forwards the real client address.
+# Gate for the PROXY-protocol bind on the k3s master: the upstream ingress hub connects here and forwards the real client address.
 # source_ips are the hub peers allowed to connect (INPUT accept on port only), bind_address is the master tunnel address.
 hub_ingress:
   enabled: false

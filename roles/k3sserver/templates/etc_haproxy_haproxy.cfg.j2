@@ -69,7 +69,7 @@ frontend k3s_https_front
 
 
 {% if hub_ingress.enabled | default(false) | bool and isk3smaster | default(false) | bool %}
-# kikube hub ingress: client address arrives via PROXY header and is re-emitted towards Traefik.
+# Upstream ingress hub: client address arrives via PROXY header and is re-emitted towards Traefik.
 frontend hub_ingress_https
     bind {{ hub_ingress.bind_address }}:{{ hub_ingress.port }} accept-proxy
     mode tcp

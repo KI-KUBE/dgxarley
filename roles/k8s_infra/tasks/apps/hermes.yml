@@ -961,7 +961,7 @@
     label: "{{ item.username }}"
 
 # --- Tenant hostnames: one wildcard cert per tenant and kind, one extra IngressRoute per user and tenant.
-# The kikube hub routes *.hermes.<domain> / *.hermes-webui.<domain> here by SNI; it owns the A records.
+# The upstream ingress hub routes *.hermes.<domain> / *.hermes-webui.<domain> here by SNI; it owns the A records.
 - name: Apply hermes-agent wildcard Certificate per tenant
   tags: [hermes_tenant]
   kubernetes.core.k8s:
