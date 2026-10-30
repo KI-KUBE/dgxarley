@@ -550,10 +550,18 @@ raw litellm-24965.json "https://grafana.com/api/dashboards/24965/revisions/lates
     # Same dedup idea as the sglang/dcgm dashboards. (The instance selector was
     # already stripped above; this wraps whatever expr remains.)
     # api_base!="": pre-routing failures set state=1 under the alias name (no api_base) and no success ever resets it.
+    # Panel 1 repeats over $model, so the variable gets the same filter; allValue keeps "All" unrestricted elsewhere.
     | .panels |= map(
         if .id == 1 then
           .targets |= map(.expr |= "max by (litellm_model_name, model_id, api_base) ("
             + gsub("litellm_deployment_state\\{"; "litellm_deployment_state{api_base!=\"\", ") + ")")
+        else . end
+      )
+    | .templating.list |= map(
+        if .name == "model" then
+          .query.query |= gsub("litellm_deployment_state\\{"; "litellm_deployment_state{api_base!=\"\", ")
+          | .definition = .query.query
+          | .allValue = ".*"
         else . end
       )
     # SECOND Y-AXIS (panel id=8 "Tokens Rate"): INPUT (refId A) and OUTPUT
