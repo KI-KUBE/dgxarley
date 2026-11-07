@@ -1,0 +1,22 @@
+name: fork-gate
+# Gate per push / tag / PR on the public fork. Runs AFTER the sync strip: the sync job also runs
+# gate.sh before its force-push, this workflow re-verifies what actually landed (and every tag).
+on:
+  push:
+    branches: [main]
+    tags: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - name: Gate (vault paths, git-crypt blobs, gitleaks)
+        run: bash .github/kikube-gate/gate.sh
