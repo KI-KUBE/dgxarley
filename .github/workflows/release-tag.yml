@@ -1,0 +1,124 @@
+name: release-tag
+# Release process. A customer-deployable base is a tag base-vX.Y; customers pin cluster.yaml
+# `base.ref` to it together with its commit SHA (`base.sha`, verified by the deploy on the box).
+# Floating `main` is the other, explicit pin mode and needs no tag.
+#
+# workflow_dispatch(version=X.Y, upstream_sha=<commit of vroomfondel/dgxarley main validated on
+# ht@dgxarley>):
+#   1. upstream_sha must be on upstream main; base-vX.Y must not exist and must be newer than the
+#      latest base-v* tag (tags are immutable, versions only move forward),
+#   2. strip exactly that upstream commit (.github/kikube-gate/strip.sh, the same rule as the daily
+#      sync) — independent of where the fork's main currently is,
+#   3. gate.sh on the stripped tree, commit, annotated tag (`upstream: <sha>`), push the tag only,
+#   4. GitHub release with the upstream SHA and the upstream log since the previous base tag.
+# The tagged strip commit is not on main; the tag keeps it reachable across the daily force-push.
+# Tags created by hand are no releases (fork-gate still checks every tag).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version X.Y (creates tag base-vX.Y)'
+        required: true
+      upstream_sha:
+        description: 'Commit of vroomfondel/dgxarley main validated on ht@dgxarley (full or short SHA)'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          # PAT with workflow scope: the tagged commit replaces .github/workflows/ relative to its
+          # upstream parent, which the built-in GITHUB_TOKEN may not push.
+          token: ${{ secrets.SYNC_TOKEN }}
+
+      - name: Validate inputs
+        id: t
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+          INPUT_SHA: ${{ github.event.inputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$INPUT_VERSION" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "::error::version '$INPUT_VERSION' is not X.Y"; exit 1; }
+          [[ "$INPUT_SHA" =~ ^[0-9a-fA-F]{7,40}$ ]] || { echo "::error::upstream_sha '$INPUT_SHA' is not a commit SHA"; exit 1; }
+          tag="base-v${INPUT_VERSION}"
+          git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1 \
+            && { echo "::error::$tag exists already (tags are immutable)"; exit 1; } || true
+          prev="$(git tag -l 'base-v*' --sort=-v:refname | grep -E '^base-v[0-9]+\.[0-9]+$' | head -n1 || true)"
+          if [ -n "$prev" ]; then
+            newest="$(printf '%s\n%s\n' "$prev" "$tag" | sort -V | tail -n1)"
+            [ "$newest" = "$tag" ] || { echo "::error::$tag is not newer than the latest release $prev"; exit 1; }
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "prev=$prev" >> "$GITHUB_OUTPUT"
+
+      - name: Resolve upstream commit
+        id: up
+        env:
+          INPUT_SHA: ${{ github.event.inputs.upstream_sha }}
+        run: |
+          set -euo pipefail
+          git remote add upstream https://github.com/vroomfondel/dgxarley.git
+          git fetch --no-tags --quiet upstream main
+          full="$(git rev-parse --verify --quiet "${INPUT_SHA}^{commit}")" \
+            || { echo "::error::$INPUT_SHA not found in vroomfondel/dgxarley main"; exit 1; }
+          git merge-base --is-ancestor "$full" upstream/main \
+            || { echo "::error::$full is not on vroomfondel/dgxarley main"; exit 1; }
+          echo "sha=$full" >> "$GITHUB_OUTPUT"
+
+      - name: Strip the upstream commit + gate
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/kikube-ci && mkdir -p /tmp/kikube-ci
+          cp -r .github/workflows .github/kikube-gate /tmp/kikube-ci/
+          git checkout --quiet --detach "${{ steps.up.outputs.sha }}"
+          bash /tmp/kikube-ci/kikube-gate/strip.sh /tmp/kikube-ci
+          bash .github/kikube-gate/gate.sh
+
+      - name: Commit + tag + push tag
+        run: |
+          set -euo pipefail
+          tag="${{ steps.t.outputs.tag }}"; up="${{ steps.up.outputs.sha }}"
+          git config user.name kikube-bot; git config user.email actions@users.noreply.github.com
+          git commit --quiet -m "KI-KUBE base $tag: strip of vroomfondel/dgxarley@$up"
+          git tag -a "$tag" -m "KIKUBE base $tag" -m "upstream: $up"
+          git push origin "refs/tags/$tag"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ steps.t.outputs.tag }}"; prev="${{ steps.t.outputs.prev }}"; up="${{ steps.up.outputs.sha }}"
+          {
+            echo "Customer-deployable KIKUBE base."
+            echo
+            echo "Pin in cluster.yaml:"
+            echo '```yaml'
+            echo "base:"
+            echo "  ref: $tag"
+            echo "  sha: $(git rev-parse "$tag^{commit}")"
+            echo '```'
+            echo
+            echo "Upstream: vroomfondel/dgxarley@$up. Gate passed (no vault paths, no git-crypt blobs, gitleaks clean)."
+            if [ -n "$prev" ]; then
+              # the parent of a tagged strip commit is the upstream commit it was made from
+              prev_up="$(git rev-parse "$prev^{commit}^")"
+              echo
+              echo "Upstream changes since $prev (${prev_up:0:12}..${up:0:12}):"
+              echo
+              git log --no-merges --format='- %h %s' "$prev_up..$up" | head -n 300
+            fi
+          } > /tmp/notes.md
+          # -R: with the upstream remote added, gh would otherwise pick vroomfondel/dgxarley
+          gh release create "$tag" -R "$GITHUB_REPOSITORY" --verify-tag --title "$tag" --notes-file /tmp/notes.md
